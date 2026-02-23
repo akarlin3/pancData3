@@ -63,6 +63,9 @@ for j = 1:nPat
     for k = 1:nTp
         % Pull the per-voxel result struct for the primary (rpi=1)
         % acquisition of this patient and timepoint.
+        if j > size(data_vectors_gtvp, 1) || k > size(data_vectors_gtvp, 2)
+            continue;
+        end
         s = data_vectors_gtvp(j, k, 1);
 
         % Bundle the four voxel-level biomarker vectors into a struct
@@ -206,6 +209,9 @@ align_issues = 0;   % running count of dimensional or NaN-fraction flags
 for j = 1:nPat
     nFx = min(size(data_vectors_gtvp, 2), 5); % dose only for Fx1-5
     for k = 1:nFx
+        if j > size(data_vectors_gtvp, 1) || k > size(data_vectors_gtvp, 2)
+            continue;
+        end
         s = data_vectors_gtvp(j, k, 1);
 
         dose_vec = s.dose_vector;

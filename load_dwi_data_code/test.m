@@ -1021,17 +1021,17 @@ catch e
     n_fail = n_fail + 1;
 end
 
-% testImpute_UsesFillmissing
+% testImpute_UsesKNN
 try
-    % metrics.m should use fillmissing for imputation.
+    % metrics.m should use knn_impute_train_test for imputation.
     code = metrics_code;
-    matches = regexp(code, 'fillmissing\s*\(', 'match');
+    matches = regexp(code, 'knn_impute_train_test\s*\(', 'match');
     assert(~isempty(matches), ...
-        'metrics.m should use fillmissing for imputation');
-    fprintf('[PASS] testImpute_UsesFillmissing\n');
+        'metrics.m should use knn_impute_train_test for imputation');
+    fprintf('[PASS] testImpute_UsesKNN\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] testImpute_UsesFillmissing: %s\n', e.message);
+    fprintf('[FAIL] testImpute_UsesKNN: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1097,14 +1097,14 @@ end
 % testImpute_BeforeStandardization
 try
     % Verify imputation occurs before the Elastic Net standardization.
-    % fillmissing must appear before lassoglm(..., 'Standardize', true)
+    % knn_impute_train_test must appear before lassoglm(..., 'Standardize', true)
     code = metrics_code;
-    pos_fill = regexp(code, 'fillmissing\s*\(', 'start', 'once');
+    pos_fill = regexp(code, 'knn_impute_train_test\s*\(', 'start', 'once');
     pos_std  = regexp(code, '''Standardize''\s*,\s*true', 'start', 'once');
     assert(~isempty(pos_fill) && ~isempty(pos_std), ...
-        'Both fillmissing and Standardize should exist in metrics.m');
+        'Both knn_impute_train_test and Standardize should exist in metrics.m');
     assert(pos_fill < pos_std, ...
-        'Imputation (fillmissing) must occur before standardization');
+        'Imputation (knn_impute_train_test) must occur before standardization');
     fprintf('[PASS] testImpute_BeforeStandardization\n');
     n_pass = n_pass + 1;
 catch e

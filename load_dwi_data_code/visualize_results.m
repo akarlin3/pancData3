@@ -84,6 +84,9 @@ pats_per_fig     = 5;
 % so that each figure can be allocated the correct number of subplot rows.
 n_eligible = 0;
 for j = 1:nPat
+    if j > size(data_vectors_gtvp, 1)
+        continue;
+    end
     s = data_vectors_gtvp(j, 1, 1);
     if isempty(s.adc_vector), continue; end
     basefolder = [dataloc id_list{j} '/'];
@@ -98,6 +101,9 @@ end
 n_rows_cur_fig = 0;  % will be set when each new figure is created
 
 for j = 1:nPat
+    if j > size(data_vectors_gtvp, 1)
+        continue;
+    end
     % Skip patients without extracted ADC data at Fx1
     s = data_vectors_gtvp(j, 1, 1);
     if isempty(s.adc_vector), continue; end

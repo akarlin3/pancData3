@@ -1,0 +1,4 @@
+cd('c:\Users\karlina1\Desktop\pancData3\load_dwi_data_code')
+cd('c:\Users\karlina1\Desktop\pancData3\load_dwi_data_code')
+cd('c:\Users\karlina1\Desktop\pancData3\load_dwi_data_code')
+cd('c:\Users\karlina1\Desktop\pancData3\load_dwi_data_code')
