@@ -140,6 +140,7 @@ if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 diary_file = fullfile(output_folder, 'metrics_output.txt');
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
+warning('off', 'stats:glmfit:IterationLimit');
 set(0, 'DefaultFigureVisible', 'off');  % Hide figures (save only)
 
 %% ========================================================================
@@ -816,7 +817,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
 
     % Generate common lambda sequence using dummy full-data pass
     dummy_clean = knn_impute_train_test(X_impute, [], 5);
-    [~, FitInfo_dummy] = lassoglm(dummy_clean, y_clean, 'binomial', 'NumLambda', n_lambdas, 'Standardize', true);
+    [~, FitInfo_dummy] = lassoglm(dummy_clean, y_clean, 'binomial', 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1000000);
     if length(FitInfo_dummy.Lambda) < n_lambdas
         common_Lambda = [FitInfo_dummy.Lambda, zeros(1, n_lambdas - length(FitInfo_dummy.Lambda))];
     else
@@ -853,7 +854,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         
         try
             [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                'Lambda', common_Lambda, 'Standardize', true);
+                'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1000000);
             
             for lam_idx = 1:length(common_Lambda)
                 if common_Lambda(lam_idx) == 0, continue; end
@@ -897,7 +898,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
 
     try
         [B_lasso, FitInfo] = lassoglm(X_clean, y_clean, 'binomial', ...
-            'Lambda', best_lambda, 'Standardize', true);
+            'Lambda', best_lambda, 'Standardize', true, 'MaxIter', 1000000);
         
         coefs_lasso = B_lasso(:, 1);
         selected_kept = find(coefs_lasso ~= 0);
@@ -991,7 +992,7 @@ for vi = 1:n_sig
     labels_clean = labels(valid_vi);
 
     % Fit univariate logistic regression to determine direction automatically
-    mdl_roc = fitglm(data_clean, labels_clean, 'Distribution', 'binomial');
+    mdl_roc = fitglm(data_clean, labels_clean, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
     [roc_X{vi}, roc_Y{vi}, roc_T{vi}, roc_AUC(vi)] = perfcurve(labels_clean, mdl_roc.Fitted.Probability, 1);
 
     % Optimal cutoff via Youden's J Statistic
@@ -1115,7 +1116,7 @@ for i = 1:n_lf
         warning('off', 'all');
         try
             [B_cv, FitInfo_cv] = lassoglm(X_train_kept, Y_train, 'binomial', ...
-                'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 10000);
+                'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
             idx_min = FitInfo_cv.IndexMinDeviance;
             % sel_features indexes into the kept (filtered) columns of X_train_kept
             sel_features = find(B_cv(:, idx_min) ~= 0);
@@ -1141,7 +1142,7 @@ for i = 1:n_lf
         catch ME
             if strcmp(ME.identifier, 'stats:glmfit:PerfectSeparation') || ...
                contains(ME.message, 'perfectly separate')
-                mdl_cv = fitglm(X_train_kept(:, sel_features), Y_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
+                mdl_cv = fitglm(X_train_kept(:, sel_features), Y_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', 'Options', statset('MaxIter', 1000000));
             else
                 warning('on', 'stats:glmfit:PerfectSeparation');
                 warning('on', 'stats:glmfit:IterationLimit');
@@ -1215,7 +1216,7 @@ if n_sig >= 2
 
     % Draw Decision Boundary (from logistic regression model)
     if n_sig == 2
-        mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial');
+        mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
         coefs = mdl.Coefficients.Estimate;
         x_range = linspace(min(x_val), max(x_val), 100);
         y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
@@ -1297,7 +1298,7 @@ for loo_i = 1:n_km
     warning('off', 'all');
     try
         [B_loo, FI_loo] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-            'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true);
+            'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
         coefs_loo = B_loo(:, FI_loo.IndexMinDeviance);
         intercept_loo = FI_loo.Intercept(FI_loo.IndexMinDeviance);
     catch
@@ -1645,7 +1646,7 @@ for vi = 1:n_sig
     cox_biomarker = curr_sig_pct_full(valid_cox);
 
     if sum(valid_cox) > 5
-        [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events);
+        [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events, 'Options', statset('MaxIter', 1000000));
         fprintf('Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
         if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
         fprintf('Hazard Ratio (HR per %s change): %.2f\n', hr_unit, exp(b));
@@ -1790,7 +1791,7 @@ try
             x_biomarker = curr_sig_pct_full(final_mask); 
             x_vol = vol_vec(final_mask);
             
-            [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event);
+            [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event, 'Options', statset('MaxIter', 1000000));
             
             if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
             fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
@@ -2082,7 +2083,7 @@ warning('off', 'all');
 try
     glme = fitglme(glme_table_clean, ...
         'LF ~ 1 + ADC_z + D_z + f_z + Dstar_z + Timepoint + (1|PatientID)', ...
-        'Distribution', 'Binomial', 'Link', 'logit');
+        'Distribution', 'Binomial', 'Link', 'logit', 'OptimizerOptions', statset('MaxIter', 1000000));
     disp(glme);
 catch ME
     fprintf('GLME model failed to converge: %s\n', ME.message);

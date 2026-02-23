@@ -1,0 +1,4 @@
+Patient 1, Fraction 2
+Vector length: 3479
+Mask sum: 3479
+MATCH!
