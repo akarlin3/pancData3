@@ -16,6 +16,15 @@
 n_pass = 0;
 n_fail = 0;
 
+% Create output directory if it doesn't exist
+output_folder = fullfile(pwd, 'saved_figures');
+if ~exist(output_folder, 'dir'), mkdir(output_folder); end
+
+% Start diary to log test output
+diary_file = fullfile(output_folder, 'test_output.txt');
+if exist(diary_file, 'file'), delete(diary_file); end
+diary(diary_file);
+
 % Cache metrics.m source once to avoid repeated file I/O across tests.
 metrics_code = readMetricsSource();
 vis_code = readVisualizeSource();
@@ -1179,8 +1188,10 @@ end
 %% Summary
 fprintf('\n%d passed, %d failed out of %d tests\n', n_pass, n_fail, n_pass + n_fail);
 if n_fail > 0
+    diary off
     error('test:failures', '%d test(s) failed.', n_fail);
 end
+diary off
 
 % =========================================================================
 %  LOCAL HELPER FUNCTION

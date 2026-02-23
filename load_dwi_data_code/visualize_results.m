@@ -41,6 +41,11 @@ dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 output_folder = fullfile(pwd, 'saved_figures');
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 
+% Start diary to log text output
+diary_file = fullfile(output_folder, 'visualize_results_output.txt');
+if exist(diary_file, 'file'), delete(diary_file); end
+diary(diary_file);
+
 % Suppress figure windows so plots are only saved to disk
 set(0, 'DefaultFigureVisible', 'off');
 
@@ -394,3 +399,4 @@ end % for dtype
 fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');
+diary off
