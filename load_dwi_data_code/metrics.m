@@ -744,21 +744,84 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     impute_mask = has_any_imaging & ~isnan(y_lasso);
     X_impute = X_lasso(impute_mask, :);
     y_clean  = y_lasso(impute_mask);
-    % Step 3: Impute remaining missing diffusion metrics (partial data)
-    % using column-median via fillmissing, before standardization
-    X_clean = fillmissing(X_impute, 'constant', median(X_impute, 1, 'omitnan'));
 
-    % --- Pre-filter: drop features with Pearson |r| > 0.8 ---
-    % Detects and removes redundant absolute vs percent-change variables
+    % --- Proper 5-fold CV for Lambda Selection to prevent Data Leakage ---
+    rng(42); % Set seed for reproducibility
+    cvp = cvpartition(y_clean, 'KFold', 5);
+    n_lambdas = 25;
+
+    % Generate common lambda sequence using dummy full-data pass
+    dummy_clean = fillmissing(X_impute, 'constant', median(X_impute, 1, 'omitnan'));
+    [~, FitInfo_dummy] = lassoglm(dummy_clean, y_clean, 'binomial', 'NumLambda', n_lambdas, 'Standardize', true);
+    if length(FitInfo_dummy.Lambda) < n_lambdas
+        common_Lambda = [FitInfo_dummy.Lambda, zeros(1, n_lambdas - length(FitInfo_dummy.Lambda))];
+    else
+        common_Lambda = FitInfo_dummy.Lambda;
+    end
+
+    dev = zeros(n_lambdas, cvp.NumTestSets);
+    for fold_i = 1:cvp.NumTestSets
+        tr_idx = training(cvp, fold_i);
+        te_idx = test(cvp, fold_i);
+        
+        X_tr = X_impute(tr_idx, :);
+        X_te = X_impute(te_idx, :);
+        y_tr = y_clean(tr_idx);
+        y_te = y_clean(te_idx);
+        
+        % Impute using ONLY training median
+        tr_med = median(X_tr, 1, 'omitnan');
+        X_tr = fillmissing(X_tr, 'constant', tr_med);
+        X_te = fillmissing(X_te, 'constant', tr_med);
+        
+        % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
+        R_fold = corrcoef(X_tr);
+        drop_fold = false(1, size(X_tr, 2));
+        for fi = 1:size(X_tr, 2)
+            if drop_fold(fi), continue; end
+            for fj = fi+1:size(X_tr, 2)
+                if abs(R_fold(fi, fj)) > 0.8
+                    drop_fold(fj) = true;
+                end
+            end
+        end
+        keep_fold = find(~drop_fold);
+        X_tr_kept = X_tr(:, keep_fold);
+        X_te_kept = X_te(:, keep_fold);
+        
+        try
+            [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
+                'Lambda', common_Lambda, 'Standardize', true);
+            
+            for lam_idx = 1:length(common_Lambda)
+                if common_Lambda(lam_idx) == 0, continue; end
+                coefs = B_fold(:, lam_idx);
+                intercept = FitInfo_fold.Intercept(lam_idx);
+                
+                eta = X_te_kept * coefs + intercept;
+                mu = 1 ./ (1 + exp(-eta));
+                mu(mu == 0) = eps; mu(mu == 1) = 1-eps; 
+                
+                dev(lam_idx, fold_i) = 2 * sum(-y_te .* log(mu) - (1 - y_te) .* log(1 - mu));
+            end
+        catch
+            dev(:, fold_i) = Inf; 
+        end
+    end
+
+    % Find optimal lambda
+    mean_dev = mean(dev, 2);
+    [~, best_lam_idx] = min(mean_dev);
+    best_lambda = common_Lambda(best_lam_idx);
+
+    % --- Final Model Fit on Full Data ---
+    X_clean = fillmissing(X_impute, 'constant', median(X_impute, 1, 'omitnan'));
     R_corr = corrcoef(X_clean);
-    n_feats = size(X_clean, 2);
-    drop_flag = false(1, n_feats);
-    for fi = 1:n_feats
+    drop_flag = false(1, size(X_clean, 2));
+    for fi = 1:size(X_clean, 2)
         if drop_flag(fi), continue; end
-        for fj = fi+1:n_feats
-            if drop_flag(fj), continue; end
+        for fj = fi+1:size(X_clean, 2)
             if abs(R_corr(fi, fj)) > 0.8
-                % Drop the later feature (prefer keeping earlier / absolute)
                 drop_flag(fj) = true;
                 fprintf('  Dropping %s (|r| = %.2f with %s)\n', ...
                     feat_names_lasso{fj}, abs(R_corr(fi, fj)), feat_names_lasso{fi});
@@ -768,21 +831,14 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     keep_idx = find(~drop_flag);
     X_clean = X_clean(:, keep_idx);
     feat_names_lasso_kept = feat_names_lasso(keep_idx);
-    fprintf('  Retained %d / %d features after correlation pre-filter\n', ...
-        length(keep_idx), n_feats);
+    fprintf('  Retained %d / %d features after corr filter\n', length(keep_idx), length(feat_names_lasso));
 
-    % Run Elastic Net (Alpha=0.5) with 5-Fold Cross-Validation
-    % 'NumLambda' 25 is sufficient for small N; standardize variables automatically
-    rng(42); % Set seed for reproducibility
     try
         [B_lasso, FitInfo] = lassoglm(X_clean, y_clean, 'binomial', ...
-            'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true);
+            'Lambda', best_lambda, 'Standardize', true);
         
-        % Select features at the Lambda that minimizes Deviance
-        idxLambda = FitInfo.IndexMinDeviance; 
-        coefs_lasso = B_lasso(:, idxLambda);
+        coefs_lasso = B_lasso(:, 1);
         selected_kept = find(coefs_lasso ~= 0);
-        % Map back to original 8-feature indices
         selected_indices = keep_idx(selected_kept);
         
         fprintf('Elastic Net Selected Features for %s: %s\n', ...
@@ -1096,8 +1152,9 @@ lpocv_cols = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
               ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
               f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx)];
 
-% Filter valid rows
-valid_rows = ~isnan(labels) & all(~isnan(lpocv_cols), 2);
+% Filter valid rows: Require valid outcome and at least some imaging data
+has_any_imaging = any(~isnan(lpocv_cols), 2);
+valid_rows = ~isnan(labels) & has_any_imaging;
 X_data = lpocv_cols(valid_rows, :);
 Y_data = labels(valid_rows);
 
@@ -1125,6 +1182,11 @@ for i = 1:n_lf
         
         X_train = X_data(train_mask, :);
         Y_train = Y_data(train_mask);
+        
+        % Impute train and test sets using ONLY training medians
+        tr_med = median(X_train, 1, 'omitnan');
+        X_train = fillmissing(X_train, 'constant', tr_med);
+        X_test_pair = fillmissing(X_data([current_lf, current_lc], :), 'constant', tr_med);
         
         % Feature selection via Elastic Net on training data only (no leakage)
         warning('off', 'all');
@@ -1167,8 +1229,8 @@ for i = 1:n_lf
         warning('on', 'stats:glmfit:IterationLimit');
         
         % Predict Probabilities for the held-out pair
-        prob_lf = predict(mdl_cv, X_data(current_lf, sel_features));
-        prob_lc = predict(mdl_cv, X_data(current_lc, sel_features));
+        prob_lf = predict(mdl_cv, X_test_pair(1, sel_features));
+        prob_lc = predict(mdl_cv, X_test_pair(2, sel_features));
         
         % Score the Pair (Concordance)
         if prob_lf > prob_lc
@@ -1250,12 +1312,10 @@ else
 end
 
 %% ---------- Kaplan-Meier Survival Analysis ----------
-% Uses nested Leave-One-Out Cross-Validation (LOOCV) to prevent data
-% leakage. For each held-out patient, LASSO feature selection and the
-% median cutoff are computed on the remaining N-1 patients, then the
-% held-out patient is classified into the high- or low-risk group.
-% Finally, Kaplan-Meier curves are generated from these unbiased
-% out-of-fold predictions.
+% Uses nested Leave-One-Out Cross-Validation (LOOCV) to prevent data leakage. 
+% For each held-out patient, a multivariable linear risk score is computed 
+% using the non-zero coefficients from lassoglm on the N-1 fold.
+% The median risk score of the training fold determines the classification threshold.
 
 % Build the full candidate feature matrix for all valid patients
 km_X_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
@@ -1265,92 +1325,70 @@ km_X_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
 km_y_all = lf_group;
 n_km = length(km_y_all);
 
-% Build time-to-event vector: use time-to-failure for LF patients,
-% follow-up duration (right-censored) for LC patients
+% Build time-to-event vector
 times = m_total_time;
 times(m_lf==0) = m_total_follow_up_time(m_lf==0);
 events = m_lf;  % Event indicator: 1 = failure, 0 = censored
 
-% Restrict to patients with valid clinical data
 times = times(valid_pts);
 events = events(valid_pts);
 
-% LOOCV: classify each patient using only the other N-1 patients
+% LOOCV
 is_high_risk = false(n_km, 1);
-best_sig_name_loocv = '';
+risk_scores_all = nan(n_km, 1); 
 
 for loo_i = 1:n_km
-    % Training set: all patients except the held-out one
     train_mask = true(n_km, 1);
     train_mask(loo_i) = false;
     X_tr = km_X_all(train_mask, :);
     y_tr = km_y_all(train_mask);
 
-    % Remove NaN rows from training set
     valid_tr = all(~isnan(X_tr), 2) & ~isnan(y_tr);
     X_tr = X_tr(valid_tr, :);
     y_tr = y_tr(valid_tr);
+    
+    % Imputation and Pre-filtering per train fold
+    tr_med = median(X_tr, 1, 'omitnan');
+    X_tr_imp = fillmissing(X_tr, 'constant', tr_med);
+    X_test_imp = fillmissing(km_X_all(loo_i, :), 'constant', tr_med);
+    
+    R_fold = corrcoef(X_tr_imp);
+    drop_fold = false(1, size(X_tr_imp, 2));
+    for fi = 1:size(X_tr_imp, 2)
+        if drop_fold(fi), continue; end
+        for fj = fi+1:size(X_tr_imp, 2)
+            if abs(R_fold(fi, fj)) > 0.8
+                drop_fold(fj) = true;
+            end
+        end
+    end
+    keep_fold = find(~drop_fold);
+    X_tr_kept = X_tr_imp(:, keep_fold);
+    X_te_kept = X_test_imp(:, keep_fold);
 
-    % Run Elastic Net feature selection on training fold
     warning('off', 'all');
     try
-        [B_loo, FI_loo] = lassoglm(X_tr, y_tr, 'binomial', ...
+        [B_loo, FI_loo] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
             'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true);
         coefs_loo = B_loo(:, FI_loo.IndexMinDeviance);
-        sel_loo = find(coefs_loo ~= 0);
+        intercept_loo = FI_loo.Intercept(FI_loo.IndexMinDeviance);
     catch
-        sel_loo = [];
+        coefs_loo = zeros(size(X_tr_kept, 2), 1);
+        intercept_loo = 0;
     end
     warning('on', 'all');
 
-    if isempty(sel_loo)
-        % No features selected; assign to low-risk by default
-        is_high_risk(loo_i) = false;
-        continue;
-    end
+    % Compute multivariable linear risk score on train fold
+    risk_train = X_tr_kept * coefs_loo + intercept_loo;
+    cutoff_loo = median(risk_train);
 
-    % Map selected features back to base metric index (1-4)
-    % Indices 1-4 = Absolute, 5-8 = Percent-Change
-    base_sel = unique(mod(sel_loo - 1, 4) + 1);
+    % Compute risk score for held-out patient
+    risk_test = X_te_kept * coefs_loo + intercept_loo;
 
-    % Compute univariate p-values on training fold to pick the best
-    p_best_loo = ones(1, length(base_sel));
-    for bi = 1:length(base_sel)
-        midx = base_sel(bi);
-        pct_col = midx + 4; % Percent-change column index
-        train_pct = km_X_all(train_mask, pct_col);
-        train_pct = train_pct(valid_tr);
-        if length(unique(y_tr)) > 1
-            p_best_loo(bi) = ranksum(train_pct(y_tr==0), train_pct(y_tr==1));
-        end
-    end
-    [~, best_bi] = min(p_best_loo);
-    best_col = base_sel(best_bi) + 4; % Best percent-change column
-
-    % Compute median cutoff on training fold
-    train_vals = km_X_all(train_mask, best_col);
-    train_vals = train_vals(~isnan(train_vals));
-    cutoff_loo = median(train_vals);
-
-    % Classify the held-out patient
-    is_high_risk(loo_i) = km_X_all(loo_i, best_col) < cutoff_loo;
-
-    % Store the name from the last fold for labelling
-    pct_names_km = {'ADC', 'D', 'f', 'D*'};
-    best_sig_name_loocv = pct_names_km{base_sel(best_bi)};
+    % High risk = higher probability of LF (score higher than median)
+    is_high_risk(loo_i) = risk_test > cutoff_loo;
+    risk_scores_all(loo_i) = risk_test;
 end
-
-% Use the last fold's best variable name for plot labels
-if isempty(best_sig_name_loocv)
-    best_sig_name_loocv = 'Metric';
-end
-best_sig_name = best_sig_name_loocv;
-
-% For downstream sections, compute cutoff on the full dataset
-% (used only for reporting, not for KM group assignment)
-[~, best_sig_vi] = min(sig_p_best(sig_idx));
-best_sig_pct = sig_pct_data{best_sig_vi}(valid_pts, target_fx);
-cutoff = median(best_sig_pct(~isnan(best_sig_pct)));
 
 % Compute and plot Kaplan-Meier survival curves for each risk group
 figure('Name', ['Kaplan-Meier ' fx_label ' — ' dtype_label], 'Position', [100, 100, 700, 600]);
@@ -1362,13 +1400,13 @@ stairs(x1, f1, 'r-', 'LineWidth', 2.5); hold on;
 stairs(x2, f2, 'b-', 'LineWidth', 2.5);
 xlabel('Time to Local Failure (Days)', 'FontSize', 12);
 ylabel('Local Control Probability', 'FontSize', 12);
-title(['Kaplan-Meier (LOOCV): Stratified by \Delta' best_sig_name ' (' fx_label ') (' dtype_label ')'], 'FontSize', 14);
-legend({['High Risk (Drop in ' best_sig_name ')'], ['Low Risk (Rise in ' best_sig_name ')']}, 'Location', 'SouthWest');
+title(['Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (' fx_label ') (' dtype_label ')'], 'FontSize', 14);
+legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
 grid on; axis([0 max(times)+50 0 1.05]);
 saveas(gcf, fullfile(output_folder, ['Kaplan_Meier_' fx_label '_' dtype_label '.png']));
 close(gcf);
 
-fprintf('Kaplan-Meier (LOOCV) generated using %s. Unbiased out-of-fold risk assignment.\n', best_sig_name);
+fprintf('Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.\n');
 
 %% ---------- Correlation Matrix of Significant Features ----------
 % Computes Pearson correlation coefficients between all pairs of
@@ -1394,43 +1432,30 @@ saveas(gcf, fullfile(output_folder, ['Correlation_Matrix_' fx_label '_' dtype_la
 close(gcf);
 
 %% ---------- Representative Parametric ADC Maps ----------
-% Selects two exemplar patients for visual comparison:
-%   Responder    — LC patient with the LARGEST positive %-change
-%   Non-Responder — LF patient with the MOST NEGATIVE %-change
-% For each, loads raw DWI NIfTI at Fx1 and the target fraction,
-% fits mono-exponential ADC pixel-wise (log-linear OLS), crops the
-% ADC map to the GTV bounding box, and displays:
-%   Column 1: Fx1 ADC map    Column 2: Target Fx ADC map
-%   Column 3: Difference map (Target Fx − Fx1) with GTV contour overlay
-fprintf('Generating Representative Maps...\n');
+for vi = 1:n_sig
+curr_sig_pct_full = sig_pct_data{vi};
+curr_sig_name = sig_names{vi};
 
-% --- Robust Patient Selection using the most significant variable ---
-best_sig_pct_full = sig_pct_data{best_sig_vi};
-valid_for_plot = isfinite(m_lf) & ~isnan(best_sig_pct_full(:,target_fx));
+fprintf('Generating Representative Maps for %s...\n', curr_sig_name);
+
+valid_for_plot = isfinite(m_lf) & ~isnan(curr_sig_pct_full(:,target_fx));
 
 % Identify Responders (Local Control)
 lc_candidates = find(m_lf == 0 & valid_for_plot);
-if isempty(lc_candidates), error('No valid LC patients found.'); end
-% Find the one with the HIGHEST positive change
-[~, best_rel_idx] = max(best_sig_pct_full(lc_candidates, target_fx));
+if isempty(lc_candidates), continue; end
+[~, best_rel_idx] = max(curr_sig_pct_full(lc_candidates, target_fx));
 idx_responder = lc_candidates(best_rel_idx);
 
 % Identify Non-Responders (Local Failure)
-% Get global indices of all valid LF patients
 lf_candidates = find(m_lf == 1 & valid_for_plot);
-if isempty(lf_candidates), error('No valid LF patients found.'); end
-% Find the one with the LOWEST (most negative) change
-[~, worst_rel_idx] = min(best_sig_pct_full(lf_candidates, target_fx));
+if isempty(lf_candidates), continue; end
+[~, worst_rel_idx] = min(curr_sig_pct_full(lf_candidates, target_fx));
 idx_nonresponder = lf_candidates(worst_rel_idx);
 
 patients_to_plot = [idx_responder, idx_nonresponder];
 titles = {'Responder (Local Control)', 'Non-Responder (Local Failure)'};
 
-fprintf('Selected Patient %d as Responder.\n', idx_responder);
-fprintf('Selected Patient %d as Non-Responder.\n', idx_nonresponder);
-
-% --- PLOTTING LOOP ---
-figure('Name', ['Representative ADC Evolution ' fx_label ' — ' dtype_label], 'Position', [50, 50, 1200, 800]);
+figure('Name', ['Representative ADC Evolution ' curr_sig_name ' ' fx_label ' — ' dtype_label], 'Position', [50, 50, 1200, 800]);
 colormap(jet);
 
 for p = 1:2
@@ -1555,61 +1580,40 @@ end
 % Add shared colorbars: top = absolute ADC, bottom = difference (ΔADC)
 c1 = colorbar('Position', [0.92 0.55 0.02 0.35]); ylabel(c1, 'ADC');
 c2 = colorbar('Position', [0.92 0.11 0.02 0.35]); ylabel(c2, '\Delta ADC');
-sgtitle(['Representative Longitudinal ADC Response (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
-saveas(gcf, fullfile(output_folder, ['Representative_ADC_' fx_label '_' dtype_label '.png']));
+sgtitle(['Representative Longitudinal ADC Response for ' curr_sig_name ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+saveas(gcf, fullfile(output_folder, ['Representative_ADC_' curr_sig_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
+end % loop over sig variables
 
 %% 5. "Sanity Checks": Volume, Noise, and Heterogeneity
-% This validation figure contains three panels that help distinguish
-% genuine biological signal from potential confounders:
-%   A. Volume Change   — ensures observed metric changes are not simply
-%                        due to tumour shrinkage between Fx1 and target Fx.
-%   B. Heterogeneity   — tracks changes in ADC kurtosis as a proxy for
-%                        intra-tumoural texture evolution.
-%   C. Signal vs Noise — overlays per-patient percent-change data on the
-%                        expected noise band (Coefficient of Repeatability)
-%                        to confirm that measured changes exceed noise.
+for vi = 1:n_sig
+curr_sig_pct_full = sig_pct_data{vi};
+curr_sig_name = sig_names{vi};
 
-% Use a taller figure (500 px instead of 400) to prevent the sgtitle
-% from overlapping the subplot titles.
-figure('Name', ['Sanity Checks ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
-
-% --- Panel A: VOLUME CHANGE (confounder check) ---
-% If the GTV shrank significantly more in one outcome group, observed
-% diffusion changes could be driven by partial-volume effects rather than
-% genuine biology.  A non-significant p-value here rules out volumetric
-% bias as a confounder.
+figure('Name', ['Sanity Checks ' curr_sig_name ' ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
 subplot(1, 3, 1);
-vol_fx1 = m_gtv_vol(valid_pts, 1);          % baseline GTV volume (cc)
-vol_fx3 = m_gtv_vol(valid_pts, target_fx);  % GTV volume at target fraction
-vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;  % percent change
+vol_fx1 = m_gtv_vol(valid_pts, 1);          
+vol_fx3 = m_gtv_vol(valid_pts, target_fx);  
+vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;  
 
 boxplot(vol_pct, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
 ylabel(['% Change in GTV Volume (' fx_label ')']);
 title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
 p_vol = ranksum(vol_pct(lf_group==0), vol_pct(lf_group==1));
 
-% Annotate the one-way ANOVA p-value
 y_lim = ylim;
-text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_vol), ...
-    'HorizontalAlignment', 'center', 'FontSize', 11);
+text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_vol), 'HorizontalAlignment', 'center', 'FontSize', 11);
 grid on;
-% Add an interpretive label at the bottom of the panel
 if p_vol > 0.05
     xlabel('Conclusion: No Volumetric Bias');
 else
     xlabel('Warning: Volume is a Confounder');
 end
 
-% --- Panel B: HETEROGENEITY (kurtosis change) ---
-% Kurtosis of the intra-tumoural ADC distribution reflects tissue
-% heterogeneity.  Comparing the change in kurtosis between LC and LF
-% groups checks whether the treatment induced different patterns of
-% heterogeneity evolution.
 subplot(1, 3, 2);
-kurt_fx1 = adc_kurt(valid_pts, 1, 1);            % baseline kurtosis (Standard DWI)
-kurt_fx3 = adc_kurt(valid_pts, target_fx, 1);     % kurtosis at target fraction
-kurt_delta = kurt_fx3 - kurt_fx1;                  % absolute change
+kurt_fx1 = adc_kurt(valid_pts, 1, 1);            
+kurt_fx3 = adc_kurt(valid_pts, target_fx, 1);     
+kurt_delta = kurt_fx3 - kurt_fx1;                  
 
 boxplot(kurt_delta, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
 ylabel(['\Delta ADC Kurtosis (' fx_label ')']);
@@ -1617,29 +1621,19 @@ title('Heterogeneity: Texture Change', 'FontSize', 12, 'FontWeight', 'bold');
 p_kurt = ranksum(kurt_delta(lf_group==0), kurt_delta(lf_group==1));
 
 y_lim = ylim;
-text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_kurt), ...
-    'HorizontalAlignment', 'center', 'FontSize', 11);
+text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_kurt), 'HorizontalAlignment', 'center', 'FontSize', 11);
 grid on;
 
-% --- Panel C: SIGNAL vs NOISE (repeatability floor) ---
-% Overlay per-patient percent-change values of the most-significant
-% biomarker onto the estimated Coefficient of Repeatability (CoR) band.
-% Points outside the grey band represent changes exceeding measurement
-% noise — i.e., likely genuine biological signal.
 subplot(1, 3, 3);
 hold on;
-% Within-subject coefficient of variation estimated from test–retest ADC
-% repeatability data (~2.8 %).  The CoR = 1.96 * sqrt(2) * wCV ≈ 7.8 %.
 wcv_est = 2.8; 
 cor_est = 1.96 * sqrt(2) * wcv_est;
 
-% Jitter x-positions slightly so individual points do not overlap
 x_scatter = ones(size(lf_group));
 x_scatter(lf_group==1) = 2;
 x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
-scatter(x_scatter, best_sig_pct, 50, 'filled', 'MarkerEdgeColor', 'k');
+scatter(x_scatter, curr_sig_pct_full(valid_pts, target_fx), 50, 'filled', 'MarkerEdgeColor', 'k');
 
-% Draw the noise band as a semi-transparent grey rectangle
 yfill = [-cor_est cor_est cor_est -cor_est];
 xfill = [0.5 0.5 2.5 2.5];
 fill(xfill, yfill, [0.8 0.8 0.8], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
@@ -1648,21 +1642,20 @@ yline(0, 'k-');
 yline(cor_est, 'k--', 'CoR (+7.8%)');
 yline(-cor_est, 'k--', 'CoR (-7.8%)');
 xticks([1 2]); xticklabels({'LC', 'LF'});
-ylabel(['\Delta ' best_sig_name ' (%)']);
+ylabel(['\Delta ' curr_sig_name ' (%)']);
 title('Signal vs. Noise Floor', 'FontSize', 12, 'FontWeight', 'bold');
 grid on;
 xlim([0.5 2.5]);
 
-sgtitle(['Validation: Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
-% Shift subplot axes down to create visual separation between the
-% supertitle and the individual subplot titles.
+sgtitle(['Validation (' curr_sig_name '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
     pos = allAx(k).Position;
     allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
 end
-saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' fx_label '_' dtype_label '.png']));
+saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' curr_sig_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
+end % loop over sig variables
 
 %% 6. Final Data for Manuscript (Table 1, HR, and Sub-volumes)
 fprintf('\n--- GENERATING TABLE 1 & MANUSCRIPT DATA ---\n');
@@ -1688,22 +1681,26 @@ for vi = 1:n_sig
 end
 
 % --- PART B: HAZARD RATIOS (Cox Regression) ---
-% Use the continuous percent-change variable instead of dichotomized risk group
-raw_best_change = sig_pct_data{best_sig_vi}(valid_pts, target_fx);
-
-% Filter out NaNs to ensure vectors align
-valid_cox = ~isnan(raw_best_change) & ~isnan(times) & ~isnan(events);
-cox_times = times(valid_cox);
-cox_events = events(valid_cox);
-cox_biomarker = raw_best_change(valid_cox);
-
-[b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events);
-
 fprintf('\n--- SURVIVAL ANALYSIS (Prognostic Value) ---\n');
-fprintf('Biomarker: Continuous Delta %s at %s\n', best_sig_name, fx_label);
-fprintf('Hazard Ratio (HR per 1%% change): %.2f\n', exp(b));
-fprintf('95%% Confidence Interval: %.2f - %.2f\n', exp(b - 1.96*stats.se), exp(b + 1.96*stats.se));
-fprintf('p-value: %.4f\n', stats.p);
+for vi = 1:n_sig
+    curr_sig_pct_full = sig_pct_data{vi}(valid_pts, target_fx);
+    curr_sig_name = sig_names{vi};
+
+    valid_cox = ~isnan(curr_sig_pct_full) & ~isnan(times) & ~isnan(events);
+    cox_times = times(valid_cox);
+    cox_events = events(valid_cox);
+    cox_biomarker = curr_sig_pct_full(valid_cox);
+
+    if sum(valid_cox) > 5
+        [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events);
+        fprintf('Biomarker: Continuous Delta %s at %s\n', curr_sig_name, fx_label);
+        fprintf('Hazard Ratio (HR per 1%% change): %.2f\n', exp(b));
+        fprintf('95%% Confidence Interval: %.2f - %.2f\n', exp(b - 1.96*stats.se), exp(b + 1.96*stats.se));
+        fprintf('p-value: %.4f\n\n', stats.p);
+    else
+        fprintf('Biomarker: Continuous Delta %s at %s: Not enough complete data.\n\n', curr_sig_name, fx_label);
+    end
+end
 
 % --- PART C: SUB-VOLUME STATISTICS ---
 % How big were the "Resistant" (Low Diffusion) sub-volumes?
@@ -1765,42 +1762,94 @@ try
     surv_time(raw_lf == 0) = raw_time_cens(raw_lf == 0);
     surv_event = raw_lf;
     
-    % Use the continuous biomarker directly instead of the threshold cutoff
-    raw_best_change = sig_pct_data{best_sig_vi}(valid_pts, target_fx);
     raw_baseline_vol = m_gtv_vol(valid_pts, 1);
-    
     vol_vec = (raw_baseline_vol - mean(raw_baseline_vol, 'omitnan')) ./ std(raw_baseline_vol, 'omitnan');
     
-    % Ensure valid data across all inputs
-    final_mask = ~isnan(surv_time) & ~isnan(surv_event) & ~isnan(raw_best_change) & ~isnan(vol_vec);
-    
-    if sum(final_mask) > 5
-        y_time = surv_time(final_mask);
-        y_event = surv_event(final_mask);
-        x_biomarker = raw_best_change(final_mask); % Continuous variable
-        x_vol = vol_vec(final_mask);
+    fprintf('\nMultivariable Cox Regression:\n');
+    for vi = 1:n_sig
+        curr_sig_pct_full = sig_pct_data{vi}(valid_pts, target_fx);
+        curr_sig_name = sig_names{vi};
         
-        [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event);
+        final_mask = ~isnan(surv_time) & ~isnan(surv_event) & ~isnan(curr_sig_pct_full) & ~isnan(vol_vec);
         
-        fprintf('\nMultivariable Cox Regression:\n');
-        fprintf('  Variable 1: Continuous Delta %s (%%)\n', best_sig_name);
-        fprintf('     HR per 1%% change: %.4f (p=%.4f)\n', exp(b(1)), stats.p(1));
-        fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
-        fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
-        
-        if stats.p(1) < 0.05
-            fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n');
+        if sum(final_mask) > 5
+            y_time = surv_time(final_mask);
+            y_event = surv_event(final_mask);
+            x_biomarker = curr_sig_pct_full(final_mask); 
+            x_vol = vol_vec(final_mask);
+            
+            [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event);
+            
+            fprintf('  Variable 1: Continuous Delta %s (%%)\n', curr_sig_name);
+            fprintf('     HR per 1%% change: %.4f (p=%.4f)\n', exp(b(1)), stats.p(1));
+            fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
+            fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
+            
+            if stats.p(1) < 0.05
+                fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n\n');
+            else
+                fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment.\n\n');
+            end
         else
-            fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment.\n');
+            fprintf('  Variable 1: Continuous Delta %s (%%): Not enough complete data.\n\n', curr_sig_name);
         end
-    else
-        fprintf('\nCox Regression: Not enough complete data points (N=%d).\n', sum(final_mask));
     end
 
 catch ME
     fprintf('Error in Cox Regression: %s\n', ME.message);
 end
 end % for target_fx
+
+%% ---------- 8. Longitudinal Mixed-Effects Model (GLME) ----------
+fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
+% Build long-format table across all timepoints (1 to nTp) for patients with known outcomes
+long_PatientID = [];
+long_Timepoint = [];
+long_ADC = [];
+long_D = [];
+long_f = [];
+long_Dstar = [];
+long_LF = [];
+
+patient_indices = find(valid_pts);
+for i = 1:length(patient_indices)
+    p_idx = patient_indices(i);
+    for t = 1:nTp
+        % Only include if at least one metric is not NaN
+        if ~isnan(ADC_abs(p_idx, t)) || ~isnan(D_abs(p_idx, t)) || ~isnan(f_abs(p_idx, t)) || ~isnan(Dstar_abs(p_idx, t))
+            long_PatientID = [long_PatientID; i]; 
+            long_Timepoint = [long_Timepoint; t];
+            long_ADC = [long_ADC; ADC_abs(p_idx, t)];
+            long_D = [long_D; D_abs(p_idx, t)];
+            long_f = [long_f; f_abs(p_idx, t)];
+            long_Dstar = [long_Dstar; Dstar_abs(p_idx, t)];
+            long_LF = [long_LF; lf_group(i)];
+        end
+    end
+end
+
+glme_table = table(categorical(long_PatientID), long_Timepoint, ...
+    long_ADC, long_D, long_f, long_Dstar, long_LF, ...
+    'VariableNames', {'PatientID', 'Timepoint', 'ADC', 'D', 'f', 'Dstar', 'LF'});
+
+clean_idx = ~isnan(glme_table.ADC) & ~isnan(glme_table.D) & ~isnan(glme_table.f) & ~isnan(glme_table.Dstar);
+glme_table_clean = glme_table(clean_idx, :);
+
+glme_table_clean.ADC_z = (glme_table_clean.ADC - mean(glme_table_clean.ADC)) / std(glme_table_clean.ADC);
+glme_table_clean.D_z = (glme_table_clean.D - mean(glme_table_clean.D)) / std(glme_table_clean.D);
+glme_table_clean.f_z = (glme_table_clean.f - mean(glme_table_clean.f)) / std(glme_table_clean.f);
+glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean(glme_table_clean.Dstar)) / std(glme_table_clean.Dstar);
+
+warning('off', 'all');
+try
+    glme = fitglme(glme_table_clean, ...
+        'LF ~ 1 + ADC_z + D_z + f_z + Dstar_z + Timepoint + (1|PatientID)', ...
+        'Distribution', 'Binomial', 'Link', 'logit');
+    disp(glme);
+catch ME
+    fprintf('GLME model failed to converge: %s\n', ME.message);
+end
+warning('on', 'all');
 
 fprintf('\n=== Completed DWI Type %d: %s ===\n', dtype, dtype_label);
 end % for dtype
