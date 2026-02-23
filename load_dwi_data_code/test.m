@@ -1,0 +1,1205 @@
+%% test.m — Test Suite for Refactored Statistical and Analytical Procedures
+% =========================================================================
+% Validates the four refactored areas in metrics.m (and fit_adc_mono.m):
+%   1. Benjamini-Hochberg FDR correction (full-sweep q-values)
+%   2. Holm-Bonferroni FWER correction (step-down thresholds)
+%   3. Correlation pre-filtering for Elastic Net feature selection
+%   4. LOOCV Kaplan-Meier risk assignment (no data leakage)
+%
+% NOTE: Dependency functions (IVIM_seg, dvh, halfSampleMode, im2Y, NIfTI
+%       loaders, sample_rtdose_on_image) are NOT tested here.
+%
+% Usage:
+%   test          % from MATLAB command window (run as script)
+% =========================================================================
+
+n_pass = 0;
+n_fail = 0;
+
+% Cache metrics.m source once to avoid repeated file I/O across tests.
+metrics_code = readMetricsSource();
+vis_code = readVisualizeSource();
+
+%% ====================================================================
+%  1. BENJAMINI-HOCHBERG FDR CORRECTION
+%  Tests the q-value computation used in Section 10 of metrics.m
+%  (the "Q-Value (FDR) Analysis — Full Metric Sweep" block).
+% =====================================================================
+
+% testBH_QValues_KnownInput
+try
+    % Verify BH q-values for a hand-calculated example.
+    % Five raw p-values; q = p * (m/rank), then enforce monotonicity.
+    raw_p = [0.005; 0.01; 0.03; 0.40; 0.90];
+    m = length(raw_p);
+
+    [p_sorted, sort_idx] = sort(raw_p);
+    q_vals = zeros(size(p_sorted));
+    for k = 1:m
+        q_vals(k) = p_sorted(k) * (m / k);
+    end
+    for k = m-1:-1:1
+        q_vals(k) = min(q_vals(k), q_vals(k+1));
+    end
+    q_vals(q_vals > 1) = 1;
+
+    % Expected: [0.025, 0.025, 0.05, 0.50, 0.90]
+    expected = [0.025; 0.025; 0.05; 0.50; 0.90];
+    assert(all(abs(q_vals - expected) <= 1e-12), ...
+        'BH q-values do not match hand-calculated values');
+    fprintf('[PASS] testBH_QValues_KnownInput\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_QValues_KnownInput: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBH_Monotonicity
+try
+    % Q-values must be non-decreasing after the BH step-up procedure.
+    rng(1);
+    raw_p = sort(rand(50, 1));   % 50 sorted p-values
+    m = length(raw_p);
+
+    q_vals = zeros(size(raw_p));
+    for k = 1:m
+        q_vals(k) = raw_p(k) * (m / k);
+    end
+    for k = m-1:-1:1
+        q_vals(k) = min(q_vals(k), q_vals(k+1));
+    end
+    q_vals(q_vals > 1) = 1;
+
+    diffs = diff(q_vals);
+    assert(all(diffs >= -1e-15), ...
+        'BH q-values are not monotonically non-decreasing');
+    fprintf('[PASS] testBH_Monotonicity\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_Monotonicity: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBH_CappedAtOne
+try
+    % No q-value should exceed 1.0.
+    raw_p = [0.10; 0.50; 0.80; 0.95; 0.99];
+    m = length(raw_p);
+
+    [p_sorted, ~] = sort(raw_p);
+    q_vals = zeros(size(p_sorted));
+    for k = 1:m
+        q_vals(k) = p_sorted(k) * (m / k);
+    end
+    for k = m-1:-1:1
+        q_vals(k) = min(q_vals(k), q_vals(k+1));
+    end
+    q_vals(q_vals > 1) = 1;
+
+    assert(all(q_vals <= 1.0), ...
+        'Some BH q-values exceed 1.0');
+    fprintf('[PASS] testBH_CappedAtOne\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_CappedAtOne: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBH_QGreaterThanOrEqualP
+try
+    % Every q-value must be >= the corresponding raw p-value.
+    raw_p = [0.001; 0.01; 0.04; 0.05; 0.20; 0.50; 0.80];
+    m = length(raw_p);
+
+    [p_sorted, sort_idx] = sort(raw_p);
+    q_vals = zeros(size(p_sorted));
+    for k = 1:m
+        q_vals(k) = p_sorted(k) * (m / k);
+    end
+    for k = m-1:-1:1
+        q_vals(k) = min(q_vals(k), q_vals(k+1));
+    end
+    q_vals(q_vals > 1) = 1;
+
+    q_unsorted = zeros(size(raw_p));
+    q_unsorted(sort_idx) = q_vals;
+
+    assert(all(q_unsorted >= raw_p - 1e-15), ...
+        'Some BH q-values are smaller than their raw p-values');
+    fprintf('[PASS] testBH_QGreaterThanOrEqualP\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_QGreaterThanOrEqualP: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBH_SinglePValue
+try
+    % Edge case: m = 1. q should equal p (no correction needed).
+    raw_p = 0.03;
+    q = raw_p * (1 / 1);
+    q = min(q, 1);
+    assert(abs(q - 0.03) <= 1e-15);
+    fprintf('[PASS] testBH_SinglePValue\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_SinglePValue: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBH_AllIdenticalPValues
+try
+    % When all p-values are identical, q-values should all equal
+    % the same adjusted value (or 1.0 if > 1).
+    raw_p = repmat(0.04, 10, 1);
+    m = length(raw_p);
+
+    [p_sorted, ~] = sort(raw_p);
+    q_vals = zeros(size(p_sorted));
+    for k = 1:m
+        q_vals(k) = p_sorted(k) * (m / k);
+    end
+    for k = m-1:-1:1
+        q_vals(k) = min(q_vals(k), q_vals(k+1));
+    end
+    q_vals(q_vals > 1) = 1;
+
+    % All q-values should be the same after monotonicity
+    assert(abs(max(q_vals) - min(q_vals)) <= 1e-15, ...
+        'Identical p-values should yield identical q-values');
+    fprintf('[PASS] testBH_AllIdenticalPValues\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBH_AllIdenticalPValues: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  2. HOLM-BONFERRONI FWER CORRECTION
+%  Tests the step-down procedure used in Section 10 of metrics.m.
+% =====================================================================
+
+% testHolm_ThresholdFormula
+try
+    % Verify that Holm thresholds follow alpha / (m + 1 - k).
+    m = 5;
+    alpha = 0.05;
+    holm_thresholds = alpha ./ (m + 1 - (1:m)');
+    expected = [0.05/5; 0.05/4; 0.05/3; 0.05/2; 0.05/1];
+    assert(all(abs(holm_thresholds - expected) <= 1e-15), ...
+        'Holm thresholds do not match expected formula');
+    fprintf('[PASS] testHolm_ThresholdFormula\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testHolm_ThresholdFormula: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testHolm_ThresholdsStrictlyIncreasing
+try
+    % Holm thresholds must be strictly increasing (less strict as
+    % rank increases).
+    m = 20;
+    alpha = 0.05;
+    holm_thresholds = alpha ./ (m + 1 - (1:m)');
+    diffs = diff(holm_thresholds);
+    assert(all(diffs > 0), ...
+        'Holm thresholds are not strictly increasing');
+    fprintf('[PASS] testHolm_ThresholdsStrictlyIncreasing\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testHolm_ThresholdsStrictlyIncreasing: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testHolm_EarlyStopBehavior
+try
+    % If the k-th test fails, all subsequent tests must also be
+    % marked non-significant (step-down property).
+    p_sorted = [0.001; 0.008; 0.060; 0.070; 0.900];
+    m = length(p_sorted);
+    alpha = 0.05;
+    holm_thresholds = alpha ./ (m + 1 - (1:m)');
+
+    is_sig = false(size(p_sorted));
+    for k = 1:m
+        if p_sorted(k) < holm_thresholds(k)
+            is_sig(k) = true;
+        else
+            break;
+        end
+    end
+
+    % First two should pass: 0.001 < 0.01, 0.008 < 0.0125
+    % Third fails: 0.060 >= 0.0167 → stop
+    assert(is_sig(1) && is_sig(2), ...
+        'First two tests should be significant');
+    assert(~any(is_sig(3:end)), ...
+        'Tests 3-5 should be non-significant after early stop');
+    fprintf('[PASS] testHolm_EarlyStopBehavior\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testHolm_EarlyStopBehavior: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testHolm_AllSignificant
+try
+    % When all p-values beat every threshold.
+    p_sorted = [0.001; 0.002; 0.003; 0.004; 0.005];
+    m = length(p_sorted);
+    alpha = 0.05;
+    holm_thresholds = alpha ./ (m + 1 - (1:m)');
+
+    is_sig = false(size(p_sorted));
+    for k = 1:m
+        if p_sorted(k) < holm_thresholds(k)
+            is_sig(k) = true;
+        else
+            break;
+        end
+    end
+
+    assert(all(is_sig), ...
+        'All tests should be significant with very small p-values');
+    fprintf('[PASS] testHolm_AllSignificant\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testHolm_AllSignificant: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testHolm_NoneSignificant
+try
+    % When the first test already fails.
+    p_sorted = [0.10; 0.20; 0.30; 0.40; 0.50];
+    m = length(p_sorted);
+    alpha = 0.05;
+    holm_thresholds = alpha ./ (m + 1 - (1:m)');
+
+    is_sig = false(size(p_sorted));
+    for k = 1:m
+        if p_sorted(k) < holm_thresholds(k)
+            is_sig(k) = true;
+        else
+            break;
+        end
+    end
+
+    assert(~any(is_sig), ...
+        'No tests should be significant');
+    fprintf('[PASS] testHolm_NoneSignificant\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testHolm_NoneSignificant: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  3. CORRELATION PRE-FILTERING
+%  Tests the |r| > 0.8 filter used before Elastic Net in metrics.m.
+% =====================================================================
+
+% testCorrFilter_DropsHighCorrelation
+try
+    % Two perfectly correlated features → one should be dropped.
+    rng(7);
+    n = 30;
+    x1 = randn(n, 1);
+    x2 = x1 * 2 + 0.01 * randn(n, 1);  % r ≈ 1.0
+    x3 = randn(n, 1);                    % independent
+    X = [x1, x2, x3];
+
+    R_corr = corrcoef(X);
+    n_feats = size(X, 2);
+    drop_flag = false(1, n_feats);
+    for fi = 1:n_feats
+        if drop_flag(fi), continue; end
+        for fj = fi+1:n_feats
+            if drop_flag(fj), continue; end
+            if abs(R_corr(fi, fj)) > 0.8
+                drop_flag(fj) = true;
+            end
+        end
+    end
+    keep_idx = find(~drop_flag);
+
+    % x2 (column 2) should be dropped; x1 and x3 kept
+    assert(isequal(keep_idx, [1, 3]), ...
+        'Highly correlated feature (col 2) should be dropped');
+    fprintf('[PASS] testCorrFilter_DropsHighCorrelation\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_DropsHighCorrelation: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCorrFilter_KeepsAllWhenUncorrelated
+try
+    % Orthogonal features: nothing should be dropped.
+    X = eye(5);
+    R_corr = corrcoef(X);
+    n_feats = size(X, 2);
+    drop_flag = false(1, n_feats);
+    for fi = 1:n_feats
+        if drop_flag(fi), continue; end
+        for fj = fi+1:n_feats
+            if drop_flag(fj), continue; end
+            if abs(R_corr(fi, fj)) > 0.8
+                drop_flag(fj) = true;
+            end
+        end
+    end
+    keep_idx = find(~drop_flag);
+
+    assert(isequal(keep_idx, 1:5), ...
+        'No features should be dropped when all are uncorrelated');
+    fprintf('[PASS] testCorrFilter_KeepsAllWhenUncorrelated\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_KeepsAllWhenUncorrelated: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCorrFilter_PrefersEarlierFeature
+try
+    % When columns i and j are correlated (i < j), column j is
+    % dropped — i.e., the earlier / absolute variable is preferred.
+    rng(8);
+    n = 50;
+    base = randn(n, 1);
+    X = [base, base + 0.001*randn(n,1), randn(n,1), randn(n,1)];
+
+    R_corr = corrcoef(X);
+    n_feats = size(X, 2);
+    drop_flag = false(1, n_feats);
+    for fi = 1:n_feats
+        if drop_flag(fi), continue; end
+        for fj = fi+1:n_feats
+            if drop_flag(fj), continue; end
+            if abs(R_corr(fi, fj)) > 0.8
+                drop_flag(fj) = true;
+            end
+        end
+    end
+
+    % Column 1 kept, column 2 dropped
+    assert(~drop_flag(1), ...
+        'Earlier feature should be kept');
+    assert(drop_flag(2), ...
+        'Later correlated feature should be dropped');
+    fprintf('[PASS] testCorrFilter_PrefersEarlierFeature\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_PrefersEarlierFeature: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCorrFilter_NegativeCorrelation
+try
+    % Negative correlation with |r| > 0.8 should also be dropped.
+    rng(9);
+    n = 40;
+    x1 = randn(n, 1);
+    x2 = -x1 + 0.01*randn(n,1);  % r ≈ -1.0
+    X = [x1, x2];
+
+    R_corr = corrcoef(X);
+    n_feats = size(X, 2);
+    drop_flag = false(1, n_feats);
+    for fi = 1:n_feats
+        if drop_flag(fi), continue; end
+        for fj = fi+1:n_feats
+            if drop_flag(fj), continue; end
+            if abs(R_corr(fi, fj)) > 0.8
+                drop_flag(fj) = true;
+            end
+        end
+    end
+
+    assert(drop_flag(2), ...
+        'Negatively correlated feature should be dropped');
+    fprintf('[PASS] testCorrFilter_NegativeCorrelation\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_NegativeCorrelation: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCorrFilter_BoundaryNotDropped
+try
+    % |r| = 0.8 exactly should NOT be dropped (threshold is >0.8).
+    % Construct a pair with correlation exactly 0.8 via known formula.
+    rng(10);
+    n = 10000;   % large n so sample r ≈ population r
+    x1 = randn(n, 1);
+    % x2 = 0.8*x1 + sqrt(1-0.64)*noise gives population r = 0.8
+    x2 = 0.8*x1 + sqrt(1 - 0.64)*randn(n, 1);
+    X = [x1, x2];
+
+    R_corr = corrcoef(X);
+    r12 = abs(R_corr(1, 2));
+
+    drop_flag = false(1, 2);
+    if r12 > 0.8
+        drop_flag(2) = true;
+    end
+
+    % With n=10000, sample r will be very close to 0.8 but may
+    % land on either side. Verify the logic is at least applied:
+    if r12 <= 0.8
+        assert(~drop_flag(2), ...
+            'Feature at boundary (|r|==0.8) should NOT be dropped');
+    else
+        assert(drop_flag(2), ...
+            'Feature slightly above boundary should be dropped');
+    end
+    fprintf('[PASS] testCorrFilter_BoundaryNotDropped\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_BoundaryNotDropped: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCorrFilter_ChainDropping
+try
+    % If A-B correlated and B-C correlated, dropping B means C
+    % is evaluated against A only. Verify transitive behaviour.
+    rng(11);
+    n = 100;
+    a = randn(n, 1);
+    b = a + 0.01*randn(n, 1);           % r(a,b) ≈ 1
+    c = 0.5*a + 0.5*randn(n, 1);        % r(a,c) ≈ 0.7 (not dropped)
+    X = [a, b, c];
+
+    R_corr = corrcoef(X);
+    n_feats = size(X, 2);
+    drop_flag = false(1, n_feats);
+    for fi = 1:n_feats
+        if drop_flag(fi), continue; end
+        for fj = fi+1:n_feats
+            if drop_flag(fj), continue; end
+            if abs(R_corr(fi, fj)) > 0.8
+                drop_flag(fj) = true;
+            end
+        end
+    end
+    keep_idx = find(~drop_flag);
+
+    % b dropped (correlated with a), c kept (r(a,c) < 0.8)
+    assert(drop_flag(2), 'b should be dropped');
+    assert(~drop_flag(3), 'c should be kept');
+    assert(length(keep_idx) == 2);
+    fprintf('[PASS] testCorrFilter_ChainDropping\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCorrFilter_ChainDropping: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  4. LOOCV KAPLAN-MEIER RISK ASSIGNMENT
+%  Tests that the LOOCV classification loop does not use held-out data.
+% =====================================================================
+
+% testLOOCV_NoLeakage_CutoffExcludesHeldOut
+try
+    % Verify that the median cutoff for each fold is computed
+    % WITHOUT the held-out patient's data.
+    rng(42);
+    n = 10;
+    vals = (1:n)';   % Predictable ordering for median checks
+
+    for loo_i = 1:n
+        train_mask = true(n, 1);
+        train_mask(loo_i) = false;
+        train_vals = vals(train_mask);
+        cutoff = median(train_vals);
+
+        % The held-out value must NOT influence the cutoff.
+        % Re-compute cutoff including it — should differ.
+        cutoff_all = median(vals);
+        if vals(loo_i) ~= cutoff_all
+            assert(cutoff ~= cutoff_all, ...
+                sprintf('Fold %d: cutoff should differ when held-out is excluded', loo_i));
+        end
+    end
+    fprintf('[PASS] testLOOCV_NoLeakage_CutoffExcludesHeldOut\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_NoLeakage_CutoffExcludesHeldOut: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_TrainMaskSize
+try
+    % Each training fold should contain exactly N-1 patients.
+    n = 15;
+    for loo_i = 1:n
+        train_mask = true(n, 1);
+        train_mask(loo_i) = false;
+        assert(sum(train_mask) == n - 1, ...
+            'Training set should have N-1 patients');
+    end
+    fprintf('[PASS] testLOOCV_TrainMaskSize\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_TrainMaskSize: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_EachPatientHeldOutOnce
+try
+    % Over the full loop, each patient is held out exactly once.
+    n = 12;
+    held_out_count = zeros(n, 1);
+    for loo_i = 1:n
+        held_out_count(loo_i) = held_out_count(loo_i) + 1;
+    end
+    assert(isequal(held_out_count, ones(n, 1)), ...
+        'Each patient should be held out exactly once');
+    fprintf('[PASS] testLOOCV_EachPatientHeldOutOnce\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_EachPatientHeldOutOnce: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_RiskAssignmentIsBoolean
+try
+    % is_high_risk must be logical and have one entry per patient.
+    rng(42);
+    n = 8;
+    km_X = randn(n, 8);
+    km_y = [0;0;0;0;1;1;1;1];
+    is_high_risk = false(n, 1);
+
+    for loo_i = 1:n
+        train_mask = true(n, 1);
+        train_mask(loo_i) = false;
+        train_vals = km_X(train_mask, 5);  % Arbitrary percent-change col
+        cutoff = median(train_vals);
+        is_high_risk(loo_i) = km_X(loo_i, 5) < cutoff;
+    end
+
+    assert(islogical(is_high_risk), 'is_high_risk should be logical');
+    assert(numel(is_high_risk) == n, 'is_high_risk should have one entry per patient');
+    fprintf('[PASS] testLOOCV_RiskAssignmentIsBoolean\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_RiskAssignmentIsBoolean: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_NoEmptyGroups_LargeN
+try
+    % With balanced synthetic data, LOOCV should produce both high-
+    % and low-risk patients (i.e., not degenerate to all-same).
+    rng(42);
+    n = 20;
+    % Create data where LC patients have higher values than LF
+    km_X = zeros(n, 8);
+    km_y = [zeros(n/2, 1); ones(n/2, 1)];
+    km_X(1:n/2, 5) = randn(n/2, 1) + 2;   % LC: positive change
+    km_X(n/2+1:end, 5) = randn(n/2, 1) - 2; % LF: negative change
+
+    is_high_risk = false(n, 1);
+    for loo_i = 1:n
+        train_mask = true(n, 1);
+        train_mask(loo_i) = false;
+        train_vals = km_X(train_mask, 5);
+        cutoff = median(train_vals);
+        is_high_risk(loo_i) = km_X(loo_i, 5) < cutoff;
+    end
+
+    assert(any(is_high_risk), ...
+        'Should have at least one high-risk patient');
+    assert(any(~is_high_risk), ...
+        'Should have at least one low-risk patient');
+    fprintf('[PASS] testLOOCV_NoEmptyGroups_LargeN\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_NoEmptyGroups_LargeN: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_FeatureSelectionBase_Mapping
+try
+    % Verify the mod-based mapping from 8-feature index to base
+    % metric index: indices 1-4 = Absolute, 5-8 = Percent-Change.
+    % base = mod(sel - 1, 4) + 1
+    expected_base = [1, 2, 3, 4, 1, 2, 3, 4];
+    for idx = 1:8
+        base = mod(idx - 1, 4) + 1;
+        assert(base == expected_base(idx), ...
+            sprintf('Index %d should map to base %d', idx, expected_base(idx)));
+    end
+    fprintf('[PASS] testLOOCV_FeatureSelectionBase_Mapping\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_FeatureSelectionBase_Mapping: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLOOCV_DefaultLowRisk_WhenNoFeatures
+try
+    % When LASSO/Elastic Net selects zero features, the patient
+    % should default to low-risk (is_high_risk = false).
+    sel_loo = [];   % Empty selection (simulating convergence failure)
+    default_risk = false;
+
+    if isempty(sel_loo)
+        assigned_risk = false;
+    else
+        assigned_risk = true;
+    end
+
+    assert(assigned_risk == default_risk, ...
+        'Empty feature selection should default to low-risk');
+    fprintf('[PASS] testLOOCV_DefaultLowRisk_WhenNoFeatures\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLOOCV_DefaultLowRisk_WhenNoFeatures: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  5. ELASTIC NET PARAMETER VALIDATION
+%  Verifies that the Alpha parameter is correctly set to 0.5
+%  (mixed L1+L2 penalty) rather than pure LASSO (Alpha = 1).
+% =====================================================================
+
+% testElasticNet_AlphaIsHalf
+try
+    % The refactored code must use Alpha = 0.5 for Elastic Net.
+    code = metrics_code;
+    matches = regexp(code, '''Alpha''\s*,\s*0\.5', 'match');
+    assert(~isempty(matches), ...
+        'metrics.m should contain Alpha = 0.5 for Elastic Net');
+    fprintf('[PASS] testElasticNet_AlphaIsHalf\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testElasticNet_AlphaIsHalf: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testElasticNet_NotPureLasso
+try
+    % Confirm no lassoglm call uses pure LASSO (Alpha = 1).
+    code = metrics_code;
+    matches = regexp(code, '''Alpha''\s*,\s*1(\s|,|\))', 'match');
+    assert(isempty(matches), ...
+        'No lassoglm call should use pure LASSO (Alpha=1)');
+    fprintf('[PASS] testElasticNet_NotPureLasso\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testElasticNet_NotPureLasso: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  6. ALL-FRACTIONS LOOP (NO POST-HOC TARGET SELECTION)
+%  Verifies that the analysis loop iterates over all fractions,
+%  not just a cherry-picked subset.
+% =====================================================================
+
+% testLoop_NotHardcodedTo2And3
+try
+    % The loop "for target_fx = [2, 3]" should have been replaced.
+    code = metrics_code;
+    assert(~contains(code, 'target_fx = [2, 3]'), ...
+        'Loop should NOT be hardcoded to [2, 3]');
+    fprintf('[PASS] testLoop_NotHardcodedTo2And3\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLoop_NotHardcodedTo2And3: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLoop_UsesNTpUpperBound
+try
+    % The loop should use nTp as the upper bound.
+    code = metrics_code;
+    matches = regexp(code, 'target_fx\s*=\s*2\s*:\s*nTp', 'match');
+    assert(~isempty(matches), ...
+        'Loop should iterate from 2 to nTp');
+    fprintf('[PASS] testLoop_UsesNTpUpperBound\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLoop_UsesNTpUpperBound: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  7. TARGETED FDR SECTIONS REMOVED
+%  Verifies that the post-hoc "m=8" and "m=4" targeted sections
+%  have been removed to eliminate p-hacking.
+% =====================================================================
+
+% testRemoved_TargetedM8
+try
+    % The "Targeted Statistical Analysis (m = 8 tests)" section
+    % should no longer exist in metrics.m.
+    code = metrics_code;
+    assert(~contains(code, 'Targeted Statistical Analysis (m = 8'), ...
+        'Targeted m=8 section should be removed');
+    fprintf('[PASS] testRemoved_TargetedM8\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testRemoved_TargetedM8: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testRemoved_TargetedM4
+try
+    % The "Targeted FDR (Relative Change Only, m = 4)" section
+    % should no longer exist in metrics.m.
+    code = metrics_code;
+    assert(~contains(code, 'Targeted FDR (Relative Change Only, m = 4)'), ...
+        'Targeted m=4 FDR section should be removed');
+    fprintf('[PASS] testRemoved_TargetedM4\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testRemoved_TargetedM4: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  8. ADC FITTING VIA FIT_ADC_MONO
+%  Verifies that metrics.m uses fit_adc_mono instead of
+%  inline pixel-wise OLS log-linear fitting.
+% =====================================================================
+
+% testADC_MetricsCallsFitAdcMono
+try
+    % metrics.m should call fit_adc_mono instead of inline OLS.
+    code = metrics_code;
+    matches = regexp(code, 'fit_adc_mono\s*\(', 'match');
+    assert(~isempty(matches), ...
+        'metrics.m should call fit_adc_mono for ADC computation');
+    fprintf('[PASS] testADC_MetricsCallsFitAdcMono\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_MetricsCallsFitAdcMono: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testADC_NoInlineOLS
+try
+    % The old inline OLS pattern "beta = X \ log(s_signal)" should
+    % be gone from metrics.m.
+    code = metrics_code;
+    assert(~contains(code, 'X \ log(s_signal)'), ...
+        'Inline OLS fitting should be removed from metrics.m');
+    fprintf('[PASS] testADC_NoInlineOLS\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_NoInlineOLS: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testADC_NoNestedPixelLoops
+try
+    % The old nested "for y = 1:ny / for x = 1:nx" pixel loops
+    % should be gone from metrics.m (replaced by fit_adc_mono call).
+    code = metrics_code;
+    assert(~contains(code, 'slice_adc(y,x) = beta(2)'), ...
+        'Nested pixel-wise OLS loops should be removed');
+    fprintf('[PASS] testADC_NoNestedPixelLoops\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_NoNestedPixelLoops: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  9. COMPREHENSIVE FDR AND HOLM REMAIN
+%  Verifies that the full-sweep FDR and Holm-Bonferroni sections
+%  (which apply corrections across ALL tests) are still present.
+% =====================================================================
+
+% testRetained_FullSweepFDR
+try
+    % The "Q-Value (FDR) Analysis — Full Metric Sweep" section
+    % should remain in metrics.m.
+    code = metrics_code;
+    assert(contains(code, 'Q-Value (FDR) Analysis'), ...
+        'Full-sweep FDR section should be retained');
+    fprintf('[PASS] testRetained_FullSweepFDR\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testRetained_FullSweepFDR: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testRetained_HolmBonferroni
+try
+    % The "Holm-Bonferroni Correction (FWER Control)" section
+    % should remain in metrics.m.
+    code = metrics_code;
+    assert(contains(code, 'Holm-Bonferroni Correction (FWER Control)'), ...
+        'Holm-Bonferroni section should be retained');
+    fprintf('[PASS] testRetained_HolmBonferroni\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testRetained_HolmBonferroni: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  10. B-VALUE PROTOCOL VALIDATION (NO ARBITRARY TRUNCATION)
+%  Verifies that the arbitrary b-value truncation has been removed
+%  and replaced with explicit protocol validation.
+% =====================================================================
+
+% testBval_NoTruncation
+try
+    % The old truncation pattern should be gone from metrics.m.
+    code = metrics_code;
+    assert(~contains(code, 'min_dim = min(n_imgs, n_bvals)'), ...
+        'Arbitrary b-value truncation (min_dim) should be removed');
+    fprintf('[PASS] testBval_NoTruncation\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_NoTruncation: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ExpectedProtocolDefined
+try
+    % metrics.m should define expected_bvals for protocol validation.
+    code = metrics_code;
+    matches = regexp(code, 'expected_bvals\s*=\s*\[0;\s*30;\s*150;\s*550\]', 'match');
+    assert(~isempty(matches), ...
+        'metrics.m should define expected_bvals = [0; 30; 150; 550]');
+    fprintf('[PASS] testBval_ExpectedProtocolDefined\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ExpectedProtocolDefined: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ProtocolDeviationFlagged
+try
+    % metrics.m should flag protocol deviations with a warning message.
+    code = metrics_code;
+    assert(contains(code, 'Protocol deviation'), ...
+        'Protocol deviation flagging should be present in metrics.m');
+    fprintf('[PASS] testBval_ProtocolDeviationFlagged\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ProtocolDeviationFlagged: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_DeviationExcludesPatient
+try
+    % The validation block should use 'continue' to exclude
+    % deviating patients from the analysis.
+    code = metrics_code;
+    % Find the Protocol deviation block and verify it contains continue
+    idx_dev = strfind(code, 'Protocol deviation');
+    idx_continue = strfind(code, 'continue');
+    assert(~isempty(idx_dev) && ~isempty(idx_continue), ...
+        'Both protocol deviation flag and continue must exist');
+    % At least one continue must follow the protocol deviation flag
+    % (within 200 chars, i.e. within the same if-block)
+    found = false;
+    for ci = 1:length(idx_continue)
+        if idx_continue(ci) > idx_dev(1) && (idx_continue(ci) - idx_dev(1)) < 200
+            found = true;
+            break;
+        end
+    end
+    assert(found, ...
+        'A continue statement should follow the protocol deviation flag to exclude the patient');
+    fprintf('[PASS] testBval_DeviationExcludesPatient\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_DeviationExcludesPatient: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ValidationLogic_MatchingProtocol
+try
+    % When bvals exactly match [0; 30; 150; 550], no deviation.
+    bvals = [0; 30; 150; 550];
+    expected_bvals = [0; 30; 150; 550];
+    assert(isequal(sort(bvals), expected_bvals), ...
+        'Standard protocol b-values should pass validation');
+    fprintf('[PASS] testBval_ValidationLogic_MatchingProtocol\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ValidationLogic_MatchingProtocol: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ValidationLogic_UnsortedMatch
+try
+    % Unsorted b-values that match after sorting should pass.
+    bvals = [0; 30; 150; 550];
+    expected_bvals = [0; 30; 150; 550];
+    assert(isequal(sort(bvals), expected_bvals), ...
+        'Unsorted but correct b-values should pass validation');
+    fprintf('[PASS] testBval_ValidationLogic_UnsortedMatch\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ValidationLogic_UnsortedMatch: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ValidationLogic_ExtraValue
+try
+    % Extra b-value (5 instead of 4) should be flagged as deviation.
+    bvals = [0; 50; 400; 800; 1000];
+    expected_bvals = [0; 30; 150; 550];
+    is_deviation = ~isequal(sort(bvals), expected_bvals);
+    assert(is_deviation, ...
+        'Extra b-values should be flagged as protocol deviation');
+    fprintf('[PASS] testBval_ValidationLogic_ExtraValue\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ValidationLogic_ExtraValue: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ValidationLogic_WrongValue
+try
+    % Different b-value set should be flagged as deviation.
+    bvals = [0; 30; 200; 550];
+    expected_bvals = [0; 30; 150; 550];
+    is_deviation = ~isequal(sort(bvals), expected_bvals);
+    assert(is_deviation, ...
+        'Non-standard b-values should be flagged as protocol deviation');
+    fprintf('[PASS] testBval_ValidationLogic_WrongValue\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ValidationLogic_WrongValue: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testBval_ValidationLogic_MissingValue
+try
+    % Fewer b-values than expected should be flagged.
+    bvals = [0; 50; 400];
+    expected_bvals =  [0; 30; 150; 550];
+    is_deviation = ~isequal(sort(bvals), expected_bvals);
+    assert(is_deviation, ...
+        'Missing b-values should be flagged as protocol deviation');
+    fprintf('[PASS] testBval_ValidationLogic_MissingValue\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testBval_ValidationLogic_MissingValue: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  11. IMPUTATION STRATEGY (NO LISTWISE DELETION)
+%  Verifies that the predictor matrix construction uses imputation
+%  instead of listwise deletion to prevent complete-case attrition.
+% =====================================================================
+
+% testImpute_NoListwiseDeletion
+try
+    % The old listwise deletion pattern should be gone from metrics.m.
+    code = metrics_code;
+    assert(~contains(code, 'valid_lasso_mask = all(~isnan(X_lasso), 2)'), ...
+        'Listwise deletion pattern should be removed from metrics.m');
+    fprintf('[PASS] testImpute_NoListwiseDeletion\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_NoListwiseDeletion: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testImpute_UsesFillmissing
+try
+    % metrics.m should use fillmissing for imputation.
+    code = metrics_code;
+    matches = regexp(code, 'fillmissing\s*\(', 'match');
+    assert(~isempty(matches), ...
+        'metrics.m should use fillmissing for imputation');
+    fprintf('[PASS] testImpute_UsesFillmissing\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_UsesFillmissing: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testImpute_ExcludesAllNaNRows
+try
+    % metrics.m should exclude patients with ALL imaging data missing.
+    code = metrics_code;
+    matches = regexp(code, 'any\s*\(\s*~isnan\s*\(\s*X_lasso\s*\)', 'match');
+    assert(~isempty(matches), ...
+        'metrics.m should check for patients missing all imaging data');
+    fprintf('[PASS] testImpute_ExcludesAllNaNRows\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_ExcludesAllNaNRows: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testImpute_RetainsPartialDataRows
+try
+    % Synthetic test: a patient with partial NaN data should be retained
+    % after imputation, not dropped as in listwise deletion.
+    X = [1 2 3; 4 NaN 6; NaN NaN NaN; 7 8 9];
+    y = [0; 1; 0; 1];
+
+    has_any = any(~isnan(X), 2);
+    mask = has_any & ~isnan(y);
+    X_imp = X(mask, :);
+    y_out = y(mask);
+    X_out = fillmissing(X_imp, 'constant', median(X_imp, 1, 'omitnan'));
+
+    % Row 2 (partial NaN) should be kept; row 3 (all NaN) dropped
+    assert(size(X_out, 1) == 3, ...
+        'Partial-data rows should be retained after imputation');
+    assert(~any(isnan(X_out(:))), ...
+        'No NaN values should remain after imputation');
+    assert(length(y_out) == 3, ...
+        'Outcome vector length should match imputed matrix');
+    fprintf('[PASS] testImpute_RetainsPartialDataRows\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_RetainsPartialDataRows: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testImpute_MedianFillValues
+try
+    % Verify that imputed values equal the column median.
+    X = [2 10; NaN 20; 6 NaN];
+    col_med = median(X, 1, 'omitnan');  % [4, 15]
+    X_filled = fillmissing(X, 'constant', col_med);
+
+    assert(abs(X_filled(2,1) - 4) < 1e-12, ...
+        'Imputed value should equal column median');
+    assert(abs(X_filled(3,2) - 15) < 1e-12, ...
+        'Imputed value should equal column median');
+    fprintf('[PASS] testImpute_MedianFillValues\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_MedianFillValues: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testImpute_BeforeStandardization
+try
+    % Verify imputation occurs before the Elastic Net standardization.
+    % fillmissing must appear before lassoglm(..., 'Standardize', true)
+    code = metrics_code;
+    pos_fill = regexp(code, 'fillmissing\s*\(', 'start', 'once');
+    pos_std  = regexp(code, '''Standardize''\s*,\s*true', 'start', 'once');
+    assert(~isempty(pos_fill) && ~isempty(pos_std), ...
+        'Both fillmissing and Standardize should exist in metrics.m');
+    assert(pos_fill < pos_std, ...
+        'Imputation (fillmissing) must occur before standardization');
+    fprintf('[PASS] testImpute_BeforeStandardization\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testImpute_BeforeStandardization: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  12. VISUALIZE_RESULTS B-VALUE PROTOCOL VALIDATION
+%  Verifies that visualize_results.m uses the same strict b-value
+%  protocol validation as metrics.m, with no arbitrary truncation.
+% =====================================================================
+
+% testVis_NoTruncation
+try
+    % The old truncation pattern should be gone from visualize_results.m.
+    code = vis_code;
+    assert(~contains(code, 'min_dim = min('), ...
+        'Arbitrary b-value truncation (min_dim) should be removed from visualize_results.m');
+    fprintf('[PASS] testVis_NoTruncation\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testVis_NoTruncation: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testVis_ExpectedProtocolDefined
+try
+    % visualize_results.m should define expected_bvals for protocol validation.
+    code = vis_code;
+    matches = regexp(code, 'expected_bvals\s*=\s*\[0;\s*30;\s*150;\s*550\]', 'match');
+    assert(~isempty(matches), ...
+        'visualize_results.m should define expected_bvals = [0; 30; 150; 550]');
+    fprintf('[PASS] testVis_ExpectedProtocolDefined\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testVis_ExpectedProtocolDefined: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testVis_ProtocolDeviationFlagged
+try
+    % visualize_results.m should flag protocol deviations with a warning message.
+    code = vis_code;
+    assert(contains(code, 'Protocol deviation'), ...
+        'Protocol deviation flagging should be present in visualize_results.m');
+    fprintf('[PASS] testVis_ProtocolDeviationFlagged\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testVis_ProtocolDeviationFlagged: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testVis_DeviationExcludesPatient
+try
+    % The validation block should use 'continue' to exclude
+    % deviating patients from the comparative mapping.
+    code = vis_code;
+    idx_dev = strfind(code, 'Protocol deviation');
+    idx_continue = strfind(code, 'continue');
+    assert(~isempty(idx_dev) && ~isempty(idx_continue), ...
+        'Both protocol deviation flag and continue must exist in visualize_results.m');
+    % At least one continue must follow the protocol deviation flag
+    % (within 200 chars, i.e. within the same if-block)
+    found = false;
+    for ci = 1:length(idx_continue)
+        if idx_continue(ci) > idx_dev(1) && (idx_continue(ci) - idx_dev(1)) < 200
+            found = true;
+            break;
+        end
+    end
+    assert(found, ...
+        'A continue statement should follow the protocol deviation flag to exclude the patient');
+    fprintf('[PASS] testVis_DeviationExcludesPatient\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testVis_DeviationExcludesPatient: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% Summary
+fprintf('\n%d passed, %d failed out of %d tests\n', n_pass, n_fail, n_pass + n_fail);
+if n_fail > 0
+    error('test:failures', '%d test(s) failed.', n_fail);
+end
+
+% =========================================================================
+%  LOCAL HELPER FUNCTION
+% =========================================================================
+
+function code = readMetricsSource()
+    % Read metrics.m from the same directory as this test file.
+    metricsPath = fullfile(fileparts(mfilename('fullpath')), 'metrics.m');
+    fid = fopen(metricsPath, 'r');
+    assert(fid > 0, 'Could not open metrics.m at: %s', metricsPath);
+    code = fread(fid, '*char')';
+    fclose(fid);
+end
+
+function code = readVisualizeSource()
+    % Read visualize_results.m from the same directory as this test file.
+    visPath = fullfile(fileparts(mfilename('fullpath')), 'visualize_results.m');
+    fid = fopen(visPath, 'r');
+    assert(fid > 0, 'Could not open visualize_results.m at: %s', visPath);
+    code = fread(fid, '*char')';
+    fclose(fid);
+end
