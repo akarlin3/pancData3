@@ -660,8 +660,9 @@ for j = 1:length(mrn_list)
                 adc_vec = zeros(prod(adc_sz), 1);
                 if ~isempty(adc_idx)
                     S_a = S_2d(adc_idx, :);
-                    adc_vec(adc_idx) = abs(bvalues(2:end) \ ...
+                    adc_vec(adc_idx) = (-bvalues(2:end) \ ...
                         permute(log(S_a(:,2:end) ./ S_a(:,1)), [2 1]))';
+                    adc_vec(adc_vec < 0) = 0;  % clamp noise-driven negative ADC estimates
                 end
                 adc_map = reshape(adc_vec, adc_sz);
 
@@ -691,8 +692,9 @@ for j = 1:length(mrn_list)
                     adc_vec_d  = zeros(prod(adc_sz_d), 1);
                     if ~isempty(adc_idx_d)
                         S_a_d = S_2d_d(adc_idx_d, :);
-                        adc_vec_d(adc_idx_d) = abs(bvalues(2:end) \ ...
+                        adc_vec_d(adc_idx_d) = (-bvalues(2:end) \ ...
                             permute(log(S_a_d(:,2:end) ./ S_a_d(:,1)), [2 1]))';
+                        adc_vec_d(adc_vec_d < 0) = 0;  % clamp noise-driven negative ADC estimates
                     end
                     adc_map_dncnn = reshape(adc_vec_d, adc_sz_d);
                 end

@@ -896,76 +896,55 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         selected_indices = [];
     end
 
-    % Initialize flags and p-value tracking (for downstream sorting)
-    sig_flags = false(1, 4);
-    sig_p_best = ones(1, 4);
-    sig_form = zeros(1, 4); % 1 for Abs, 2 for Pct
-
-    % Map LASSO selections back to the pipeline's expected format
-    % Indices 1-4 are Absolute, 5-8 are Percent Change
-    % If LASSO selects *either* Abs or Pct, we flag that metric.
-    if any(ismember([1, 5], selected_indices))
-        sig_flags(1) = true; 
-        if ismember(1, selected_indices), sig_form(1) = 1; else, sig_form(1) = 2; end
-    end % ADC
-    if any(ismember([2, 6], selected_indices))
-        sig_flags(2) = true; 
-        if ismember(2, selected_indices), sig_form(2) = 1; else, sig_form(2) = 2; end
-    end % D
-    if any(ismember([3, 7], selected_indices))
-        sig_flags(3) = true; 
-        if ismember(3, selected_indices), sig_form(3) = 1; else, sig_form(3) = 2; end
-    end % f
-    if any(ismember([4, 8], selected_indices))
-        sig_flags(4) = true; 
-        if ismember(4, selected_indices), sig_form(4) = 1; else, sig_form(4) = 2; end
-    end % D*
-
-    % Calculate p-values purely for sorting Kaplan-Meier plots downstream
-    % (These do NOT determine significance anymore; LASSO does.)
-    for mi = 1:4
-        % Check Abs p-value
-        y_abs = all_abs_data{mi}(valid_pts, target_fx);
-        p_abs = ranksum(y_abs(~isnan(y_abs) & lf_group==0), y_abs(~isnan(y_abs) & lf_group==1));
-        
-        % Check Pct p-value
-        y_pct = all_pct_data{mi}(valid_pts, target_fx);
-        p_pct = ranksum(y_pct(~isnan(y_pct) & lf_group==0), y_pct(~isnan(y_pct) & lf_group==1));
-        
-        % Store best p-value for sorting
-        if ~isnan(p_abs), sig_p_best(mi) = min(sig_p_best(mi), p_abs); end
-        if ~isnan(p_pct), sig_p_best(mi) = min(sig_p_best(mi), p_pct); end
-    end
     %% --- End LASSO Feature Selection ---
-% Collect indices and count of LASSO-selected base metrics
-sig_idx = find(sig_flags);
-n_sig = length(sig_idx);
 
-fprintf('Significant variables at %s (absolute or relative): ', fx_label);
+% -----------------------------------------------------------------------
+% Post-LASSO feature list: all 8 candidates treated as fully independent.
+% Indices 1-4 = Absolute forms; indices 5-8 = Percent-Change forms.
+% Both forms of ANY metric may be retained simultaneously.
+% -----------------------------------------------------------------------
+all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...
+                  ADC_pct,       D_pct,       f_pct,       Dstar_pct};
+all_feat_names = {'ADC',         'D',         'f',         'D*', ...
+                  'ADC',         'D',         'f',         'D*'};
+all_feat_is_abs = [true          true         true         true  ...
+                   false         false        false        false ];
+all_feat_disp  = {'Abs ADC',     'Abs D',     'Abs f',     'Abs D*', ...
+                  '\Delta ADC',  '\Delta D',  '\Delta f',  '\Delta D*'};
+
+% n_sig = number of features LASSO selected (up to 8, not capped at 4)
+n_sig = length(selected_indices);
+
+% Build parallel arrays consumed by all downstream loops
+sig_data_selected = cell(1, n_sig);
+sig_abs_data      = cell(1, n_sig);
+sig_pct_data      = cell(1, n_sig);
+sig_names         = cell(1, n_sig);
+sig_is_abs        = false(1, n_sig);
+sig_disp_names    = cell(1, n_sig);
+
+for si = 1:n_sig
+    fi = selected_indices(si);              % direct column index (1-8)
+    sig_data_selected{si} = all_feat_data{fi};
+    sig_names{si}         = all_feat_names{fi};
+    sig_is_abs(si)        = all_feat_is_abs(fi);
+    sig_disp_names{si}    = all_feat_disp{fi};
+    % Carry both Abs and Pct forms for dose-response / Table-1 use
+    if fi <= 4
+        sig_abs_data{si} = all_feat_data{fi};
+        sig_pct_data{si} = all_feat_data{fi + 4};
+    else
+        sig_abs_data{si} = all_feat_data{fi - 4};
+        sig_pct_data{si} = all_feat_data{fi};
+    end
+end
+
+fprintf('Significant variables at %s: ', fx_label);
 if n_sig == 0
     fprintf('NONE. Skipping downstream analyses for %s.\n', fx_label);
     continue;
 else
-    fprintf('%s\n', strjoin(base_metric_names_all(sig_idx), ', '));
-end
-
-% Build dynamic cell arrays containing only LASSO-selected metrics
-% for use in all downstream analyses (ROC, logistic regression, etc.)
-sig_pct_data = cell(1, n_sig);
-sig_abs_data = cell(1, n_sig);
-sig_data_selected = cell(1, n_sig);
-sig_names = cell(1, n_sig);
-sig_is_abs = false(1, n_sig);
-for si = 1:n_sig
-    sig_pct_data{si} = all_pct_data{sig_idx(si)};
-    sig_abs_data{si} = all_abs_data{sig_idx(si)};
-    sig_names{si} = base_metric_names_all{sig_idx(si)};
-    sig_is_abs(si) = (sig_form(sig_idx(si)) == 1);
-    if sig_is_abs(si)
-        sig_data_selected{si} = sig_abs_data{si};
-    else
-        sig_data_selected{si} = sig_pct_data{si};
-    end
+    fprintf('%s\n', strjoin(sig_disp_names, ', '));
 end
 
 %% ---------- ROC Analysis (Receiver Operating Characteristic) ----------
@@ -1008,9 +987,8 @@ figure('Name', ['ROC Analysis - ' fx_label ' — ' dtype_label], 'Position', [20
 hold on;
 
 leg_entries = {};
-feat_disp_names = cell(1, n_sig);
+feat_disp_names = sig_disp_names;   % pre-built during feature-mapping above
 for vi = 1:n_sig
-    if sig_is_abs(vi), feat_disp_names{vi} = ['Abs ' sig_names{vi}]; else, feat_disp_names{vi} = ['\Delta ' sig_names{vi}]; end
     plot(roc_X{vi}, roc_Y{vi}, '-', 'Color', roc_colors(vi,:), 'LineWidth', 2);
     leg_entries{end+1} = sprintf('%s (AUC = %.3f)', feat_disp_names{vi}, roc_AUC(vi));
 end
@@ -1044,166 +1022,7 @@ for vi = 1:n_sig
         roc_Y{vi}(roc_opt_idx(vi))*100, (1-roc_X{vi}(roc_opt_idx(vi)))*100);
 end
 
-%% ---------- Q-Value (FDR) Analysis — Full Metric Sweep ----------
-% Re-gathers ALL raw p-values from the 4 metric sets × all timepoints,
-% applies Benjamini-Hochberg to compute q-values, and generates a
-% scatter plot of raw P vs adjusted Q to visualize inflation.
-% This script assumes you have run the previous ANOVA/Logistic Regression
-% and have a list of raw p-values.
 
-% 1. Gather all raw p-values from your previous analysis
-% (We re-run the extraction loop to ensure we have the full list)
-raw_p_vals = [];
-metric_names = {};
-
-current_metrics = metric_sets{2};
-current_names = set_names{2};
-for m = 1:length(current_metrics)
-    metric_data = current_metrics{m};
-    for tp = [2, 3]
-        if tp > size(metric_data, 2)
-            continue;
-        end
-        % Extract data
-        y_raw = metric_data(valid_pts, tp);
-        g = lf_group(~isnan(y_raw));
-        y = y_raw(~isnan(y_raw));
-
-        % Run ranksum if sufficient data exists
-        if length(unique(g)) > 1 && length(y) > 2
-            p = ranksum(y(g==0), y(g==1));
-            raw_p_vals(end+1, 1) = p;
-            metric_names{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
-        end
-    end
-end
-
-% 2. Sort P-values to calculate Q-values (Benjamini-Hochberg)
-[p_sorted, sort_idx] = sort(raw_p_vals);
-m = length(p_sorted); % Total number of tests
-q_vals = zeros(size(p_sorted));
-
-% Calculate Q-values
-% Formula: q_val = p_val * (Total_Tests / Rank)
-for k = 1:m
-    q_vals(k) = p_sorted(k) * (m / k);
-end
-
-% 3. Enforce monotonicity (a q-value cannot decrease as p-value increases)
-for k = m-1:-1:1
-    q_vals(k) = min(q_vals(k), q_vals(k+1));
-end
-% Cap q-values at 1.0
-q_vals(q_vals > 1) = 1;
-
-% 4. Create a Results Table
-% Map back to original order to match names
-q_vals_unsorted = zeros(size(raw_p_vals));
-q_vals_unsorted(sort_idx) = q_vals;
-
-results_table = table(metric_names, raw_p_vals, q_vals_unsorted, ...
-    'VariableNames', {'Metric', 'P_Value', 'Q_Value'});
-
-% Sort by P-value for readability
-results_table = sortrows(results_table, 'P_Value');
-
-% 5. Display the Top 10 Results
-fprintf('\n--- Top 10 Results by Q-Value (FDR) ---\n');
-num_to_disp = min(10, height(results_table));
-disp(results_table(1:num_to_disp, :));
-
-% 6. Plot P-values vs Q-values
-figure('Name', ['P-value vs Q-value Analysis ' fx_label ' — ' dtype_label], 'Position', [300, 300, 600, 500]);
-scatter(results_table.P_Value, results_table.Q_Value, 50, 'filled');
-xlabel('Raw P-Value');
-ylabel('Q-Value (FDR)');
-title(['Significance Analysis: P vs Q (' fx_label ', ' dtype_label ')']);
-yline(0.05, 'r--', 'Q = 0.05 (Significance Threshold)');
-grid on;
-saveas(gcf, fullfile(output_folder, ['P_vs_Q_' fx_label '_' dtype_label '.png']));
-close(gcf);
-
-%% ---------- Holm-Bonferroni Correction (FWER Control) ----------
-% Controls the family-wise error rate (FWER) using the step-down Holm
-% procedure. More powerful than classical Bonferroni but still strict.
-% Algorithm: sort p-values ascending; compare the k-th smallest to
-% α/(m+1−k). Reject until the first failure, then stop.
-% Visualization: sorted p-values vs step-down thresholds.
-% 1. Gather all raw p-values (re-running extraction to be safe)
-raw_p_vals = [];
-metric_labels = {};
-current_metrics = metric_sets{2};
-current_names = set_names{2};
-for m = 1:length(current_metrics)
-    metric_data = current_metrics{m};
-    for tp = [2, 3]
-        if tp > size(metric_data, 2)
-            continue;
-        end
-        y_raw = metric_data(valid_pts, tp);
-        g = lf_group(~isnan(y_raw));
-        y = y_raw(~isnan(y_raw));
-        if length(unique(g)) > 1 && length(y) > 2
-            p = ranksum(y(g==0), y(g==1));
-            raw_p_vals(end+1, 1) = p;
-            metric_labels{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
-        end
-    end
-end
-
-% 2. Sort p-values from smallest to largest
-[p_sorted, sort_idx] = sort(raw_p_vals);
-m = length(p_sorted);       % Total number of tests
-alpha = 0.05;               % Desired FWER
-
-% 3. Calculate Holm-Bonferroni Thresholds
-% The critical value adjusts for the number of REMAINING tests
-% Threshold_k = alpha / (m + 1 - k)
-holm_thresholds = alpha ./ (m + 1 - (1:m)');
-
-% 4. Determine Significance
-% A test is significant if its p-value < holm_threshold
-% AND all preceding tests were also significant.
-is_sig_holm = false(size(p_sorted));
-for k = 1:m
-    if p_sorted(k) < holm_thresholds(k)
-        is_sig_holm(k) = true;
-    else
-        % Stop at the first failure. All subsequent tests are non-significant.
-        break; 
-    end
-end
-
-% 5. Map back to original labels and display
-results_holm = table(metric_labels(sort_idx), p_sorted, holm_thresholds, is_sig_holm, ...
-    'VariableNames', {'Metric', 'Raw_P', 'Holm_Threshold', 'Significant'});
-
-fprintf('\n--- Holm-Bonferroni FWER Analysis ---\n');
-fprintf('Family Size (m): %d tests\n', m);
-fprintf('Uncorrected FWER Probability: %.2f%%\n', (1 - (1-alpha)^m)*100);
-fprintf('Top 5 Results:\n');
-num_to_disp_holm = min(5, height(results_holm));
-disp(results_holm(1:num_to_disp_holm, :));
-
-if any(is_sig_holm)
-    fprintf('SUCCESS: One or more results survived FWER control.\n');
-else
-    fprintf('RESULT: No findings survived FWER control.\n');
-    fprintf('The "Best" P-value (%.4f) did not beat the first hurdle (%.4f).\n', ...
-        p_sorted(1), holm_thresholds(1));
-end
-
-% 6. Visualization
-figure('Name', ['Holm-Bonferroni Step-Down ' fx_label ' — ' dtype_label], 'Position', [400, 400, 700, 500]);
-plot(1:m, p_sorted, 'bo-', 'LineWidth', 1.5, 'MarkerFaceColor', 'b'); hold on;
-plot(1:m, holm_thresholds, 'r--', 'LineWidth', 2);
-xlabel('Rank (k)');
-ylabel('P-Value');
-title(['Holm-Bonferroni Procedure (' fx_label ', ' dtype_label ')']);
-legend({'Your Sorted P-values', 'Holm Step-Down Threshold'}, 'Location', 'NorthWest');
-grid on;
-saveas(gcf, fullfile(output_folder, ['Holm_Bonferroni_' fx_label '_' dtype_label '.png']));
-close(gcf);
 
 %% ---------- Leave-Pair-Out Cross-Validation (LPOCV) ----------
 % LPOCV provides an unbiased AUC estimate by testing every possible
@@ -1800,10 +1619,12 @@ for vi = 1:n_sig
         if sum(event_idx) >= 3
             sch_res = stats.sschres(event_idx);
             event_times = cox_times(event_idx);
+            log_event_times = log(event_times);  % Log-transform to reduce leverage of late events
             
-            % Correlation test between scaled Schoenfeld residuals and event times
-            [r_ph, p_ph] = corr(event_times, sch_res, 'Type', 'Pearson');
-            fprintf('Proportional Hazards Test (Pearson correlation):\n');
+            % Correlation test between scaled Schoenfeld residuals and log(event times)
+            % Using Spearman rank correlation for robustness to outliers.
+            [r_ph, p_ph] = corr(log_event_times, sch_res, 'Type', 'Spearman');
+            fprintf('Proportional Hazards Test (Spearman correlation, log time):\n');
             fprintf('  R = %.3f, p-value = %.4f\n', r_ph, p_ph);
             
             if p_ph < 0.05
@@ -1811,20 +1632,20 @@ for vi = 1:n_sig
             end
             fprintf('\n');
 
-            % Plot Scaled Schoenfeld Residuals
+            % Plot Scaled Schoenfeld Residuals vs log(event time)
             figure('Name', ['Schoenfeld Residuals: ' var_desc ' ' curr_sig_name ' at ' fx_label], 'Position', [100, 100, 600, 500]);
-            scatter(event_times, sch_res, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
+            scatter(log_event_times, sch_res, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
             
             % Add trend line
-            p_fit = polyfit(event_times, sch_res, 1);
-            x_trend = linspace(min(event_times), max(event_times), 100);
+            p_fit = polyfit(log_event_times, sch_res, 1);
+            x_trend = linspace(min(log_event_times), max(log_event_times), 100);
             y_trend = polyval(p_fit, x_trend);
             plot(x_trend, y_trend, 'r-', 'LineWidth', 2);
             
             yline(0, 'k--', 'LineWidth', 1.5);
-            xlabel('Time to Event (Days)', 'FontSize', 12, 'FontWeight', 'bold');
+            xlabel('log(Time to Event) [log(Days)]', 'FontSize', 12, 'FontWeight', 'bold');
             ylabel('Scaled Schoenfeld Residuals', 'FontSize', 12, 'FontWeight', 'bold');
-            title({['Proportional Hazards Check: ' curr_sig_name], ['Correlation: r = ' num2str(r_ph, '%.3f') ', p = ' num2str(p_ph, '%.3f')]}, 'FontSize', 14);
+            title({['Proportional Hazards Check: ' curr_sig_name], ['Spearman Corr (log time): r = ' num2str(r_ph, '%.3f') ', p = ' num2str(p_ph, '%.3f')]}, 'FontSize', 14);
             legend('Residuals', 'Trend', 'Zero Line', 'Location', 'Best');
             grid on;
             
@@ -1937,11 +1758,13 @@ try
                 sch_res_bio = stats.sschres(:, 1);
                 sch_res_vol = stats.sschres(:, 2);
                 event_times = y_time(event_idx);
+                log_event_times = log(event_times);  % Log-transform to reduce leverage of late events
                 
-                [r_ph_bio, p_ph_bio] = corr(event_times, sch_res_bio, 'Type', 'Pearson');
-                [r_ph_vol, p_ph_vol] = corr(event_times, sch_res_vol, 'Type', 'Pearson');
+                % Spearman rank correlation on log(event_times) for robustness
+                [r_ph_bio, p_ph_bio] = corr(log_event_times, sch_res_bio, 'Type', 'Spearman');
+                [r_ph_vol, p_ph_vol] = corr(log_event_times, sch_res_vol, 'Type', 'Spearman');
                 
-                fprintf('  Proportional Hazards Test (Pearson correlation):\n');
+                fprintf('  Proportional Hazards Test (Spearman correlation, log time):\n');
                 fprintf('     Variable 1 (%s): R = %.3f, p-value = %.4f\n', curr_sig_name, r_ph_bio, p_ph_bio);
                 fprintf('     Variable 2 (Volume): R = %.3f, p-value = %.4f\n', r_ph_vol, p_ph_vol);
                 
@@ -1952,17 +1775,17 @@ try
                     warning('Proportional hazards assumption may be violated for multivariable Volume (p = %.3f)', p_ph_vol);
                 end
                 
-                % Plot for Biomarker
+                % Plot for Biomarker vs log(event time)
                 figure('Name', ['MV Schoenfeld: ' var_desc ' ' curr_sig_name ' at ' fx_label], 'Position', [100, 100, 600, 500]);
-                scatter(event_times, sch_res_bio, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
-                p_fit = polyfit(event_times, sch_res_bio, 1);
-                x_trend = linspace(min(event_times), max(event_times), 100);
+                scatter(log_event_times, sch_res_bio, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
+                p_fit = polyfit(log_event_times, sch_res_bio, 1);
+                x_trend = linspace(min(log_event_times), max(log_event_times), 100);
                 y_trend = polyval(p_fit, x_trend);
                 plot(x_trend, y_trend, 'r-', 'LineWidth', 2);
                 yline(0, 'k--', 'LineWidth', 1.5);
-                xlabel('Time to Event (Days)', 'FontSize', 12, 'FontWeight', 'bold');
+                xlabel('log(Time to Event) [log(Days)]', 'FontSize', 12, 'FontWeight', 'bold');
                 ylabel('Scaled Schoenfeld Residuals', 'FontSize', 12, 'FontWeight', 'bold');
-                title({['MV Proportional Hazards Check: ' curr_sig_name], ['Correlation: r = ' num2str(r_ph_bio, '%.3f') ', p = ' num2str(p_ph_bio, '%.3f')]}, 'FontSize', 14);
+                title({['MV Proportional Hazards Check: ' curr_sig_name], ['Spearman Corr (log time): r = ' num2str(r_ph_bio, '%.3f') ', p = ' num2str(p_ph_bio, '%.3f')]}, 'FontSize', 14);
                 legend('Residuals', 'Trend', 'Zero Line', 'Location', 'Best');
                 grid on;
                 safe_name = strrep(curr_sig_name, '*', 'star');
@@ -1982,6 +1805,168 @@ catch ME
     fprintf('Error in Cox Regression: %s\n', ME.message);
 end
 end % for target_fx
+
+%% ---------- Q-Value (FDR) Analysis — Full Metric Sweep ----------
+% Re-gathers ALL raw p-values from the 4 metric sets × all timepoints,
+% applies Benjamini-Hochberg to compute q-values, and generates a
+% scatter plot of raw P vs adjusted Q to visualize inflation.
+% Runs once globally (after all per-timepoint loops) to avoid redundant
+% re-computation and duplication of figures.
+
+% 1. Gather all raw p-values from the previous analysis
+raw_p_vals = [];
+metric_names = {};
+
+current_metrics = metric_sets{2};
+current_names = set_names{2};
+for m = 1:length(current_metrics)
+    metric_data = current_metrics{m};
+    for tp = [2, 3]
+        if tp > size(metric_data, 2)
+            continue;
+        end
+        % Extract data
+        y_raw = metric_data(valid_pts, tp);
+        g = lf_group(~isnan(y_raw));
+        y = y_raw(~isnan(y_raw));
+
+        % Run ranksum if sufficient data exists
+        if length(unique(g)) > 1 && length(y) > 2
+            p = ranksum(y(g==0), y(g==1));
+            raw_p_vals(end+1, 1) = p;
+            metric_names{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+        end
+    end
+end
+
+% 2. Sort P-values to calculate Q-values (Benjamini-Hochberg)
+[p_sorted, sort_idx] = sort(raw_p_vals);
+m = length(p_sorted); % Total number of tests
+q_vals = zeros(size(p_sorted));
+
+% Calculate Q-values
+% Formula: q_val = p_val * (Total_Tests / Rank)
+for k = 1:m
+    q_vals(k) = p_sorted(k) * (m / k);
+end
+
+% 3. Enforce monotonicity (a q-value cannot decrease as p-value increases)
+for k = m-1:-1:1
+    q_vals(k) = min(q_vals(k), q_vals(k+1));
+end
+% Cap q-values at 1.0
+q_vals(q_vals > 1) = 1;
+
+% 4. Create a Results Table
+% Map back to original order to match names
+q_vals_unsorted = zeros(size(raw_p_vals));
+q_vals_unsorted(sort_idx) = q_vals;
+
+results_table = table(metric_names, raw_p_vals, q_vals_unsorted, ...
+    'VariableNames', {'Metric', 'P_Value', 'Q_Value'});
+
+% Sort by P-value for readability
+results_table = sortrows(results_table, 'P_Value');
+
+% 5. Display the Top 10 Results
+fprintf('\n--- Top 10 Results by Q-Value (FDR) ---\n');
+num_to_disp = min(10, height(results_table));
+disp(results_table(1:num_to_disp, :));
+
+% 6. Plot P-values vs Q-values
+figure('Name', ['P-value vs Q-value Analysis — ' dtype_label], 'Position', [300, 300, 600, 500]);
+scatter(results_table.P_Value, results_table.Q_Value, 50, 'filled');
+xlabel('Raw P-Value');
+ylabel('Q-Value (FDR)');
+title(['Significance Analysis: P vs Q (Global, ' dtype_label ')']);
+yline(0.05, 'r--', 'Q = 0.05 (Significance Threshold)');
+grid on;
+saveas(gcf, fullfile(output_folder, ['P_vs_Q_Global_' dtype_label '.png']));
+close(gcf);
+
+%% ---------- Holm-Bonferroni Correction (FWER Control) ----------
+% Controls the family-wise error rate (FWER) using the step-down Holm
+% procedure. More powerful than classical Bonferroni but still strict.
+% Algorithm: sort p-values ascending; compare the k-th smallest to
+% α/(m+1−k). Reject until the first failure, then stop.
+% Visualization: sorted p-values vs step-down thresholds.
+% Runs once globally (after all per-timepoint loops).
+
+% 1. Gather all raw p-values
+raw_p_vals = [];
+metric_labels = {};
+current_metrics = metric_sets{2};
+current_names = set_names{2};
+for m = 1:length(current_metrics)
+    metric_data = current_metrics{m};
+    for tp = [2, 3]
+        if tp > size(metric_data, 2)
+            continue;
+        end
+        y_raw = metric_data(valid_pts, tp);
+        g = lf_group(~isnan(y_raw));
+        y = y_raw(~isnan(y_raw));
+        if length(unique(g)) > 1 && length(y) > 2
+            p = ranksum(y(g==0), y(g==1));
+            raw_p_vals(end+1, 1) = p;
+            metric_labels{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+        end
+    end
+end
+
+% 2. Sort p-values from smallest to largest
+[p_sorted, sort_idx] = sort(raw_p_vals);
+m = length(p_sorted);       % Total number of tests
+alpha = 0.05;               % Desired FWER
+
+% 3. Calculate Holm-Bonferroni Thresholds
+% The critical value adjusts for the number of REMAINING tests
+% Threshold_k = alpha / (m + 1 - k)
+holm_thresholds = alpha ./ (m + 1 - (1:m)');
+
+% 4. Determine Significance
+% A test is significant if its p-value < holm_threshold
+% AND all preceding tests were also significant.
+is_sig_holm = false(size(p_sorted));
+for k = 1:m
+    if p_sorted(k) < holm_thresholds(k)
+        is_sig_holm(k) = true;
+    else
+        % Stop at the first failure. All subsequent tests are non-significant.
+        break;
+    end
+end
+
+% 5. Map back to original labels and display
+results_holm = table(metric_labels(sort_idx), p_sorted, holm_thresholds, is_sig_holm, ...
+    'VariableNames', {'Metric', 'Raw_P', 'Holm_Threshold', 'Significant'});
+
+fprintf('\n--- Holm-Bonferroni FWER Analysis ---\n');
+fprintf('Family Size (m): %d tests\n', m);
+fprintf('Uncorrected FWER Probability: %.2f%%\n', (1 - (1-alpha)^m)*100);
+fprintf('Top 5 Results:\n');
+num_to_disp_holm = min(5, height(results_holm));
+disp(results_holm(1:num_to_disp_holm, :));
+
+if any(is_sig_holm)
+    fprintf('SUCCESS: One or more results survived FWER control.\n');
+else
+    fprintf('RESULT: No findings survived FWER control.\n');
+    fprintf('The "Best" P-value (%.4f) did not beat the first hurdle (%.4f).\n', ...
+        p_sorted(1), holm_thresholds(1));
+end
+
+% 6. Visualization
+figure('Name', ['Holm-Bonferroni Step-Down — ' dtype_label], 'Position', [400, 400, 700, 500]);
+plot(1:m, p_sorted, 'bo-', 'LineWidth', 1.5, 'MarkerFaceColor', 'b'); hold on;
+plot(1:m, holm_thresholds, 'r--', 'LineWidth', 2);
+xlabel('Rank (k)');
+ylabel('P-Value');
+title(['Holm-Bonferroni Procedure (Global, ' dtype_label ')']);
+legend({'Your Sorted P-values', 'Holm Step-Down Threshold'}, 'Location', 'NorthWest');
+grid on;
+saveas(gcf, fullfile(output_folder, ['Holm_Bonferroni_Global_' dtype_label '.png']));
+close(gcf);
 
 %% ---------- 8. Longitudinal Mixed-Effects Model (GLME) ----------
 fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
