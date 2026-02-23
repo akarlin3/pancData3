@@ -42,6 +42,19 @@
 % =========================================================================
 
 %% ========================================================================
+%  WORKSPACE CLEANUP
+%  test.m runs as a script and leaks variables into the base workspace that
+%  shadow built-in MATLAB functions used here (e.g. lines(), test(),
+%  training()). Clear them defensively before metrics begins.
+% =========================================================================
+cleanup_names = {'lines', 'test', 'training', 'text', 'labels', 'cvp', 'k', 'n_pass', 'n_fail', ...
+                 'metrics_code', 'vis_code'};
+for ci = 1:numel(cleanup_names)
+    if exist(cleanup_names{ci}, 'var'), clear(cleanup_names{ci}); end
+end
+clear cleanup_names ci
+
+%% ========================================================================
 %  SECTION 1: Repeatability — Within-Subject Coefficient of Variation (wCV)
 % =========================================================================
 % wCV quantifies scan-rescan reproducibility. It is defined as:
@@ -220,6 +233,7 @@ m_mrn_list             = mrn_list;
 m_d95_gtvp             = d95_gtvp;
 m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
+% (Debug prints removed)
 if exclude_missing_baseline
     fprintf('Excluding patients with missing baseline data\n');
     m_lf                   = m_lf(valid_baseline);
@@ -958,6 +972,9 @@ end
 labels = lf_group; % 0 = LC, 1 = LF
 
 % Pre-allocate ROC storage: FPR (X), TPR (Y), thresholds (T), AUC, cutoff
+% Note: clear 'lines' to prevent any workspace variable named 'lines' from
+% shadowing the built-in lines() colormap function (test.m can leak this).
+if exist('lines', 'var'), clear lines; end
 roc_colors = lines(n_sig);       % Distinct colours per variable
 roc_X = cell(1, n_sig);          % False positive rate vectors
 roc_Y = cell(1, n_sig);          % True positive rate vectors
@@ -1531,7 +1548,11 @@ title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
 p_vol = ranksum(vol_pct(lf_group==0), vol_pct(lf_group==1));
 
 y_lim = ylim;
-text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_vol), 'HorizontalAlignment', 'center', 'FontSize', 11);
+% Ensure axis has finite and distinct limits before placing text annotation
+if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
+    text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), sprintf('p = %.3f', p_vol), ...
+        'HorizontalAlignment', 'center', 'FontSize', 11);
+end
 grid on;
 if p_vol > 0.05
     xlabel('Conclusion: No Volumetric Bias');
@@ -1685,8 +1706,16 @@ end
 % We used: D < 0.001 and f < 0.1
 % Let's look at Fx2 (where the Dose finding was significant)
 % Note: 'ivim_sub_vol' contains volume in cc. 'm_gtv_vol' is total.
-sub_vol_cc = ivim_sub_vol(valid_pts, 2, 1); % Fx2, standard fit
-total_vol_cc = m_gtv_vol(valid_pts, 2);
+if target_fx <= size(ivim_sub_vol, 2)
+    sub_vol_cc = ivim_sub_vol(valid_pts, target_fx, 1);
+else
+    sub_vol_cc = nan(sum(valid_pts), 1);
+end
+if target_fx <= size(m_gtv_vol, 2)
+    total_vol_cc = m_gtv_vol(valid_pts, target_fx);
+else
+    total_vol_cc = nan(sum(valid_pts), 1);
+end
 sub_vol_pct = (sub_vol_cc ./ total_vol_cc) * 100;
 
 fprintf('\n--- SUB-VOLUME CHARACTERISTICS (Fx2) ---\n');
@@ -1706,7 +1735,11 @@ fprintf('\n--- GENERATING DEFENSE ANALYSES ---\n');
 
 % --- B. DOSE-RESPONSE CORRELATION ---
 try
-    dose_vals = dmean_gtvp(valid_pts, target_fx);
+    if target_fx <= size(dmean_gtvp, 2)
+        dose_vals = dmean_gtvp(valid_pts, target_fx);
+    else
+        dose_vals = nan(sum(valid_pts), 1);
+    end
     
     % Test dose-response for each significant variable
     for vi = 1:n_sig
@@ -1779,13 +1812,17 @@ try
                 event_times = y_time(event_idx);
                 log_event_times = log(event_times);  % Log-transform to reduce leverage of late events
                 
-                % Spearman rank correlation on log(event_times) for robustness
-                [r_ph_bio, p_ph_bio] = corr(log_event_times, sch_res_bio, 'Type', 'Spearman');
-                [r_ph_vol, p_ph_vol] = corr(log_event_times, sch_res_vol, 'Type', 'Spearman');
-                
-                fprintf('  Proportional Hazards Test (Spearman correlation, log time):\n');
-                fprintf('     Variable 1 (%s): R = %.3f, p-value = %.4f\n', curr_sig_name, r_ph_bio, p_ph_bio);
-                fprintf('     Variable 2 (Volume): R = %.3f, p-value = %.4f\n', r_ph_vol, p_ph_vol);
+                if size(stats.sschres, 1) == length(log_event_times)
+                    % Spearman rank correlation on log(event_times) for robustness
+                    [r_ph_bio, p_ph_bio] = corr(log_event_times, sch_res_bio, 'Type', 'Spearman');
+                    [r_ph_vol, p_ph_vol] = corr(log_event_times, sch_res_vol, 'Type', 'Spearman');
+                    
+                    fprintf('  Proportional Hazards Test (Spearman correlation, log time):\n');
+                    fprintf('     Variable 1 (%s): R = %.3f, p-value = %.4f\n', curr_sig_name, r_ph_bio, p_ph_bio);
+                    fprintf('     Variable 2 (Volume): R = %.3f, p-value = %.4f\n', r_ph_vol, p_ph_vol);
+                else
+                    fprintf('  Proportional Hazards Test: Residual count (%d) mismatch with event count (%d). Skipping.\n', size(stats.sschres, 1), length(log_event_times));
+                end
                 
                 if p_ph_bio < 0.05
                     warning('Proportional hazards assumption may be violated for multivariable %s (p = %.3f)', curr_sig_name, p_ph_bio);

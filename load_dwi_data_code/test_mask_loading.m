@@ -2,7 +2,7 @@
 diary(fullfile('saved_figures', 'test_mask_loading_output.txt'));
 diary on;
 dataloc = '\\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\';
-load([dataloc 'adc_vectors.mat'], 'id_list', 'data_vectors_gtvp', 'gtv_locations');
+load([dataloc 'dwi_vectors.mat'], 'id_list', 'data_vectors_gtvp', 'gtv_locations');
 
 found = false;
 for j = 1:size(gtv_locations,1)
