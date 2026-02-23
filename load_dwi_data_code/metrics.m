@@ -9,7 +9,7 @@
 %   2. Clinical outcome data loading (local failure status, time-to-event)
 %   3. Longitudinal metric visualization (absolute & percent-change plots)
 %   4. Dose–volume histogram (DVH) metrics for DWI-defined sub-volumes
-%   5. Univariate analysis (ANOVA boxplots: LC vs LF at each fraction)
+%   5. Univariate analysis (Wilcoxon rank-sum boxplots: LC vs LF at each fraction)
 %   6. Multiple-comparison corrections (FDR / Benjamini-Hochberg,
 %      Holm-Bonferroni)
 %   7. LASSO-regularized feature selection (binomial logistic, 5-fold CV)
@@ -271,11 +271,11 @@ f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
 % Calculate percent change relative to pretreatment (Fx1)
-% Formula: (Fx_n - Fx_1) / Fx_1 * 100
-ADC_pct = (ADC_abs - ADC_abs(:,1)) ./ ADC_abs(:,1) * 100;
-D_pct   = (D_abs - D_abs(:,1)) ./ D_abs(:,1) * 100;
-f_pct   = (f_abs - f_abs(:,1)) ./ f_abs(:,1) * 100;
-Dstar_pct = (Dstar_abs - Dstar_abs(:,1)) ./ Dstar_abs(:,1) * 100;
+% Formula: ((Fx_n - Fx_1) ./ (0.5 * (Fx_n + Fx_1))) * 100
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (0.5 * (ADC_abs + ADC_abs(:,1)))) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ (0.5 * (D_abs + D_abs(:,1)))) * 100;
+f_pct   = ((f_abs - f_abs(:,1)) ./ (0.5 * (f_abs + f_abs(:,1)))) * 100;
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (0.5 * (Dstar_abs + Dstar_abs(:,1)))) * 100;
 
 % Group data for easy iteration
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
@@ -384,6 +384,8 @@ d95_dstar_sub = nan(length(m_id_list), nTp);
 v50_dstar_sub = nan(length(m_id_list), nTp);
 
 for j = 1:length(m_id_list)
+    % Find original patient index to correctly map to unfiltered gtv_locations
+    j_orig = find(strcmp(id_list, m_id_list{j}));
     for k = 1:nTp
         % Extract vectors for standard DWI processing (dwi_type = 1, rpi = 1)
         adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
@@ -395,33 +397,81 @@ for j = 1:length(m_id_list)
         % Proceed only if both dose and DWI data exist for this timepoint
         if ~isempty(dose_vec) && ~isempty(adc_vec)
             
+            % Load 3D GTV mask to apply spatial operations
+            gtv_mat = gtv_locations{j_orig, k, 1};
+            has_3d = false;
+            if ~isempty(gtv_mat)
+                % Convert mapped network drive paths if necessary
+                gtv_mat = strrep(gtv_mat, '/Volumes/aliottae/pancreas_dwi/', dataloc);
+                gtv_mat = strrep(gtv_mat, '/', filesep);
+                if exist(gtv_mat, 'file')
+                    tmp = load(gtv_mat, 'Stvol3d');
+                    gtv_mask_3d = tmp.Stvol3d;
+                    if sum(gtv_mask_3d(:) == 1) == length(adc_vec)
+                        has_3d = true;
+                    end
+                end
+            end
+            
+            % Parameters for 3D morphological cleanup
+            se = strel('sphere', 1);
+            min_cc_voxels = 10;
+            
             % 1. ADC Sub-volume Coverage
-            adc_mask = adc_vec < adc_thresh;
-            dose_adc_sub = dose_vec(adc_mask);
+            adc_mask_1d = adc_vec < adc_thresh;
+            if has_3d
+                vol_3d = false(size(gtv_mask_3d));
+                vol_3d(gtv_mask_3d == 1) = adc_mask_1d;
+                vol_3d = imclose(imopen(vol_3d, se), se);
+                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
+                adc_mask_1d = vol_3d(gtv_mask_3d == 1);
+            end
+            dose_adc_sub = dose_vec(adc_mask_1d);
             if ~isempty(dose_adc_sub)
                 d95_adc_sub(j,k) = prctile(dose_adc_sub, 5); % 5th percentile = D95
                 v50_adc_sub(j,k) = sum(dose_adc_sub >= 50) / length(dose_adc_sub) * 100;
             end
             
             % 2. D Sub-volume Coverage
-            d_mask = d_vec < d_thresh;
-            dose_d_sub = dose_vec(d_mask);
+            d_mask_1d = d_vec < d_thresh;
+            if has_3d
+                vol_3d = false(size(gtv_mask_3d));
+                vol_3d(gtv_mask_3d == 1) = d_mask_1d;
+                vol_3d = imclose(imopen(vol_3d, se), se);
+                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
+                d_mask_1d = vol_3d(gtv_mask_3d == 1);
+            end
+            dose_d_sub = dose_vec(d_mask_1d);
             if ~isempty(dose_d_sub)
                 d95_d_sub(j,k) = prctile(dose_d_sub, 5);
                 v50_d_sub(j,k) = sum(dose_d_sub >= 50) / length(dose_d_sub) * 100;
             end
             
             % 3. f Sub-volume Coverage
-            f_mask = f_vec < f_thresh;
-            dose_f_sub = dose_vec(f_mask);
+            f_mask_1d = f_vec < f_thresh;
+            if has_3d
+                vol_3d = false(size(gtv_mask_3d));
+                vol_3d(gtv_mask_3d == 1) = f_mask_1d;
+                vol_3d = imclose(imopen(vol_3d, se), se);
+                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
+                f_mask_1d = vol_3d(gtv_mask_3d == 1);
+            end
+            dose_f_sub = dose_vec(f_mask_1d);
             if ~isempty(dose_f_sub)
                 d95_f_sub(j,k) = prctile(dose_f_sub, 5);
                 v50_f_sub(j,k) = sum(dose_f_sub >= 50) / length(dose_f_sub) * 100;
             end
             
             % 4. D* Sub-volume Coverage
-            dstar_mask = dstar_vec < dstar_thresh;
-            dose_dstar_sub = dose_vec(dstar_mask);
+            dstar_mask_1d = dstar_vec < dstar_thresh;
+            if has_3d
+                vol_3d = false(size(gtv_mask_3d));
+                vol_3d(gtv_mask_3d == 1) = dstar_mask_1d;
+                vol_3d = imclose(imopen(vol_3d, se), se);
+                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
+                dstar_mask_1d = vol_3d(gtv_mask_3d == 1);
+            end
+            dose_dstar_sub = dose_vec(dstar_mask_1d);
             if ~isempty(dose_dstar_sub)
                 d95_dstar_sub(j,k) = prctile(dose_dstar_sub, 5);
                 v50_dstar_sub(j,k) = sum(dose_dstar_sub >= 50) / length(dose_dstar_sub) * 100;
@@ -432,9 +482,9 @@ for j = 1:length(m_id_list)
 end
 
 %% ========================================================================
-%  SECTION 7: Univariate Analysis — Metric Sets vs Local Failure (ANOVA)
+%  SECTION 7: Univariate Analysis — Metric Sets vs Local Failure (Wilcoxon Rank-Sum)
 % =========================================================================
-% For each metric × timepoint combination, run one-way ANOVA comparing
+% For each metric × timepoint combination, run a Wilcoxon rank-sum test comparing
 % local control (LC=0) vs local failure (LF=1). Results are displayed as
 % multi-panel boxplot figures with p-values highlighted in red when < 0.05.
 %
@@ -469,10 +519,10 @@ set_names = {
 };
 
 figure_titles = {
-    '1. Absolute DWI/IVIM Metrics vs Local Failure', ...
-    '2. Percent Change Metrics vs Local Failure', ...
-    '3. Target Coverage (D95): Whole GTV vs Resistant Sub-volumes', ...
-    '4. Target Coverage (V50): Whole GTV vs Resistant Sub-volumes'
+    '1. Absolute DWI/IVIM Metrics vs Local Failure (Wilcoxon Rank-Sum)', ...
+    '2. Percent Change Metrics vs Local Failure (Wilcoxon Rank-Sum)', ...
+    '3. Target Coverage (D95): Whole GTV vs Resistant Sub-volumes (Wilcoxon Rank-Sum)', ...
+    '4. Target Coverage (V50): Whole GTV vs Resistant Sub-volumes (Wilcoxon Rank-Sum)'
 };
 
 time_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};
@@ -517,10 +567,10 @@ for s = 1:length(metric_sets)
             y = y_raw(has_data);
             g = lf_group(has_data);
             
-            % Check if we have enough data in both groups to run ANOVA
+            % Check if we have enough data in both groups to run Wilcoxon rank-sum test
             unique_groups = unique(g);
             if length(unique_groups) > 1 && length(y) > 2
-                % Compute ANOVA quietly
+                % Compute Wilcoxon rank-sum quietly
                 p = ranksum(y(g==0), y(g==1));
                 
                 % Plot boxplot
@@ -560,7 +610,7 @@ for s = 1:length(metric_sets)
     close(gcf);
 end
 %% ========================================================================
-%  SECTION 8: Compile and Export All Significant (p < 0.05) ANOVA Results
+%  SECTION 8: Compile and Export All Significant (p < 0.05) Wilcoxon Rank-Sum Results
 % =========================================================================
 % Re-iterates through all metric sets and timepoints to collect every
 % comparison that reached nominal significance (uncorrected p < 0.05).
@@ -751,7 +801,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     n_lambdas = 25;
 
     % Generate common lambda sequence using dummy full-data pass
-    dummy_clean = fillmissing(X_impute, 'constant', median(X_impute, 1, 'omitnan'));
+    dummy_clean = knn_impute_train_test(X_impute, [], 5);
     [~, FitInfo_dummy] = lassoglm(dummy_clean, y_clean, 'binomial', 'NumLambda', n_lambdas, 'Standardize', true);
     if length(FitInfo_dummy.Lambda) < n_lambdas
         common_Lambda = [FitInfo_dummy.Lambda, zeros(1, n_lambdas - length(FitInfo_dummy.Lambda))];
@@ -769,10 +819,8 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         y_tr = y_clean(tr_idx);
         y_te = y_clean(te_idx);
         
-        % Impute using ONLY training median
-        tr_med = median(X_tr, 1, 'omitnan');
-        X_tr = fillmissing(X_tr, 'constant', tr_med);
-        X_te = fillmissing(X_te, 'constant', tr_med);
+        % Impute using KNN fitted strictly on training data
+        [X_tr, X_te] = knn_impute_train_test(X_tr, X_te, 5);
         
         % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
         R_fold = corrcoef(X_tr);
@@ -815,7 +863,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     best_lambda = common_Lambda(best_lam_idx);
 
     % --- Final Model Fit on Full Data ---
-    X_clean = fillmissing(X_impute, 'constant', median(X_impute, 1, 'omitnan'));
+    X_clean = knn_impute_train_test(X_impute, [], 5);
     R_corr = corrcoef(X_clean);
     drop_flag = false(1, size(X_clean, 2));
     for fi = 1:size(X_clean, 2)
@@ -851,14 +899,27 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     % Initialize flags and p-value tracking (for downstream sorting)
     sig_flags = false(1, 4);
     sig_p_best = ones(1, 4);
+    sig_form = zeros(1, 4); % 1 for Abs, 2 for Pct
 
     % Map LASSO selections back to the pipeline's expected format
     % Indices 1-4 are Absolute, 5-8 are Percent Change
     % If LASSO selects *either* Abs or Pct, we flag that metric.
-    if any(ismember([1, 5], selected_indices)), sig_flags(1) = true; end % ADC
-    if any(ismember([2, 6], selected_indices)), sig_flags(2) = true; end % D
-    if any(ismember([3, 7], selected_indices)), sig_flags(3) = true; end % f
-    if any(ismember([4, 8], selected_indices)), sig_flags(4) = true; end % D*
+    if any(ismember([1, 5], selected_indices))
+        sig_flags(1) = true; 
+        if ismember(1, selected_indices), sig_form(1) = 1; else, sig_form(1) = 2; end
+    end % ADC
+    if any(ismember([2, 6], selected_indices))
+        sig_flags(2) = true; 
+        if ismember(2, selected_indices), sig_form(2) = 1; else, sig_form(2) = 2; end
+    end % D
+    if any(ismember([3, 7], selected_indices))
+        sig_flags(3) = true; 
+        if ismember(3, selected_indices), sig_form(3) = 1; else, sig_form(3) = 2; end
+    end % f
+    if any(ismember([4, 8], selected_indices))
+        sig_flags(4) = true; 
+        if ismember(4, selected_indices), sig_form(4) = 1; else, sig_form(4) = 2; end
+    end % D*
 
     % Calculate p-values purely for sorting Kaplan-Meier plots downstream
     % (These do NOT determine significance anymore; LASSO does.)
@@ -892,11 +953,19 @@ end
 % for use in all downstream analyses (ROC, logistic regression, etc.)
 sig_pct_data = cell(1, n_sig);
 sig_abs_data = cell(1, n_sig);
+sig_data_selected = cell(1, n_sig);
 sig_names = cell(1, n_sig);
+sig_is_abs = false(1, n_sig);
 for si = 1:n_sig
     sig_pct_data{si} = all_pct_data{sig_idx(si)};
     sig_abs_data{si} = all_abs_data{sig_idx(si)};
     sig_names{si} = base_metric_names_all{sig_idx(si)};
+    sig_is_abs(si) = (sig_form(sig_idx(si)) == 1);
+    if sig_is_abs(si)
+        sig_data_selected{si} = sig_abs_data{si};
+    else
+        sig_data_selected{si} = sig_pct_data{si};
+    end
 end
 
 %% ---------- ROC Analysis (Receiver Operating Characteristic) ----------
@@ -920,7 +989,7 @@ roc_opt_thresh = zeros(1, n_sig);% Optimal %-change cutoff (un-negated)
 sig_fx_data = cell(1, n_sig);    % Cleaned predictor data at target Fx
 
 for vi = 1:n_sig
-    sig_fx_data{vi} = sig_pct_data{vi}(valid_pts, target_fx);
+    sig_fx_data{vi} = sig_data_selected{vi}(valid_pts, target_fx);
     valid_vi = ~isnan(sig_fx_data{vi}) & ~isnan(labels);
     data_clean = sig_fx_data{vi}(valid_vi);
     labels_clean = labels(valid_vi);
@@ -939,14 +1008,16 @@ figure('Name', ['ROC Analysis - ' fx_label ' — ' dtype_label], 'Position', [20
 hold on;
 
 leg_entries = {};
+feat_disp_names = cell(1, n_sig);
 for vi = 1:n_sig
+    if sig_is_abs(vi), feat_disp_names{vi} = ['Abs ' sig_names{vi}]; else, feat_disp_names{vi} = ['\Delta ' sig_names{vi}]; end
     plot(roc_X{vi}, roc_Y{vi}, '-', 'Color', roc_colors(vi,:), 'LineWidth', 2);
-    leg_entries{end+1} = sprintf('\\Delta %s (AUC = %.3f)', sig_names{vi}, roc_AUC(vi));
+    leg_entries{end+1} = sprintf('%s (AUC = %.3f)', feat_disp_names{vi}, roc_AUC(vi));
 end
 for vi = 1:n_sig
     plot(roc_X{vi}(roc_opt_idx(vi)), roc_Y{vi}(roc_opt_idx(vi)), 'o', ...
         'Color', roc_colors(vi,:), 'MarkerSize', 8, 'MarkerFaceColor', roc_colors(vi,:));
-    leg_entries{end+1} = sprintf('Optimal %s Cutoff', sig_names{vi});
+    leg_entries{end+1} = sprintf('Optimal %s Cutoff', feat_disp_names{vi});
 end
 
 plot([0 1], [0 1], 'k--', 'LineWidth', 1.5);
@@ -954,7 +1025,7 @@ leg_entries{end+1} = 'Random Guess';
 
 xlabel('False Positive Rate (1 - Specificity)', 'FontSize', 12, 'FontWeight', 'bold');
 ylabel('True Positive Rate (Sensitivity)', 'FontSize', 12, 'FontWeight', 'bold');
-sig_names_str = strjoin(cellfun(@(s) ['\Delta' s], sig_names, 'UniformOutput', false), ' and ');
+sig_names_str = strjoin(feat_disp_names, ' and ');
 title(['ROC Curve: ' sig_names_str ' Predicting Local Failure (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
 
 legend(leg_entries, 'Location', 'SouthEast', 'FontSize', 11);
@@ -966,8 +1037,9 @@ close(gcf);
 % Print results to the command window
 fprintf('\n--- ROC Analysis Results for %s ---\n', fx_label);
 for vi = 1:n_sig
-    fprintf('Delta %s: \n  AUC = %.3f \n  Optimal Threshold (Youden) = %.2f%%\n', ...
-        sig_names{vi}, roc_AUC(vi), roc_opt_thresh(vi));
+    if sig_is_abs(vi), unit_str = ''; else, unit_str = '%%'; end
+    fprintf('%s: \n  AUC = %.3f \n  Optimal Threshold (Youden) = %.2f%s\n', ...
+        feat_disp_names{vi}, roc_AUC(vi), roc_opt_thresh(vi), unit_str);
     fprintf('  Sensitivity at Threshold = %.2f%%\n  Specificity at Threshold = %.2f%%\n\n', ...
         roc_Y{vi}(roc_opt_idx(vi))*100, (1-roc_X{vi}(roc_opt_idx(vi)))*100);
 end
@@ -1183,17 +1255,9 @@ for i = 1:n_lf
         X_train = X_data(train_mask, :);
         Y_train = Y_data(train_mask);
         
-        % Impute train and test sets using ONLY training medians
-        tr_med = median(X_train, 1, 'omitnan');
-        for c = 1:size(X_train, 2)
-            if isnan(tr_med(c)), tr_med(c) = 0; end % Fallback if entire column is NaN
-            X_train(:, c) = fillmissing(X_train(:, c), 'constant', tr_med(c));
-        end
-        
+        % Impute train and test sets using KNN fitted strictly on training data
         X_test_pair = X_data([current_lf, current_lc], :);
-        for c = 1:size(X_test_pair, 2)
-            X_test_pair(:, c) = fillmissing(X_test_pair(:, c), 'constant', tr_med(c));
-        end
+        [X_train, X_test_pair] = knn_impute_train_test(X_train, X_test_pair, 5);
         
         % Feature selection via Elastic Net on training data only (no leakage)
         warning('off', 'all');
@@ -1287,8 +1351,8 @@ if n_sig >= 2
     hold on;
 
     % Use the first two significant variables for the 2D plot
-    x_val = sig_pct_data{1}(valid_pts, target_fx);
-    y_val = sig_pct_data{2}(valid_pts, target_fx);
+    x_val = sig_data_selected{1}(valid_pts, target_fx);
+    y_val = sig_data_selected{2}(valid_pts, target_fx);
     group = lf_group;
 
     scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
@@ -1303,8 +1367,10 @@ if n_sig >= 2
         plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
     end
 
-    xlabel(['\Delta ' sig_names{1} ' (%) at ' fx_label], 'FontSize', 12, 'FontWeight', 'bold');
-    ylabel(['\Delta ' sig_names{2} ' (%) at ' fx_label], 'FontSize', 12, 'FontWeight', 'bold');
+    if sig_is_abs(1), xl = ['Abs ' sig_names{1} ' at ' fx_label]; else, xl = ['\Delta ' sig_names{1} ' (%) at ' fx_label]; end
+    if sig_is_abs(2), yl = ['Abs ' sig_names{2} ' at ' fx_label]; else, yl = ['\Delta ' sig_names{2} ' (%) at ' fx_label]; end
+    xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
+    ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
     title(['Biomarker Interaction: Separation of LC vs LF (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
     if n_sig == 2
         legend({'Local Control', 'Local Failure', 'Logistic Decision Boundary'}, 'Location', 'NorthWest');
@@ -1355,15 +1421,9 @@ for loo_i = 1:n_km
     X_tr = X_tr(valid_tr, :);
     y_tr = y_tr(valid_tr);
     
-    % Imputation and Pre-filtering per train fold
-    tr_med = median(X_tr, 1, 'omitnan');
-    X_tr_imp = X_tr;
+    % Imputation and Pre-filtering per train fold using KNN
     X_test_imp = km_X_all(loo_i, :);
-    for c = 1:size(X_tr, 2)
-        if isnan(tr_med(c)), tr_med(c) = 0; end
-        X_tr_imp(:, c) = fillmissing(X_tr(:, c), 'constant', tr_med(c));
-        X_test_imp(:, c) = fillmissing(X_test_imp(:, c), 'constant', tr_med(c));
-    end
+    [X_tr_imp, X_test_imp] = knn_impute_train_test(X_tr, X_test_imp, 5);
     
     R_fold = corrcoef(X_tr_imp);
     drop_fold = false(1, size(X_tr_imp, 2));
@@ -1434,8 +1494,8 @@ figure('Name', ['Correlation Matrix ' fx_label ' — ' dtype_label], 'Position',
 feats = zeros(sum(valid_pts), n_sig);
 feat_names = cell(1, n_sig);
 for vi = 1:n_sig
-    feats(:, vi) = sig_pct_data{vi}(valid_pts, target_fx);
-    feat_names{vi} = ['\Delta' sig_names{vi}];
+    feats(:, vi) = sig_data_selected{vi}(valid_pts, target_fx);
+    if sig_is_abs(vi), feat_names{vi} = ['Abs ' sig_names{vi}]; else, feat_names{vi} = ['\Delta ' sig_names{vi}]; end
 end
 [R, P] = corrcoef(feats, 'Rows', 'complete');
 heatmap(feat_names, feat_names, R, 'ColorLimits', [-1 1], 'Colormap', jet);
@@ -1449,10 +1509,17 @@ close(gcf);
 
 %% ---------- Representative Parametric ADC Maps ----------
 for vi = 1:n_sig
-curr_sig_pct_full = sig_pct_data{vi};
+curr_sig_pct_full = sig_data_selected{vi};
 curr_sig_name = sig_names{vi};
+if sig_is_abs(vi)
+    curr_sig_disp = ['Abs ' curr_sig_name];
+    curr_sig_file = ['Abs_' curr_sig_name];
+else
+    curr_sig_disp = ['\Delta ' curr_sig_name];
+    curr_sig_file = ['Delta_' curr_sig_name];
+end
 
-fprintf('Generating Representative Maps for %s...\n', curr_sig_name);
+fprintf('Generating Representative Maps for %s...\n', curr_sig_disp);
 
 valid_for_plot = isfinite(m_lf) & ~isnan(curr_sig_pct_full(:,target_fx));
 
@@ -1471,7 +1538,7 @@ idx_nonresponder = lf_candidates(worst_rel_idx);
 patients_to_plot = [idx_responder, idx_nonresponder];
 titles = {'Responder (Local Control)', 'Non-Responder (Local Failure)'};
 
-figure('Name', ['Representative ADC Evolution ' curr_sig_name ' ' fx_label ' — ' dtype_label], 'Position', [50, 50, 1200, 800]);
+figure('Name', ['Representative ADC Evolution ' curr_sig_disp ' ' fx_label ' — ' dtype_label], 'Position', [50, 50, 1200, 800]);
 colormap(jet);
 
 for p = 1:2
@@ -1596,18 +1663,25 @@ end
 % Add shared colorbars: top = absolute ADC, bottom = difference (ΔADC)
 c1 = colorbar('Position', [0.92 0.55 0.02 0.35]); ylabel(c1, 'ADC');
 c2 = colorbar('Position', [0.92 0.11 0.02 0.35]); ylabel(c2, '\Delta ADC');
-sgtitle(['Representative Longitudinal ADC Response for ' curr_sig_name ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
-safe_name = strrep(curr_sig_name, '*', 'star');
+sgtitle(['Representative Longitudinal ADC Response for ' curr_sig_disp ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+safe_name = strrep(curr_sig_file, '*', 'star');
 saveas(gcf, fullfile(output_folder, ['Representative_ADC_' safe_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
 end % loop over sig variables
 
 %% 5. "Sanity Checks": Volume, Noise, and Heterogeneity
 for vi = 1:n_sig
-curr_sig_pct_full = sig_pct_data{vi};
+curr_sig_pct_full = sig_data_selected{vi};
 curr_sig_name = sig_names{vi};
+if sig_is_abs(vi)
+    curr_sig_disp = ['Abs ' curr_sig_name];
+    curr_sig_file = ['Abs_' curr_sig_name];
+else
+    curr_sig_disp = ['\Delta ' curr_sig_name];
+    curr_sig_file = ['Delta_' curr_sig_name];
+end
 
-figure('Name', ['Sanity Checks ' curr_sig_name ' ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
+figure('Name', ['Sanity Checks ' curr_sig_disp ' ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
 subplot(1, 3, 1);
 vol_fx1 = m_gtv_vol(valid_pts, 1);          
 vol_fx3 = m_gtv_vol(valid_pts, target_fx);  
@@ -1659,18 +1733,19 @@ yline(0, 'k-');
 yline(cor_est, 'k--', 'CoR (+7.8%)');
 yline(-cor_est, 'k--', 'CoR (-7.8%)');
 xticks([1 2]); xticklabels({'LC', 'LF'});
-ylabel(['\Delta ' curr_sig_name ' (%)']);
+if sig_is_abs(vi), ylbl = curr_sig_disp; else, ylbl = [curr_sig_disp ' (%)']; end
+ylabel(ylbl);
 title('Signal vs. Noise Floor', 'FontSize', 12, 'FontWeight', 'bold');
 grid on;
 xlim([0.5 2.5]);
 
-sgtitle(['Validation (' curr_sig_name '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(['Validation (' curr_sig_disp '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
     pos = allAx(k).Position;
     allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
 end
-safe_name = strrep(curr_sig_name, '*', 'star');
+safe_name = strrep(curr_sig_file, '*', 'star');
 saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
 end % loop over sig variables
@@ -1701,8 +1776,9 @@ end
 % --- PART B: HAZARD RATIOS (Cox Regression) ---
 fprintf('\n--- SURVIVAL ANALYSIS (Prognostic Value) ---\n');
 for vi = 1:n_sig
-    curr_sig_pct_full = sig_pct_data{vi}(valid_pts, target_fx);
+    curr_sig_pct_full = sig_data_selected{vi}(valid_pts, target_fx);
     curr_sig_name = sig_names{vi};
+    if sig_is_abs(vi), var_desc = 'Absolute'; else, var_desc = 'Continuous Delta'; end
 
     valid_cox = ~isnan(curr_sig_pct_full) & ~isnan(times) & ~isnan(events);
     cox_times = times(valid_cox);
@@ -1711,12 +1787,56 @@ for vi = 1:n_sig
 
     if sum(valid_cox) > 5
         [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events);
-        fprintf('Biomarker: Continuous Delta %s at %s\n', curr_sig_name, fx_label);
-        fprintf('Hazard Ratio (HR per 1%% change): %.2f\n', exp(b));
+        fprintf('Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
+        if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
+        fprintf('Hazard Ratio (HR per %s change): %.2f\n', hr_unit, exp(b));
         fprintf('95%% Confidence Interval: %.2f - %.2f\n', exp(b - 1.96*stats.se), exp(b + 1.96*stats.se));
-        fprintf('p-value: %.4f\n\n', stats.p);
+        fprintf('p-value: %.4f\n', stats.p);
+        
+        % --- Proportional Hazards Verification ---
+        % Using scaled Schoenfeld residuals from stats.sschres
+        % Need to extract individuals who had an event
+        event_idx = (cox_events == 1);
+        if sum(event_idx) >= 3
+            sch_res = stats.sschres(event_idx);
+            event_times = cox_times(event_idx);
+            
+            % Correlation test between scaled Schoenfeld residuals and event times
+            [r_ph, p_ph] = corr(event_times, sch_res, 'Type', 'Pearson');
+            fprintf('Proportional Hazards Test (Pearson correlation):\n');
+            fprintf('  R = %.3f, p-value = %.4f\n', r_ph, p_ph);
+            
+            if p_ph < 0.05
+                warning('Proportional hazards assumption may be violated for %s (p = %.3f)', curr_sig_name, p_ph);
+            end
+            fprintf('\n');
+
+            % Plot Scaled Schoenfeld Residuals
+            figure('Name', ['Schoenfeld Residuals: ' var_desc ' ' curr_sig_name ' at ' fx_label], 'Position', [100, 100, 600, 500]);
+            scatter(event_times, sch_res, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
+            
+            % Add trend line
+            p_fit = polyfit(event_times, sch_res, 1);
+            x_trend = linspace(min(event_times), max(event_times), 100);
+            y_trend = polyval(p_fit, x_trend);
+            plot(x_trend, y_trend, 'r-', 'LineWidth', 2);
+            
+            yline(0, 'k--', 'LineWidth', 1.5);
+            xlabel('Time to Event (Days)', 'FontSize', 12, 'FontWeight', 'bold');
+            ylabel('Scaled Schoenfeld Residuals', 'FontSize', 12, 'FontWeight', 'bold');
+            title({['Proportional Hazards Check: ' curr_sig_name], ['Correlation: r = ' num2str(r_ph, '%.3f') ', p = ' num2str(p_ph, '%.3f')]}, 'FontSize', 14);
+            legend('Residuals', 'Trend', 'Zero Line', 'Location', 'Best');
+            grid on;
+            
+            safe_name = strrep(curr_sig_name, '*', 'star');
+            if sig_is_abs(vi), file_prefix = 'Abs_'; else, file_prefix = 'Delta_'; end
+            saveas(gcf, fullfile(output_folder, ['Schoenfeld_' file_prefix safe_name '_' fx_label '_' dtype_label '.png']));
+            close(gcf);
+        else
+            fprintf('Proportional Hazards Test: Not enough events to test assumption.\n\n');
+        end
     else
-        fprintf('Biomarker: Continuous Delta %s at %s: Not enough complete data.\n\n', curr_sig_name, fx_label);
+        fprintf('Biomarker: %s %s at %s: Not enough complete data.\n\n', var_desc, curr_sig_name, fx_label);
     end
 end
 
@@ -1785,8 +1905,9 @@ try
     
     fprintf('\nMultivariable Cox Regression:\n');
     for vi = 1:n_sig
-        curr_sig_pct_full = sig_pct_data{vi}(valid_pts, target_fx);
+        curr_sig_pct_full = sig_data_selected{vi}(valid_pts, target_fx);
         curr_sig_name = sig_names{vi};
+        if sig_is_abs(vi), var_desc = 'Absolute'; else, var_desc = 'Continuous Delta'; end
         
         final_mask = ~isnan(surv_time) & ~isnan(surv_event) & ~isnan(curr_sig_pct_full) & ~isnan(vol_vec);
         
@@ -1798,18 +1919,62 @@ try
             
             [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event);
             
-            fprintf('  Variable 1: Continuous Delta %s (%%)\n', curr_sig_name);
-            fprintf('     HR per 1%% change: %.4f (p=%.4f)\n', exp(b(1)), stats.p(1));
+            if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
+            fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
+            fprintf('     HR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
             fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
             fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
             
             if stats.p(1) < 0.05
-                fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n\n');
+                fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n');
             else
-                fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment.\n\n');
+                fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment.\n');
             end
+            
+            % --- Proportional Hazards Verification (Multivariable) ---
+            event_idx = (y_event == 1);
+            if sum(event_idx) >= 3
+                sch_res_bio = stats.sschres(:, 1);
+                sch_res_vol = stats.sschres(:, 2);
+                event_times = y_time(event_idx);
+                
+                [r_ph_bio, p_ph_bio] = corr(event_times, sch_res_bio, 'Type', 'Pearson');
+                [r_ph_vol, p_ph_vol] = corr(event_times, sch_res_vol, 'Type', 'Pearson');
+                
+                fprintf('  Proportional Hazards Test (Pearson correlation):\n');
+                fprintf('     Variable 1 (%s): R = %.3f, p-value = %.4f\n', curr_sig_name, r_ph_bio, p_ph_bio);
+                fprintf('     Variable 2 (Volume): R = %.3f, p-value = %.4f\n', r_ph_vol, p_ph_vol);
+                
+                if p_ph_bio < 0.05
+                    warning('Proportional hazards assumption may be violated for multivariable %s (p = %.3f)', curr_sig_name, p_ph_bio);
+                end
+                if p_ph_vol < 0.05
+                    warning('Proportional hazards assumption may be violated for multivariable Volume (p = %.3f)', p_ph_vol);
+                end
+                
+                % Plot for Biomarker
+                figure('Name', ['MV Schoenfeld: ' var_desc ' ' curr_sig_name ' at ' fx_label], 'Position', [100, 100, 600, 500]);
+                scatter(event_times, sch_res_bio, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
+                p_fit = polyfit(event_times, sch_res_bio, 1);
+                x_trend = linspace(min(event_times), max(event_times), 100);
+                y_trend = polyval(p_fit, x_trend);
+                plot(x_trend, y_trend, 'r-', 'LineWidth', 2);
+                yline(0, 'k--', 'LineWidth', 1.5);
+                xlabel('Time to Event (Days)', 'FontSize', 12, 'FontWeight', 'bold');
+                ylabel('Scaled Schoenfeld Residuals', 'FontSize', 12, 'FontWeight', 'bold');
+                title({['MV Proportional Hazards Check: ' curr_sig_name], ['Correlation: r = ' num2str(r_ph_bio, '%.3f') ', p = ' num2str(p_ph_bio, '%.3f')]}, 'FontSize', 14);
+                legend('Residuals', 'Trend', 'Zero Line', 'Location', 'Best');
+                grid on;
+                safe_name = strrep(curr_sig_name, '*', 'star');
+                if sig_is_abs(vi), file_prefix = 'Abs_'; else, file_prefix = 'Delta_'; end
+                saveas(gcf, fullfile(output_folder, ['MV_Schoenfeld_' file_prefix safe_name '_' fx_label '_' dtype_label '.png']));
+                close(gcf);
+            else
+                fprintf('  Proportional Hazards Test: Not enough events to test assumption.\n');
+            end
+            fprintf('\n');
         else
-            fprintf('  Variable 1: Continuous Delta %s (%%): Not enough complete data.\n\n', curr_sig_name);
+            fprintf('  Variable 1: %s %s: Not enough complete data.\n\n', var_desc, curr_sig_name);
         end
     end
 
@@ -1852,11 +2017,21 @@ glme_table = table(categorical(long_PatientID), long_Timepoint, ...
 
 clean_idx = ~isnan(glme_table.ADC) & ~isnan(glme_table.D) & ~isnan(glme_table.f) & ~isnan(glme_table.Dstar);
 glme_table_clean = glme_table(clean_idx, :);
+baseline_idx = glme_table_clean.Timepoint == 1;
 
-glme_table_clean.ADC_z = (glme_table_clean.ADC - mean(glme_table_clean.ADC)) / std(glme_table_clean.ADC);
-glme_table_clean.D_z = (glme_table_clean.D - mean(glme_table_clean.D)) / std(glme_table_clean.D);
-glme_table_clean.f_z = (glme_table_clean.f - mean(glme_table_clean.f)) / std(glme_table_clean.f);
-glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean(glme_table_clean.Dstar)) / std(glme_table_clean.Dstar);
+mean_ADC_base = mean(glme_table_clean.ADC(baseline_idx));
+std_ADC_base = std(glme_table_clean.ADC(baseline_idx));
+mean_D_base = mean(glme_table_clean.D(baseline_idx));
+std_D_base = std(glme_table_clean.D(baseline_idx));
+mean_f_base = mean(glme_table_clean.f(baseline_idx));
+std_f_base = std(glme_table_clean.f(baseline_idx));
+mean_Dstar_base = mean(glme_table_clean.Dstar(baseline_idx));
+std_Dstar_base = std(glme_table_clean.Dstar(baseline_idx));
+
+glme_table_clean.ADC_z = (glme_table_clean.ADC - mean_ADC_base) / std_ADC_base;
+glme_table_clean.D_z = (glme_table_clean.D - mean_D_base) / std_D_base;
+glme_table_clean.f_z = (glme_table_clean.f - mean_f_base) / std_f_base;
+glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean_Dstar_base) / std_Dstar_base;
 
 warning('off', 'all');
 try

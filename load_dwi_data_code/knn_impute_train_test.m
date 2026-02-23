@@ -1,0 +1,87 @@
+function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
+% knn_impute_train_test Imputes missing data safely for cross-validation
+%
+% Integrates robust K-Nearest Neighbors (KNN) imputation ensuring that the
+% imputation model is fitted strictly on the training fold (X_tr) and then
+% applied to the test fold (X_te) to prevent data leakage.
+    if nargin < 3, k = 5; end
+    if nargin < 2, X_te = []; end
+    
+    [n_tr, p] = size(X_tr);
+    X_tr_imp = X_tr;
+    
+    % --- 1. Impute Training Set (X_tr) ---
+    for i = 1:n_tr
+        missing_idx = isnan(X_tr(i, :));
+        if any(missing_idx)
+            dist = inf(n_tr, 1);
+            for j = 1:n_tr
+                if i ~= j
+                    valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
+                    if sum(valid_feat) > 0
+                        % Euclidean distance normalized by mutually observed features
+                        dist(j) = sqrt(sum((X_tr(i, valid_feat) - X_tr(j, valid_feat)).^2)) / sum(valid_feat);
+                    end
+                end
+            end
+            [~, sorted_idx] = sort(dist);
+            neighbors = sorted_idx(1:min(k, sum(dist < inf))); % Only use valid neighbors
+            
+            for m = find(missing_idx)
+                vals = X_tr(neighbors, m);
+                vals = vals(~isnan(vals));
+                if ~isempty(vals)
+                    X_tr_imp(i, m) = mean(vals);
+                end
+            end
+        end
+    end
+    
+    % --- 2. Impute Test/Validation Set (X_te) using Training Data ---
+    if ~isempty(X_te)
+        X_te_imp = X_te;
+        n_te = size(X_te, 1);
+        for i = 1:n_te
+            missing_idx = isnan(X_te(i, :));
+            if any(missing_idx)
+                dist = inf(n_tr, 1);
+                for j = 1:n_tr
+                    valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
+                    if sum(valid_feat) > 0
+                        dist(j) = sqrt(sum((X_te(i, valid_feat) - X_tr(j, valid_feat)).^2)) / sum(valid_feat);
+                    end
+                end
+                [~, sorted_idx] = sort(dist);
+                neighbors = sorted_idx(1:min(k, sum(dist < inf)));
+                
+                for m = find(missing_idx)
+                    vals = X_tr(neighbors, m);
+                    vals = vals(~isnan(vals));
+                    if ~isempty(vals)
+                        X_te_imp(i, m) = mean(vals);
+                    end
+                end
+            end
+        end
+    else
+        X_te_imp = [];
+    end
+    
+    % --- 3. Final Fallback ---
+    tr_mean = mean(X_tr_imp, 1, 'omitnan');
+    tr_mean(isnan(tr_mean)) = 0; % Ultimate fallback if entirely NaN
+    
+    for m = 1:p
+        nan_tr = isnan(X_tr_imp(:, m));
+        if any(nan_tr)
+            X_tr_imp(nan_tr, m) = tr_mean(m);
+        end
+        
+        if ~isempty(X_te)
+            nan_te = isnan(X_te_imp(:, m));
+            if any(nan_te)
+                X_te_imp(nan_te, m) = tr_mean(m);
+            end
+        end
+    end
+end
