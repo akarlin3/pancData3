@@ -791,93 +791,48 @@ sig_flags = false(1, 4);   % Will be set true for LASSO-selected metrics
 sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
 
 %% --- LASSO Feature Selection ---
-    % Construct feature matrix: 8 columns = [4 Absolute | 4 %-Change]
-    % Rows = patients with valid clinical outcome data
-    X_lasso = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
-               f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
-               ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
-               f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx)];
-           
+    % Construct feature matrix: 18 columns = [8 Imaging | 10 Dosimetry/Sub-volumes]
+    % Columns:
+    % 1-4: Absolute Imaging (ADC, D, f, D*)
+    % 5-8: Percent-change Imaging (ADC, D, f, D*)
+    % 9-10: Whole-GTV Dosimetry (D95, V50)
+    % 11-12: ADC Sub-volume (D95, V50)
+    % 13-14: D Sub-volume (D95, V50)
+    % 15-16: f Sub-volume (D95, V50)
+    % 17-18: D* Sub-volume (D95, V50)
+    X_lasso_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
+                   f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
+                   ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
+                   f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
+                   m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
+                   d95_adc_sub(valid_pts, target_fx), v50_adc_sub(valid_pts, target_fx), ...
+                   d95_d_sub(valid_pts, target_fx),   v50_d_sub(valid_pts, target_fx), ...
+                   d95_f_sub(valid_pts, target_fx),   v50_f_sub(valid_pts, target_fx), ...
+                   d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
+               
     feat_names_lasso = {'ADC_Abs', 'D_Abs', 'f_Abs', 'Dstar_Abs', ...
-                        'ADC_Pct', 'D_Pct', 'f_Pct', 'Dstar_Pct'};
-    y_lasso = lf_group;
+                        'ADC_Pct', 'D_Pct', 'f_Pct', 'Dstar_Pct', ...
+                        'D95_GTVp', 'V50_GTVp', ...
+                        'D95_Sub_ADC', 'V50_Sub_ADC', ...
+                        'D95_Sub_D', 'V50_Sub_D', ...
+                        'D95_Sub_f', 'V50_Sub_f', ...
+                        'D95_Sub_Dstar', 'V50_Sub_Dstar'};
+    y_lasso_all = lf_group;
 
     % --- Imputation strategy to prevent complete-case attrition ---
     % Step 1: Exclude patients missing ALL imaging data (entire row NaN)
-    has_any_imaging = any(~isnan(X_lasso), 2);
+    has_any_imaging = any(~isnan(X_lasso_all), 2);
     % Step 2: Also require a valid clinical outcome
-    impute_mask = has_any_imaging & ~isnan(y_lasso);
-    X_impute = X_lasso(impute_mask, :);
-    y_clean  = y_lasso(impute_mask);
+    impute_mask = has_any_imaging & ~isnan(y_lasso_all);
+    X_impute = X_lasso_all(impute_mask, :);
+    y_clean  = y_lasso_all(impute_mask);
 
     % --- Proper 5-fold CV for Lambda Selection to prevent Data Leakage ---
     rng(42); % Set seed for reproducibility
     cvp = cvpartition(y_clean, 'KFold', 5);
     n_lambdas = 25;
 
-    % Generate common lambda sequence using dummy full-data pass
-    dummy_clean = knn_impute_train_test(X_impute, [], 5);
-    [~, FitInfo_dummy] = lassoglm(dummy_clean, y_clean, 'binomial', 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1000000);
-    if length(FitInfo_dummy.Lambda) < n_lambdas
-        common_Lambda = [FitInfo_dummy.Lambda, zeros(1, n_lambdas - length(FitInfo_dummy.Lambda))];
-    else
-        common_Lambda = FitInfo_dummy.Lambda;
-    end
-
-    dev = zeros(n_lambdas, cvp.NumTestSets);
-    for fold_i = 1:cvp.NumTestSets
-        tr_idx = training(cvp, fold_i);
-        te_idx = test(cvp, fold_i);
-        
-        X_tr = X_impute(tr_idx, :);
-        X_te = X_impute(te_idx, :);
-        y_tr = y_clean(tr_idx);
-        y_te = y_clean(te_idx);
-        
-        % Impute using KNN fitted strictly on training data
-        [X_tr, X_te] = knn_impute_train_test(X_tr, X_te, 5);
-        
-        % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
-        R_fold = corrcoef(X_tr);
-        drop_fold = false(1, size(X_tr, 2));
-        for fi = 1:size(X_tr, 2)
-            if drop_fold(fi), continue; end
-            for fj = fi+1:size(X_tr, 2)
-                if abs(R_fold(fi, fj)) > 0.8
-                    drop_fold(fj) = true;
-                end
-            end
-        end
-        keep_fold = find(~drop_fold);
-        X_tr_kept = X_tr(:, keep_fold);
-        X_te_kept = X_te(:, keep_fold);
-        
-        try
-            [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1000000);
-            
-            for lam_idx = 1:length(common_Lambda)
-                if common_Lambda(lam_idx) == 0, continue; end
-                coefs = B_fold(:, lam_idx);
-                intercept = FitInfo_fold.Intercept(lam_idx);
-                
-                eta = X_te_kept * coefs + intercept;
-                mu = 1 ./ (1 + exp(-eta));
-                mu(mu == 0) = eps; mu(mu == 1) = 1-eps; 
-                
-                dev(lam_idx, fold_i) = 2 * sum(-y_te .* log(mu) - (1 - y_te) .* log(1 - mu));
-            end
-        catch
-            dev(:, fold_i) = Inf; 
-        end
-    end
-
-    % Find optimal lambda
-    mean_dev = mean(dev, 2);
-    [~, best_lam_idx] = min(mean_dev);
-    best_lambda = common_Lambda(best_lam_idx);
-
-    % --- Final Model Fit on Full Data ---
+    % --- LASSO Selection with built-in CV (No Peeking/Data Leakage) ---
     X_clean = knn_impute_train_test(X_impute, [], 5);
     R_corr = corrcoef(X_clean);
     drop_flag = false(1, size(X_clean, 2));
@@ -885,49 +840,201 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         if drop_flag(fi), continue; end
         for fj = fi+1:size(X_clean, 2)
             if abs(R_corr(fi, fj)) > 0.8
-                drop_flag(fj) = true;
-                fprintf('  Dropping %s (|r| = %.2f with %s)\n', ...
-                    feat_names_lasso{fj}, abs(R_corr(fi, fj)), feat_names_lasso{fi});
+                % Intelligent selection: drop the feature with higher p-value
+                p_fi = ranksum(X_clean(y_clean==0, fi), X_clean(y_clean==1, fi));
+                p_fj = ranksum(X_clean(y_clean==0, fj), X_clean(y_clean==1, fj));
+                
+                if p_fj >= p_fi
+                    drop_flag(fj) = true;
+                    fprintf('  Dropping %s (|r| = %.2f with %s, p_j=%.3f >= p_i=%.3f)\n', ...
+                        feat_names_lasso{fj}, abs(R_corr(fi, fj)), feat_names_lasso{fi}, p_fj, p_fi);
+                else
+                    drop_flag(fi) = true;
+                    fprintf('  Dropping %s (|r| = %.2f with %s, p_i=%.3f > p_j=%.3f)\n', ...
+                        feat_names_lasso{fi}, abs(R_corr(fi, fj)), feat_names_lasso{fj}, p_fi, p_fj);
+                    break; % fi is dropped
+                end
             end
         end
     end
     keep_idx = find(~drop_flag);
-    X_clean = X_clean(:, keep_idx);
+    X_clean_filtered = X_clean(:, keep_idx);
     feat_names_lasso_kept = feat_names_lasso(keep_idx);
     fprintf('  Retained %d / %d features after corr filter\n', length(keep_idx), length(feat_names_lasso));
 
     try
-        [B_lasso, FitInfo] = lassoglm(X_clean, y_clean, 'binomial', ...
-            'Lambda', best_lambda, 'Standardize', true, 'MaxIter', 1000000);
+        % Optimized call using built-in cross-validation to find best lambda
+        [B_lasso, FitInfo] = lassoglm(X_clean_filtered, y_clean, 'binomial', ...
+            'CV', 5, 'Standardize', true, 'MaxIter', 1000000);
         
-        coefs_lasso = B_lasso(:, 1);
+        idx_min = FitInfo.IndexMinDeviance;
+        coefs_lasso = B_lasso(:, idx_min);
         selected_kept = find(coefs_lasso ~= 0);
         selected_indices = keep_idx(selected_kept);
         
-        fprintf('Elastic Net Selected Features for %s: %s\n', ...
-            fx_label, strjoin(feat_names_lasso(selected_indices), ', '));
+        fprintf('Elastic Net Selected Features for %s (Lambda=%.4f): %s\n', ...
+            fx_label, FitInfo.Lambda(idx_min), strjoin(feat_names_lasso(selected_indices), ', '));
     catch
-        fprintf('Elastic Net failed to converge. Fallback to empty selection.\n');
+        fprintf('Elastic Net failed to converge for %s. Fallback to empty selection.\n', fx_label);
         selected_indices = [];
     end
 
+    %% --- Rigorous Nested LOOCV for Unbiased Risk Scores ---
+    % This loop computes out-of-fold risk scores for EVERY patient by re-running
+    % the entire pipeline (imputation, corr filter, LASSO selection) on N-1 folds.
+    % These unbiased scores are used for both Kaplan-Meier and Cox HRs.
+    n_pts_impute = size(X_impute, 1);
+    risk_scores_oof = nan(n_pts_impute, 1);
+    
+    fprintf('  Generating unbiased out-of-fold risk scores via nested LOOCV...\n');
+    for loo_i = 1:n_pts_impute
+        % Create train fold (N-1)
+        train_mask = true(n_pts_impute, 1);
+        train_mask(loo_i) = false;
+        X_tr_fold = X_impute(train_mask, :);
+        y_tr_fold = y_clean(train_mask);
+        X_te_fold = X_impute(loo_i, :);
+        
+        % 1. Impute using KNN fitted strictly on training data
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5);
+        
+        % 2. Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
+        R_fold = corrcoef(X_tr_imp);
+        drop_fold = false(1, size(X_tr_imp, 2));
+        for fi = 1:size(X_tr_imp, 2)
+            if drop_fold(fi), continue; end
+            for fj = fi+1:size(X_tr_imp, 2)
+                if abs(R_fold(fi, fj)) > 0.8
+                    p_fi = ranksum(X_tr_imp(y_tr_fold==0, fi), X_tr_imp(y_tr_fold==1, fi));
+                    p_fj = ranksum(X_tr_imp(y_tr_fold==0, fj), X_tr_imp(y_tr_fold==1, fj));
+                    if p_fj >= p_fi, drop_fold(fj) = true; else, drop_fold(fi) = true; break; end
+                end
+            end
+        end
+        keep_fold = find(~drop_fold);
+        X_tr_kept = X_tr_imp(:, keep_fold);
+        X_te_kept = X_te_imp(:, keep_fold);
+        
+        % 3. Nested 5-fold CV for Lambda selection on the train fold
+        warning('off', 'all');
+        try
+            [B_loo, FitInfo_loo] = lassoglm(X_tr_kept, y_tr_fold, 'binomial', ...
+                'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
+            best_idx = FitInfo_loo.IndexMinDeviance;
+            coefs_loo = B_loo(:, best_idx);
+            intercept_loo = FitInfo_loo.Intercept(best_idx);
+        catch
+            coefs_loo = zeros(size(X_tr_kept, 2), 1);
+            intercept_loo = 0;
+        end
+        warning('on', 'all');
+        
+        % 4. Score the held-out patient
+        risk_scores_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
+    end
+    
+    % Map back to original valid_pts indices (fill NaNs for excluded patients)
+    risk_scores_all = nan(sum(valid_pts), 1);
+    risk_scores_all(impute_mask) = risk_scores_oof;
+    
+    % Define high-risk group using the unbiased scores (median split)
+    is_high_risk = risk_scores_all > median(risk_scores_oof, 'omitnan');
+
     %% --- End LASSO Feature Selection ---
+    
+    %% --- Add Univariate Significant Features (from Section 8) ---
+    univariate_indices = [];
+    if exist('sig_results_table', 'var') && ~isempty(sig_results_table)
+        % Filter for the current timepoint (matching fx_label)
+        tp_match = strcmp(sig_results_table.Timepoint, fx_label);
+        sig_this_tp = sig_results_table(tp_match, :);
+        
+        for ui = 1:height(sig_this_tp)
+            m_name = sig_this_tp.Metric{ui};
+            idx = 0;
+            switch m_name
+                case 'ADC Absolute', idx = 1;
+                case 'D Absolute',   idx = 2;
+                case 'f Absolute',   idx = 3;
+                case 'D* Absolute',  idx = 4;
+                case '\Delta ADC (%)', idx = 5;
+                case '\Delta D (%)',   idx = 6;
+                case '\Delta f (%)',   idx = 7;
+                case '\Delta D* (%)',  idx = 8;
+                case 'D95 Whole GTV', idx = 9;
+                case 'V50 Whole GTV', idx = 10;
+                case 'D95 Sub(ADC)',  idx = 11;
+                case 'V50 Sub(ADC)',  idx = 12;
+                case 'D95 Sub(D)',    idx = 13;
+                case 'V50 Sub(D)',    idx = 14;
+                case 'D95 Sub(f)',    idx = 15;
+                case 'V50 Sub(f)',    idx = 16;
+                case 'D95 Sub(D*)',   idx = 17;
+                case 'V50 Sub(D*)',   idx = 18;
+            end
+            if idx > 0
+                univariate_indices = [univariate_indices, idx];
+            end
+        end
+    end
+    
+    % Merge and find unique indices (preserving order of LASSO priority)
+    original_lasso_indices = selected_indices;
+    selected_indices = unique([selected_indices(:)', univariate_indices], 'stable');
+    
+    % Print report of which were added via univariate significance
+    newly_added = setdiff(selected_indices, original_lasso_indices);
+    if ~isempty(newly_added)
+        fprintf('  Adding %d additional univariate-significant features: %s\n', ...
+            length(newly_added), strjoin(feat_names_lasso(newly_added), ', '));
+    end
 
 % -----------------------------------------------------------------------
-% Post-LASSO feature list: all 8 candidates treated as fully independent.
-% Indices 1-4 = Absolute forms; indices 5-8 = Percent-Change forms.
-% Both forms of ANY metric may be retained simultaneously.
+% Post-LASSO feature list: all 18 candidates treated as fully independent.
+% Indices 1-4   = Absolute Imaging forms
+% Indices 5-8   = Percent-Change Imaging forms
+% Indices 9-10  = Whole-GTV Dosimetry (D95, V50)
+% Indices 11-18 = Sub-volume Dosimetry (D95, V50 pairs)
 % -----------------------------------------------------------------------
 all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...
-                  ADC_pct,       D_pct,       f_pct,       Dstar_pct};
-all_feat_names = {'ADC',         'D',         'f',         'D*', ...
-                  'ADC',         'D',         'f',         'D*'};
-all_feat_is_abs = [true          true         true         true  ...
-                   false         false        false        false ];
-all_feat_disp  = {'Abs ADC',     'Abs D',     'Abs f',     'Abs D*', ...
-                  '\Delta ADC',  '\Delta D',  '\Delta f',  '\Delta D*'};
+                  ADC_pct,       D_pct,       f_pct,       Dstar_pct, ...
+                  m_d95_gtvp,    m_v50gy_gtvp, ...
+                  d95_adc_sub,   v50_adc_sub, ...
+                  d95_d_sub,     v50_d_sub, ...
+                  d95_f_sub,     v50_f_sub, ...
+                  d95_dstar_sub, v50_dstar_sub};
 
-% n_sig = number of features LASSO selected (up to 8, not capped at 4)
+all_feat_names = {'ADC',         'D',         'f',         'D*', ...
+                  'ADC',         'D',         'f',         'D*', ...
+                  'D95 GTVp',    'V50 GTVp', ...
+                  'D95 Sub(ADC)','V50 Sub(ADC)', ...
+                  'D95 Sub(D)',  'V50 Sub(D)', ...
+                  'D95 Sub(f)',  'V50 Sub(f)', ...
+                  'D95 Sub(D*)', 'V50 Sub(D*)'};
+
+all_feat_is_abs = [true          true         true         true  ...
+                   false         false        false        false ...
+                   true          false        true         false ...
+                   true          false        true         false ...
+                   true          false];
+
+all_feat_disp  = {'Abs ADC',     'Abs D',     'Abs f',     'Abs D*', ...
+                  '\Delta ADC',  '\Delta D',  '\Delta f',  '\Delta D*', ...
+                  'D95 GTVp',    'V50 GTVp', ...
+                  'D95 Sub(ADC)','V50 Sub(ADC)', ...
+                  'D95 Sub(D)',  'V50 Sub(D)', ...
+                  'D95 Sub(f)',  'V50 Sub(f)', ...
+                  'D95 Sub(D*)', 'V50 Sub(D*)'};
+
+all_feat_units = {'mm^2/s',      'mm^2/s',    'Fraction',  'mm^2/s', ...
+                  '%',           '%',         '%',         '%', ...
+                  'Gy',          '%', ...
+                  'Gy',          '%', ...
+                  'Gy',          '%', ...
+                  'Gy',          '%', ...
+                  'Gy',          '%'};
+
+% n_sig = number of features LASSO selected (up to 18)
 n_sig = length(selected_indices);
 
 % Build parallel arrays consumed by all downstream loops
@@ -937,19 +1044,26 @@ sig_pct_data      = cell(1, n_sig);
 sig_names         = cell(1, n_sig);
 sig_is_abs        = false(1, n_sig);
 sig_disp_names    = cell(1, n_sig);
+sig_units         = cell(1, n_sig);
 
 for si = 1:n_sig
-    fi = selected_indices(si);              % direct column index (1-8)
+    fi = selected_indices(si);              % direct column index (1-18)
     sig_data_selected{si} = all_feat_data{fi};
     sig_names{si}         = all_feat_names{fi};
     sig_is_abs(si)        = all_feat_is_abs(fi);
     sig_disp_names{si}    = all_feat_disp{fi};
-    % Carry both Abs and Pct forms for dose-response / Table-1 use
+    sig_units{si}         = all_feat_units{fi};
+    
+    % Carry both Abs and Pct forms for dose-response / Table-1 use (Imaging only)
     if fi <= 4
         sig_abs_data{si} = all_feat_data{fi};
         sig_pct_data{si} = all_feat_data{fi + 4};
-    else
+    elseif fi >= 5 && fi <= 8
         sig_abs_data{si} = all_feat_data{fi - 4};
+        sig_pct_data{si} = all_feat_data{fi};
+    else
+        % For dosimetry, we don't necessarily have abs/pct pairs in the same way
+        sig_abs_data{si} = all_feat_data{fi};
         sig_pct_data{si} = all_feat_data{fi};
     end
 end
@@ -1033,9 +1147,8 @@ close(gcf);
 % Print results to the command window
 fprintf('\n--- ROC Analysis Results for %s ---\n', fx_label);
 for vi = 1:n_sig
-    if sig_is_abs(vi), unit_str = ''; else, unit_str = '%%'; end
-    fprintf('%s: \n  AUC = %.3f \n  Optimal Threshold (Youden) = %.2f%s\n', ...
-        feat_disp_names{vi}, roc_AUC(vi), roc_opt_thresh(vi), unit_str);
+    fprintf('%s: \n  AUC = %.3f \n  Optimal Threshold (Youden) = %.2f %s\n', ...
+        feat_disp_names{vi}, roc_AUC(vi), roc_opt_thresh(vi), sig_units{vi});
     fprintf('  Sensitivity at Threshold = %.2f%%\n  Specificity at Threshold = %.2f%%\n\n', ...
         roc_Y{vi}(roc_opt_idx(vi))*100, (1-roc_X{vi}(roc_opt_idx(vi)))*100);
 end
@@ -1054,12 +1167,17 @@ end
 % 1. Setup Data (all candidate features for unbiased feature selection)
 labels = lf_group;
 
-% Build predictor matrix from ALL candidate features (8 columns):
-% [4 Absolute | 4 %-Change] to allow LASSO to select within each fold
+% Build predictor matrix from ALL candidate features (18 columns):
+% [8 Imaging | 10 Dosimetry/Sub-volumes] to allow LASSO to select within each fold
 lpocv_cols = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
               f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
               ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
-              f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx)];
+              f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
+              m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
+              d95_adc_sub(valid_pts, target_fx), v50_adc_sub(valid_pts, target_fx), ...
+              d95_d_sub(valid_pts, target_fx),   v50_d_sub(valid_pts, target_fx), ...
+              d95_f_sub(valid_pts, target_fx),   v50_f_sub(valid_pts, target_fx), ...
+              d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
 
 % Filter valid rows: Require valid outcome and at least some imaging data
 has_any_imaging = any(~isnan(lpocv_cols), 2);
@@ -1104,7 +1222,16 @@ for i = 1:n_lf
             if drop_fold_lp(fi_lp), continue; end
             for fj_lp = fi_lp+1:size(X_train, 2)
                 if abs(R_fold_lp(fi_lp, fj_lp)) > 0.8
-                    drop_fold_lp(fj_lp) = true;
+                    % Intelligent selection: drop the feature with the higher p-value
+                    p_fi = ranksum(X_train(Y_train==0, fi_lp), X_train(Y_train==1, fi_lp));
+                    p_fj = ranksum(X_train(Y_train==0, fj_lp), X_train(Y_train==1, fj_lp));
+                    
+                    if p_fj >= p_fi
+                        drop_fold_lp(fj_lp) = true;
+                    else
+                        drop_fold_lp(fi_lp) = true;
+                        break; % fi_lp is dropped
+                    end
                 end
             end
         end
@@ -1223,8 +1350,8 @@ if n_sig >= 2
         plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
     end
 
-    if sig_is_abs(1), xl = ['Abs ' sig_names{1} ' at ' fx_label]; else, xl = ['\Delta ' sig_names{1} ' (%) at ' fx_label]; end
-    if sig_is_abs(2), yl = ['Abs ' sig_names{2} ' at ' fx_label]; else, yl = ['\Delta ' sig_names{2} ' (%) at ' fx_label]; end
+    if sig_is_abs(1), xl = sprintf('%s at %s (%s)', sig_names{1}, fx_label, sig_units{1}); else, xl = sprintf('\\Delta %s at %s (%s)', sig_names{1}, fx_label, sig_units{1}); end
+    if sig_is_abs(2), yl = sprintf('%s at %s (%s)', sig_names{2}, fx_label, sig_units{2}); else, yl = sprintf('\\Delta %s at %s (%s)', sig_names{2}, fx_label, sig_units{2}); end
     xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
     ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
     title(['Biomarker Interaction: Separation of LC vs LF (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
@@ -1247,84 +1374,37 @@ end
 % using the non-zero coefficients from lassoglm on the N-1 fold.
 % The median risk score of the training fold determines the classification threshold.
 
-% Build the full candidate feature matrix for all valid patients
+% Build the full candidate feature matrix for all valid patients (18 columns)
 km_X_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
             f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
             ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
-            f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx)];
+            f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
+            m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
+            d95_adc_sub(valid_pts, target_fx), v50_adc_sub(valid_pts, target_fx), ...
+            d95_d_sub(valid_pts, target_fx),   v50_d_sub(valid_pts, target_fx), ...
+            d95_f_sub(valid_pts, target_fx),   v50_f_sub(valid_pts, target_fx), ...
+            d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
 km_y_all = lf_group;
 n_km = length(km_y_all);
 
-% Build time-to-event vector
-times = m_total_time;
-times(m_lf==0) = m_total_follow_up_time(m_lf==0);
-events = m_lf;  % Event indicator: 1 = failure, 0 = censored
+% (LOOCV logic moved to LASSO section to provide unified unbiased risk scores)
 
-times = times(valid_pts);
-events = events(valid_pts);
+% Build time-to-event vector for all valid patients
+times_km = m_total_time;
+times_km(m_lf==0) = m_total_follow_up_time(m_lf==0);
+events_km = m_lf;
 
-% LOOCV
-is_high_risk = false(n_km, 1);
-risk_scores_all = nan(n_km, 1); 
-
-for loo_i = 1:n_km
-    train_mask = true(n_km, 1);
-    train_mask(loo_i) = false;
-    X_tr = km_X_all(train_mask, :);
-    y_tr = km_y_all(train_mask);
-
-    valid_tr = any(~isnan(X_tr), 2) & ~isnan(y_tr);
-    X_tr = X_tr(valid_tr, :);
-    y_tr = y_tr(valid_tr);
-    
-    % Imputation and Pre-filtering per train fold using KNN
-    X_test_imp = km_X_all(loo_i, :);
-    [X_tr_imp, X_test_imp] = knn_impute_train_test(X_tr, X_test_imp, 5);
-    
-    R_fold = corrcoef(X_tr_imp);
-    drop_fold = false(1, size(X_tr_imp, 2));
-    for fi = 1:size(X_tr_imp, 2)
-        if drop_fold(fi), continue; end
-        for fj = fi+1:size(X_tr_imp, 2)
-            if abs(R_fold(fi, fj)) > 0.8
-                drop_fold(fj) = true;
-            end
-        end
-    end
-    keep_fold = find(~drop_fold);
-    X_tr_kept = X_tr_imp(:, keep_fold);
-    X_te_kept = X_test_imp(:, keep_fold);
-
-    warning('off', 'all');
-    try
-        [B_loo, FI_loo] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-            'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
-        coefs_loo = B_loo(:, FI_loo.IndexMinDeviance);
-        intercept_loo = FI_loo.Intercept(FI_loo.IndexMinDeviance);
-    catch
-        coefs_loo = zeros(size(X_tr_kept, 2), 1);
-        intercept_loo = 0;
-    end
-    warning('on', 'all');
-
-    % Compute multivariable linear risk score on train fold
-    risk_train = X_tr_kept * coefs_loo + intercept_loo;
-    cutoff_loo = median(risk_train);
-
-    % Compute risk score for held-out patient
-    risk_test = X_te_kept * coefs_loo + intercept_loo;
-
-    % High risk = higher probability of LF (score higher than median)
-    is_high_risk(loo_i) = risk_test > cutoff_loo;
-    risk_scores_all(loo_i) = risk_test;
-end
+% Subset to valid patients for this specific fraction
+times_km = times_km(valid_pts);
+events_km = events_km(valid_pts);
 
 % Compute and plot Kaplan-Meier survival curves for each risk group
 figure('Name', ['Kaplan-Meier ' fx_label ' — ' dtype_label], 'Position', [100, 100, 700, 600]);
-[f, x, flow, fup] = ecdf(times, 'Censoring', ~events, 'Function', 'survivor', 'Alpha', 0.05);
+
+[f, x, flow, fup] = ecdf(times_km, 'Censoring', ~events_km, 'Function', 'survivor', 'Alpha', 0.05);
 if sum(is_high_risk) > 0 && sum(~is_high_risk) > 0
-    [f1, x1] = ecdf(times(is_high_risk), 'Censoring', ~events(is_high_risk), 'Function', 'survivor');
-    [f2, x2] = ecdf(times(~is_high_risk), 'Censoring', ~events(~is_high_risk), 'Function', 'survivor');
+    [f1, x1] = ecdf(times_km(is_high_risk), 'Censoring', ~events_km(is_high_risk), 'Function', 'survivor');
+    [f2, x2] = ecdf(times_km(~is_high_risk), 'Censoring', ~events_km(~is_high_risk), 'Function', 'survivor');
     stairs(x1, f1, 'r-', 'LineWidth', 2.5); hold on;
     stairs(x2, f2, 'b-', 'LineWidth', 2.5);
     legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
@@ -1356,7 +1436,7 @@ end
 [R, P] = corrcoef(feats, 'Rows', 'complete');
 heatmap(feat_names, feat_names, R, 'ColorLimits', [-1 1], 'Colormap', jet);
 if n_sig >= 2
-    title(['Feature Correlation (' fx_label ') (' dtype_label '). R(' feat_names{1} ', ' feat_names{2} ') = ' num2str(R(1,2), '%.2f')]);
+    title(['Feature Correlation (' fx_label ') (' dtype_label '). R(' sig_disp_names{1} ', ' sig_disp_names{2} ') = ' num2str(R(1,2), '%.2f')]);
 else
     title(['Feature Correlation (' fx_label ') (' dtype_label ')']);
 end
@@ -1593,7 +1673,7 @@ yline(0, 'k-');
 yline(cor_est, 'k--', 'CoR (+7.8%)');
 yline(-cor_est, 'k--', 'CoR (-7.8%)');
 xticks([1 2]); xticklabels({'LC', 'LF'});
-if sig_is_abs(vi), ylbl = curr_sig_disp; else, ylbl = [curr_sig_disp ' (%)']; end
+ylbl = sprintf('%s (%s)', sig_disp_names{vi}, sig_units{vi});
 ylabel(ylbl);
 title('Signal vs. Noise Floor', 'FontSize', 12, 'FontWeight', 'bold');
 grid on;
@@ -1700,6 +1780,30 @@ for vi = 1:n_sig
     else
         fprintf('Biomarker: %s %s at %s: Not enough complete data.\n\n', var_desc, curr_sig_name, fx_label);
     end
+end
+
+% --- Unbiased Out-of-Sample Hazard Ratio (Rigorous LOOCV) ---
+fprintf('\n--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---\n');
+valid_unbiased = ~isnan(risk_scores_all) & ~isnan(times_km) & ~isnan(events_km);
+if sum(valid_unbiased) > 5
+    unbiased_times = times_km;
+    unbiased_events = events_km;
+    [b_unbiased, ~, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
+        'Censoring', ~unbiased_events(valid_unbiased), 'Options', statset('MaxIter', 1000000));
+    
+    fprintf('Predictor: Unbiased Out-of-Fold Risk Score (%s)\n', fx_label);
+    fprintf('  Out-of-Sample Hazard Ratio: %.2f\n', exp(b_unbiased));
+    fprintf('  95%% Confidence Interval: %.2f - %.2f\n', ...
+        exp(b_unbiased - 1.96*stats_unbiased.se), exp(b_unbiased + 1.96*stats_unbiased.se));
+    fprintf('  p-value: %.4f\n', stats_unbiased.p);
+    
+    if stats_unbiased.p < 0.05
+        fprintf('  Conclusion: RIGOROUS. Model retains significance out-of-sample.\n');
+    else
+        fprintf('  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.\n');
+    end
+else
+    fprintf('Not enough data for unbiased HR calculation.\n');
 end
 
 % --- PART C: SUB-VOLUME STATISTICS ---

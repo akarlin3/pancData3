@@ -1,0 +1,5 @@
+Running test_corr_filter...
+Correlation between F1 and F2: 0.924
+p_F1: 0.0000, p_F2: 0.0000
+Dropping F2 (p_j >= p_i)
+SUCCESS: Dropped less significant feature F2.
