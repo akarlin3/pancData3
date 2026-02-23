@@ -1078,12 +1078,29 @@ for i = 1:n_lf
         X_test_pair = X_data([current_lf, current_lc], :);
         [X_train, X_test_pair] = knn_impute_train_test(X_train, X_test_pair, 5);
         
-        % Feature selection via Elastic Net on training data only (no leakage)
+        % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
+        % (mirrors the identical filter in the main LASSO CV fold loop)
+        R_fold_lp = corrcoef(X_train);
+        drop_fold_lp = false(1, size(X_train, 2));
+        for fi_lp = 1:size(X_train, 2)
+            if drop_fold_lp(fi_lp), continue; end
+            for fj_lp = fi_lp+1:size(X_train, 2)
+                if abs(R_fold_lp(fi_lp, fj_lp)) > 0.8
+                    drop_fold_lp(fj_lp) = true;
+                end
+            end
+        end
+        keep_fold_lpocv = find(~drop_fold_lp);
+        X_train_kept = X_train(:, keep_fold_lpocv);
+        X_test_pair_kept = X_test_pair(:, keep_fold_lpocv);
+        
+        % Feature selection via Elastic Net on correlation-filtered training data only (no leakage)
         warning('off', 'all');
         try
-            [B_cv, FitInfo_cv] = lassoglm(X_train, Y_train, 'binomial', ...
+            [B_cv, FitInfo_cv] = lassoglm(X_train_kept, Y_train, 'binomial', ...
                 'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 10000);
             idx_min = FitInfo_cv.IndexMinDeviance;
+            % sel_features indexes into the kept (filtered) columns of X_train_kept
             sel_features = find(B_cv(:, idx_min) ~= 0);
         catch
             sel_features = [];
@@ -1103,11 +1120,11 @@ for i = 1:n_lf
         warning('off', 'stats:glmfit:PerfectSeparation');
         warning('off', 'stats:glmfit:IterationLimit');
         try
-            mdl_cv = fitglm(X_train(:, sel_features), Y_train, 'Distribution', 'binomial', 'Options', glmfit_opts);
+            mdl_cv = fitglm(X_train_kept(:, sel_features), Y_train, 'Distribution', 'binomial', 'Options', glmfit_opts);
         catch ME
             if strcmp(ME.identifier, 'stats:glmfit:PerfectSeparation') || ...
                contains(ME.message, 'perfectly separate')
-                mdl_cv = fitglm(X_train(:, sel_features), Y_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
+                mdl_cv = fitglm(X_train_kept(:, sel_features), Y_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
             else
                 warning('on', 'stats:glmfit:PerfectSeparation');
                 warning('on', 'stats:glmfit:IterationLimit');
@@ -1119,8 +1136,10 @@ for i = 1:n_lf
         warning('on', 'stats:glmfit:IterationLimit');
         
         % Predict Probabilities for the held-out pair
-        prob_lf = predict(mdl_cv, X_test_pair(1, sel_features));
-        prob_lc = predict(mdl_cv, X_test_pair(2, sel_features));
+        % (X_test_pair_kept is already column-filtered; sel_features
+        %  indexes into those filtered columns, matching X_train_kept)
+        prob_lf = predict(mdl_cv, X_test_pair_kept(1, sel_features));
+        prob_lc = predict(mdl_cv, X_test_pair_kept(2, sel_features));
         
         % Score the Pair (Concordance)
         if prob_lf > prob_lc
@@ -1236,7 +1255,7 @@ for loo_i = 1:n_km
     X_tr = km_X_all(train_mask, :);
     y_tr = km_y_all(train_mask);
 
-    valid_tr = all(~isnan(X_tr), 2) & ~isnan(y_tr);
+    valid_tr = any(~isnan(X_tr), 2) & ~isnan(y_tr);
     X_tr = X_tr(valid_tr, :);
     y_tr = y_tr(valid_tr);
     
@@ -1817,24 +1836,26 @@ end % for target_fx
 raw_p_vals = [];
 metric_names = {};
 
-current_metrics = metric_sets{2};
-current_names = set_names{2};
-for m = 1:length(current_metrics)
-    metric_data = current_metrics{m};
-    for tp = [2, 3]
-        if tp > size(metric_data, 2)
-            continue;
-        end
-        % Extract data
-        y_raw = metric_data(valid_pts, tp);
-        g = lf_group(~isnan(y_raw));
-        y = y_raw(~isnan(y_raw));
+for s = 1:length(metric_sets)
+    current_metrics = metric_sets{s};
+    current_names = set_names{s};
+    for m = 1:length(current_metrics)
+        metric_data = current_metrics{m};
+        for tp = [2, 3]
+            if tp > size(metric_data, 2)
+                continue;
+            end
+            % Extract data
+            y_raw = metric_data(valid_pts, tp);
+            g = lf_group(~isnan(y_raw));
+            y = y_raw(~isnan(y_raw));
 
-        % Run ranksum if sufficient data exists
-        if length(unique(g)) > 1 && length(y) > 2
-            p = ranksum(y(g==0), y(g==1));
-            raw_p_vals(end+1, 1) = p;
-            metric_names{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+            % Run ranksum if sufficient data exists
+            if length(unique(g)) > 1 && length(y) > 2
+                p = ranksum(y(g==0), y(g==1));
+                raw_p_vals(end+1, 1) = p;
+                metric_names{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+            end
         end
     end
 end
@@ -1895,21 +1916,23 @@ close(gcf);
 % 1. Gather all raw p-values
 raw_p_vals = [];
 metric_labels = {};
-current_metrics = metric_sets{2};
-current_names = set_names{2};
-for m = 1:length(current_metrics)
-    metric_data = current_metrics{m};
-    for tp = [2, 3]
-        if tp > size(metric_data, 2)
-            continue;
-        end
-        y_raw = metric_data(valid_pts, tp);
-        g = lf_group(~isnan(y_raw));
-        y = y_raw(~isnan(y_raw));
-        if length(unique(g)) > 1 && length(y) > 2
-            p = ranksum(y(g==0), y(g==1));
-            raw_p_vals(end+1, 1) = p;
-            metric_labels{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+for s = 1:length(metric_sets)
+    current_metrics = metric_sets{s};
+    current_names = set_names{s};
+    for m = 1:length(current_metrics)
+        metric_data = current_metrics{m};
+        for tp = [2, 3]
+            if tp > size(metric_data, 2)
+                continue;
+            end
+            y_raw = metric_data(valid_pts, tp);
+            g = lf_group(~isnan(y_raw));
+            y = y_raw(~isnan(y_raw));
+            if length(unique(g)) > 1 && length(y) > 2
+                p = ranksum(y(g==0), y(g==1));
+                raw_p_vals(end+1, 1) = p;
+                metric_labels{end+1, 1} = [current_names{m} ' (' time_labels{tp} ')'];
+            end
         end
     end
 end
