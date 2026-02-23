@@ -1185,8 +1185,15 @@ for i = 1:n_lf
         
         % Impute train and test sets using ONLY training medians
         tr_med = median(X_train, 1, 'omitnan');
-        X_train = fillmissing(X_train, 'constant', tr_med);
-        X_test_pair = fillmissing(X_data([current_lf, current_lc], :), 'constant', tr_med);
+        for c = 1:size(X_train, 2)
+            if isnan(tr_med(c)), tr_med(c) = 0; end % Fallback if entire column is NaN
+            X_train(:, c) = fillmissing(X_train(:, c), 'constant', tr_med(c));
+        end
+        
+        X_test_pair = X_data([current_lf, current_lc], :);
+        for c = 1:size(X_test_pair, 2)
+            X_test_pair(:, c) = fillmissing(X_test_pair(:, c), 'constant', tr_med(c));
+        end
         
         % Feature selection via Elastic Net on training data only (no leakage)
         warning('off', 'all');
@@ -1289,6 +1296,7 @@ if n_sig >= 2
 
     % Draw Decision Boundary (from logistic regression model)
     if n_sig == 2
+        mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial');
         coefs = mdl.Coefficients.Estimate;
         x_range = linspace(min(x_val), max(x_val), 100);
         y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
@@ -1349,8 +1357,13 @@ for loo_i = 1:n_km
     
     % Imputation and Pre-filtering per train fold
     tr_med = median(X_tr, 1, 'omitnan');
-    X_tr_imp = fillmissing(X_tr, 'constant', tr_med);
-    X_test_imp = fillmissing(km_X_all(loo_i, :), 'constant', tr_med);
+    X_tr_imp = X_tr;
+    X_test_imp = km_X_all(loo_i, :);
+    for c = 1:size(X_tr, 2)
+        if isnan(tr_med(c)), tr_med(c) = 0; end
+        X_tr_imp(:, c) = fillmissing(X_tr(:, c), 'constant', tr_med(c));
+        X_test_imp(:, c) = fillmissing(X_test_imp(:, c), 'constant', tr_med(c));
+    end
     
     R_fold = corrcoef(X_tr_imp);
     drop_fold = false(1, size(X_tr_imp, 2));
@@ -1393,15 +1406,18 @@ end
 % Compute and plot Kaplan-Meier survival curves for each risk group
 figure('Name', ['Kaplan-Meier ' fx_label ' — ' dtype_label], 'Position', [100, 100, 700, 600]);
 [f, x, flow, fup] = ecdf(times, 'Censoring', ~events, 'Function', 'survivor', 'Alpha', 0.05);
-[f1, x1] = ecdf(times(is_high_risk), 'Censoring', ~events(is_high_risk), 'Function', 'survivor');
-[f2, x2] = ecdf(times(~is_high_risk), 'Censoring', ~events(~is_high_risk), 'Function', 'survivor');
-
-stairs(x1, f1, 'r-', 'LineWidth', 2.5); hold on;
-stairs(x2, f2, 'b-', 'LineWidth', 2.5);
+if sum(is_high_risk) > 0 && sum(~is_high_risk) > 0
+    [f1, x1] = ecdf(times(is_high_risk), 'Censoring', ~events(is_high_risk), 'Function', 'survivor');
+    [f2, x2] = ecdf(times(~is_high_risk), 'Censoring', ~events(~is_high_risk), 'Function', 'survivor');
+    stairs(x1, f1, 'r-', 'LineWidth', 2.5); hold on;
+    stairs(x2, f2, 'b-', 'LineWidth', 2.5);
+    legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
+else
+    fprintf('Warning: Risk groups are degenerate. Skipping KM stratification.\n');
+end
 xlabel('Time to Local Failure (Days)', 'FontSize', 12);
 ylabel('Local Control Probability', 'FontSize', 12);
 title(['Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (' fx_label ') (' dtype_label ')'], 'FontSize', 14);
-legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
 grid on; axis([0 max(times)+50 0 1.05]);
 saveas(gcf, fullfile(output_folder, ['Kaplan_Meier_' fx_label '_' dtype_label '.png']));
 close(gcf);
@@ -1581,7 +1597,8 @@ end
 c1 = colorbar('Position', [0.92 0.55 0.02 0.35]); ylabel(c1, 'ADC');
 c2 = colorbar('Position', [0.92 0.11 0.02 0.35]); ylabel(c2, '\Delta ADC');
 sgtitle(['Representative Longitudinal ADC Response for ' curr_sig_name ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
-saveas(gcf, fullfile(output_folder, ['Representative_ADC_' curr_sig_name '_' fx_label '_' dtype_label '.png']));
+safe_name = strrep(curr_sig_name, '*', 'star');
+saveas(gcf, fullfile(output_folder, ['Representative_ADC_' safe_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
 end % loop over sig variables
 
@@ -1653,7 +1670,8 @@ for k = 1:numel(allAx)
     pos = allAx(k).Position;
     allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
 end
-saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' curr_sig_name '_' fx_label '_' dtype_label '.png']));
+safe_name = strrep(curr_sig_name, '*', 'star');
+saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
 end % loop over sig variables
 
