@@ -312,8 +312,8 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 % For D*, add a small smoothing constant to the denominator to prevent noise spikes
 epsilon = 1e-4;
 
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ ADC_abs(:,1)) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ D_abs(:,1)) * 100;
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (ADC_abs(:,1) + epsilon)) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ (D_abs(:,1) + epsilon)) * 100;
 f_pct   = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + epsilon)) * 100;
 
@@ -431,7 +431,12 @@ v50_dstar_sub = nan(length(m_id_list), nTp);
 for j = 1:length(m_id_list)
     % Find original patient index to correctly map to unfiltered gtv_locations
     j_orig = find(strcmp(id_list, m_id_list{j}));
-    for k = 1:nTp
+    
+    % Restrict sub-volume DVH calculations to the baseline (Fx1) scan only.
+    % WARNING: Longitudinal sub-volume dose metrics are uncorrected for spatial 
+    % shifts (tumor deformation/migration) and require Deformable Image 
+    % Registration (DIR) for validity.
+    for k = 1
         % Extract vectors for standard DWI processing (dwi_type = 1, rpi = 1)
         adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
         d_vec   = m_data_vectors_gtvp(j,k,1).d_vector;
@@ -1165,7 +1170,7 @@ leg_entries{end+1} = 'Random Guess';
 xlabel('False Positive Rate (1 - Specificity)', 'FontSize', 12, 'FontWeight', 'bold');
 ylabel('True Positive Rate (Sensitivity)', 'FontSize', 12, 'FontWeight', 'bold');
 sig_names_str = strjoin(feat_disp_names, ' and ');
-title(['ROC Curve: ' sig_names_str ' Predicting Local Failure (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
+title(['Exploratory ROC Curve: ' sig_names_str ' Predicting Local Failure (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
 
 legend(leg_entries, 'Location', 'SouthEast', 'FontSize', 11);
 grid on; box on;
@@ -1174,7 +1179,7 @@ saveas(gcf, fullfile(output_folder, ['ROC_' fx_label '_' dtype_label '.png']));
 close(gcf);
 
 % Print results to the command window
-fprintf('\n--- ROC Analysis Results for %s ---\n', fx_label);
+fprintf('\n--- EXPLORATORY ROC ANALYSIS (In-Sample Features) for %s ---\n', fx_label);
 for vi = 1:n_sig
     fprintf('%s: \n  AUC = %.3f \n  Optimal Threshold (Youden) = %.2f %s\n', ...
         feat_disp_names{vi}, roc_AUC(vi), roc_opt_thresh(vi), sig_units{vi});
@@ -1791,8 +1796,8 @@ for vi = 1:n_sig
     fprintf('  p-value: %.3f\n', p_base_vi);
 end
 
-% --- PART B: HAZARD RATIOS (Cox Regression) ---
-fprintf('\n--- SURVIVAL ANALYSIS (Prognostic Value) ---\n');
+% --- PART B: EXPLORATORY HAZARD RATIOS (In-Sample Features) ---
+fprintf('\n--- EXPLORATORY SURVIVAL ANALYSIS (In-Sample / Double-Dipped) ---\n');
 for vi = 1:n_sig
     curr_sig_pct_full = sig_data_selected{vi}(valid_pts, target_fx);
     curr_sig_name = sig_names{vi};
@@ -1825,7 +1830,7 @@ for vi = 1:n_sig
         warning('on', 'stats:coxphfit:FitWarning');
         warning('on', 'stats:coxphfit:IterationLimit');
 
-        fprintf('Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
+        fprintf('Exploratory Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
         hr_unit = sig_units{vi};
         if is_firth
             fprintf('  [Cox fallback to Firth Logistic due to separation]\n');
@@ -2073,7 +2078,7 @@ catch ME
     fprintf('Error in Dose-Response: %s\n', ME.message);
 end
 
-% --- C. MULTIVARIABLE COX REGRESSION (Robust Version) ---
+% --- C. PRIMARY MULTIVARIABLE COX REGRESSION (Robust Version) ---
 try
     raw_lf = m_lf(valid_pts);
     raw_time_fail = m_total_time(valid_pts);
@@ -2086,29 +2091,24 @@ try
     raw_baseline_vol = m_gtv_vol(valid_pts, 1);
     vol_vec = (raw_baseline_vol - mean(raw_baseline_vol, 'omitnan')) ./ std(raw_baseline_vol, 'omitnan');
     
-    fprintf('\nMultivariable Cox Regression:\n');
-    for vi = 1:n_sig
-        curr_sig_pct_full = sig_data_selected{vi}(valid_pts, target_fx);
-        curr_sig_name = sig_names{vi};
-        if sig_is_abs(vi), var_desc = 'Absolute'; else, var_desc = 'Continuous Delta'; end
+    fprintf('\n--- PRIMARY MULTIVARIABLE COX REGRESSION (Unbiased Risk Score + Volume) ---\n');
+    
+    % risk_scores_all is aligned with sum(valid_pts) elements
+    final_mask = ~isnan(surv_time) & ~isnan(surv_event) & ~isnan(risk_scores_all) & ~isnan(vol_vec);
+    
+    if sum(final_mask) > 5
+        y_time = surv_time(final_mask);
+        y_event = surv_event(final_mask);
+        x_biomarker = risk_scores_all(final_mask); 
+        x_vol = vol_vec(final_mask);
         
-        final_mask = ~isnan(surv_time) & ~isnan(surv_event) & ~isnan(curr_sig_pct_full) & ~isnan(vol_vec);
-        
-        if sum(final_mask) > 5
-            y_time = surv_time(final_mask);
-            y_event = surv_event(final_mask);
-            x_biomarker = curr_sig_pct_full(final_mask); 
-            x_vol = vol_vec(final_mask);
-            
-            % --- Collinearity Check ---
-            [r_collin, ~] = corr(x_biomarker, x_vol, 'Type', 'Spearman');
-            if abs(r_collin) > 0.70
-                fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
-                fprintf('  [WARNING] Critical multicollinearity with Baseline Volume (|r| = %.2f).\n', r_collin);
-                fprintf('  Skipping multivariable fit to avoid mischaracterization as confounded.\n\n');
-                continue;
-            end
-            
+        % --- Collinearity Check ---
+        [r_collin, ~] = corr(x_biomarker, x_vol, 'Type', 'Spearman');
+        if abs(r_collin) > 0.70
+            fprintf('  Predictor 1: Unbiased Out-of-Fold Risk Score\n');
+            fprintf('  [WARNING] Critical multicollinearity with Baseline Volume (|r| = %.2f).\n', r_collin);
+            fprintf('  Skipping multivariable fit to avoid mischaracterization as confounded.\n\n');
+        else
             warning('error', 'stats:coxphfit:FitWarning');
             warning('error', 'stats:coxphfit:IterationLimit');
             try
@@ -2130,23 +2130,22 @@ try
             warning('on', 'stats:coxphfit:FitWarning');
             warning('on', 'stats:coxphfit:IterationLimit');
             
-            hr_unit = sig_units{vi};
-            fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
+            fprintf('  Predictor 1: Unbiased Out-of-Fold Risk Score\n');
             if is_firth
                 fprintf('  [Cox fallback to Firth Logistic due to separation]\n');
-                fprintf('     OR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
-                fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
+                fprintf('     OR: %.4f (p=%.4f)\n', exp(b(1)), stats.p(1));
+                fprintf('  Predictor 2: Baseline Tumor Volume (Z-score)\n');
                 fprintf('     OR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
             else
-                fprintf('     HR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
-                fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
+                fprintf('     HR: %.4f (p=%.4f)\n', exp(b(1)), stats.p(1));
+                fprintf('  Predictor 2: Baseline Tumor Volume (Z-score)\n');
                 fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
             end
             
             if stats.p(1) < 0.05
-                fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n');
+                fprintf('  Conclusion: PRIMARY CLAIM ROBUST. Predictive independent of volume.\n');
             else
-                fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment.\n');
+                fprintf('  Conclusion: CONFOUNDED. Significance lost after adjustment for baseline volume.\n');
             end
             
             % --- Proportional Hazards Verification (Multivariable) ---
@@ -2163,21 +2162,21 @@ try
                     [r_ph_vol, p_ph_vol] = corr(log_event_times, sch_res_vol, 'Type', 'Spearman');
                     
                     fprintf('  Proportional Hazards Test (Spearman correlation, log time):\n');
-                    fprintf('     Variable 1 (%s): R = %.3f, p-value = %.4f\n', curr_sig_name, r_ph_bio, p_ph_bio);
+                    fprintf('     Variable 1 (Risk Score): R = %.3f, p-value = %.4f\n', r_ph_bio, p_ph_bio);
                     fprintf('     Variable 2 (Volume): R = %.3f, p-value = %.4f\n', r_ph_vol, p_ph_vol);
                 else
                     fprintf('  Proportional Hazards Test: Residual count (%d) mismatch with event count (%d). Skipping.\n', size(stats.sschres, 1), length(log_event_times));
                 end
                 
                 if p_ph_bio < 0.05
-                    warning('Proportional hazards assumption may be violated for multivariable %s (p = %.3f)', curr_sig_name, p_ph_bio);
+                    warning('Proportional hazards assumption may be violated for multivariable Risk Score (p = %.3f)', p_ph_bio);
                 end
                 if p_ph_vol < 0.05
                     warning('Proportional hazards assumption may be violated for multivariable Volume (p = %.3f)', p_ph_vol);
                 end
                 
-                % Plot for Biomarker vs log(event time)
-                figure('Name', ['MV Schoenfeld: ' var_desc ' ' curr_sig_name ' at ' fx_label], 'Position', [100, 100, 600, 500]);
+                % Plot for Risk Score vs log(event time)
+                figure('Name', ['MV Schoenfeld: Risk_Score at ' fx_label], 'Position', [100, 100, 600, 500]);
                 scatter(log_event_times, sch_res_bio, 60, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
                 p_fit = polyfit(log_event_times, sch_res_bio, 1);
                 x_trend = linspace(min(log_event_times), max(log_event_times), 100);
@@ -2186,20 +2185,18 @@ try
                 yline(0, 'k--', 'LineWidth', 1.5);
                 xlabel('log(Time to Event) [log(Days)]', 'FontSize', 12, 'FontWeight', 'bold');
                 ylabel('Scaled Schoenfeld Residuals', 'FontSize', 12, 'FontWeight', 'bold');
-                title({['MV Proportional Hazards Check: ' curr_sig_name], ['Spearman Corr (log time): r = ' num2str(r_ph_bio, '%.3f') ', p = ' num2str(p_ph_bio, '%.3f')]}, 'FontSize', 14);
+                title({['MV Proportional Hazards Check: Unbiased Risk Score'], ['Spearman Corr (log time): r = ' num2str(r_ph_bio, '%.3f') ', p = ' num2str(p_ph_bio, '%.3f')]}, 'FontSize', 14);
                 legend('Residuals', 'Trend', 'Zero Line', 'Location', 'Best');
                 grid on;
-                safe_name = strrep(curr_sig_name, '*', 'star');
-                if sig_is_abs(vi), file_prefix = 'Abs_'; else, file_prefix = 'Delta_'; end
-                saveas(gcf, fullfile(output_folder, ['MV_Schoenfeld_' file_prefix safe_name '_' fx_label '_' dtype_label '.png']));
+                saveas(gcf, fullfile(output_folder, ['MV_Schoenfeld_RiskScore_' fx_label '_' dtype_label '.png']));
                 close(gcf);
             else
                 fprintf('  Proportional Hazards Test: Not enough events to test assumption.\n');
             end
             fprintf('\n');
-        else
-            fprintf('  Variable 1: %s %s: Not enough complete data.\n\n', var_desc, curr_sig_name);
-        end
+    end
+    else
+        fprintf('  Not enough complete data for multivariable Cox.\n\n');
     end
 
 catch ME

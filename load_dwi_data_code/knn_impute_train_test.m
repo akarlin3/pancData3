@@ -20,7 +20,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
                     if sum(valid_feat) > 0
                         % Euclidean distance normalized by mutually observed features
-                        dist(j) = sqrt(sum((X_tr(i, valid_feat) - X_tr(j, valid_feat)).^2)) / sum(valid_feat);
+                        dist(j) = sqrt(sum((X_tr(i, valid_feat) - X_tr(j, valid_feat)).^2) / sum(valid_feat));
                     end
                 end
             end
@@ -48,7 +48,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
                 for j = 1:n_tr
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
                     if sum(valid_feat) > 0
-                        dist(j) = sqrt(sum((X_te(i, valid_feat) - X_tr(j, valid_feat)).^2)) / sum(valid_feat);
+                        dist(j) = sqrt(sum((X_te(i, valid_feat) - X_tr(j, valid_feat)).^2) / sum(valid_feat));
                     end
                 end
                 [~, sorted_idx] = sort(dist);
