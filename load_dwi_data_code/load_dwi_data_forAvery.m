@@ -880,8 +880,6 @@ high_adc_thresh = 0.001;
 nTp = 6;   % number of timepoints (Fx1–Fx5 + post)
 nRpt = 6;  % max number of repeat scans at Fx1
 
-vox_vol = 0.19792*0.19792*0.5; %cc  — fixed voxel volume for summary metrics
-
 % ADC: last entry: 1 - normal, 2: dncnn + ivim fit
 % --- Pre-allocate sub-volume metric arrays (patient × timepoint × pipeline) ---
 % "sub" = voxels with ADC below adc_thresh (restricted diffusion sub-volume)
@@ -973,6 +971,7 @@ n_rpt = nan(length(id_list),1);  % number of valid repeat scans per patient
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
 for j=1:length(id_list)
     for k=1:nTp
+        vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
         for dwi_type=1:3 % 1- normal, 2-dncnn, 3-ivimnet
 
             % Select the appropriate voxel vectors depending on pipeline

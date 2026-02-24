@@ -308,11 +308,11 @@ f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
 % Calculate percent change relative to pretreatment (Fx1)
-% Formula: ((Fx_n - Fx_1) ./ (0.5 * (Fx_n + Fx_1))) * 100
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (0.5 * (ADC_abs + ADC_abs(:,1)))) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ (0.5 * (D_abs + D_abs(:,1)))) * 100;
-f_pct   = ((f_abs - f_abs(:,1)) ./ (0.5 * (f_abs + f_abs(:,1)))) * 100;
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (0.5 * (Dstar_abs + Dstar_abs(:,1)))) * 100;
+% Formula: ((Fx_n - Fx_1) ./ Fx_1) * 100
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ ADC_abs(:,1)) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ D_abs(:,1)) * 100;
+f_pct   = ((f_abs - f_abs(:,1)) ./ f_abs(:,1)) * 100;
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ Dstar_abs(:,1)) * 100;
 
 % Group data for easy iteration
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
@@ -1400,15 +1400,32 @@ close(gcf);
 
 %% ---------- Representative Parametric ADC Maps ----------
 for vi = 1:n_sig
-curr_sig_pct_full = sig_data_selected{vi};
-curr_sig_name = sig_names{vi};
-if sig_is_abs(vi)
-    curr_sig_disp = ['Abs ' curr_sig_name];
-    curr_sig_file = ['Abs_' curr_sig_name];
-else
-    curr_sig_disp = ['\Delta ' curr_sig_name];
-    curr_sig_file = ['Delta_' curr_sig_name];
-end
+    if selected_indices(vi) > 8
+        fprintf('  Skipping Representative Map for Dosimetry/Sub-volume metric: %s\n', sig_names{vi});
+        continue;
+    end
+
+    base_idx = mod(selected_indices(vi)-1, 4) + 1;
+    switch base_idx
+        case 1
+            map_name = 'ADC'; clims = [0 2.5e-3]; diff_clims = [-1e-3 1e-3];
+        case 2
+            map_name = 'D'; clims = [0 2.5e-3]; diff_clims = [-1e-3 1e-3];
+        case 3
+            map_name = 'f'; clims = [0 0.5]; diff_clims = [-0.2 0.2];
+        case 4
+            map_name = 'D*'; clims = [0 0.05]; diff_clims = [-0.02 0.02];
+    end
+
+    curr_sig_pct_full = sig_data_selected{vi};
+    curr_sig_name = sig_names{vi};
+    if sig_is_abs(vi)
+        curr_sig_disp = ['Abs ' curr_sig_name];
+        curr_sig_file = ['Abs_' curr_sig_name];
+    else
+        curr_sig_disp = ['\Delta ' curr_sig_name];
+        curr_sig_file = ['Delta_' curr_sig_name];
+    end
 
 fprintf('Generating Representative Maps for %s...\n', curr_sig_disp);
 
@@ -1489,19 +1506,43 @@ for p = 1:2
         
         slice_gtv = squeeze(gtv_img(:,:,z_slice));
         
-        % Compute full ADC volume (log-linear OLS via fit_adc_mono) and extract slice
-        adc_vol = fit_adc_mono(dwi_img, bvals);
-        slice_adc = squeeze(adc_vol(:,:,z_slice));
-        
-        % Clamp ADC to physiological range [0, 3×10⁻³ mm²/s]
-        slice_adc(slice_adc < 0) = 0; 
-        slice_adc(slice_adc > 3e-3) = 3e-3;
+        % Compute required parametric map and extract slice
+        switch base_idx
+            case 1 % ADC
+                map_vol = fit_adc_mono(dwi_img, bvals);
+                slice_map = squeeze(map_vol(:,:,z_slice));
+                slice_map(slice_map < 0) = 0; 
+                slice_map(slice_map > 3e-3) = 3e-3;
+            case 2 % D
+                opts = struct(); opts.bthr = 100;
+                slice_dwi = dwi_img(:,:,z_slice,:);
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
+                slice_map = squeeze(ivim_fit(:,:,1,1));
+                slice_map(slice_map < 0) = 0; 
+                slice_map(slice_map > 3e-3) = 3e-3;
+            case 3 % f
+                opts = struct(); opts.bthr = 100;
+                slice_dwi = dwi_img(:,:,z_slice,:);
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
+                slice_map = squeeze(ivim_fit(:,:,1,3));
+                slice_map(slice_map < 0) = 0;
+                slice_map(slice_map > 1) = 1;
+            case 4 % D*
+                opts = struct(); opts.bthr = 100;
+                slice_dwi = dwi_img(:,:,z_slice,:);
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
+                slice_map = squeeze(ivim_fit(:,:,1,4));
+                slice_map(slice_map < 0) = 0;
+        end
         
         % Store Fx1 and target-Fx slices separately for later comparison
         if t == 1
-            slice_fx1 = slice_adc; mask_slice_fx1 = slice_gtv;
+            slice_fx1 = slice_map; mask_slice_fx1 = slice_gtv;
         else
-            slice_fx3 = slice_adc; mask_slice_fx3 = slice_gtv;
+            slice_fx3 = slice_map; mask_slice_fx3 = slice_gtv;
         end
     end
     
@@ -1534,16 +1575,16 @@ for p = 1:2
         row_offset = (p-1)*3;
         
         subplot(2, 3, 1 + row_offset);
-        imagesc(crop_fx1, [0 2.5e-3]); axis image; axis off;
+        imagesc(crop_fx1, clims); axis image; axis off;
         title([titles{p} ' - Fx1'], 'FontSize', 10, 'Interpreter', 'none');
-        if p==1, ylabel('ADC Map'); end
+        if p==1, ylabel([map_name ' Map']); end
         
         subplot(2, 3, 2 + row_offset);
-        imagesc(crop_fx3, [0 2.5e-3]); axis image; axis off;
+        imagesc(crop_fx3, clims); axis image; axis off;
         title(fx_label, 'FontSize', 10);
         
         subplot(2, 3, 3 + row_offset);
-        imagesc(crop_diff, [-1e-3 1e-3]); axis image; axis off;
+        imagesc(crop_diff, diff_clims); axis image; axis off;
         title(['\Delta (' fx_label ' - Fx1)'], 'FontSize', 10);
         
         % Overlay Fx1 GTV contour on difference map (white outline)
@@ -1551,12 +1592,12 @@ for p = 1:2
     end
 end
 
-% Add shared colorbars: top = absolute ADC, bottom = difference (ΔADC)
-c1 = colorbar('Position', [0.92 0.55 0.02 0.35]); ylabel(c1, 'ADC');
-c2 = colorbar('Position', [0.92 0.11 0.02 0.35]); ylabel(c2, '\Delta ADC');
-sgtitle(['Representative Longitudinal ADC Response for ' curr_sig_disp ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+% Add shared colorbars
+c1 = colorbar('Position', [0.92 0.55 0.02 0.35]); ylabel(c1, map_name);
+c2 = colorbar('Position', [0.92 0.11 0.02 0.35]); ylabel(c2, ['\Delta ' map_name]);
+sgtitle(['Representative Longitudinal ' map_name ' Response for ' curr_sig_disp ' (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
 safe_name = strrep(curr_sig_file, '*', 'star');
-saveas(gcf, fullfile(output_folder, ['Representative_ADC_' safe_name '_' fx_label '_' dtype_label '.png']));
+saveas(gcf, fullfile(output_folder, ['Representative_' strrep(map_name, '*', 'star') '_' safe_name '_' fx_label '_' dtype_label '.png']));
 close(gcf);
 end % loop over sig variables
 
@@ -1620,7 +1661,11 @@ x_scatter(lf_group==1) = 2;
 x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
 scatter(x_scatter, curr_sig_pct_full(valid_pts, target_fx), 50, 'filled', 'MarkerEdgeColor', 'k');
 
-if sig_is_pct_imaging(vi)
+% Check the base variable index (1=ADC, 2=D, 3=f, 4=D*, 9+=Dosimetry)
+base_idx = mod(selected_indices(vi)-1, 4) + 1;
+
+if sig_is_pct_imaging(vi) && base_idx == 1
+    % Apply 7.8% noise floor bounds strictly for ADC percent change
     yfill = [-cor_est cor_est cor_est -cor_est];
     xfill = [0.5 0.5 2.5 2.5];
     fill(xfill, yfill, [0.8 0.8 0.8], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
@@ -1629,7 +1674,7 @@ if sig_is_pct_imaging(vi)
     yline(cor_est, 'k--', 'CoR (+7.8%)');
     yline(-cor_est, 'k--', 'CoR (-7.8%)');
 elseif ~sig_is_abs(vi) && contains(sig_units{vi}, '%')
-    % For other percentage features (like dose volume percentages), just add a 0 line if appropriate
+    % For other percentage features (D*, dose volume, etc.), just add a 0 line
     yline(0, 'k-', 'Alpha', 0.3);
 end
 
@@ -1687,10 +1732,35 @@ for vi = 1:n_sig
     cox_biomarker = curr_sig_pct_full(valid_cox);
 
     if sum(valid_cox) > 5
-        [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events, 'Options', statset('MaxIter', 1000000));
+        warning('error', 'stats:coxphfit:FitWarning');
+        warning('error', 'stats:coxphfit:IterationLimit');
+        try
+            [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events, 'Options', statset('MaxIter', 1000000));
+            is_firth = false;
+        catch ME
+            if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')
+                mdl_firth = fitglm(cox_biomarker, cox_events, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', 'Options', statset('MaxIter', 1000000));
+                b = mdl_firth.Coefficients.Estimate(2:end);
+                stats.se = mdl_firth.Coefficients.SE(2:end);
+                stats.p = mdl_firth.Coefficients.pValue(2:end);
+                stats.sschres = zeros(size(cox_biomarker,1), size(cox_biomarker,2));
+                logl = NaN; H = [];
+                is_firth = true;
+            else
+                rethrow(ME);
+            end
+        end
+        warning('on', 'stats:coxphfit:FitWarning');
+        warning('on', 'stats:coxphfit:IterationLimit');
+
         fprintf('Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
         hr_unit = sig_units{vi};
-        fprintf('Hazard Ratio (HR per %s change): %.2f\n', hr_unit, exp(b));
+        if is_firth
+            fprintf('  [Cox fallback to Firth Logistic due to separation]\n');
+            fprintf('Odds Ratio (OR per %s change): %.2f\n', hr_unit, exp(b));
+        else
+            fprintf('Hazard Ratio (HR per %s change): %.2f\n', hr_unit, exp(b));
+        end
         fprintf('95%% Confidence Interval: %.2f - %.2f\n', exp(b - 1.96*stats.se), exp(b + 1.96*stats.se));
         fprintf('p-value: %.4f\n', stats.p);
         
@@ -1749,11 +1819,33 @@ valid_unbiased = ~isnan(risk_scores_all) & ~isnan(times_km) & ~isnan(events_km);
 if sum(valid_unbiased) > 5
     unbiased_times = times_km;
     unbiased_events = events_km;
-    [b_unbiased, ~, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
-        'Censoring', ~unbiased_events(valid_unbiased), 'Options', statset('MaxIter', 1000000));
+    warning('error', 'stats:coxphfit:FitWarning');
+    warning('error', 'stats:coxphfit:IterationLimit');
+    try
+        [b_unbiased, ~, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
+            'Censoring', ~unbiased_events(valid_unbiased), 'Options', statset('MaxIter', 1000000));
+        is_firth_unbiased = false;
+    catch ME
+        if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')
+            mdl_firth_unb = fitglm(risk_scores_all(valid_unbiased), unbiased_events(valid_unbiased), 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', 'Options', statset('MaxIter', 1000000));
+            b_unbiased = mdl_firth_unb.Coefficients.Estimate(2:end);
+            stats_unbiased.se = mdl_firth_unb.Coefficients.SE(2:end);
+            stats_unbiased.p = mdl_firth_unb.Coefficients.pValue(2:end);
+            is_firth_unbiased = true;
+        else
+            rethrow(ME);
+        end
+    end
+    warning('on', 'stats:coxphfit:FitWarning');
+    warning('on', 'stats:coxphfit:IterationLimit');
     
     fprintf('Predictor: Unbiased Out-of-Fold Risk Score (%s)\n', fx_label);
-    fprintf('  Out-of-Sample Hazard Ratio: %.2f\n', exp(b_unbiased));
+    if is_firth_unbiased
+        fprintf('  [Cox fallback to Firth Logistic due to separation]\n');
+        fprintf('  Out-of-Sample Odds Ratio: %.2f\n', exp(b_unbiased));
+    else
+        fprintf('  Out-of-Sample Hazard Ratio: %.2f\n', exp(b_unbiased));
+    end
     fprintf('  95%% Confidence Interval: %.2f - %.2f\n', ...
         exp(b_unbiased - 1.96*stats_unbiased.se), exp(b_unbiased + 1.96*stats_unbiased.se));
     fprintf('  p-value: %.4f\n', stats_unbiased.p);
@@ -1861,13 +1953,39 @@ try
             x_biomarker = curr_sig_pct_full(final_mask); 
             x_vol = vol_vec(final_mask);
             
-            [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event, 'Options', statset('MaxIter', 1000000));
+            warning('error', 'stats:coxphfit:FitWarning');
+            warning('error', 'stats:coxphfit:IterationLimit');
+            try
+                [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event, 'Options', statset('MaxIter', 1000000));
+                is_firth = false;
+            catch ME
+                if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')
+                    mdl_firth = fitglm([x_biomarker, x_vol], y_event, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', 'Options', statset('MaxIter', 1000000));
+                    b = mdl_firth.Coefficients.Estimate(2:end);
+                    stats.se = mdl_firth.Coefficients.SE(2:end);
+                    stats.p = mdl_firth.Coefficients.pValue(2:end);
+                    stats.sschres = zeros(size(x_biomarker,1), 2);
+                    logl = NaN; H = [];
+                    is_firth = true;
+                else
+                    rethrow(ME);
+                end
+            end
+            warning('on', 'stats:coxphfit:FitWarning');
+            warning('on', 'stats:coxphfit:IterationLimit');
             
             hr_unit = sig_units{vi};
             fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
-            fprintf('     HR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
-            fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
-            fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
+            if is_firth
+                fprintf('  [Cox fallback to Firth Logistic due to separation]\n');
+                fprintf('     OR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
+                fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
+                fprintf('     OR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
+            else
+                fprintf('     HR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
+                fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
+                fprintf('     HR: %.4f (p=%.4f)\n', exp(b(2)), stats.p(2));
+            end
             
             if stats.p(1) < 0.05
                 fprintf('  Conclusion: ROBUST. Predictive independent of volume.\n');
