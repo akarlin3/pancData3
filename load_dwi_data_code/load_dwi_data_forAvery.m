@@ -710,9 +710,11 @@ for j = 1:length(mrn_list)
             if havegtvp
                 % Compute summary statistics within the primary GTV
                 adc_mean(j,fi,rpi) = nanmean(adc_map(gtv_mask==1));
+                % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
                 adc_kurtosis(j,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
 
                 d_mean(j,fi,rpi) = nanmean(d_map(gtv_mask==1));
+                % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                 d_kurtosis(j,fi,rpi) = kurtosis(d_map(gtv_mask==1));
 
                 % Store voxel-level vectors and metadata in the output struct
@@ -1075,6 +1077,8 @@ for j=1:length(id_list)
                 gtv_vol(j,k) = numel(adc_vec)*vox_vol;   % GTV volume (cc)
                 adc_mean(j,k,dwi_type) = nanmean(adc_vec);
                 if numel(adc_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
+                    % Retained for archival completeness; do not use in primary feature pool.
                     adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
                     adc_skew(j,k,dwi_type) = skewness(adc_vec);
                 end
@@ -1089,6 +1093,7 @@ for j=1:length(id_list)
                 adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
                 adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
                 if numel(adc_vec_sub) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
                     adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
                 end
@@ -1155,6 +1160,7 @@ for j=1:length(id_list)
                 % Whole-GTV D (true diffusion) statistics
                 d_mean(j,k,dwi_type) = nanmean(d_vec);
                 if numel(d_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     d_kurt(j,k,dwi_type) = kurtosis(d_vec);
                     d_skew(j,k,dwi_type) = skewness(d_vec);
                 end
@@ -1175,6 +1181,7 @@ for j=1:length(id_list)
                 % D sub-volume statistics (restricted region only)
                 d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
                 if numel(d_vec_sub) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
                     d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
                 end
@@ -1182,6 +1189,7 @@ for j=1:length(id_list)
                 % Perfusion fraction (f) statistics
                 f_mean(j,k,dwi_type) = nanmean(f_vec);
                 if numel(f_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     f_kurt(j,k,dwi_type) = kurtosis(f_vec);
                     f_skew(j,k,dwi_type) = skewness(f_vec);
                 end
@@ -1189,6 +1197,7 @@ for j=1:length(id_list)
                 % Pseudo-diffusion coefficient (D*) statistics
                 dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
                 if numel(dstar_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
                     dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
                 end

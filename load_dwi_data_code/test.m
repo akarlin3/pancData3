@@ -1576,6 +1576,22 @@ catch e
     n_fail = n_fail + 1;
 end
 
+% testSanityCheck_NoKurtosisPlot
+try
+    % The sanity check subplot must NOT use adc_kurt as a metric.
+    % It should use adc_sd instead.
+    code = metrics_code;
+    assert(~contains(code, 'kurt_fx1 = adc_kurt'), ...
+        'Sanity check should use ADC SD, not trace-average ADC Kurtosis');
+    assert(contains(code, 'sd_fx1  = adc_sd'), ...
+        'Sanity check heterogeneity subplot should use adc_sd');
+    fprintf('[PASS] testSanityCheck_NoKurtosisPlot\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testSanityCheck_NoKurtosisPlot: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
 %% ====================================================================
 %  19. SEGMENTED IVIM FIT — BOUNDARY CONDITIONS
 %  Verifies strict parameter limits and b-value threshold in IVIMmodelfit.
@@ -1773,6 +1789,89 @@ try
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] testDIR_GTVnDoseAlsoWarped: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_LinearMaskWarping
+try
+    % apply_dir_mask_propagation.m should use 'linear' interpolation for mask warping.
+    apPath = fullfile(fileparts(mfilename('fullpath')), 'apply_dir_mask_propagation.m');
+    fid = fopen(apPath, 'r'); ap_code = fread(fid,'*char')'; fclose(fid);
+    assert(contains(ap_code, "'Interp', 'linear'"), ...
+        "apply_dir_mask_propagation should use 'linear' interpolation for mask warping");
+    assert(~contains(ap_code, "'Interp', 'nearest'"), ...
+        "apply_dir_mask_propagation should NOT use 'nearest' interpolation for mask warping");
+    fprintf('[PASS] testDIR_LinearMaskWarping\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_LinearMaskWarping: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  21. TIME-DEPENDENT COX PH MODEL
+%  Verifies the counting-process panel builder and that metrics.m calls it.
+% =====================================================================
+
+% testTD_PanelHasMoreRowsThanPatients
+try
+    % Synthetic 3-patient, 3-timepoint panel
+    arr1 = [1.0e-3 1.1e-3 1.2e-3;   % patient 1
+             0.9e-3 0.85e-3 0.8e-3;  % patient 2
+             1.5e-3 1.6e-3 NaN];      % patient 3 (missing tp3)
+    lf_td  = [1; 0; 1];
+    tot_td = [30; 100; 20];
+    [X_td_t, t0, t1, ev, ~] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 3, [0 5 10]);
+    assert(size(X_td_t, 1) > length(lf_td), ...
+        'Panel should have more rows than patients');
+    fprintf('[PASS] testTD_PanelHasMoreRowsThanPatients\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testTD_PanelHasMoreRowsThanPatients: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testTD_NoEventBeforeFinalInterval
+try
+    arr1 = [1.0e-3 1.1e-3 1.2e-3; 0.9e-3 0.85e-3 0.8e-3];
+    lf_td  = [1; 0];
+    tot_td = [20; 100];
+    [~, t0, t1, ev, pid] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 3, [0 5 10]);
+    % For patient 1 (LF), event should only fire on its last interval
+    p1_rows = (pid == 1);
+    ev_p1 = ev(p1_rows);
+    assert(sum(ev_p1) == 1 && ev_p1(end) == true, ...
+        'Event must fire exactly once, on the last interval, for LF patient');
+    fprintf('[PASS] testTD_NoEventBeforeFinalInterval\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testTD_NoEventBeforeFinalInterval: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testTD_StartAlwaysLessThanStop
+try
+    arr1 = [1.0e-3 1.1e-3; 0.9e-3 0.8e-3; 1.5e-3 1.6e-3];
+    lf_td  = [1; 0; 1];
+    tot_td = [15; 50; 8];
+    [~, t0, t1, ~, ~] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 2, [0 5]);
+    assert(all(t0 < t1), 't_start must be strictly less than t_stop for every interval');
+    fprintf('[PASS] testTD_StartAlwaysLessThanStop\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testTD_StartAlwaysLessThanStop: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testTD_MetricsCallsBuildTdPanel
+try
+    code = metrics_code;
+    assert(contains(code, 'build_td_panel'), ...
+        'metrics.m should call build_td_panel for the time-dependent Cox model');
+    fprintf('[PASS] testTD_MetricsCallsBuildTdPanel\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testTD_MetricsCallsBuildTdPanel: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 

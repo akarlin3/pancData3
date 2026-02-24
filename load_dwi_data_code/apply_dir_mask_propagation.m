@@ -27,8 +27,9 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 %     2. Run imregdemons with a 3-level multi-resolution pyramid (coarse-to-
 %        fine), which handles large inter-fraction deformations.
 %     3. Apply the displacement field to the baseline mask using imwarp with
-%        nearest-neighbour interpolation to preserve binary values.
-%     4. Threshold at 0.5 and return as logical array.
+%        linear interpolation to generate a probability map.
+%     4. Threshold the continuous map at 0.5 to binarize, ensuring smooth
+%        scaling of the mask boundary.
 %
 %   Requires: Image Processing Toolbox (imregdemons, imwarp, imref3d).
 
@@ -65,10 +66,13 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
         [D_forward, ~] = imregdemons(fixed_norm, moving_norm, [200 100 50], ...
             'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
 
-        % Warp the baseline mask into the current fraction's geometry
+        % Warp the baseline mask into the current fraction's geometry.
+        % We use 'linear' interpolation to generate a continuous probability 
+        % map, preventing nearest-neighbor truncation artifacts and allowing 
+        % the mask boundary to scale with the local deformation Jacobian.
         ref3d = imref3d(size(b0_moving));
         mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
-            'Interp', 'nearest', 'OutputView', ref3d, 'FillValues', 0);
+            'Interp', 'linear', 'OutputView', ref3d, 'FillValues', 0);
     catch ME
         warning('apply_dir_mask_propagation:imregdemonsFailed', '%s', ME.message);
         return;

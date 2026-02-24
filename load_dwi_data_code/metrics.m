@@ -12,7 +12,7 @@
 %   5. Univariate analysis (Wilcoxon rank-sum boxplots: LC vs LF at each fraction)
 %   6. Multiple-comparison corrections (FDR / Benjamini-Hochberg,
 %      Holm-Bonferroni)
-%   7. LASSO-regularized feature selection (binomial logistic, 5-fold CV)
+%   7. Elastic Net–regularized feature selection (α=0.5, L1+L2, 5-fold CV)
 %   8. ROC analysis with Youden's J optimal cutoff
 %   9. Multivariable logistic regression (with Firth penalized fallback)
 %  10. Leave-pair-out (LPOCV) cross-validation
@@ -796,7 +796,7 @@ end
 %  SECTION 10: Per-Timepoint Analysis Loop (Fx2 and Fx3)
 % =========================================================================
 % For each target fraction (Fx2, Fx3), this loop performs:
-%   a) LASSO-regularized feature selection (binomial logistic, 5-fold CV)
+%   a) Elastic Net–regularized feature selection (α=0.5, binomial logistic, 5-fold CV)
 %   b) ROC analysis with Youden's J optimal cutoff
 %   c) Multivariable logistic regression (Firth penalized fallback)
 %   d) FDR and Holm-Bonferroni multiple-comparison corrections
@@ -809,18 +809,18 @@ for target_fx = 2:nTp
 fx_label = x_labels{target_fx};
 fprintf('\n=== Analyzing %s ===\n', fx_label);
 
-%% ---------- LASSO Feature Selection at This Timepoint ----------
+%% ---------- Elastic Net Feature Selection at This Timepoint ----------
 % Determine which DWI/IVIM metrics are informative for predicting LF.
-% A base variable (ADC, D, f, D*) is flagged if LASSO selects either
+% A base variable (ADC, D, f, D*) is flagged if Elastic Net selects either
 % its absolute or percent-change form.
 base_metric_names_all = {'ADC', 'D', 'f', 'D*'};
 all_abs_data = {ADC_abs, D_abs, f_abs, Dstar_abs};       % Absolute values
 all_pct_data = {ADC_pct, D_pct, f_pct, Dstar_pct};       % Percent change
 
-sig_flags = false(1, 4);   % Will be set true for LASSO-selected metrics
+sig_flags = false(1, 4);   % Will be set true for Elastic Net–selected metrics
 sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
 
-%% --- LASSO Feature Selection ---
+%% --- Elastic Net Feature Selection ---
     % Construct feature matrix: 18 columns = [8 Imaging | 10 Dosimetry/Sub-volumes]
     % Columns:
     % 1-4: Absolute Imaging (ADC, D, f, D*)
@@ -946,10 +946,10 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
             [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1000000);
             
-            coefs_lasso = B_final;
+            coefs_en = B_final;
             
             % Map selected indices back to original 1..18 mapping
-            selected_filtered_idx = find(coefs_lasso ~= 0);
+            selected_filtered_idx = find(coefs_en ~= 0);
             selected_indices = original_feature_indices(keep_global(selected_filtered_idx));
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
@@ -1019,11 +1019,11 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     is_high_risk = false(sum(valid_pts), 1);
     is_high_risk(impute_mask) = is_high_risk_oof;
 
-    %% --- End LASSO Feature Selection ---
+    %% --- End Elastic Net Feature Selection ---
     
 
 % -----------------------------------------------------------------------
-% Post-LASSO feature list: all 18 candidates treated as fully independent.
+% Post–Elastic Net feature list: all 18 candidates treated as fully independent.
 % Indices 1-4   = Absolute Imaging forms
 % Indices 5-8   = Percent-Change Imaging forms
 % Indices 9-10  = Whole-GTV Dosimetry (D95, V50)
@@ -1184,7 +1184,7 @@ end
 labels = lf_group;
 
 % Build predictor matrix from ALL candidate features (18 columns):
-% [8 Imaging | 10 Dosimetry/Sub-volumes] to allow LASSO to select within each fold
+% [8 Imaging | 10 Dosimetry/Sub-volumes] to allow Elastic Net to select within each fold
 lpocv_cols = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
               f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
               ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
@@ -1260,13 +1260,13 @@ for i = 1:n_lf
         end
         warning('on', 'all');
         
-        % If LASSO selects zero features, default to a tie (AUC = 0.5)
+        % If Elastic Net selects zero features, default to a tie (AUC = 0.5)
         if isempty(sel_features)
             pair_scores(i,j) = 0.5;
             continue;
         end
         
-        % Do not refit an unpenalized GLM. Use the penalized LASSO coefficients directly
+        % Do not refit an unpenalized GLM. Use the penalized Elastic Net coefficients directly
         % to generate the risk score for the held-out pair.
         score = X_test_pair_kept(:, sel_features) * B_cv(sel_features, idx_min) + FitInfo_cv.Intercept(idx_min);
         prob_lf = score(1);
@@ -1357,7 +1357,7 @@ end
 %% ---------- Kaplan-Meier Survival Analysis ----------
 % Uses nested Leave-One-Out Cross-Validation (LOOCV) to prevent data leakage. 
 % For each held-out patient, a multivariable linear risk score is computed 
-% using the non-zero coefficients from lassoglm on the N-1 fold.
+% using the non-zero Elastic Net coefficients on the N-1 fold.
 % The median risk score of the training fold determines the classification threshold.
 
 % Build the full candidate feature matrix for all valid patients (18 columns)
@@ -1373,7 +1373,7 @@ km_X_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
 km_y_all = lf_group;
 n_km = length(km_y_all);
 
-% (LOOCV logic moved to LASSO section to provide unified unbiased risk scores)
+% (LOOCV logic moved to Elastic Net section to provide unified unbiased risk scores)
 
 % Build time-to-event vector for all valid patients
 times_km = m_total_time;
@@ -1415,7 +1415,7 @@ fprintf('Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased
 
 %% ---------- Correlation Matrix of Significant Features ----------
 % Computes Pearson correlation coefficients between all pairs of
-% LASSO-selected percent-change variables. Displayed as a jet-coloured
+% Elastic Net–selected percent-change variables. Displayed as a jet-coloured
 % heatmap with R values in [-1, 1]. High inter-feature correlation
 % suggests redundancy and potential multicollinearity in the combined model.
 % Build feature matrix and names from significant percent-change variables
@@ -1675,18 +1675,25 @@ else
     xlabel('Warning: Volume is a Confounder');
 end
 
+% NOTE: Histogram kurtosis of trace-average ADC is NOT valid DKI.
+% True DKI requires fitting the full kurtosis tensor W to raw directional
+% diffusion gradients. ADC SD (intra-tumour voxel spread) is used instead
+% as a model-free, valid heterogeneity proxy.
 subplot(1, 3, 2);
-kurt_fx1 = adc_kurt(valid_pts, 1, 1);            
-kurt_fx3 = adc_kurt(valid_pts, target_fx, 1);     
-kurt_delta = kurt_fx3 - kurt_fx1;                  
+sd_fx1  = adc_sd(valid_pts, 1, 1);
+sd_fxN  = adc_sd(valid_pts, target_fx, 1);
+sd_delta = sd_fxN - sd_fx1;
 
-boxplot(kurt_delta, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
-ylabel(['\Delta ADC Kurtosis (' fx_label ')']);
-title('Heterogeneity: Texture Change', 'FontSize', 12, 'FontWeight', 'bold');
-p_kurt = ranksum(kurt_delta(lf_group==0), kurt_delta(lf_group==1));
+boxplot(sd_delta, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
+ylabel(['\Delta ADC SD (' fx_label ') [mm\u00b2/s]']);
+title('Heterogeneity: ADC SD Change', 'FontSize', 12, 'FontWeight', 'bold');
+p_sd = ranksum(sd_delta(lf_group==0), sd_delta(lf_group==1));
 
 y_lim = ylim;
-text(1.5, y_lim(2)*0.9, sprintf('p = %.3f', p_kurt), 'HorizontalAlignment', 'center', 'FontSize', 11);
+if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
+    text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), sprintf('p = %.3f', p_sd), ...
+        'HorizontalAlignment', 'center', 'FontSize', 11);
+end
 grid on;
 
 subplot(1, 3, 3);
@@ -1974,6 +1981,147 @@ end
 
 % --- PART C: SUB-VOLUME STATISTICS ---
 % How big were the "Resistant" (Low Diffusion) sub-volumes?
+%% ---------- Time-Dependent Cox PH Model (Counting-Process / Start–Stop) ----------
+% Each patient contributes one row per DWI scan interval, so the model
+% tracks how the biomarker evolves up to the event rather than using only
+% a static snapshot at target_fx.
+%
+% Panel notation:
+%   t_start  = scan day (Fx1=0, Fx2≈5, Fx3≈10, Fx4≈15, Fx5≈20, Post≈90)
+%   t_stop   = start of next interval or total_time if last valid scan
+%   event    = 1 only on the terminal row of a local-failure patient
+%
+% Reference: Andersen & Gill (1982); Klein & Moeschberger §8.4.
+
+fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
+
+td_scan_days = [0, 5, 10, 15, 20, 90];   % update if exact scan dates are available
+
+% Covariates: all four IVIM parameters (absolute, all fractions)
+td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
+                   f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
+td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+td_n_feat      = numel(td_feat_arrays);
+
+td_lf       = m_lf(valid_pts);
+td_tot_time = m_total_time(valid_pts);
+% Censored patients use follow-up time; events use time-to-event
+cens_mask_td = (td_lf == 0) & ~isnan(m_total_follow_up_time(valid_pts));
+td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~isnan(m_total_follow_up_time(:)));
+
+[X_td, t_start_td, t_stop_td, event_td, pat_id_td] = ...
+    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
+
+td_ok = (sum(event_td) >= 3) && (size(X_td, 1) > td_n_feat + 1);
+if ~td_ok
+    fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td));
+else
+    % ---- Fit the time-dependent Cox model --------------------------------
+    % coxphfit accepts a two-column [t_start t_stop] matrix for start-stop data.
+    warning('error', 'stats:coxphfit:FitWarning');
+    warning('error', 'stats:coxphfit:IterationLimit');
+    is_firth_td = false;
+    try
+        [b_td, logl_td, ~, stats_td] = coxphfit(X_td, [t_start_td, t_stop_td], ...
+            'Censoring', ~event_td, 'Ties', 'breslow', ...
+            'Options', statset('MaxIter', 1000000));
+    catch ME_td
+        if contains(ME_td.identifier, 'FitWarning') || ...
+           contains(ME_td.identifier, 'IterationLimit') || ...
+           contains(lower(ME_td.message), 'perfect')
+            % Firth penalised logistic fallback: use last observed covariate per patient
+            n_vp = sum(valid_pts);
+            td_last_X = nan(n_vp, td_n_feat);
+            for ii = 1:n_vp
+                rows_ii = (pat_id_td == ii);
+                if any(rows_ii)
+                    td_last_X(ii, :) = X_td(find(rows_ii, 1, 'last'), :);
+                end
+            end
+            valid_firth_td = ~any(isnan(td_last_X), 2) & ~isnan(td_lf);
+            mdl_firth_td = fitglm(td_last_X(valid_firth_td,:), td_lf(valid_firth_td), ...
+                'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', ...
+                'Options', statset('MaxIter', 1000000));
+            b_td           = mdl_firth_td.Coefficients.Estimate(2:end);
+            stats_td.se    = mdl_firth_td.Coefficients.SE(2:end);
+            stats_td.p     = mdl_firth_td.Coefficients.pValue(2:end);
+            stats_td.sschres = zeros(size(X_td,1), td_n_feat);
+            logl_td        = mdl_firth_td.LogLikelihood;
+            is_firth_td    = true;
+        else
+            warning('on', 'stats:coxphfit:FitWarning');
+            warning('on', 'stats:coxphfit:IterationLimit');
+            rethrow(ME_td);
+        end
+    end
+    warning('on', 'stats:coxphfit:FitWarning');
+    warning('on', 'stats:coxphfit:IterationLimit');
+
+    % ---- Likelihood-ratio test vs. null model (no covariates) -----------
+    try
+        [~, logl_null_td] = coxphfit(zeros(size(X_td,1),1), [t_start_td, t_stop_td], ...
+            'Censoring', ~event_td, 'Ties', 'breslow', ...
+            'Options', statset('MaxIter', 100));
+        LRT_stat = 2 * (logl_td - logl_null_td);
+        LRT_p    = 1 - chi2cdf(LRT_stat, td_n_feat);
+    catch
+        LRT_stat = NaN; LRT_p = NaN;
+    end
+
+    % ---- Print results table -------------------------------------------
+    if is_firth_td
+        fprintf('  [Fallback to Firth logistic due to separation]\n');
+        hr_label = 'OR ';
+    else
+        hr_label = 'HR ';
+    end
+    fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', hr_label, 'CI_lo', 'CI_hi', 'p');
+    fprintf('  %s\n', repmat('-', 1, 52));
+    for fi = 1:td_n_feat
+        hr_i  = exp(b_td(fi));
+        ci_lo = exp(b_td(fi) - 1.96*stats_td.se(fi));
+        ci_hi = exp(b_td(fi) + 1.96*stats_td.se(fi));
+        fprintf('  %-10s  %6.3f  %6.3f  %6.3f  %6.4f\n', ...
+            td_feat_names{fi}, hr_i, ci_lo, ci_hi, stats_td.p(fi));
+    end
+    if ~isnan(LRT_p)
+        fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', td_n_feat, LRT_stat, LRT_p);
+    end
+
+    % ---- Schoenfeld residuals: PH assumption check ----------------------
+    if ~is_firth_td && isfield(stats_td, 'sschres')
+        event_rows_td = find(event_td);
+        if length(event_rows_td) >= 3
+            figure('Name', ['TD Cox Schoenfeld — ' fx_label ' — ' dtype_label], ...
+                'Position', [100, 100, 300*td_n_feat, 320]);
+            for fi = 1:td_n_feat
+                subplot(1, td_n_feat, fi);
+                sch_fi   = stats_td.sschres(event_rows_td, fi);
+                logt_fi  = log(t_stop_td(event_rows_td));
+                scatter(logt_fi, sch_fi, 30, 'b', 'filled', 'MarkerEdgeColor', 'k');
+                hold on;
+                pf       = polyfit(logt_fi, sch_fi, 1);
+                xt       = linspace(min(logt_fi), max(logt_fi), 50);
+                plot(xt, polyval(pf, xt), 'r-', 'LineWidth', 1.5);
+                yline(0, 'k--');
+                [r_ph_fi, p_ph_fi] = corr(logt_fi, sch_fi, 'Type', 'Spearman');
+                ph_col   = 'k'; if p_ph_fi < 0.05, ph_col = 'r'; end
+                title({td_feat_names{fi}, ...
+                    sprintf('r=%.2f p=%.3f', r_ph_fi, p_ph_fi)}, ...
+                    'Color', ph_col, 'FontSize', 10);
+                xlabel('log(t)'); ylabel('Sch. residual'); grid on;
+            end
+            sgtitle(['TD Cox PH Check (' fx_label ', ' dtype_label ')'], 'FontSize', 12);
+            saveas(gcf, fullfile(output_folder, ...
+                ['TDCox_Schoenfeld_' fx_label '_' dtype_label '.png']));
+            close(gcf);
+        end
+    end
+
+    fprintf('  Time-Dependent Cox model complete.\n\n');
+end
+
+% --- PART C: SUB-VOLUME STATISTICS ---
 % We used: D < 0.001 and f < 0.1
 % Let's look at Fx2 (where the Dose finding was significant)
 % Note: 'ivim_sub_vol' contains volume in cc. 'm_gtv_vol' is total.
