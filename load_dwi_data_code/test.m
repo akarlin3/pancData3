@@ -1700,6 +1700,82 @@ catch e
     n_fail = n_fail + 1;
 end
 
+%% ====================================================================
+%  20. DIR DOSE-MAP WARPING
+%  Verifies that the Demons displacement field is applied to the dose map
+%  before DVH extraction so dose sub-volumes are spatially consistent with
+%  the DWI parameter maps.
+% =====================================================================
+
+% testDIR_ReturnsDfieldAndRef
+try
+    % apply_dir_mask_propagation should return 3 outputs (mask, D_forward, ref3d).
+    code = readLoadDwiSource();
+    % Check signature via file reading
+    apPath = fullfile(fileparts(mfilename('fullpath')), 'apply_dir_mask_propagation.m');
+    fid = fopen(apPath, 'r'); ap_code = fread(fid,'*char')'; fclose(fid);
+    assert(contains(ap_code, 'D_forward, ref3d] = apply_dir_mask_propagation'), ...
+        'apply_dir_mask_propagation should return D_forward and ref3d');
+    fprintf('[PASS] testDIR_ReturnsDfieldAndRef\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_ReturnsDfieldAndRef: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_DoseWarped_NotRigid
+try
+    % load_dwi_data_forAvery.m should apply imwarp to the dose map.
+    code = loaddwi_code;
+    assert(contains(code, 'imwarp(dose_map, D_forward_cur'), ...
+        'Dose map must be warped with D_forward_cur via imwarp before DVH extraction');
+    fprintf('[PASS] testDIR_DoseWarped_NotRigid\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_DoseWarped_NotRigid: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_DoseWarpFallback
+try
+    % At baseline (fi=1) or when DIR fails, code must fall back to rigid dose_map.
+    code = loaddwi_code;
+    assert(contains(code, 'dose_map_dvh     = dose_map'), ...
+        'Rigid dose fallback ''dose_map_dvh = dose_map'' should be initialised before DIR block');
+    fprintf('[PASS] testDIR_DoseWarpFallback\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_DoseWarpFallback: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_DfieldCached
+try
+    % D_forward and ref3d should be written to the .mat cache file.
+    code = loaddwi_code;
+    assert(contains(code, "save(dir_cache_file, 'gtv_mask_warped', 'D_forward', 'ref3d')"), ...
+        'D_forward and ref3d must be included in the cache save call');
+    fprintf('[PASS] testDIR_DfieldCached\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_DfieldCached: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_GTVnDoseAlsoWarped
+try
+    % GTVn dose block must also use the warped dose (dose_map_dvh_n).
+    code = loaddwi_code;
+    assert(contains(code, 'imwarp(dose_map, D_forward_cur') && ...
+           contains(code, 'dose_map_dvh_n'), ...
+        'GTVn dose block must warp dose_map with D_forward_cur into dose_map_dvh_n');
+    fprintf('[PASS] testDIR_GTVnDoseAlsoWarped\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_GTVnDoseAlsoWarped: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
 %% Summary
 fprintf('\n%d passed, %d failed out of %d tests\n', n_pass, n_fail, n_pass + n_fail);
 if n_fail > 0

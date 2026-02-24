@@ -754,47 +754,65 @@ for j = 1:length(mrn_list)
 
             % --- Compute DVH parameters within GTVp ---
             % For fractions after baseline (fi > 1), use a DIR-propagated GTV mask
-            % to correct for inter-fraction tumor deformation. The Demons displacement
-            % field is cached to disk to avoid redundant computation on re-runs.
-            gtv_mask_for_dvh = gtv_mask; % default: use raw mask
+            % AND a DIR-warped dose map to correct for inter-fraction deformation.
+            % The Demons displacement field is cached to disk to avoid redundant
+            % computation on re-runs.
+            gtv_mask_for_dvh = gtv_mask;  % default: raw mask (updated below for fi>1)
+            dose_map_dvh     = dose_map;  % default: rigid dose (updated below for fi>1)
+            D_forward_cur    = [];        % Demons field for this fraction
+            ref3d_cur        = [];        % imref3d object for this fraction
+
             if havedwi && havegtvp
                 b0_current = dwi(:,:,:,1); % b=0 is always the first volume
                 if fi == 1
                     % Cache the Fx1 reference for downstream DIR calls
-                    b0_fx1_ref = b0_current;
+                    b0_fx1_ref       = b0_current;
                     gtv_mask_fx1_ref = gtv_mask;
                 elseif fi > 1 && ~isempty(b0_fx1_ref) && ~isempty(gtv_mask_fx1_ref)
-                    % Try to load a previously saved displacement field
                     dir_cache_file = fullfile([dataloc id_list{j} '/nii/'], ...
                         sprintf('dir_field_rpi%d_fx%d.mat', rpi, fi));
                     if exist(dir_cache_file, 'file')
-                        tmp_dir = load(dir_cache_file, 'gtv_mask_warped');
+                        tmp_dir = load(dir_cache_file, 'gtv_mask_warped', 'D_forward', 'ref3d');
                         gtv_mask_for_dvh = tmp_dir.gtv_mask_warped;
-                        fprintf('  [DIR] Loaded cached warped mask for Fx%d rpi%d\n', fi, rpi);
+                        if isfield(tmp_dir, 'D_forward'),  D_forward_cur = tmp_dir.D_forward;  end
+                        if isfield(tmp_dir, 'ref3d'),      ref3d_cur     = tmp_dir.ref3d;      end
+                        fprintf('  [DIR] Loaded cached warped mask + D_forward for Fx%d rpi%d\n', fi, rpi);
                     else
                         fprintf('  [DIR] Running imregdemons for Fx%d rpi%d...\n', fi, rpi);
-                        gtv_mask_warped = apply_dir_mask_propagation(b0_fx1_ref, b0_current, gtv_mask_fx1_ref);
+                        [gtv_mask_warped, D_forward_cur, ref3d_cur] = ...
+                            apply_dir_mask_propagation(b0_fx1_ref, b0_current, gtv_mask_fx1_ref);
                         if ~isempty(gtv_mask_warped)
                             gtv_mask_for_dvh = gtv_mask_warped;
-                            % Cache to disk
-                            save(dir_cache_file, 'gtv_mask_warped');
-                            fprintf('  [DIR] Done. Warped mask saved.\n');
+                            % Cache mask + displacement field to disk
+                            D_forward = D_forward_cur;  ref3d = ref3d_cur; %#ok<NASGU>
+                            save(dir_cache_file, 'gtv_mask_warped', 'D_forward', 'ref3d');
+                            fprintf('  [DIR] Done. Warped mask + D_forward saved.\n');
                         else
-                            fprintf('  [DIR] Registration failed for Fx%d rpi%d. Falling back to raw Fx%d mask.\n', fi, rpi, fi);
+                            fprintf('  [DIR] Registration failed for Fx%d rpi%d. Falling back to rigid dose/mask.\n', fi, rpi);
                         end
+                    end
+
+                    % --- Warp the dose map with the same displacement field ---
+                    % This ensures dose sub-volumes (V50, D95) are drawn from the
+                    % tissue voxels that actually received that dose, not rigid
+                    % neighbours that may correspond to adjacent bowel.
+                    if ~isempty(D_forward_cur) && ~isempty(ref3d_cur)
+                        dose_map_dvh = imwarp(dose_map, D_forward_cur, 'Interp', 'linear', ...
+                            'OutputView', ref3d_cur, 'FillValues', 0);
                     end
                 end
             end
 
             if havedose && havegtvp
-                dmean_gtvp(j,fi) = nanmean(dose_map(gtv_mask_for_dvh==1));
+                dmean_gtvp(j,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
-                % Compute DVH with 2000 bins, extracting D95% and V50Gy
-                [dvhparams, dvh_values] = dvh(dose_map, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
+                % DVH uses the DIR-warped dose so that sub-volume dose metrics
+                % (D95%, V50Gy) are spatially consistent with the DWI maps.
+                [dvhparams, dvh_values] = dvh(dose_map_dvh, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 d95_gtvp(j,fi) = dvhparams.("D95% (Gy)");
                 v50gy_gtvp(j,fi) = dvhparams.("V50Gy (%)");
 
-                data_vectors_gtvp(j,fi,rpi).dose_vector = dose_map(gtv_mask_for_dvh==1);
+                data_vectors_gtvp(j,fi,rpi).dose_vector = dose_map_dvh(gtv_mask_for_dvh==1);
                 data_vectors_gtvp(j,fi,rpi).dvh = dvh_values;
                 data_vectors_gtvp(j,fi,rpi).d95 = dvhparams.("D95% (Gy)");
                 data_vectors_gtvp(j,fi,rpi).v50gy = dvhparams.("V50Gy (%)");
@@ -838,14 +856,20 @@ for j = 1:length(mrn_list)
             end
 
             % Compute DVH parameters within GTVn
+            % Apply DIR-warped dose if available (D_forward_cur set by GTVp block above).
             if havedose && havegtvn
-                dmean_gtvn(j,fi) = nanmean(dose_map(gtvn_mask==1));
+                dose_map_dvh_n = dose_map;  % default: rigid dose
+                if ~isempty(D_forward_cur) && ~isempty(ref3d_cur)
+                    dose_map_dvh_n = imwarp(dose_map, D_forward_cur, 'Interp', 'linear', ...
+                        'OutputView', ref3d_cur, 'FillValues', 0);
+                end
+                dmean_gtvn(j,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
-                [dvhparams, dvh_values] = dvh(dose_map, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
+                [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 d95_gtvn(j,fi) = dvhparams.("D95% (Gy)");
                 v50gy_gtvn(j,fi) = dvhparams.("V50Gy (%)");
 
-                data_vectors_gtvn(j,fi,rpi).dose_vector = dose_map(gtvn_mask==1);
+                data_vectors_gtvn(j,fi,rpi).dose_vector = dose_map_dvh_n(gtvn_mask==1);
                 data_vectors_gtvn(j,fi,rpi).dvh = dvh_values;
                 data_vectors_gtvn(j,fi,rpi).d95 = dvhparams.("D95% (Gy)");
                 data_vectors_gtvn(j,fi,rpi).v50gy = dvhparams.("V50Gy (%)");

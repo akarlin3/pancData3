@@ -1,4 +1,4 @@
-function gtv_mask_warped = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed)
+function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed)
 % apply_dir_mask_propagation  Propagates a GTV mask from a reference scan to
 %   a follow-up scan using Deformable Image Registration (Demons algorithm).
 %
@@ -16,6 +16,11 @@ function gtv_mask_warped = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_m
 %     gtv_mask_warped - 3D logical array: GTV mask propagated to the moving
 %                       image space via the estimated deformation field. Empty
 %                       ([]) if registration fails or image sizes mismatch.
+%     D_forward       - Demons displacement field (same size as b0_moving,
+%                       4th dim = 3 for XYZ). Returned so callers can reuse
+%                       the field to warp other volumes (e.g., dose maps)
+%                       without re-running Demons.
+%     ref3d           - imref3d spatial reference object matching b0_moving.
 %
 %   Algorithm:
 %     1. Normalise both b=0 images to [0, 1] for numerically stable Demons.
@@ -28,6 +33,8 @@ function gtv_mask_warped = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_m
 %   Requires: Image Processing Toolbox (imregdemons, imwarp, imref3d).
 
     gtv_mask_warped = [];
+    D_forward       = [];
+    ref3d           = [];
 
     % --- Input validation ---
     if isempty(b0_fixed) || isempty(b0_moving) || isempty(gtv_mask_fixed)
