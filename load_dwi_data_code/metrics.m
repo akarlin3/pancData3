@@ -308,11 +308,14 @@ f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
 % Calculate percent change relative to pretreatment (Fx1)
-% Formula: ((Fx_n - Fx_1) ./ Fx_1) * 100
+% For f (bounded 0-1), compute the absolute difference instead of percent change
+% For D*, add a small smoothing constant to the denominator to prevent noise spikes
+epsilon = 1e-4;
+
 ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ ADC_abs(:,1)) * 100;
 D_pct   = ((D_abs - D_abs(:,1)) ./ D_abs(:,1)) * 100;
-f_pct   = ((f_abs - f_abs(:,1)) ./ f_abs(:,1)) * 100;
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ Dstar_abs(:,1)) * 100;
+f_pct   = (f_abs - f_abs(:,1));
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + epsilon)) * 100;
 
 % Group data for easy iteration
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
@@ -374,8 +377,13 @@ for i = 1:4
     
     % Formatting
     set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
-    title(['\Delta ', metric_names{i}, ' (%)'], 'FontSize', 12, 'FontWeight', 'bold');
-    ylabel('% Change from Fx1');
+    if strcmp(metric_names{i}, 'f')
+        title(['\Delta ', metric_names{i}, ' (abs)'], 'FontSize', 12, 'FontWeight', 'bold');
+        ylabel('Absolute Change');
+    else
+        title(['\Delta ', metric_names{i}, ' (%)'], 'FontSize', 12, 'FontWeight', 'bold');
+        ylabel('% Change from Fx1');
+    end
     xlim([0.5, nTp+0.5]);
     grid on; box on;
 end
@@ -550,7 +558,7 @@ metric_sets = {
 
 set_names = {
     {'ADC Absolute', 'D Absolute', 'f Absolute', 'D* Absolute'}, ...
-    {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (%)', '\Delta D* (%)'}, ...
+    {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (abs)', '\Delta D* (%)'}, ...
     {'D95 Whole GTV', 'D95 Sub(ADC)', 'D95 Sub(D)', 'D95 Sub(f)', 'D95 Sub(D*)'}, ...
     {'V50 Whole GTV', 'V50 Sub(ADC)', 'V50 Sub(D)', 'V50 Sub(f)', 'V50 Sub(D*)'}
 };
@@ -839,11 +847,28 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
                         'D95_Sub_D', 'V50_Sub_D', ...
                         'D95_Sub_f', 'V50_Sub_f', ...
                         'D95_Sub_Dstar', 'V50_Sub_Dstar'};
+
+    original_feature_indices = 1:18;
+
+    % Exclude dose-based metrics for Post-RT scan (target_fx == 6)
+    if target_fx == 6
+        X_lasso_all = X_lasso_all(:, 1:8);
+        feat_names_lasso = feat_names_lasso(1:8);
+        original_feature_indices = original_feature_indices(1:8);
+    end
+    
+    % Ensure knn_impute_train_test is never fed columns composed entirely of NaNs
+    valid_cols = ~all(isnan(X_lasso_all), 1);
+    X_lasso_all = X_lasso_all(:, valid_cols);
+    feat_names_lasso = feat_names_lasso(valid_cols);
+    original_feature_indices = original_feature_indices(valid_cols);
+
     y_lasso_all = lf_group;
 
     % --- Imputation strategy to prevent complete-case attrition ---
     % Step 1: Exclude patients missing ALL imaging data (entire row NaN)
-    has_any_imaging = any(~isnan(X_lasso_all), 2);
+    base_cols = min(8, size(X_lasso_all, 2));
+    has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);
     % Step 2: Also require a valid clinical outcome
     impute_mask = has_any_imaging & ~isnan(y_lasso_all);
     X_impute = X_lasso_all(impute_mask, :);
@@ -919,7 +944,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
             
             % Map selected indices back to original 1..18 mapping
             selected_filtered_idx = find(coefs_lasso ~= 0);
-            selected_indices = keep_global(selected_filtered_idx);
+            selected_indices = original_feature_indices(keep_global(selected_filtered_idx));
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso(selected_indices), ', '));
@@ -1183,9 +1208,19 @@ lpocv_cols = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
               d95_f_sub(valid_pts, target_fx),   v50_f_sub(valid_pts, target_fx), ...
               d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
 
+% Exclude dose-based metrics for Post-RT scan (target_fx == 6)
+if target_fx == 6
+    lpocv_cols = lpocv_cols(:, 1:8);
+end
+
+% Ensure knn_impute_train_test is never fed columns composed entirely of NaNs
+valid_cols_lpocv = ~all(isnan(lpocv_cols), 1);
+lpocv_cols = lpocv_cols(:, valid_cols_lpocv);
+
 % Filter valid rows: Require valid outcome and at least some imaging data
-has_any_imaging = any(~isnan(lpocv_cols), 2);
-valid_rows = ~isnan(labels) & has_any_imaging;
+base_cols_lpocv = min(8, size(lpocv_cols, 2));
+has_any_imaging_lpocv = any(~isnan(lpocv_cols(:, 1:base_cols_lpocv)), 2);
+valid_rows = ~isnan(labels) & has_any_imaging_lpocv;
 X_data = lpocv_cols(valid_rows, :);
 Y_data = labels(valid_rows);
 
@@ -1393,12 +1428,19 @@ if sum(is_high_risk) > 0 && sum(~is_high_risk) > 0
     stairs(x1, f1, 'r-', 'LineWidth', 2.5); hold on;
     stairs(x2, f2, 'b-', 'LineWidth', 2.5);
     legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
+    
+    % Perform log-rank test approximation via univariate Cox regression
+    [~, ~, ~, stats] = coxphfit(is_high_risk, times_km, 'Censoring', ~events_km);
+    p_val_km = stats.p;
+    
+    title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)\nLog-Rank p = %.4f', fx_label, dtype_label, p_val_km);
 else
     fprintf('Warning: Risk groups are degenerate. Skipping KM stratification.\n');
+    title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)', fx_label, dtype_label);
 end
 xlabel('Time to Local Failure (Days)', 'FontSize', 12);
 ylabel('Local Control Probability', 'FontSize', 12);
-title(['Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (' fx_label ') (' dtype_label ')'], 'FontSize', 14);
+title(title_str, 'FontSize', 14);
 grid on; axis([0 max(times)+50 0 1.05]);
 saveas(gcf, fullfile(output_folder, ['Kaplan_Meier_' fx_label '_' dtype_label '.png']));
 close(gcf);
@@ -1852,7 +1894,7 @@ if sum(valid_unbiased) > 5
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
     try
-        [b_unbiased, ~, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
+        [b_unbiased, logl_true, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
             'Censoring', ~unbiased_events(valid_unbiased), 'Options', statset('MaxIter', 1000000));
         is_firth_unbiased = false;
     catch ME
@@ -1861,6 +1903,7 @@ if sum(valid_unbiased) > 5
             b_unbiased = mdl_firth_unb.Coefficients.Estimate(2:end);
             stats_unbiased.se = mdl_firth_unb.Coefficients.SE(2:end);
             stats_unbiased.p = mdl_firth_unb.Coefficients.pValue(2:end);
+            logl_true = mdl_firth_unb.LogLikelihood;
             is_firth_unbiased = true;
         else
             rethrow(ME);
@@ -1878,9 +1921,83 @@ if sum(valid_unbiased) > 5
     end
     fprintf('  95%% Confidence Interval: %.2f - %.2f\n', ...
         exp(b_unbiased - 1.96*stats_unbiased.se), exp(b_unbiased + 1.96*stats_unbiased.se));
-    fprintf('  p-value: %.4f\n', stats_unbiased.p);
+    fprintf('  Standard p-value (Violates Independence): %.4f\n', stats_unbiased.p);
     
-    if stats_unbiased.p < 0.05
+    % --- Permutation Test ---
+    fprintf('  Running Permutation Test (1,000 shuffles) to generate empirical p-value...\n');
+    n_perms = 1000;
+    logl_null = nan(n_perms, 1);
+    
+    valid_idx = find(valid_unbiased);
+    n_valid = length(valid_idx);
+    
+    n_pts_impute = size(X_impute, 1);
+    map_valid_to_impute = cumsum(impute_mask); 
+    idx_y_clean = map_valid_to_impute(valid_idx); 
+    
+    parfor p_i = 1:n_perms
+        % Shuffle survival times and event indicators for valid patients
+        perm_idx = randperm(n_valid);
+        t_perm = unbiased_times;
+        e_perm = unbiased_events;
+        t_perm(valid_idx) = unbiased_times(valid_idx(perm_idx));
+        e_perm(valid_idx) = unbiased_events(valid_idx(perm_idx));
+        
+        y_perm_clean = y_clean;
+        y_perm_clean(idx_y_clean) = e_perm(valid_idx);
+        
+        risk_scores_perm_oof = nan(n_pts_impute, 1);
+        
+        for loo_i = 1:n_pts_impute
+            train_mask = true(n_pts_impute, 1);
+            train_mask(loo_i) = false;
+            X_tr_fold = X_impute(train_mask, :);
+            y_tr_fold = y_perm_clean(train_mask);
+            X_te_fold = X_impute(loo_i, :);
+            
+            [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5);
+            keep_fold = filter_collinear_features(X_tr_imp, y_tr_fold);
+            X_tr_kept = X_tr_imp(:, keep_fold);
+            X_te_kept = X_te_imp(:, keep_fold);
+            
+            w_state = warning('off', 'all');
+            try
+                [B_loo, FitInfo_loo] = lassoglm(X_tr_kept, y_tr_fold, 'binomial', ...
+                    'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
+                best_idx = FitInfo_loo.IndexMinDeviance;
+                coefs_loo = B_loo(:, best_idx);
+                intercept_loo = FitInfo_loo.Intercept(best_idx);
+            catch
+                coefs_loo = zeros(size(X_tr_kept, 2), 1);
+                intercept_loo = 0;
+            end
+            warning(w_state);
+            
+            risk_scores_perm_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
+        end
+        
+        risk_scores_perm_all = nan(sum(valid_pts), 1);
+        risk_scores_perm_all(impute_mask) = risk_scores_perm_oof;
+        
+        w_state = warning('off', 'all');
+        try
+            if is_firth_unbiased
+                mdl_null = fitglm(risk_scores_perm_all(valid_idx), e_perm(valid_idx), 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
+                logl_null(p_i) = mdl_null.LogLikelihood;
+            else
+                [~, logl_iter, ~, ~] = coxphfit(risk_scores_perm_all(valid_idx), t_perm(valid_idx), 'Censoring', ~e_perm(valid_idx), 'Options', statset('MaxIter', 100));
+                logl_null(p_i) = logl_iter;
+            end
+        catch
+            logl_null(p_i) = NaN;
+        end
+        warning(w_state);
+    end
+    
+    emp_p = sum(logl_null(~isnan(logl_null)) >= logl_true) / sum(~isnan(logl_null));
+    fprintf('  Empirical p-value: %.4f\n', emp_p);
+    
+    if emp_p < 0.05
         fprintf('  Conclusion: RIGOROUS. Model retains significance out-of-sample.\n');
     else
         fprintf('  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.\n');
