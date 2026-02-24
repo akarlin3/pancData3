@@ -1983,6 +1983,15 @@ try
             x_biomarker = curr_sig_pct_full(final_mask); 
             x_vol = vol_vec(final_mask);
             
+            % --- Collinearity Check ---
+            [r_collin, ~] = corr(x_biomarker, x_vol, 'Type', 'Spearman');
+            if abs(r_collin) > 0.70
+                fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
+                fprintf('  [WARNING] Critical multicollinearity with Baseline Volume (|r| = %.2f).\n', r_collin);
+                fprintf('  Skipping multivariable fit to avoid mischaracterization as confounded.\n\n');
+                continue;
+            end
+            
             warning('error', 'stats:coxphfit:FitWarning');
             warning('error', 'stats:coxphfit:IterationLimit');
             try
@@ -2299,8 +2308,9 @@ glme_table_clean.D_z = (glme_table_clean.D - mean_D_base) / std_D_base;
 glme_table_clean.f_z = (glme_table_clean.f - mean_f_base) / std_f_base;
 glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean_Dstar_base) / std_Dstar_base;
 
-% Ensure LF is categorical to properly evaluate interaction with Timepoint
+% Ensure LF and Timepoint are categorical to properly evaluate interaction
 glme_table_clean.LF = categorical(glme_table_clean.LF);
+glme_table_clean.Timepoint = categorical(glme_table_clean.Timepoint);
 
 biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
 warning('off', 'all');
