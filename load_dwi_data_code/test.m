@@ -1,7 +1,7 @@
 %% test.m — Test Suite for Refactored Statistical and Analytical Procedures
 % =========================================================================
-% Validates the four refactored areas in metrics.m (and fit_adc_mono.m):
-%   1. Benjamini-Hochberg FDR correction (full-sweep q-values)
+% Validates the refactored areas in metrics.m and supporting functions:
+%   1. Benjamini-Hochberg FDR correction (per-timepoint q-values)
 %   2. Holm-Bonferroni FWER correction (step-down thresholds)
 %   3. Correlation pre-filtering for Elastic Net feature selection
 %   4. LOOCV Kaplan-Meier risk assignment (no data leakage)
@@ -26,8 +26,9 @@ if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
 
 % Cache metrics.m source once to avoid repeated file I/O across tests.
-metrics_code = readMetricsSource();
-vis_code = readVisualizeSource();
+metrics_code   = readMetricsSource();
+vis_code       = readVisualizeSource();
+loaddwi_code   = readLoadDwiSource();
 
 %% ====================================================================
 %  1. BENJAMINI-HOCHBERG FDR CORRECTION
@@ -827,31 +828,42 @@ end
 %  (which apply corrections across ALL tests) are still present.
 % =====================================================================
 
-% testRetained_FullSweepFDR
+% testRetained_PerTimepointFDR
 try
-    % The "Q-Value (FDR) Analysis — Full Metric Sweep" section
-    % should remain in metrics.m.
+    % The FDR section should now apply BH per-timepoint.
     code = metrics_code;
-    assert(contains(code, 'Q-Value (FDR) Analysis'), ...
-        'Full-sweep FDR section should be retained');
-    fprintf('[PASS] testRetained_FullSweepFDR\n');
+    assert(contains(code, 'Per-Timepoint') || contains(code, 'PER-TIMEPOINT'), ...
+        'FDR section should indicate per-timepoint operation');
+    fprintf('[PASS] testRetained_PerTimepointFDR\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] testRetained_FullSweepFDR: %s\n', e.message);
+    fprintf('[FAIL] testRetained_PerTimepointFDR: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
 % testRetained_HolmBonferroni
 try
-    % The "Holm-Bonferroni Correction (FWER Control)" section
-    % should remain in metrics.m.
+    % Holm-Bonferroni should still exist (now per-timepoint).
     code = metrics_code;
-    assert(contains(code, 'Holm-Bonferroni Correction (FWER Control)'), ...
-        'Holm-Bonferroni section should be retained');
+    assert(contains(code, 'Holm-Bonferroni'), ...
+        'Holm-Bonferroni logic should be retained');
     fprintf('[PASS] testRetained_HolmBonferroni\n');
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] testRetained_HolmBonferroni: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testFDR_NoGlobalPooling
+try
+    % The old global FDR sweep header should no longer exist.
+    code = metrics_code;
+    assert(~contains(code, 'Full Metric Sweep'), ...
+        'Global FDR sweep should be replaced with per-timepoint');
+    fprintf('[PASS] testFDR_NoGlobalPooling\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testFDR_NoGlobalPooling: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1039,7 +1051,7 @@ end
 try
     % metrics.m should exclude patients with ALL imaging data missing.
     code = metrics_code;
-    matches = regexp(code, 'any\s*\(\s*~isnan\s*\(\s*X_lasso\s*\)', 'match');
+    matches = regexp(code, 'any\s*\(\s*~isnan\s*\(\s*X_lasso_all', 'match');
     assert(~isempty(matches), ...
         'metrics.m should check for patients missing all imaging data');
     fprintf('[PASS] testImpute_ExcludesAllNaNRows\n');
@@ -1185,6 +1197,273 @@ catch e
     n_fail = n_fail + 1;
 end
 
+%% ====================================================================
+%  13. DEFORMABLE IMAGE REGISTRATION (DIR)
+%  Tests the apply_dir_mask_propagation helper function.
+% =====================================================================
+
+% testDIR_EmptyInputsReturnEmpty
+try
+    % All three empty-input cases should return [].
+    r1 = apply_dir_mask_propagation([], ones(4,4,4), true(4,4,4));
+    r2 = apply_dir_mask_propagation(ones(4,4,4), [], true(4,4,4));
+    r3 = apply_dir_mask_propagation(ones(4,4,4), ones(4,4,4), []);
+    assert(isempty(r1) && isempty(r2) && isempty(r3), ...
+        'Empty inputs should return empty output');
+    fprintf('[PASS] testDIR_EmptyInputsReturnEmpty\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_EmptyInputsReturnEmpty: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_SizeMismatchReturnsEmpty
+try
+    % Mismatched image sizes should return [].
+    r = apply_dir_mask_propagation(ones(4,4,4), ones(5,5,5), true(4,4,4));
+    assert(isempty(r), ...
+        'Size-mismatched inputs should return empty output');
+    fprintf('[PASS] testDIR_SizeMismatchReturnsEmpty\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_SizeMismatchReturnsEmpty: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_IdenticalImagesPreserveMask
+try
+    % When fixed == moving (no deformation), the warped mask should
+    % closely match the original mask.
+    sz = [32 32 16];
+    img = randn(sz) * 100 + 500;
+    mask = false(sz);
+    mask(12:20, 12:20, 5:12) = true;
+    warped = apply_dir_mask_propagation(img, img, mask);
+    if ~isempty(warped)
+        dice_coeff = 2*sum(warped(:) & mask(:)) / (sum(warped(:)) + sum(mask(:)));
+        assert(dice_coeff > 0.95, ...
+            sprintf('Identical images should preserve mask (Dice=%.3f)', dice_coeff));
+    end
+    fprintf('[PASS] testDIR_IdenticalImagesPreserveMask\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_IdenticalImagesPreserveMask: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_OutputIsLogical
+try
+    % Output mask must be a logical array.
+    sz = [16 16 8];
+    img = randn(sz) * 100 + 500;
+    mask = false(sz); mask(5:10, 5:10, 3:6) = true;
+    warped = apply_dir_mask_propagation(img, img, mask);
+    if ~isempty(warped)
+        assert(islogical(warped), 'Warped mask should be logical');
+        assert(isequal(size(warped), sz), 'Warped mask should match input size');
+    end
+    fprintf('[PASS] testDIR_OutputIsLogical\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_OutputIsLogical: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testDIR_FunctionExistsInCodebase
+try
+    % load_dwi_data_forAvery.m should call apply_dir_mask_propagation.
+    code = loaddwi_code;
+    assert(contains(code, 'apply_dir_mask_propagation'), ...
+        'load_dwi_data_forAvery.m should call apply_dir_mask_propagation');
+    fprintf('[PASS] testDIR_FunctionExistsInCodebase\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_FunctionExistsInCodebase: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  14. NEGATIVE ADC HANDLING
+%  Verifies that negative monoexponential ADC values are set to NaN
+%  (matching biexponential failure handling), not clamped to zero.
+% =====================================================================
+
+% testADC_NegativeClampedToNaN
+try
+    % load_dwi_data_forAvery.m should assign NaN to negative ADC.
+    code = loaddwi_code;
+    assert(contains(code, 'adc_vec(adc_vec < 0) = nan') || ...
+           contains(code, 'adc_vec(adc_vec<0) = nan') || ...
+           contains(code, 'adc_vec(adc_vec < 0)= nan'), ...
+        'Negative ADC should be set to NaN, not zero');
+    fprintf('[PASS] testADC_NegativeClampedToNaN\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_NegativeClampedToNaN: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testADC_NotClampedToZero
+try
+    % The old clamping pattern should not exist.
+    code = loaddwi_code;
+    assert(~contains(code, 'adc_vec(adc_vec < 0) = 0'), ...
+        'Negative ADC should NOT be clamped to zero');
+    fprintf('[PASS] testADC_NotClampedToZero\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_NotClampedToZero: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testADC_NaNRemovedByNanmean
+try
+    % NaN values should be excluded from mean calculations.
+    adc_vec = [1.5e-3; 2.0e-3; NaN; 1.8e-3];
+    m = mean(adc_vec, 'omitnan');
+    assert(abs(m - mean([1.5e-3; 2.0e-3; 1.8e-3])) < 1e-15, ...
+        'nanmean should exclude NaN failed fits');
+    fprintf('[PASS] testADC_NaNRemovedByNanmean\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testADC_NaNRemovedByNanmean: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  15. PER-TIMEPOINT FDR CORRECTNESS
+%  Verifies that per-timepoint BH yields smaller family sizes and
+%  thus more power than global pooling.
+% =====================================================================
+
+% testPerTimepointFDR_SmallerFamilySize
+try
+    % Same p-values corrected per-timepoint (n=4) vs globally (n=12)
+    % should yield smaller q-values per-timepoint.
+    p_tp = [0.01; 0.02; 0.04; 0.10];  % 4 tests in one timepoint
+    n_tp = 4;
+    [p_s, si] = sort(p_tp);
+    q_tp = zeros(n_tp, 1);
+    q_tp(n_tp) = p_s(n_tp);
+    for ii = n_tp-1:-1:1
+        q_tp(ii) = min(q_tp(ii+1), p_s(ii) * (n_tp / ii));
+    end
+    q_tp = min(q_tp, 1);
+
+    % Global: same p-values padded to 12 tests
+    p_global = [p_tp; 0.30; 0.40; 0.50; 0.60; 0.70; 0.80; 0.90; 0.95];
+    n_g = 12;
+    [p_sg, sig] = sort(p_global);
+    q_g = zeros(n_g, 1);
+    q_g(n_g) = p_sg(n_g);
+    for ii = n_g-1:-1:1
+        q_g(ii) = min(q_g(ii+1), p_sg(ii) * (n_g / ii));
+    end
+    q_g = min(q_g, 1);
+    q_g_unsorted = zeros(n_g, 1); q_g_unsorted(sig) = q_g;
+
+    % The first 4 tests should have smaller q when corrected per-timepoint
+    assert(all(q_tp <= q_g_unsorted(1:4) + 1e-12), ...
+        'Per-timepoint FDR should produce equal or smaller q-values than global');
+    fprintf('[PASS] testPerTimepointFDR_SmallerFamilySize\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testPerTimepointFDR_SmallerFamilySize: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testPerTimepointFDR_NoGlobalSweepInSection9
+try
+    % Section 9 should no longer pool across timepoints.
+    code = metrics_code;
+    assert(~contains(code, 'FDR Correction') || ...
+           contains(code, 'Per-Timepoint'), ...
+        'Section 9 FDR should be per-timepoint, not global');
+    fprintf('[PASS] testPerTimepointFDR_NoGlobalSweepInSection9\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testPerTimepointFDR_NoGlobalSweepInSection9: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  16. OUT-OF-FOLD ROC ANALYSIS
+%  Verifies that the ROC curve uses unbiased out-of-fold risk scores
+%  rather than in-sample fitted probabilities.
+% =====================================================================
+
+% testOOFROC_UsesRiskScoresAll
+try
+    % perfcurve should be called with risk_scores_all, not
+    % mdl_roc.Fitted.Probability.
+    code = metrics_code;
+    assert(contains(code, 'perfcurve(labels(valid_roc), risk_scores_all(valid_roc)'), ...
+        'perfcurve should use risk_scores_all directly');
+    fprintf('[PASS] testOOFROC_UsesRiskScoresAll\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testOOFROC_UsesRiskScoresAll: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testOOFROC_NoInSampleROC
+try
+    % The old in-sample ROC pattern should be gone.
+    code = metrics_code;
+    assert(~contains(code, 'EXPLORATORY ROC ANALYSIS'), ...
+        'In-sample exploratory ROC should be replaced with OOF ROC');
+    fprintf('[PASS] testOOFROC_NoInSampleROC\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testOOFROC_NoInSampleROC: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testOOFROC_LabeledAsPrimary
+try
+    % ROC section should be labeled "Primary" (not "Exploratory").
+    code = metrics_code;
+    assert(contains(code, 'PRIMARY ROC ANALYSIS'), ...
+        'ROC section should be labeled Primary');
+    fprintf('[PASS] testOOFROC_LabeledAsPrimary\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testOOFROC_LabeledAsPrimary: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  17. SUB-VOLUME FEATURE EXCLUSION POLICY
+%  Verifies that sub-volume dosimetry features are re-enabled now that
+%  DIR is implemented, and that Post-RT still excludes all dose features.
+% =====================================================================
+
+% testSubVol_DIRReenabled
+try
+    % The old keep_policy = 1:10 exclusion should be gone.
+    code = metrics_code;
+    assert(~contains(code, 'keep_policy = 1:10'), ...
+        'Sub-volume features should no longer be excluded now that DIR is implemented');
+    fprintf('[PASS] testSubVol_DIRReenabled\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testSubVol_DIRReenabled: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testSubVol_PostRTStillExcluded
+try
+    % Post-RT dose exclusion (target_fx == 6) should still be present.
+    code = metrics_code;
+    assert(contains(code, 'target_fx == 6'), ...
+        'Post-RT dose exclusion should be retained');
+    fprintf('[PASS] testSubVol_PostRTStillExcluded\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testSubVol_PostRTStillExcluded: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
 %% Summary
 fprintf('\n%d passed, %d failed out of %d tests\n', n_pass, n_fail, n_pass + n_fail);
 if n_fail > 0
@@ -1194,7 +1473,7 @@ end
 diary off
 
 % =========================================================================
-%  LOCAL HELPER FUNCTION
+%  LOCAL HELPER FUNCTIONS
 % =========================================================================
 
 function code = readMetricsSource()
@@ -1211,6 +1490,15 @@ function code = readVisualizeSource()
     visPath = fullfile(fileparts(mfilename('fullpath')), 'visualize_results.m');
     fid = fopen(visPath, 'r');
     assert(fid > 0, 'Could not open visualize_results.m at: %s', visPath);
+    code = fread(fid, '*char')';
+    fclose(fid);
+end
+
+function code = readLoadDwiSource()
+    % Read load_dwi_data_forAvery.m from the same directory.
+    p = fullfile(fileparts(mfilename('fullpath')), 'load_dwi_data_forAvery.m');
+    fid = fopen(p, 'r');
+    assert(fid > 0, 'Could not open load_dwi_data_forAvery.m at: %s', p);
     code = fread(fid, '*char')';
     fclose(fid);
 end

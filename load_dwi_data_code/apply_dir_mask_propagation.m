@@ -54,24 +54,19 @@ function gtv_mask_warped = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_m
     % 3-level pyramid: iterations = [200 100 50] (coarse → fine)
     % AccumulatedFieldSmoothing: regularises the field to prevent folding.
     try
-        [D, ~] = imregdemons(moving_norm, fixed_norm, [200 100 50], ...
-            'AccumulatedFieldSmoothing', 1.5, ...
-            'DisplayWaitBar', false);
+        % Calculate deformation from fixed (Fx1) to moving (current Fx)
+        [D_forward, ~] = imregdemons(fixed_norm, moving_norm, [200 100 50], ...
+            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+
+        % Warp the baseline mask into the current fraction's geometry
+        ref3d = imref3d(size(b0_moving));
+        mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
+            'Interp', 'nearest', 'OutputView', ref3d, 'FillValues', 0);
     catch ME
         warning('apply_dir_mask_propagation:imregdemonsFailed', '%s', ME.message);
         return;
     end
 
-    % --- Warp the baseline GTV mask using the displacement field ---
-    % Use nearest-neighbour interpolation to keep the mask binary.
-    ref3d = imref3d(size(b0_fixed));
-    try
-        mask_warped_float = imwarp(double(gtv_mask_fixed), D, ...
-            'Interp', 'nearest', 'OutputView', ref3d, 'FillValues', 0);
-    catch ME
-        warning('apply_dir_mask_propagation:imwarpFailed', '%s', ME.message);
-        return;
-    end
 
     % Threshold and return as logical
     gtv_mask_warped = logical(mask_warped_float >= 0.5);

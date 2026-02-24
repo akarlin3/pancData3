@@ -1123,7 +1123,7 @@ if sum(valid_roc) > 0
     % (Or we can just feed the risk scores themselves if higher score = higher risk)
     % A simple univariate GLM maps the scores back to [0,1] probabilities
     mdl_roc = fitglm(risk_scores_all(valid_roc), labels(valid_roc), 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
-    [roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), mdl_roc.Fitted.Probability, 1);
+    [roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), risk_scores_all(valid_roc), 1);
     
     % Optimal cutoff via Youden's J Statistic
     [~, roc_opt_idx] = max(roc_Y - roc_X);
