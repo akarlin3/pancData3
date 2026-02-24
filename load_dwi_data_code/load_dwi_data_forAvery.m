@@ -116,12 +116,12 @@ fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 % Pre-allocate identifier and date storage
 id_list = cell(length(patlist),1);       % patient folder names
 mrn_list = cell(length(patlist),1);      % medical record numbers (from DICOM headers)
-fx_dates = cell(length(patlist),5);      % study dates per fraction (from DICOM headers)
+fx_dates = cell(length(patlist),6);      % study dates per fraction (from DICOM headers)
 
 % Cell arrays to hold file paths: (patient, fraction, repeat-scan index)
 % Up to 6 fractions and 6 repeat scans (Fx1 repeatability acquisitions)
 dwi_locations = cell(length(patlist),6,6);
-rtdose_locations = cell(length(patlist),5);   % RT dose only for Fx1–Fx5
+rtdose_locations = cell(length(patlist),6);   % RT dose only for Fx1–Fx5
 gtv_locations = cell(length(patlist),6,6);
 gtvn_locations = cell(length(patlist),6,6); % a few cases have a nodal gtv as well
 
@@ -352,14 +352,15 @@ d_kurtosis = nan(size(dwi_locations));
 d_skewness = nan(size(dwi_locations));
 
 % DVH parameters within GTVp and GTVn (patient × fraction)
-dmean_gtvp = nan(size(rtdose_locations));  % mean dose in GTVp (Gy)
-dmean_gtvn = nan(size(rtdose_locations));  % mean dose in GTVn (Gy)
+% Sized to 6 columns to accommodate on-treatment fractions + Post-RT scan
+dmean_gtvp = nan(length(mrn_list), 6);  % mean dose in GTVp (Gy)
+dmean_gtvn = nan(length(mrn_list), 6);  % mean dose in GTVn (Gy)
 
-d95_gtvp = nan(size(rtdose_locations));    % D95% — dose received by 95% of GTV (Gy)
-d95_gtvn = nan(size(rtdose_locations));
+d95_gtvp = nan(length(mrn_list), 6);    % D95% — dose received by 95% of GTV (Gy)
+d95_gtvn = nan(length(mrn_list), 6);
 
-v50gy_gtvp = nan(size(rtdose_locations));  % V50Gy — fraction of GTV receiving ≥50 Gy
-v50gy_gtvn = nan(size(rtdose_locations));
+v50gy_gtvp = nan(length(mrn_list), 6);  % V50Gy — fraction of GTV receiving ≥50 Gy
+v50gy_gtvn = nan(length(mrn_list), 6);
 
 % Clinical outcome flags (per patient)
 lf = zeros(size(mrn_list));      % local failure (1 = yes)

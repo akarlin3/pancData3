@@ -143,6 +143,11 @@ diary(diary_file);
 warning('off', 'stats:glmfit:IterationLimit');
 set(0, 'DefaultFigureVisible', 'off');  % Hide figures (save only)
 
+% Robust calculation of number of timepoints (usually 6: Fx1-Fx5 + Post)
+if ~exist('nTp', 'var') || isempty(nTp)
+    nTp = size(adc_mean, 2);
+end
+
 %% ========================================================================
 %  SECTION 4: Baseline Data Completeness Check
 % =========================================================================
@@ -234,7 +239,24 @@ m_mrn_list             = mrn_list;
 m_d95_gtvp             = d95_gtvp;
 m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
-% (Debug prints removed)
+% Defensive padding: ensure longitudinal arrays have nTp columns to prevent 
+% crashes during Post-RT (column 6) analysis when dose was only calculated 
+% for Fractions 1-5.
+long_vars = {'m_gtv_vol', 'm_d95_gtvp', 'm_v50gy_gtvp', 'dmean_gtvp'};
+for lv = 1:numel(long_vars)
+    vname = long_vars{lv};
+    if exist(vname, 'var')
+        curr_v = eval(vname);
+        % curr_v is [nPat x nTimepoints]
+        if size(curr_v, 2) < nTp
+            % Pad with NaNs
+            padding = nan(size(curr_v, 1), nTp - size(curr_v, 2));
+            curr_v = [curr_v, padding];
+            assignin('caller', vname, curr_v);
+        end
+    end
+end
+
 if exclude_missing_baseline
     fprintf('Excluding patients with missing baseline data\n');
     m_lf                   = m_lf(valid_baseline);
@@ -776,7 +798,7 @@ end
 %   h) Correlation matrix of significant features
 %   i) Representative parametric ADC maps (responder vs non-responder)
 for target_fx = 2:nTp
-fx_label = sprintf('Fx%d', target_fx);
+fx_label = x_labels{target_fx};
 fprintf('\n=== Analyzing %s ===\n', fx_label);
 
 %% ---------- LASSO Feature Selection at This Timepoint ----------

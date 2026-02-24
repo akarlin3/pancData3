@@ -11,3 +11,1675 @@ Found 2/45 patients with missing baseline data
 Found 1/45 outlier patients at Fx1 (>3 IQR from median)
 Excluding patients with missing baseline data
 Excluding 1 outlier patient(s) from analysis
+----- Significant Findings (p < 0.05) -----
+          <strong>Metric</strong>          <strong>Timepoint</strong>    <strong>P_Value</strong>     <strong>Mean_LC</strong>    <strong>Mean_LF</strong>
+    <strong>__________________</strong>    <strong>_________</strong>    <strong>________</strong>    <strong>_______</strong>    <strong>_______</strong>
+
+    {'\Delta ADC (%)'}     {'Fx3'}     0.027557    3.7932     -7.3124
+    {'D* Absolute'   }     {'Fx3'}     0.032969    0.2245     0.18395
+    {'D95 Sub(D*)'   }     {'Fx3'}     0.036181    45.261      34.503
+    {'\Delta D (%)'  }     {'Fx3'}     0.039267    7.0081     -8.6657
+    {'\Delta D* (%)' }     {'Fx3'}     0.046559    4.9319     -18.983
+
+Saved significant results to: \\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\Significant_LF_Metrics.csv
+
+----- FDR CORRECTED SIGNIFICANT RESULTS (Q < 0.05) -----
+None of the findings survived FDR correction.
+
+=== Analyzing Fx2 ===
+  Dropping V50_GTVp (|r| = 0.89 with D95_GTVp, p_j=0.136 >= p_i=0.118)
+  Dropping D95_Sub_ADC (|r| = 0.83 with V50_Sub_ADC, p_i=0.007 > p_j=0.004)
+  Dropping V50_Sub_D (|r| = 0.84 with D95_Sub_D, p_j=0.619 >= p_i=0.227)
+  Dropping D95_Sub_f (|r| = 0.81 with V50_Sub_f, p_i=0.722 > p_j=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.94 with D95_Sub_Dstar, p_j=0.374 >= p_i=0.337)
+  Retained 13 / 18 features after corr filter
+Elastic Net Selected Features for Fx2 (Lambda=0.0636): Dstar_Pct, V50_Sub_ADC, D95_Sub_Dstar
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx2: \Delta D*, V50 Sub(ADC), D95 Sub(D*)
+
+--- ROC Analysis Results for Fx2 ---
+\Delta D*: 
+  AUC = 0.674 
+  Optimal Threshold (Youden) = 0.55 %
+  Sensitivity at Threshold = 40.00%
+  Specificity at Threshold = 100.00%
+
+V50 Sub(ADC): 
+  AUC = 0.857 
+  Optimal Threshold (Youden) = 0.42 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 85.71%
+
+D95 Sub(D*): 
+  AUC = 0.578 
+  Optimal Threshold (Youden) = 0.15 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 40.00%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.653
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.653
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta D*...
+Processing Patient 6 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta V50 Sub(ADC)...
+Processing Patient 4 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 41 (Responder (Local Control))...
+Processing Patient 18 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline V50 Sub(ADC):
+  LC: 77.2190 ± 32.9846
+  LF: 100.0000 ± 0.0000
+  p-value: 0.769
+
+Baseline D95 Sub(D*):
+  LC: 44.4674 ± 8.2803
+  LF: 38.9869 ± 12.5180
+  p-value: 0.498
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta D* at Fx2
+Hazard Ratio (HR per 1%% change): 0.97
+95% Confidence Interval: 0.93 - 1.01
+p-value: 0.1008
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+[Warning: Estimation procedure completed, but mle may not be finite.] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('coxphfit', 'C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m', 210)" style="font-weight:bold">coxphfit</a> (<a href="matlab: opentoline('C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m',210,0)">line 210</a>)
+In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 1729)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',1729,0)">line 1729</a>)] 
+Biomarker: Continuous Delta V50 Sub(ADC) at Fx2
+Hazard Ratio (HR per 1%% change): 0.91
+95% Confidence Interval: 0.78 - 1.06
+p-value: 0.2051
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+Biomarker: Absolute D95 Sub(D*) at Fx2
+Hazard Ratio (HR per 1 unit change): 1.04
+95% Confidence Interval: 0.83 - 1.31
+p-value: 0.7071
+Proportional Hazards Test: Not enough events to test assumption.
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx2)
+  Out-of-Sample Hazard Ratio: 1.15
+  95% Confidence Interval: 0.80 - 1.65
+  p-value: 0.4443
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.9%
+  Range: 0.0% - 26.2%
+  Absolute Size: 0.9 ± 1.0 cc
+VALIDATION: Sub-volumes are substantial (3.9%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.209, p = 0.326
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta V50 Sub(ADC)):
+  Correlation: R = 0.164, p = 0.657
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.164, p = 0.514
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta D*
+     HR per 1%% change: 0.9710 (p=0.1925)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.1186 (p=0.7889)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx3 ===
+  Dropping V50_GTVp (|r| = 0.85 with D95_GTVp, p_j=0.355 >= p_i=0.320)
+  Dropping V50_Sub_ADC (|r| = 0.82 with V50_Sub_f, p_i=0.393 > p_j=0.286)
+  Dropping D95_Sub_f (|r| = 0.87 with V50_Sub_f, p_i=0.394 > p_j=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.89 with D95_Sub_Dstar, p_j=0.135 >= p_i=0.047)
+  Retained 14 / 18 features after corr filter
+Elastic Net Selected Features for Fx3 (Lambda=0.1251): Dstar_Abs, ADC_Pct, Dstar_Pct, D95_Sub_D, D95_Sub_Dstar
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+  Adding 1 additional univariate-significant features: D_Pct
+Significant variables at Fx3: Abs D*, \Delta ADC, \Delta D*, D95 Sub(D), D95 Sub(D*), \Delta D
+
+--- ROC Analysis Results for Fx3 ---
+Abs D*: 
+  AUC = 0.821 
+  Optimal Threshold (Youden) = 0.32 mm^2/s
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+\Delta ADC: 
+  AUC = 0.832 
+  Optimal Threshold (Youden) = 0.26 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+\Delta D*: 
+  AUC = 0.800 
+  Optimal Threshold (Youden) = 0.21 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 73.68%
+
+D95 Sub(D): 
+  AUC = 0.804 
+  Optimal Threshold (Youden) = 0.20 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 71.43%
+
+D95 Sub(D*): 
+  AUC = 0.827 
+  Optimal Threshold (Youden) = 0.14 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 60.00%
+
+\Delta D: 
+  AUC = 0.811 
+  Optimal Threshold (Youden) = 0.18 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 73.68%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.547
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.547
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for Abs D*...
+Processing Patient 17 (Responder (Local Control))...
+Processing Patient 21 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta ADC...
+Processing Patient 22 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta D*...
+Processing Patient 41 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D)...
+Processing Patient 8 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 40 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta D...
+Processing Patient 12 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline ADC:
+  LC: 0.0017 ± 0.0002
+  LF: 0.0017 ± 0.0001
+  p-value: 0.943
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline D95 Sub(D):
+  LC: 43.1768 ± 7.5093
+  LF: 46.9191 ± 3.1748
+  p-value: 0.700
+
+Baseline D95 Sub(D*):
+  LC: 44.4674 ± 8.2803
+  LF: 38.9869 ± 12.5180
+  p-value: 0.498
+
+Baseline D:
+  LC: 0.0013 ± 0.0002
+  LF: 0.0013 ± 0.0001
+  p-value: 0.887
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Absolute D* at Fx3
+Hazard Ratio (HR per 1 unit change): 0.00
+95% Confidence Interval: 0.00 - 412222.47
+p-value: 0.4311
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.300, p-value = 0.6833
+
+Biomarker: Continuous Delta ADC at Fx3
+Hazard Ratio (HR per 1%% change): 0.90
+95% Confidence Interval: 0.82 - 0.98
+p-value: 0.0135
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+Biomarker: Continuous Delta D* at Fx3
+Hazard Ratio (HR per 1%% change): 0.98
+95% Confidence Interval: 0.95 - 1.02
+p-value: 0.4385
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.700, p-value = 0.2333
+
+Biomarker: Absolute D95 Sub(D) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.87
+95% Confidence Interval: 0.74 - 1.02
+p-value: 0.0931
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+Biomarker: Absolute D95 Sub(D*) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.92
+95% Confidence Interval: 0.85 - 1.01
+p-value: 0.0854
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.4167
+
+Biomarker: Continuous Delta D at Fx3
+Hazard Ratio (HR per 1%% change): 0.93
+95% Confidence Interval: 0.88 - 0.99
+p-value: 0.0220
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx3)
+  Out-of-Sample Hazard Ratio: 0.74
+  95% Confidence Interval: 0.27 - 2.01
+  p-value: 0.5531
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.5%
+  Range: 0.1% - 18.0%
+  Absolute Size: 0.9 ± 0.9 cc
+VALIDATION: Sub-volumes are substantial (3.5%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.121, p = 0.572
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta ADC):
+  Correlation: R = -0.356, p = 0.089
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.121, p = 0.572
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D)):
+  Correlation: R = 0.284, p = 0.253
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.060, p = 0.802
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D):
+  Correlation: R = -0.028, p = 0.898
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Absolute D*
+     HR per 1 unit change: 0.0000 (p=0.0534)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 0.9638 (p=0.9478)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx4 ===
+  Dropping V50_Sub_Dstar (|r| = 0.80 with V50_Sub_ADC, p_j=0.722 >= p_i=0.592)
+  Dropping D95_Sub_Dstar (|r| = 0.86 with D95_Sub_f, p_j=0.522 >= p_i=0.394)
+  Dropping V50_Sub_Dstar (|r| = 0.84 with V50_Sub_f, p_j=0.722 >= p_i=0.434)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx4 (Lambda=0.0806): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx4: NONE. Skipping downstream analyses for Fx4.
+
+=== Analyzing Fx5 ===
+  Dropping D95_GTVp (|r| = 0.80 with V50_GTVp, p_i=0.776 > p_j=0.619)
+  Dropping V50_Sub_f (|r| = 0.88 with D95_Sub_f, p_j=0.915 >= p_i=0.887)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx5 (Lambda=0.1252): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx5: NONE. Skipping downstream analyses for Fx5.
+
+=== Analyzing Fx6 ===
+{Index in position 2 exceeds array bounds. Index must not exceed 5.
+
+Error in <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 807)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',807,0)">line 807</a>)
+                   m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+} 
+load_dwi_data_forAvery
+metrics
+ADC   wCV (whole gtv) = 2.76±2.87%, dnCNN: 2.47±2.79%
+ADC   wCV (subregion) = 3.88±3.58%, dnCNN: 3.51±3.20%
+D     wCV = 4.60±3.66%, dnCNN: 4.91±3.89%, IVIMnet: 3.03±2.58%
+f     wCV = 10.32±7.68%, dnCNN: 10.81±8.27%, IVIMnet: 8.54±8.88%
+Dstar wCV = 13.80±11.69%, dnCNN: 17.40±14.02%, IVIMnet: 3.91±4.07%
+LR observed in          5 / 27 patients (18.52%)
+Median follow-up time = 429 days (53 - 1579)
+Median time to LF     = 425 days (214 - 626)
+[Warning: File not found or permission denied] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 141)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',141,0)">line 141</a>)] 
+Patient P1-DJ (MRN 35223619): Baseline ADC=NaN, Baseline Vol=NaN
+  -> No DWI data at Fx1
+  -> No GTV mask at Fx1
+Patient P15-KM (MRN 38129473): Baseline ADC=NaN, Baseline Vol=NaN
+  -> No DWI data at Fx1
+  -> No GTV mask at Fx1
+
+=== Processing DWI Type 1: Standard ===
+Found 2/45 patients with missing baseline data
+  Outlier: Patient P26-GMT  Fx1  D* = 0.3992  (median=0.2208, 3*IQR fence=[0.1267, 0.315])
+Found 1/45 outlier patients at Fx1 (>3 IQR from median)
+Excluding patients with missing baseline data
+Excluding 1 outlier patient(s) from analysis
+----- Significant Findings (p < 0.05) -----
+          <strong>Metric</strong>          <strong>Timepoint</strong>    <strong>P_Value</strong>     <strong>Mean_LC</strong>    <strong>Mean_LF</strong>
+    <strong>__________________</strong>    <strong>_________</strong>    <strong>________</strong>    <strong>_______</strong>    <strong>_______</strong>
+
+    {'\Delta ADC (%)'}     {'Fx3'}     0.027557    3.7932     -7.3124
+    {'D* Absolute'   }     {'Fx3'}     0.032969    0.2245     0.18395
+    {'D95 Sub(D*)'   }     {'Fx3'}     0.036181    45.261      34.503
+    {'\Delta D (%)'  }     {'Fx3'}     0.039267    7.0081     -8.6657
+    {'\Delta D* (%)' }     {'Fx3'}     0.046559    4.9319     -18.983
+
+Saved significant results to: \\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\Significant_LF_Metrics.csv
+
+----- FDR CORRECTED SIGNIFICANT RESULTS (Q < 0.05) -----
+None of the findings survived FDR correction.
+
+=== Analyzing Fx2 ===
+  Dropping V50_GTVp (|r| = 0.89 with D95_GTVp, p_j=0.136 >= p_i=0.118)
+  Dropping D95_Sub_ADC (|r| = 0.83 with V50_Sub_ADC, p_i=0.007 > p_j=0.004)
+  Dropping V50_Sub_D (|r| = 0.84 with D95_Sub_D, p_j=0.619 >= p_i=0.227)
+  Dropping D95_Sub_f (|r| = 0.81 with V50_Sub_f, p_i=0.722 > p_j=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.94 with D95_Sub_Dstar, p_j=0.374 >= p_i=0.337)
+  Retained 13 / 18 features after corr filter
+Elastic Net Selected Features for Fx2 (Lambda=0.0636): Dstar_Pct, V50_Sub_ADC, D95_Sub_Dstar
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx2: \Delta D*, V50 Sub(ADC), D95 Sub(D*)
+
+--- ROC Analysis Results for Fx2 ---
+\Delta D*: 
+  AUC = 0.674 
+  Optimal Threshold (Youden) = 0.55 %
+  Sensitivity at Threshold = 40.00%
+  Specificity at Threshold = 100.00%
+
+V50 Sub(ADC): 
+  AUC = 0.857 
+  Optimal Threshold (Youden) = 0.42 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 85.71%
+
+D95 Sub(D*): 
+  AUC = 0.578 
+  Optimal Threshold (Youden) = 0.15 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 40.00%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.653
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.653
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta D*...
+Processing Patient 6 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta V50 Sub(ADC)...
+Processing Patient 4 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 41 (Responder (Local Control))...
+Processing Patient 18 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline V50 Sub(ADC):
+  LC: 77.2190 ± 32.9846
+  LF: 100.0000 ± 0.0000
+  p-value: 0.769
+
+Baseline D95 Sub(D*):
+  LC: 44.4674 ± 8.2803
+  LF: 38.9869 ± 12.5180
+  p-value: 0.498
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta D* at Fx2
+Hazard Ratio (HR per 1%% change): 0.97
+95% Confidence Interval: 0.93 - 1.01
+p-value: 0.1008
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+[Warning: Estimation procedure completed, but mle may not be finite.] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('coxphfit', 'C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m', 210)" style="font-weight:bold">coxphfit</a> (<a href="matlab: opentoline('C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m',210,0)">line 210</a>)
+In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 1751)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',1751,0)">line 1751</a>)] 
+Biomarker: Continuous Delta V50 Sub(ADC) at Fx2
+Hazard Ratio (HR per 1%% change): 0.91
+95% Confidence Interval: 0.78 - 1.06
+p-value: 0.2051
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+Biomarker: Absolute D95 Sub(D*) at Fx2
+Hazard Ratio (HR per 1 unit change): 1.04
+95% Confidence Interval: 0.83 - 1.31
+p-value: 0.7071
+Proportional Hazards Test: Not enough events to test assumption.
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx2)
+  Out-of-Sample Hazard Ratio: 1.15
+  95% Confidence Interval: 0.80 - 1.65
+  p-value: 0.4443
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.9%
+  Range: 0.0% - 26.2%
+  Absolute Size: 0.9 ± 1.0 cc
+VALIDATION: Sub-volumes are substantial (3.9%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.209, p = 0.326
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta V50 Sub(ADC)):
+  Correlation: R = 0.164, p = 0.657
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.164, p = 0.514
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta D*
+     HR per 1%% change: 0.9710 (p=0.1925)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.1186 (p=0.7889)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx3 ===
+  Dropping V50_GTVp (|r| = 0.85 with D95_GTVp, p_j=0.355 >= p_i=0.320)
+  Dropping V50_Sub_ADC (|r| = 0.82 with V50_Sub_f, p_i=0.393 > p_j=0.286)
+  Dropping D95_Sub_f (|r| = 0.87 with V50_Sub_f, p_i=0.394 > p_j=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.89 with D95_Sub_Dstar, p_j=0.135 >= p_i=0.047)
+  Retained 14 / 18 features after corr filter
+Elastic Net Selected Features for Fx3 (Lambda=0.1251): Dstar_Abs, ADC_Pct, Dstar_Pct, D95_Sub_D, D95_Sub_Dstar
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+  Adding 1 additional univariate-significant features: D_Pct
+Significant variables at Fx3: Abs D*, \Delta ADC, \Delta D*, D95 Sub(D), D95 Sub(D*), \Delta D
+
+--- ROC Analysis Results for Fx3 ---
+Abs D*: 
+  AUC = 0.821 
+  Optimal Threshold (Youden) = 0.32 mm^2/s
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+\Delta ADC: 
+  AUC = 0.832 
+  Optimal Threshold (Youden) = 0.26 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+\Delta D*: 
+  AUC = 0.800 
+  Optimal Threshold (Youden) = 0.21 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 73.68%
+
+D95 Sub(D): 
+  AUC = 0.804 
+  Optimal Threshold (Youden) = 0.20 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 71.43%
+
+D95 Sub(D*): 
+  AUC = 0.827 
+  Optimal Threshold (Youden) = 0.14 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 60.00%
+
+\Delta D: 
+  AUC = 0.811 
+  Optimal Threshold (Youden) = 0.18 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 73.68%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.547
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.547
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for Abs D*...
+Processing Patient 17 (Responder (Local Control))...
+Processing Patient 21 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta ADC...
+Processing Patient 22 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta D*...
+Processing Patient 41 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D)...
+Processing Patient 8 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 40 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta D...
+Processing Patient 12 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline ADC:
+  LC: 0.0017 ± 0.0002
+  LF: 0.0017 ± 0.0001
+  p-value: 0.943
+
+Baseline D*:
+  LC: 0.2141 ± 0.0407
+  LF: 0.2268 ± 0.0541
+  p-value: 0.943
+
+Baseline D95 Sub(D):
+  LC: 43.1768 ± 7.5093
+  LF: 46.9191 ± 3.1748
+  p-value: 0.700
+
+Baseline D95 Sub(D*):
+  LC: 44.4674 ± 8.2803
+  LF: 38.9869 ± 12.5180
+  p-value: 0.498
+
+Baseline D:
+  LC: 0.0013 ± 0.0002
+  LF: 0.0013 ± 0.0001
+  p-value: 0.887
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Absolute D* at Fx3
+Hazard Ratio (HR per 1 unit change): 0.00
+95% Confidence Interval: 0.00 - 412222.47
+p-value: 0.4311
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.300, p-value = 0.6833
+
+Biomarker: Continuous Delta ADC at Fx3
+Hazard Ratio (HR per 1%% change): 0.90
+95% Confidence Interval: 0.82 - 0.98
+p-value: 0.0135
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+Biomarker: Continuous Delta D* at Fx3
+Hazard Ratio (HR per 1%% change): 0.98
+95% Confidence Interval: 0.95 - 1.02
+p-value: 0.4385
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.700, p-value = 0.2333
+
+Biomarker: Absolute D95 Sub(D) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.87
+95% Confidence Interval: 0.74 - 1.02
+p-value: 0.0931
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+Biomarker: Absolute D95 Sub(D*) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.92
+95% Confidence Interval: 0.85 - 1.01
+p-value: 0.0854
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.4167
+
+Biomarker: Continuous Delta D at Fx3
+Hazard Ratio (HR per 1%% change): 0.93
+95% Confidence Interval: 0.88 - 0.99
+p-value: 0.0220
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.3500
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx3)
+  Out-of-Sample Hazard Ratio: 0.74
+  95% Confidence Interval: 0.27 - 2.01
+  p-value: 0.5531
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.5%
+  Range: 0.1% - 18.0%
+  Absolute Size: 0.9 ± 0.9 cc
+VALIDATION: Sub-volumes are substantial (3.5%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.121, p = 0.572
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta ADC):
+  Correlation: R = -0.356, p = 0.089
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.121, p = 0.572
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D)):
+  Correlation: R = 0.284, p = 0.253
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.060, p = 0.802
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D):
+  Correlation: R = -0.028, p = 0.898
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Absolute D*
+     HR per 1 unit change: 0.0000 (p=0.0534)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 0.9638 (p=0.9478)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx4 ===
+  Dropping V50_Sub_Dstar (|r| = 0.80 with V50_Sub_ADC, p_j=0.722 >= p_i=0.592)
+  Dropping D95_Sub_Dstar (|r| = 0.86 with D95_Sub_f, p_j=0.522 >= p_i=0.394)
+  Dropping V50_Sub_Dstar (|r| = 0.84 with V50_Sub_f, p_j=0.722 >= p_i=0.434)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx4 (Lambda=0.0806): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx4: NONE. Skipping downstream analyses for Fx4.
+
+=== Analyzing Fx5 ===
+  Dropping D95_GTVp (|r| = 0.80 with V50_GTVp, p_i=0.776 > p_j=0.619)
+  Dropping V50_Sub_f (|r| = 0.88 with D95_Sub_f, p_j=0.915 >= p_i=0.887)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx5 (Lambda=0.1252): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx5: NONE. Skipping downstream analyses for Fx5.
+
+=== Analyzing Post ===
+  Retained 18 / 18 features after corr filter
+Elastic Net Selected Features for Post (Lambda=0.1364): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Post: NONE. Skipping downstream analyses for Post.
+
+--- Top 10 Results by Q-Value (FDR) ---
+             <strong>Metric</strong>             <strong>P_Value</strong>     <strong>Q_Value</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>_______</strong>
+
+    {'\Delta ADC (%) (Fx3)'}    0.027557    0.33522
+    {'D* Absolute (Fx3)'   }    0.032969    0.33522
+    {'D95 Sub(D*) (Fx3)'   }    0.036181    0.33522
+    {'\Delta D (%) (Fx3)'  }    0.039267    0.33522
+    {'\Delta D* (%) (Fx3)' }    0.046559    0.33522
+    {'D95 Sub(D) (Fx3)'    }    0.079085    0.37232
+    {'V50 Sub(D*) (Fx3)'   }    0.079715    0.37232
+    {'D95 Sub(ADC) (Fx2)'  }     0.11667    0.37232
+    {'V50 Sub(ADC) (Fx2)'  }     0.11667    0.37232
+    {'D95 Whole GTV (Fx2)' }     0.11786    0.37232
+
+
+--- Holm-Bonferroni FWER Analysis ---
+Family Size (m): 36 tests
+Uncorrected FWER Probability: 84.22%
+Top 5 Results:
+             <strong>Metric</strong>              <strong>Raw_P</strong>      <strong>Holm_Threshold</strong>    <strong>Significant</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>______________</strong>    <strong>___________</strong>
+
+    {'\Delta ADC (%) (Fx3)'}    0.027557      0.0013889          false   
+    {'D* Absolute (Fx3)'   }    0.032969      0.0014286          false   
+    {'D95 Sub(D*) (Fx3)'   }    0.036181      0.0014706          false   
+    {'\Delta D (%) (Fx3)'  }    0.039267      0.0015152          false   
+    {'\Delta D* (%) (Fx3)' }    0.046559      0.0015625          false   
+
+RESULT: No findings survived FWER control.
+The "Best" P-value (0.0276) did not beat the first hurdle (0.0014).
+
+--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---
+
+<strong>Generalized linear mixed-effects model fit by PL</strong>
+
+<strong>Model information:</strong>
+    Number of observations             141
+    Fixed effects coefficients           6
+    Random effects coefficients         24
+    Covariance parameters                1
+    Distribution                    Binomial
+    Link                            Logit 
+    FitMethod                       MPL   
+
+<strong>Formula:</strong>
+    LF ~ 1 + Timepoint + ADC_z + D_z + f_z + Dstar_z + (1 | PatientID)
+
+<strong>Model fit statistics:</strong>
+    AIC       BIC       LogLikelihood    Deviance
+    833.51    854.15    -409.76          819.51  
+
+<strong>Fixed effects coefficients (95% CIs):</strong>
+    Name                   Estimate    SE         tStat       DF     pValue      Lower       Upper    
+    {'(Intercept)'}         -2.6529      1.295     -2.0486    135    0.042442      -5.214    -0.091781
+    {'Timepoint'  }         0.07835    0.29293     0.26747    135     0.78952    -0.50098      0.65768
+    {'ADC_z'      }        -0.37838     1.6002    -0.23646    135     0.81343      -3.543       2.7862
+    {'D_z'        }        -0.20479     1.6946    -0.12085    135     0.90399     -3.5561       3.1466
+    {'f_z'        }         0.24194     1.2631     0.19154    135     0.84839     -2.2561         2.74
+    {'Dstar_z'    }        -0.25114    0.54928    -0.45721    135     0.64826     -1.3374      0.83517
+
+<strong>Random effects covariance parameters:</strong>
+Group: PatientID (24 Levels)
+    Name1                  Name2                  Type           Estimate
+    {'(Intercept)'}        {'(Intercept)'}        {'std'}        3.1975  
+
+Group: Error
+    Name                        Estimate
+    {'sqrt(Dispersion)'}        1       
+
+
+=== Completed DWI Type 1: Standard ===
+
+=== Processing DWI Type 2: dnCNN ===
+Found 2/45 patients with missing baseline data
+  Outlier: Patient P26-GMT  Fx1  D* = 0.4229  (median=0.2151, 3*IQR fence=[0.03326, 0.397])
+Found 1/45 outlier patients at Fx1 (>3 IQR from median)
+Excluding patients with missing baseline data
+Excluding 1 outlier patient(s) from analysis
+----- Significant Findings (p < 0.05) -----
+         <strong>Metric</strong>          <strong>Timepoint</strong>    <strong>P_Value</strong>     <strong>Mean_LC</strong>    <strong>Mean_LF</strong>
+    <strong>_________________</strong>    <strong>_________</strong>    <strong>________</strong>    <strong>_______</strong>    <strong>_______</strong>
+
+    {'\Delta D* (%)'}     {'Fx3'}     0.018991    4.9557     -28.672
+    {'D95 Sub(D*)'  }     {'Fx3'}     0.036181    45.261      34.503
+    {'D* Absolute'  }     {'Fx3'}     0.039267    0.2252     0.17372
+
+Saved significant results to: \\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\Significant_LF_Metrics.csv
+
+----- FDR CORRECTED SIGNIFICANT RESULTS (Q < 0.05) -----
+None of the findings survived FDR correction.
+
+=== Analyzing Fx2 ===
+  Dropping V50_GTVp (|r| = 0.89 with D95_GTVp, p_j=0.136 >= p_i=0.118)
+  Dropping V50_Sub_ADC (|r| = 0.85 with D95_Sub_ADC, p_j=0.030 >= p_i=0.025)
+  Dropping V50_Sub_D (|r| = 0.85 with D95_Sub_D, p_j=0.286 >= p_i=0.118)
+  Dropping D95_Sub_f (|r| = 0.82 with V50_Sub_f, p_i=0.670 > p_j=0.477)
+  Dropping D95_Sub_Dstar (|r| = 0.95 with V50_Sub_Dstar, p_i=0.320 > p_j=0.319)
+  Retained 13 / 18 features after corr filter
+Elastic Net Selected Features for Fx2 (Lambda=0.0828): Dstar_Pct, D95_Sub_ADC
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx2: \Delta D*, D95 Sub(ADC)
+
+--- ROC Analysis Results for Fx2 ---
+\Delta D*: 
+  AUC = 0.663 
+  Optimal Threshold (Youden) = 0.58 %
+  Sensitivity at Threshold = 40.00%
+  Specificity at Threshold = 100.00%
+
+D95 Sub(ADC): 
+  AUC = 0.857 
+  Optimal Threshold (Youden) = 0.30 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 71.43%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.489
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.489
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+[Warning: Sample data contains only censored observations.] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('ecdf', 'C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\ecdf.m', 239)" style="font-weight:bold">ecdf</a> (<a href="matlab: opentoline('C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\ecdf.m',239,0)">line 239</a>)
+In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 1428)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',1428,0)">line 1428</a>)] 
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta D*...
+Processing Patient 26 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(ADC)...
+Processing Patient 4 (Responder (Local Control))...
+Processing Patient 18 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2140 ± 0.0465
+  LF: 0.2390 ± 0.0695
+  p-value: 0.522
+
+Baseline D95 Sub(ADC):
+  LC: 46.7041 ± 7.8438
+  LF: 52.0390 ± 0.0000
+  p-value: 0.462
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta D* at Fx2
+Hazard Ratio (HR per 1%% change): 0.98
+95% Confidence Interval: 0.95 - 1.00
+p-value: 0.1046
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.700, p-value = 0.2333
+
+Biomarker: Absolute D95 Sub(ADC) at Fx2
+Hazard Ratio (HR per 1 unit change): 0.84
+95% Confidence Interval: 0.67 - 1.05
+p-value: 0.1179
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx2)
+  Out-of-Sample Hazard Ratio: 0.65
+  95% Confidence Interval: 0.41 - 1.05
+  p-value: 0.0803
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.9%
+  Range: 0.0% - 26.2%
+  Absolute Size: 0.9 ± 1.0 cc
+VALIDATION: Sub-volumes are substantial (3.9%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.343, p = 0.101
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(ADC)):
+  Correlation: R = 0.091, p = 0.811
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta D*
+     HR per 1%% change: 0.9812 (p=0.2246)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.0729 (p=0.8585)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx3 ===
+  Dropping V50_GTVp (|r| = 0.85 with D95_GTVp, p_j=0.355 >= p_i=0.320)
+  Dropping V50_Sub_ADC (|r| = 0.81 with V50_Sub_Dstar, p_i=0.213 > p_j=0.101)
+  Dropping D95_Sub_f (|r| = 0.86 with V50_Sub_f, p_i=0.394 > p_j=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.88 with D95_Sub_Dstar, p_j=0.101 >= p_i=0.028)
+  Retained 14 / 18 features after corr filter
+Elastic Net Selected Features for Fx3 (Lambda=0.1952): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+  Adding 3 additional univariate-significant features: Dstar_Abs, Dstar_Pct, D95_Sub_Dstar
+Significant variables at Fx3: \Delta D*, D95 Sub(D*), Abs D*
+
+--- ROC Analysis Results for Fx3 ---
+\Delta D*: 
+  AUC = 0.853 
+  Optimal Threshold (Youden) = 0.16 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 73.68%
+
+D95 Sub(D*): 
+  AUC = 0.827 
+  Optimal Threshold (Youden) = 0.14 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 60.00%
+
+Abs D*: 
+  AUC = 0.811 
+  Optimal Threshold (Youden) = 0.31 mm^2/s
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.437
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.437
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta D*...
+Processing Patient 17 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 40 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D*...
+Processing Patient 3 (Responder (Local Control))...
+Processing Patient 20 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 58.9 ± 41.5
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 0.887
+
+Baseline D*:
+  LC: 0.2140 ± 0.0465
+  LF: 0.2390 ± 0.0695
+  p-value: 0.522
+
+Baseline D95 Sub(D*):
+  LC: 44.4674 ± 8.2803
+  LF: 38.9869 ± 12.5180
+  p-value: 0.498
+
+Baseline D*:
+  LC: 0.2140 ± 0.0465
+  LF: 0.2390 ± 0.0695
+  p-value: 0.522
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta D* at Fx3
+Hazard Ratio (HR per 1%% change): 0.99
+95% Confidence Interval: 0.96 - 1.01
+p-value: 0.3121
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.200, p-value = 0.7833
+
+Biomarker: Absolute D95 Sub(D*) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.92
+95% Confidence Interval: 0.85 - 1.01
+p-value: 0.0854
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.600, p-value = 0.4167
+
+Biomarker: Absolute D* at Fx3
+Hazard Ratio (HR per 1 unit change): 0.00
+95% Confidence Interval: 0.00 - 38623.45
+p-value: 0.4390
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.200, p-value = 0.7833
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx3)
+  Out-of-Sample Hazard Ratio: 0.31
+  95% Confidence Interval: 0.05 - 1.86
+  p-value: 0.2019
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.5%
+  Range: 0.1% - 18.0%
+  Absolute Size: 0.9 ± 0.9 cc
+VALIDATION: Sub-volumes are substantial (3.5%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.212, p = 0.318
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.060, p = 0.802
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D*):
+  Correlation: R = 0.212, p = 0.318
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta D*
+     HR per 1%% change: 0.9691 (p=0.0399)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.0067 (p=0.9893)
+  Conclusion: ROBUST. Predictive independent of volume.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx4 ===
+  Dropping D95_Sub_Dstar (|r| = 0.87 with D95_Sub_f, p_j=0.887 >= p_i=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.80 with D95_Sub_f, p_j=0.943 >= p_i=0.286)
+  Dropping V50_Sub_Dstar (|r| = 0.84 with V50_Sub_f, p_j=0.943 >= p_i=0.320)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx4 (Lambda=0.0917): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx4: NONE. Skipping downstream analyses for Fx4.
+
+=== Analyzing Fx5 ===
+  Dropping D95_GTVp (|r| = 0.80 with V50_GTVp, p_i=0.776 > p_j=0.619)
+  Dropping V50_Sub_f (|r| = 0.88 with D95_Sub_f, p_j=0.915 >= p_i=0.887)
+  Retained 16 / 18 features after corr filter
+Elastic Net Selected Features for Fx5 (Lambda=0.1173): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx5: NONE. Skipping downstream analyses for Fx5.
+
+=== Analyzing Post ===
+  Retained 18 / 18 features after corr filter
+Elastic Net Selected Features for Post (Lambda=0.1610): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Post: NONE. Skipping downstream analyses for Post.
+
+--- Top 10 Results by Q-Value (FDR) ---
+             <strong>Metric</strong>             <strong>P_Value</strong>     <strong>Q_Value</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>_______</strong>
+
+    {'\Delta D* (%) (Fx3)' }    0.018991    0.40549
+    {'D95 Sub(D*) (Fx3)'   }    0.036181    0.40549
+    {'D* Absolute (Fx3)'   }    0.039267    0.40549
+    {'\Delta D (%) (Fx3)'  }    0.054958    0.40549
+    {'\Delta ADC (%) (Fx3)'}    0.075561    0.40549
+    {'D95 Sub(D) (Fx3)'    }    0.079085    0.40549
+    {'V50 Sub(D*) (Fx3)'   }    0.079715    0.40549
+    {'D95 Sub(ADC) (Fx2)'  }     0.11667    0.40549
+    {'V50 Sub(ADC) (Fx2)'  }     0.11667    0.40549
+    {'D95 Whole GTV (Fx2)' }     0.11786    0.40549
+
+
+--- Holm-Bonferroni FWER Analysis ---
+Family Size (m): 36 tests
+Uncorrected FWER Probability: 84.22%
+Top 5 Results:
+             <strong>Metric</strong>              <strong>Raw_P</strong>      <strong>Holm_Threshold</strong>    <strong>Significant</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>______________</strong>    <strong>___________</strong>
+
+    {'\Delta D* (%) (Fx3)' }    0.018991      0.0013889          false   
+    {'D95 Sub(D*) (Fx3)'   }    0.036181      0.0014286          false   
+    {'D* Absolute (Fx3)'   }    0.039267      0.0014706          false   
+    {'\Delta D (%) (Fx3)'  }    0.054958      0.0015152          false   
+    {'\Delta ADC (%) (Fx3)'}    0.075561      0.0015625          false   
+
+RESULT: No findings survived FWER control.
+The "Best" P-value (0.0190) did not beat the first hurdle (0.0014).
+
+--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---
+
+<strong>Generalized linear mixed-effects model fit by PL</strong>
+
+<strong>Model information:</strong>
+    Number of observations             141
+    Fixed effects coefficients           6
+    Random effects coefficients         24
+    Covariance parameters                1
+    Distribution                    Binomial
+    Link                            Logit 
+    FitMethod                       MPL   
+
+<strong>Formula:</strong>
+    LF ~ 1 + Timepoint + ADC_z + D_z + f_z + Dstar_z + (1 | PatientID)
+
+<strong>Model fit statistics:</strong>
+    AIC       BIC       LogLikelihood    Deviance
+    835.41    856.05    -410.7           821.41  
+
+<strong>Fixed effects coefficients (95% CIs):</strong>
+    Name                   Estimate    SE         tStat        DF     pValue      Lower       Upper    
+    {'(Intercept)'}         -2.6489     1.2971      -2.0423    135    0.043073     -5.2141    -0.083749
+    {'Timepoint'  }         0.10121     0.2993      0.33816    135     0.73577    -0.49071      0.69313
+    {'ADC_z'      }        -0.67661     1.7253     -0.39217    135     0.69555     -4.0887       2.7355
+    {'D_z'        }        0.011388     1.8565    0.0061344    135     0.99511     -3.6602        3.683
+    {'f_z'        }         0.51281      1.491      0.34394    135     0.73143     -2.4359       3.4615
+    {'Dstar_z'    }        -0.17274    0.49546     -0.34864    135      0.7279     -1.1526      0.80713
+
+<strong>Random effects covariance parameters:</strong>
+Group: PatientID (24 Levels)
+    Name1                  Name2                  Type           Estimate
+    {'(Intercept)'}        {'(Intercept)'}        {'std'}        3.2008  
+
+Group: Error
+    Name                        Estimate
+    {'sqrt(Dispersion)'}        1       
+
+
+=== Completed DWI Type 2: dnCNN ===
+
+=== Processing DWI Type 3: IVIMnet ===
+Found 2/45 patients with missing baseline data
+  Outlier: Patient P1-DJ  Fx1  ADC = 0  (median=0.001716, 3*IQR fence=[0.0006931, 0.002739])
+  Outlier: Patient P15-KM  Fx1  ADC = 0  (median=0.001716, 3*IQR fence=[0.0006931, 0.002739])
+  Outlier: Patient P10-WJW  Fx1  D* = 0.1106  (median=0.08107, 3*IQR fence=[0.05915, 0.103])
+Found 3/45 outlier patients at Fx1 (>3 IQR from median)
+Excluding patients with missing baseline data
+Excluding 1 outlier patient(s) from analysis
+----- Significant Findings (p < 0.05) -----
+          <strong>Metric</strong>          <strong>Timepoint</strong>    <strong>P_Value</strong>     <strong>Mean_LC</strong>    <strong>Mean_LF</strong>
+    <strong>__________________</strong>    <strong>_________</strong>    <strong>________</strong>    <strong>_______</strong>    <strong>_______</strong>
+
+    {'\Delta ADC (%)'}     {'Fx3'}     0.022929    4.3026     -7.3124
+    {'\Delta D (%)'  }     {'Fx3'}     0.039267    8.7214     -1.7337
+    {'D95 Sub(D*)'   }     {'Fx3'}     0.044685    44.721      34.503
+    {'D95 Sub(D)'    }     {'Fx3'}     0.046405    45.166      36.151
+
+Saved significant results to: \\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\Significant_LF_Metrics.csv
+
+----- FDR CORRECTED SIGNIFICANT RESULTS (Q < 0.05) -----
+None of the findings survived FDR correction.
+
+=== Analyzing Fx2 ===
+  Dropping ADC_Abs (|r| = 0.82 with D_Abs, p_i=0.776 > p_j=0.570)
+  Dropping V50_GTVp (|r| = 0.90 with D95_GTVp, p_j=0.118 >= p_i=0.076)
+  Dropping V50_Sub_D (|r| = 0.82 with D95_Sub_D, p_j=0.201 >= p_i=0.088)
+  Dropping D95_Sub_f (|r| = 0.82 with V50_Sub_f, p_i=0.722 > p_j=0.355)
+  Dropping D95_Sub_Dstar (|r| = 0.94 with V50_Sub_Dstar, p_i=0.776 > p_j=0.722)
+  Retained 13 / 18 features after corr filter
+Elastic Net Selected Features for Fx2 (Lambda=0.0883): D_Pct, D95_Sub_ADC
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx2: \Delta D, D95 Sub(ADC)
+
+--- ROC Analysis Results for Fx2 ---
+\Delta D: 
+  AUC = 0.789 
+  Optimal Threshold (Youden) = 0.20 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 73.68%
+
+D95 Sub(ADC): 
+  AUC = 0.833 
+  Optimal Threshold (Youden) = 0.25 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 62.50%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.589
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.589
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta D...
+Processing Patient 23 (Responder (Local Control))...
+Processing Patient 19 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(ADC)...
+Processing Patient 4 (Responder (Local Control))...
+Processing Patient 17 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 55.3 ± 41.6
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 1.000
+
+Baseline D:
+  LC: 0.0013 ± 0.0002
+  LF: 0.0013 ± 0.0001
+  p-value: 0.887
+
+Baseline D95 Sub(ADC):
+  LC: 45.8535 ± 7.8191
+  LF: 52.0390 ± 0.0000
+  p-value: 0.462
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta D at Fx2
+Hazard Ratio (HR per 1%% change): 0.85
+95% Confidence Interval: 0.74 - 0.98
+p-value: 0.0214
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.000, p-value = 1.0000
+
+[Warning: Estimation procedure completed, but mle may not be finite.] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('coxphfit', 'C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m', 210)" style="font-weight:bold">coxphfit</a> (<a href="matlab: opentoline('C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\coxphfit.m',210,0)">line 210</a>)
+In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 1751)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',1751,0)">line 1751</a>)] 
+Biomarker: Absolute D95 Sub(ADC) at Fx2
+Hazard Ratio (HR per 1 unit change): 0.92
+95% Confidence Interval: 0.80 - 1.04
+p-value: 0.1853
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.500, p-value = 1.0000
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx2)
+  Out-of-Sample Hazard Ratio: 0.70
+  95% Confidence Interval: 0.33 - 1.51
+  p-value: 0.3695
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.8%
+  Range: 0.0% - 30.3%
+  Absolute Size: 0.9 ± 1.0 cc
+VALIDATION: Sub-volumes are substantial (3.8%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D):
+  Correlation: R = 0.082, p = 0.703
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(ADC)):
+  Correlation: R = 0.045, p = 0.903
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta D
+     HR per 1%% change: 0.8481 (p=0.0208)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.0755 (p=0.8850)
+  Conclusion: ROBUST. Predictive independent of volume.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx3 ===
+  Dropping D_Abs (|r| = 0.87 with ADC_Abs, p_j=0.286 >= p_i=0.177)
+  Dropping V50_GTVp (|r| = 0.86 with D95_GTVp, p_j=0.320 >= p_i=0.286)
+  Dropping D95_GTVp (|r| = 0.81 with D95_Sub_f, p_i=0.286 > p_j=0.255)
+  Dropping V50_Sub_ADC (|r| = 0.84 with V50_Sub_f, p_i=0.285 > p_j=0.255)
+  Dropping D95_Sub_f (|r| = 0.88 with V50_Sub_f, p_i=0.255 > p_j=0.255)
+  Dropping V50_Sub_f (|r| = 0.82 with V50_Sub_Dstar, p_i=0.255 > p_j=0.135)
+  Dropping V50_Sub_Dstar (|r| = 0.88 with D95_Sub_Dstar, p_j=0.135 >= p_i=0.055)
+  Retained 11 / 18 features after corr filter
+Elastic Net Selected Features for Fx3 (Lambda=0.1849): ADC_Pct, D95_Sub_D
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+  Adding 2 additional univariate-significant features: D_Pct, D95_Sub_Dstar
+Significant variables at Fx3: \Delta ADC, D95 Sub(D), \Delta D, D95 Sub(D*)
+
+--- ROC Analysis Results for Fx3 ---
+\Delta ADC: 
+  AUC = 0.842 
+  Optimal Threshold (Youden) = 0.27 %
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 84.21%
+
+D95 Sub(D): 
+  AUC = 0.839 
+  Optimal Threshold (Youden) = 0.20 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 71.43%
+
+\Delta D: 
+  AUC = 0.811 
+  Optimal Threshold (Youden) = 0.15 %
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 63.16%
+
+D95 Sub(D*): 
+  AUC = 0.813 
+  Optimal Threshold (Youden) = 0.24 Gy
+  Sensitivity at Threshold = 80.00%
+  Specificity at Threshold = 73.33%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.558
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.558
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for \Delta ADC...
+Processing Patient 21 (Responder (Local Control))...
+Processing Patient 19 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D)...
+Processing Patient 8 (Responder (Local Control))...
+Processing Patient 19 (Non-Responder (Local Failure))...
+Generating Representative Maps for \Delta D...
+Processing Patient 23 (Responder (Local Control))...
+Processing Patient 30 (Non-Responder (Local Failure))...
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 40 (Responder (Local Control))...
+Processing Patient 19 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 55.3 ± 41.6
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 1.000
+
+Baseline ADC:
+  LC: 0.0017 ± 0.0002
+  LF: 0.0017 ± 0.0001
+  p-value: 0.831
+
+Baseline D95 Sub(D):
+  LC: 44.4372 ± 6.6039
+  LF: 46.9191 ± 3.1748
+  p-value: 0.817
+
+Baseline D:
+  LC: 0.0013 ± 0.0002
+  LF: 0.0013 ± 0.0001
+  p-value: 0.887
+
+Baseline D95 Sub(D*):
+  LC: 45.1391 ± 8.1579
+  LF: 38.9869 ± 12.5180
+  p-value: 0.509
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Continuous Delta ADC at Fx3
+Hazard Ratio (HR per 1%% change): 0.89
+95% Confidence Interval: 0.81 - 0.98
+p-value: 0.0218
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.300, p-value = 0.6833
+
+Biomarker: Absolute D95 Sub(D) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.82
+95% Confidence Interval: 0.68 - 0.98
+p-value: 0.0279
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.200, p-value = 0.9167
+
+Biomarker: Continuous Delta D at Fx3
+Hazard Ratio (HR per 1%% change): 0.92
+95% Confidence Interval: 0.83 - 1.02
+p-value: 0.1044
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.800, p-value = 0.1333
+
+Biomarker: Absolute D95 Sub(D*) at Fx3
+Hazard Ratio (HR per 1 unit change): 0.88
+95% Confidence Interval: 0.79 - 0.99
+p-value: 0.0322
+Proportional Hazards Test (Spearman correlation, log time):
+  R = -0.100, p-value = 0.9500
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx3)
+  Out-of-Sample Hazard Ratio: 1.19
+  95% Confidence Interval: 0.53 - 2.67
+  p-value: 0.6676
+  Conclusion: NOT SIGNIFICANT. In-sample findings may be due to over-fitting.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 3.2%
+  Range: 0.1% - 25.7%
+  Absolute Size: 0.9 ± 0.9 cc
+VALIDATION: Sub-volumes are substantial (3.2%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta ADC):
+  Correlation: R = -0.099, p = 0.644
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D)):
+  Correlation: R = 0.292, p = 0.239
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D):
+  Correlation: R = 0.024, p = 0.911
+  Conclusion: INDEPENDENT (Biological).
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = 0.218, p = 0.354
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Continuous Delta ADC
+     HR per 1%% change: 0.8360 (p=0.0275)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 2.1821 (p=0.2045)
+  Conclusion: ROBUST. Predictive independent of volume.
+  Proportional Hazards Test: Residual count (24) mismatch with event count (5). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Fx4 ===
+  Dropping D_Abs (|r| = 0.87 with ADC_Abs, p_j=0.831 >= p_i=0.776)
+  Dropping V50_GTVp (|r| = 0.81 with D95_GTVp, p_j=0.887 >= p_i=0.670)
+  Dropping V50_Sub_Dstar (|r| = 0.82 with V50_Sub_ADC, p_j=0.972 >= p_i=0.746)
+  Dropping D95_Sub_Dstar (|r| = 0.87 with D95_Sub_f, p_j=0.943 >= p_i=0.255)
+  Dropping V50_Sub_Dstar (|r| = 0.85 with V50_Sub_f, p_j=0.972 >= p_i=0.177)
+  Retained 14 / 18 features after corr filter
+Elastic Net Selected Features for Fx4 (Lambda=0.0995): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx4: NONE. Skipping downstream analyses for Fx4.
+
+=== Analyzing Fx5 ===
+  Dropping D_Abs (|r| = 0.86 with ADC_Abs, p_j=0.943 >= p_i=0.943)
+  Dropping V50_GTVp (|r| = 0.80 with D95_GTVp, p_j=0.619 >= p_i=0.619)
+  Dropping D95_Sub_ADC (|r| = 0.85 with V50_Sub_ADC, p_i=0.943 > p_j=0.616)
+  Dropping V50_Sub_f (|r| = 0.88 with D95_Sub_f, p_j=1.000 >= p_i=0.722)
+  Retained 14 / 18 features after corr filter
+Elastic Net Selected Features for Fx5 (Lambda=0.0923): D95_Sub_Dstar
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Fx5: D95 Sub(D*)
+
+--- ROC Analysis Results for Fx5 ---
+D95 Sub(D*): 
+  AUC = 0.781 
+  Optimal Threshold (Youden) = 0.17 Gy
+  Sensitivity at Threshold = 100.00%
+  Specificity at Threshold = 62.50%
+
+
+--- Starting LPOCV (Leave-Pair-Out) ---
+Testing 95 pairs (5 LF x 19 LC)...
+LPOCV AUC = 0.500
+------------------------------------------------
+Unbiased Validation (LPOCV):
+  LPOCV AUC: 0.500
+  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)
+------------------------------------------------
+Skipping 2D scatter plot: requires at least 2 significant variables.
+[Warning: Sample data contains only censored observations.] 
+[> In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('ecdf', 'C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\ecdf.m', 239)" style="font-weight:bold">ecdf</a> (<a href="matlab: opentoline('C:\Program Files\MATLAB\R2025a\toolbox\stats\stats\ecdf.m',239,0)">line 239</a>)
+In <a href="matlab:matlab.lang.internal.introspective.errorDocCallback('metrics', 'C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m', 1428)" style="font-weight:bold">metrics</a> (<a href="matlab: opentoline('C:\Users\karlina1\Desktop\pancData3\load_dwi_data_code\metrics.m',1428,0)">line 1428</a>)] 
+Kaplan-Meier (LOOCV) generated using multivariable risk score. Unbiased out-of-fold risk assignment.
+Generating Representative Maps for Abs D95 Sub(D*)...
+Processing Patient 40 (Responder (Local Control))...
+Processing Patient 30 (Non-Responder (Local Failure))...
+
+--- GENERATING TABLE 1 & MANUSCRIPT DATA ---
+Baseline Tumor Volume (cc):
+  LC: 55.3 ± 41.6
+  LF: 52.2 ± 43.8
+  p-value (Wilcoxon): 1.000
+
+Baseline D95 Sub(D*):
+  LC: 45.1391 ± 8.1579
+  LF: 38.9869 ± 12.5180
+  p-value: 0.509
+
+--- SURVIVAL ANALYSIS (Prognostic Value) ---
+Biomarker: Absolute D95 Sub(D*) at Fx5
+Hazard Ratio (HR per 1 unit change): 0.72
+95% Confidence Interval: 0.51 - 1.03
+p-value: 0.0733
+Proportional Hazards Test (Spearman correlation, log time):
+  R = 0.800, p-value = 0.3333
+
+
+--- UNBIASED OUT-OF-SAMPLE HAZARD RATIO (LOOCV) ---
+Predictor: Unbiased Out-of-Fold Risk Score (Fx5)
+  Out-of-Sample Hazard Ratio: 0.00
+  95% Confidence Interval: 0.00 - 0.06
+  p-value: 0.0203
+  Conclusion: RIGOROUS. Model retains significance out-of-sample.
+
+--- SUB-VOLUME CHARACTERISTICS (Fx2) ---
+Resistant Sub-volume Size (% of GTV):
+  Mean: 2.5%
+  Range: 0.0% - 11.3%
+  Absolute Size: 0.7 ± 0.8 cc
+VALIDATION: Sub-volumes are substantial (2.5%). Dose finding is physically meaningful.
+
+--- GENERATING DEFENSE ANALYSES ---
+
+Dose-Response Analysis (Delta D95 Sub(D*)):
+  Correlation: R = -0.014, p = 0.957
+  Conclusion: INDEPENDENT (Biological).
+
+Multivariable Cox Regression:
+  Variable 1: Absolute D95 Sub(D*)
+     HR per 1 unit change: 0.7176 (p=0.0935)
+  Variable 2: Baseline Tumor Volume (Z-score)
+     HR: 1.0874 (p=0.8526)
+  Conclusion: CONFOUNDED. Significance lost after adjustment.
+  Proportional Hazards Test: Residual count (20) mismatch with event count (4). Skipping.
+Error in Cox Regression: Unrecognized function or variable 'p_ph_bio'.
+
+=== Analyzing Post ===
+  Dropping ADC_Abs (|r| = 0.96 with ADC_Pct, p_i=0.943 > p_j=0.887)
+  Retained 17 / 18 features after corr filter
+Elastic Net Selected Features for Post (Lambda=0.1172): 
+  Generating unbiased out-of-fold risk scores via nested LOOCV...
+Significant variables at Post: NONE. Skipping downstream analyses for Post.
+
+--- Top 10 Results by Q-Value (FDR) ---
+             <strong>Metric</strong>             <strong>P_Value</strong>     <strong>Q_Value</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>_______</strong>
+
+    {'\Delta ADC (%) (Fx3)'}    0.022929     0.3957
+    {'\Delta D (%) (Fx3)'  }    0.039267     0.3957
+    {'D95 Sub(D*) (Fx3)'   }    0.044685     0.3957
+    {'D95 Sub(D) (Fx3)'    }    0.046405     0.3957
+    {'\Delta D (%) (Fx2)'  }    0.054958     0.3957
+    {'D95 Whole GTV (Fx2)' }    0.075561    0.45336
+    {'V50 Sub(D*) (Fx3)'   }    0.095967    0.46539
+    {'V50 Whole GTV (Fx2)' }     0.11786    0.46539
+    {'D95 Sub(ADC) (Fx2)'  }     0.13333    0.46539
+    {'D95 Sub(D) (Fx2)'    }     0.13626    0.46539
+
+
+--- Holm-Bonferroni FWER Analysis ---
+Family Size (m): 36 tests
+Uncorrected FWER Probability: 84.22%
+Top 5 Results:
+             <strong>Metric</strong>              <strong>Raw_P</strong>      <strong>Holm_Threshold</strong>    <strong>Significant</strong>
+    <strong>________________________</strong>    <strong>________</strong>    <strong>______________</strong>    <strong>___________</strong>
+
+    {'\Delta ADC (%) (Fx3)'}    0.022929      0.0013889          false   
+    {'\Delta D (%) (Fx3)'  }    0.039267      0.0014286          false   
+    {'D95 Sub(D*) (Fx3)'   }    0.044685      0.0014706          false   
+    {'D95 Sub(D) (Fx3)'    }    0.046405      0.0015152          false   
+    {'\Delta D (%) (Fx2)'  }    0.054958      0.0015625          false   
+
+RESULT: No findings survived FWER control.
+The "Best" P-value (0.0229) did not beat the first hurdle (0.0014).
+
+--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---
+
+<strong>Generalized linear mixed-effects model fit by PL</strong>
+
+<strong>Model information:</strong>
+    Number of observations             141
+    Fixed effects coefficients           6
+    Random effects coefficients         24
+    Covariance parameters                1
+    Distribution                    Binomial
+    Link                            Logit 
+    FitMethod                       MPL   
+
+<strong>Formula:</strong>
+    LF ~ 1 + Timepoint + ADC_z + D_z + f_z + Dstar_z + (1 | PatientID)
+
+<strong>Model fit statistics:</strong>
+    AIC       BIC       LogLikelihood    Deviance
+    833.52    854.16    -409.76          819.52  
+
+<strong>Fixed effects coefficients (95% CIs):</strong>
+    Name                   Estimate      SE         tStat         DF     pValue      Lower       Upper    
+    {'(Intercept)'}           -2.6075      1.297       -2.0105    135    0.046374     -5.1726    -0.042508
+    {'Timepoint'  }        -0.0025907    0.30756    -0.0084236    135     0.99329    -0.61085      0.60567
+    {'ADC_z'      }           -3.4154     5.7295      -0.59611    135      0.5521     -14.747       7.9157
+    {'D_z'        }            3.4517     6.7674       0.51005    135     0.61085     -9.9322       16.836
+    {'f_z'        }            1.8608       3.51       0.53014    135     0.59689     -5.0809       8.8024
+    {'Dstar_z'    }         -0.041893     1.0587     -0.039568    135      0.9685     -2.1358        2.052
+
+<strong>Random effects covariance parameters:</strong>
+Group: PatientID (24 Levels)
+    Name1                  Name2                  Type           Estimate
+    {'(Intercept)'}        {'(Intercept)'}        {'std'}        3.1949  
+
+Group: Error
+    Name                        Estimate
+    {'sqrt(Dispersion)'}        1       
+
+
+=== Completed DWI Type 3: IVIMnet ===
