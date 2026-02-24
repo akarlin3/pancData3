@@ -853,22 +853,82 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     rng(42); % Set seed for reproducibility
     cvp = cvpartition(y_clean, 'KFold', 5);
     n_lambdas = 25;
-
-    % --- LASSO Selection with built-in CV (No Peeking/Data Leakage) ---
-    X_clean = knn_impute_train_test(X_impute, [], 5);
-
-    try
-        % Optimized call using built-in cross-validation to find best lambda
-        [B_lasso, FitInfo] = lassoglm(X_clean, y_clean, 'binomial', ...
-            'Alpha', 0.5, 'CV', 5, 'Standardize', true, 'MaxIter', 1000000);
+    
+    % Manual CV to find optimal lambda without data leakage
+    common_Lambda = [];
+    cv_failed = false;
+    
+    warning('off', 'all');
+    for cv_i = 1:cvp.NumTestSets
+        tr_idx = training(cvp, cv_i);
+        te_idx = test(cvp, cv_i);
+        X_tr = X_impute(tr_idx, :); y_tr = y_clean(tr_idx);
+        X_te = X_impute(te_idx, :); y_te = y_clean(te_idx);
         
-        idx_min = FitInfo.IndexMinDeviance;
-        coefs_lasso = B_lasso(:, idx_min);
-        selected_indices = find(coefs_lasso ~= 0);
+        % 1. Impute strictly using training fold
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5);
         
-        fprintf('Elastic Net Selected Features for %s (Lambda=%.4f): %s\n', ...
-            fx_label, FitInfo.Lambda(idx_min), strjoin(feat_names_lasso(selected_indices), ', '));
-    catch
+        % 2. Pre-filter features with Pearson |r| > 0.8 using strictly training data
+        keep_fold = filter_collinear_features(X_tr_imp, y_tr);
+        X_tr_kept = X_tr_imp(:, keep_fold);
+        X_te_kept = X_te_imp(:, keep_fold);
+        
+        try
+            if cv_i == 1
+                [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
+                    'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1000000);
+                common_Lambda = FitInfo_fold.Lambda;
+                all_deviance = zeros(length(common_Lambda), cvp.NumTestSets);
+            else
+                [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
+                    'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1000000);
+            end
+            
+            % Evaluate binomial deviance on validation fold
+            eta = X_te_kept * B_fold + FitInfo_fold.Intercept;
+            p = 1 ./ (1 + exp(-eta));
+            p = max(min(p, 1 - 1e-10), 1e-10); % Cap probabilities to avoid log(0)
+            y_te_mat = repmat(y_te, 1, length(common_Lambda));
+            
+            % -2 * Log-likelihood for binomial distribution
+            dev_val = -2 * sum(y_te_mat .* log(p) + (1 - y_te_mat) .* log(1 - p), 1);
+            all_deviance(:, cv_i) = dev_val';
+        catch
+            cv_failed = true;
+            break;
+        end
+    end
+    warning('on', 'all');
+    
+    if ~cv_failed && ~isempty(common_Lambda)
+        % Find optimal lambda (minimum average deviance)
+        mean_deviance = mean(all_deviance, 2);
+        [~, idx_min] = min(mean_deviance);
+        opt_lambda = common_Lambda(idx_min);
+        
+        % Retrain final model on all data (imputed with full dataset context) using the optimal lambda
+        X_clean_all = knn_impute_train_test(X_impute, [], 5);
+        keep_global = filter_collinear_features(X_clean_all, y_clean);
+        X_clean_kept = X_clean_all(:, keep_global);
+        
+        try
+            [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
+                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1000000);
+            
+            coefs_lasso = B_final;
+            
+            % Map selected indices back to original 1..18 mapping
+            selected_filtered_idx = find(coefs_lasso ~= 0);
+            selected_indices = keep_global(selected_filtered_idx);
+            
+            fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
+                fx_label, opt_lambda, strjoin(feat_names_lasso(selected_indices), ', '));
+        catch
+            cv_failed = true;
+        end
+    end
+    
+    if cv_failed || isempty(common_Lambda)
         fprintf('Elastic Net failed to converge for %s. Fallback to empty selection.\n', fx_label);
         selected_indices = [];
     end
@@ -894,19 +954,8 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5);
         
         % 2. Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
-        R_fold = corrcoef(X_tr_imp);
-        drop_fold = false(1, size(X_tr_imp, 2));
-        for fi = 1:size(X_tr_imp, 2)
-            if drop_fold(fi), continue; end
-            for fj = fi+1:size(X_tr_imp, 2)
-                if abs(R_fold(fi, fj)) > 0.8
-                    p_fi = ranksum(X_tr_imp(y_tr_fold==0, fi), X_tr_imp(y_tr_fold==1, fi));
-                    p_fj = ranksum(X_tr_imp(y_tr_fold==0, fj), X_tr_imp(y_tr_fold==1, fj));
-                    if p_fj >= p_fi, drop_fold(fj) = true; else, drop_fold(fi) = true; break; end
-                end
-            end
-        end
-        keep_fold = find(~drop_fold);
+        % (mirrors the unified collinearity filter)
+        keep_fold = filter_collinear_features(X_tr_imp, y_tr_fold);
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
@@ -1170,27 +1219,8 @@ for i = 1:n_lf
         [X_train, X_test_pair] = knn_impute_train_test(X_train, X_test_pair, 5);
         
         % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
-        % (mirrors the identical filter in the main LASSO CV fold loop)
-        R_fold_lp = corrcoef(X_train);
-        drop_fold_lp = false(1, size(X_train, 2));
-        for fi_lp = 1:size(X_train, 2)
-            if drop_fold_lp(fi_lp), continue; end
-            for fj_lp = fi_lp+1:size(X_train, 2)
-                if abs(R_fold_lp(fi_lp, fj_lp)) > 0.8
-                    % Intelligent selection: drop the feature with the higher p-value
-                    p_fi = ranksum(X_train(Y_train==0, fi_lp), X_train(Y_train==1, fi_lp));
-                    p_fj = ranksum(X_train(Y_train==0, fj_lp), X_train(Y_train==1, fj_lp));
-                    
-                    if p_fj >= p_fi
-                        drop_fold_lp(fj_lp) = true;
-                    else
-                        drop_fold_lp(fi_lp) = true;
-                        break; % fi_lp is dropped
-                    end
-                end
-            end
-        end
-        keep_fold_lpocv = find(~drop_fold_lp);
+        % (mirrors the unified collinearity filter)
+        keep_fold_lpocv = filter_collinear_features(X_train, Y_train);
         X_train_kept = X_train(:, keep_fold_lpocv);
         X_test_pair_kept = X_test_pair(:, keep_fold_lpocv);
         
@@ -1279,48 +1309,48 @@ saveas(gcf, fullfile(output_folder, ['LPOCV_Pairwise_' fx_label '_' dtype_label 
 close(gcf);
 
 %% ---------- 2D Scatter Plot with Logistic Decision Boundary ----------
-% Visualizes the two-feature space (first two significant %-change vars)
-% with LC (blue) and LF (red) patient points. If exactly 2 features are
-% significant, overlays the linear decision boundary from the logistic
+% Visualizes the two-feature space for all pairs of significant variables
+% (e.g. %-change vars) with LC (blue) and LF (red) patient points.
+% Overlays the linear decision boundary from the logistic
 % regression model: intercept + β1*x + β2*y = 0.
-% Only applicable when at least 2 significant variables exist
 if n_sig >= 2
-    figure('Name', ['2D Feature Space ' fx_label ' — ' dtype_label], 'Position', [100, 100, 800, 600]);
-    hold on;
+    for fi = 1:(n_sig-1)
+        for fj = (fi+1):n_sig
+            figure('Name', sprintf('2D Feature Space %s vs %s %s — %s', sig_names{fi}, sig_names{fj}, fx_label, dtype_label), 'Position', [100, 100, 800, 600]);
+            hold on;
+            
+            x_val = sig_data_selected{fi}(valid_pts, target_fx);
+            y_val = sig_data_selected{fj}(valid_pts, target_fx);
+            group = lf_group;
 
-    % Use the first two significant variables for the 2D plot
-    x_val = sig_data_selected{1}(valid_pts, target_fx);
-    y_val = sig_data_selected{2}(valid_pts, target_fx);
-    group = lf_group;
+            scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
+            scatter(x_val(group==1), y_val(group==1), 80, 'r', 'filled', 'MarkerEdgeColor', 'k');
 
-    scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
-    scatter(x_val(group==1), y_val(group==1), 80, 'r', 'filled', 'MarkerEdgeColor', 'k');
+            % Draw Decision Boundary (from logistic regression model on these 2 vars)
+            mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
+            coefs = mdl.Coefficients.Estimate;
+            x_range = linspace(min(x_val), max(x_val), 100);
+            y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
+            plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
 
-    % Draw Decision Boundary (from logistic regression model)
-    if n_sig == 2
-        mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
-        coefs = mdl.Coefficients.Estimate;
-        x_range = linspace(min(x_val), max(x_val), 100);
-        y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
-        plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
+            if sig_is_abs(fi), xl = sprintf('%s at %s (%s)', sig_names{fi}, fx_label, sig_units{fi}); else, xl = sprintf('\\Delta %s at %s (%s)', sig_names{fi}, fx_label, sig_units{fi}); end
+            if sig_is_abs(fj), yl = sprintf('%s at %s (%s)', sig_names{fj}, fx_label, sig_units{fj}); else, yl = sprintf('\\Delta %s at %s (%s)', sig_names{fj}, fx_label, sig_units{fj}); end
+            xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
+            ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
+            title(sprintf('Biomarker Interaction: Separation of LC vs LF (%s, %s)', fx_label, dtype_label), 'FontSize', 14);
+            legend({'Local Control', 'Local Failure', 'Logistic Decision Boundary'}, 'Location', 'NorthWest');
+            
+            grid on; box on;
+            xline(0, 'k-', 'Alpha', 0.2); yline(0, 'k-', 'Alpha', 0.2);
+            
+            safe_name1 = strrep(sig_names{fi}, '*', 'star');
+            safe_name2 = strrep(sig_names{fj}, '*', 'star');
+            saveas(gcf, fullfile(output_folder, sprintf('2D_Space_%s_vs_%s_%s_%s.png', safe_name1, safe_name2, fx_label, dtype_label)));
+            close(gcf);
+        end
     end
-
-    if sig_is_abs(1), xl = sprintf('%s at %s (%s)', sig_names{1}, fx_label, sig_units{1}); else, xl = sprintf('\\Delta %s at %s (%s)', sig_names{1}, fx_label, sig_units{1}); end
-    if sig_is_abs(2), yl = sprintf('%s at %s (%s)', sig_names{2}, fx_label, sig_units{2}); else, yl = sprintf('\\Delta %s at %s (%s)', sig_names{2}, fx_label, sig_units{2}); end
-    xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
-    ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
-    title(['Biomarker Interaction: Separation of LC vs LF (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
-    if n_sig == 2
-        legend({'Local Control', 'Local Failure', 'Logistic Decision Boundary'}, 'Location', 'NorthWest');
-    else
-        legend({'Local Control', 'Local Failure'}, 'Location', 'NorthWest');
-    end
-    grid on; box on;
-    xline(0, 'k-', 'Alpha', 0.2); yline(0, 'k-', 'Alpha', 0.2);
-    saveas(gcf, fullfile(output_folder, ['2D_Feature_Space_' fx_label '_' dtype_label '.png']));
-    close(gcf);
 else
-    fprintf('Skipping 2D scatter plot: requires at least 2 significant variables.\n');
+    fprintf('Skipping 2D scatter plots: requires at least 2 significant variables.\n');
 end
 
 %% ---------- Kaplan-Meier Survival Analysis ----------
@@ -2067,7 +2097,8 @@ for s = 1:length(metric_sets)
     current_names = set_names{s};
     for m = 1:length(current_metrics)
         metric_data = current_metrics{m};
-        for tp = [2, 3]
+        cols = min(size(metric_data, 2), length(time_labels));
+        for tp = 1:cols
             if tp > size(metric_data, 2)
                 continue;
             end
@@ -2147,7 +2178,8 @@ for s = 1:length(metric_sets)
     current_names = set_names{s};
     for m = 1:length(current_metrics)
         metric_data = current_metrics{m};
-        for tp = [2, 3]
+        cols = min(size(metric_data, 2), length(time_labels));
+        for tp = 1:cols
             if tp > size(metric_data, 2)
                 continue;
             end
@@ -2301,3 +2333,27 @@ warning('on', 'all');
 fprintf('\n=== Completed DWI Type %d: %s ===\n', dtype, dtype_label);
 end % for dtype
 diary off
+
+function [keep_idx] = filter_collinear_features(X, y)
+    % Filters collinear features using Pearson |r| > 0.8 threshold.
+    % When two features are highly correlated, the one with the higher univariate
+    % Wilcoxon rank-sum p-value (less significant) is dropped.
+    R = corrcoef(X);
+    drop_idx = false(1, size(X, 2));
+    for fi = 1:size(X, 2)
+        if drop_idx(fi), continue; end
+        for fj = fi+1:size(X, 2)
+            if abs(R(fi, fj)) > 0.8
+                p_fi = ranksum(X(y==0, fi), X(y==1, fi));
+                p_fj = ranksum(X(y==0, fj), X(y==1, fj));
+                if p_fj >= p_fi
+                    drop_idx(fj) = true;
+                else
+                    drop_idx(fi) = true;
+                    break;
+                end
+            end
+        end
+    end
+    keep_idx = find(~drop_idx);
+end
