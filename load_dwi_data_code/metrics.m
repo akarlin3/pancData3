@@ -856,43 +856,15 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
 
     % --- LASSO Selection with built-in CV (No Peeking/Data Leakage) ---
     X_clean = knn_impute_train_test(X_impute, [], 5);
-    R_corr = corrcoef(X_clean);
-    drop_flag = false(1, size(X_clean, 2));
-    for fi = 1:size(X_clean, 2)
-        if drop_flag(fi), continue; end
-        for fj = fi+1:size(X_clean, 2)
-            if abs(R_corr(fi, fj)) > 0.8
-                % Intelligent selection: drop the feature with higher p-value
-                p_fi = ranksum(X_clean(y_clean==0, fi), X_clean(y_clean==1, fi));
-                p_fj = ranksum(X_clean(y_clean==0, fj), X_clean(y_clean==1, fj));
-                
-                if p_fj >= p_fi
-                    drop_flag(fj) = true;
-                    fprintf('  Dropping %s (|r| = %.2f with %s, p_j=%.3f >= p_i=%.3f)\n', ...
-                        feat_names_lasso{fj}, abs(R_corr(fi, fj)), feat_names_lasso{fi}, p_fj, p_fi);
-                else
-                    drop_flag(fi) = true;
-                    fprintf('  Dropping %s (|r| = %.2f with %s, p_i=%.3f > p_j=%.3f)\n', ...
-                        feat_names_lasso{fi}, abs(R_corr(fi, fj)), feat_names_lasso{fj}, p_fi, p_fj);
-                    break; % fi is dropped
-                end
-            end
-        end
-    end
-    keep_idx = find(~drop_flag);
-    X_clean_filtered = X_clean(:, keep_idx);
-    feat_names_lasso_kept = feat_names_lasso(keep_idx);
-    fprintf('  Retained %d / %d features after corr filter\n', length(keep_idx), length(feat_names_lasso));
 
     try
         % Optimized call using built-in cross-validation to find best lambda
-        [B_lasso, FitInfo] = lassoglm(X_clean_filtered, y_clean, 'binomial', ...
-            'CV', 5, 'Standardize', true, 'MaxIter', 1000000);
+        [B_lasso, FitInfo] = lassoglm(X_clean, y_clean, 'binomial', ...
+            'Alpha', 0.5, 'CV', 5, 'Standardize', true, 'MaxIter', 1000000);
         
         idx_min = FitInfo.IndexMinDeviance;
         coefs_lasso = B_lasso(:, idx_min);
-        selected_kept = find(coefs_lasso ~= 0);
-        selected_indices = keep_idx(selected_kept);
+        selected_indices = find(coefs_lasso ~= 0);
         
         fprintf('Elastic Net Selected Features for %s (Lambda=%.4f): %s\n', ...
             fx_label, FitInfo.Lambda(idx_min), strjoin(feat_names_lasso(selected_indices), ', '));
@@ -907,6 +879,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     % These unbiased scores are used for both Kaplan-Meier and Cox HRs.
     n_pts_impute = size(X_impute, 1);
     risk_scores_oof = nan(n_pts_impute, 1);
+    is_high_risk_oof = false(n_pts_impute, 1);
     
     fprintf('  Generating unbiased out-of-fold risk scores via nested LOOCV...\n');
     for loo_i = 1:n_pts_impute
@@ -953,6 +926,9 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         
         % 4. Score the held-out patient
         risk_scores_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
+        
+        train_median = median(X_tr_kept * coefs_loo + intercept_loo);
+        is_high_risk_oof(loo_i) = risk_scores_oof(loo_i) > train_median;
     end
     
     % Map back to original valid_pts indices (fill NaNs for excluded patients)
@@ -960,56 +936,11 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     risk_scores_all(impute_mask) = risk_scores_oof;
     
     % Define high-risk group using the unbiased scores (median split)
-    is_high_risk = risk_scores_all > median(risk_scores_oof, 'omitnan');
+    is_high_risk = false(sum(valid_pts), 1);
+    is_high_risk(impute_mask) = is_high_risk_oof;
 
     %% --- End LASSO Feature Selection ---
     
-    %% --- Add Univariate Significant Features (from Section 8) ---
-    univariate_indices = [];
-    if exist('sig_results_table', 'var') && ~isempty(sig_results_table)
-        % Filter for the current timepoint (matching fx_label)
-        tp_match = strcmp(sig_results_table.Timepoint, fx_label);
-        sig_this_tp = sig_results_table(tp_match, :);
-        
-        for ui = 1:height(sig_this_tp)
-            m_name = sig_this_tp.Metric{ui};
-            idx = 0;
-            switch m_name
-                case 'ADC Absolute', idx = 1;
-                case 'D Absolute',   idx = 2;
-                case 'f Absolute',   idx = 3;
-                case 'D* Absolute',  idx = 4;
-                case '\Delta ADC (%)', idx = 5;
-                case '\Delta D (%)',   idx = 6;
-                case '\Delta f (%)',   idx = 7;
-                case '\Delta D* (%)',  idx = 8;
-                case 'D95 Whole GTV', idx = 9;
-                case 'V50 Whole GTV', idx = 10;
-                case 'D95 Sub(ADC)',  idx = 11;
-                case 'V50 Sub(ADC)',  idx = 12;
-                case 'D95 Sub(D)',    idx = 13;
-                case 'V50 Sub(D)',    idx = 14;
-                case 'D95 Sub(f)',    idx = 15;
-                case 'V50 Sub(f)',    idx = 16;
-                case 'D95 Sub(D*)',   idx = 17;
-                case 'V50 Sub(D*)',   idx = 18;
-            end
-            if idx > 0
-                univariate_indices = [univariate_indices, idx];
-            end
-        end
-    end
-    
-    % Merge and find unique indices (preserving order of LASSO priority)
-    original_lasso_indices = selected_indices;
-    selected_indices = unique([selected_indices(:)', univariate_indices], 'stable');
-    
-    % Print report of which were added via univariate significance
-    newly_added = setdiff(selected_indices, original_lasso_indices);
-    if ~isempty(newly_added)
-        fprintf('  Adding %d additional univariate-significant features: %s\n', ...
-            length(newly_added), strjoin(feat_names_lasso(newly_added), ', '));
-    end
 
 % -----------------------------------------------------------------------
 % Post-LASSO feature list: all 18 candidates treated as fully independent.
@@ -2205,14 +2136,34 @@ glme_table_clean.D_z = (glme_table_clean.D - mean_D_base) / std_D_base;
 glme_table_clean.f_z = (glme_table_clean.f - mean_f_base) / std_f_base;
 glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean_Dstar_base) / std_Dstar_base;
 
+% Ensure LF is categorical to properly evaluate interaction with Timepoint
+glme_table_clean.LF = categorical(glme_table_clean.LF);
+
+biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
 warning('off', 'all');
-try
-    glme = fitglme(glme_table_clean, ...
-        'LF ~ 1 + ADC_z + D_z + f_z + Dstar_z + Timepoint + (1|PatientID)', ...
-        'Distribution', 'Binomial', 'Link', 'logit', 'OptimizerOptions', statset('MaxIter', 1000000));
-    disp(glme);
-catch ME
-    fprintf('GLME model failed to converge: %s\n', ME.message);
+for b = 1:length(biomarkers)
+    bm = biomarkers{b};
+    formula = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
+    try
+        glme = fitglme(glme_table_clean, formula, 'OptimizerOptions', statset('MaxIter', 1000000));
+        fprintf('\n--- %s ---\n', formula);
+        
+        anova_res = anova(glme);
+        row_idx = find(strcmp(anova_res.Term, 'LF:Timepoint'));
+        if ~isempty(row_idx)
+            pval = anova_res.pValue(row_idx);
+            fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', pval);
+            if pval < 0.05
+                fprintf('  -> SIGNIFICANT DIFFERENCE in trajectory between LC and LF groups.\n');
+            else
+                fprintf('  -> No significant difference in trajectory between LC and LF groups.\n');
+            end
+        else
+            disp(anova_res);
+        end
+    catch ME
+        fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
+    end
 end
 warning('on', 'all');
 
