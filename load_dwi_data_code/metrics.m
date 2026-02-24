@@ -996,6 +996,7 @@ sig_abs_data      = cell(1, n_sig);
 sig_pct_data      = cell(1, n_sig);
 sig_names         = cell(1, n_sig);
 sig_is_abs        = false(1, n_sig);
+sig_is_pct_imaging = false(1, n_sig);
 sig_disp_names    = cell(1, n_sig);
 sig_units         = cell(1, n_sig);
 
@@ -1004,6 +1005,7 @@ for si = 1:n_sig
     sig_data_selected{si} = all_feat_data{fi};
     sig_names{si}         = all_feat_names{fi};
     sig_is_abs(si)        = all_feat_is_abs(fi);
+    sig_is_pct_imaging(si) = (fi >= 5 && fi <= 8);
     sig_disp_names{si}    = all_feat_disp{fi};
     sig_units{si}         = all_feat_units{fi};
     
@@ -1618,13 +1620,19 @@ x_scatter(lf_group==1) = 2;
 x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
 scatter(x_scatter, curr_sig_pct_full(valid_pts, target_fx), 50, 'filled', 'MarkerEdgeColor', 'k');
 
-yfill = [-cor_est cor_est cor_est -cor_est];
-xfill = [0.5 0.5 2.5 2.5];
-fill(xfill, yfill, [0.8 0.8 0.8], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+if sig_is_pct_imaging(vi)
+    yfill = [-cor_est cor_est cor_est -cor_est];
+    xfill = [0.5 0.5 2.5 2.5];
+    fill(xfill, yfill, [0.8 0.8 0.8], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
 
-yline(0, 'k-');
-yline(cor_est, 'k--', 'CoR (+7.8%)');
-yline(-cor_est, 'k--', 'CoR (-7.8%)');
+    yline(0, 'k-');
+    yline(cor_est, 'k--', 'CoR (+7.8%)');
+    yline(-cor_est, 'k--', 'CoR (-7.8%)');
+elseif ~sig_is_abs(vi) && contains(sig_units{vi}, '%')
+    % For other percentage features (like dose volume percentages), just add a 0 line if appropriate
+    yline(0, 'k-', 'Alpha', 0.3);
+end
+
 xticks([1 2]); xticklabels({'LC', 'LF'});
 ylbl = sprintf('%s (%s)', sig_disp_names{vi}, sig_units{vi});
 ylabel(ylbl);
@@ -1681,7 +1689,7 @@ for vi = 1:n_sig
     if sum(valid_cox) > 5
         [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events, 'Options', statset('MaxIter', 1000000));
         fprintf('Biomarker: %s %s at %s\n', var_desc, curr_sig_name, fx_label);
-        if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
+        hr_unit = sig_units{vi};
         fprintf('Hazard Ratio (HR per %s change): %.2f\n', hr_unit, exp(b));
         fprintf('95%% Confidence Interval: %.2f - %.2f\n', exp(b - 1.96*stats.se), exp(b + 1.96*stats.se));
         fprintf('p-value: %.4f\n', stats.p);
@@ -1801,6 +1809,11 @@ try
     
     % Test dose-response for each significant variable
     for vi = 1:n_sig
+        % Skip Dosimetry and Sub-volume metrics (indices 9-18)
+        if selected_indices(vi) > 8
+            continue;
+        end
+        
         delta_vi = sig_pct_data{vi}(valid_pts, target_fx);
         clean_mask = ~isnan(dose_vals) & ~isnan(delta_vi);
         x_dose = dose_vals(clean_mask);
@@ -1850,7 +1863,7 @@ try
             
             [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event, 'Options', statset('MaxIter', 1000000));
             
-            if sig_is_abs(vi), hr_unit = '1 unit'; else, hr_unit = '1%%'; end
+            hr_unit = sig_units{vi};
             fprintf('  Variable 1: %s %s\n', var_desc, curr_sig_name);
             fprintf('     HR per %s change: %.4f (p=%.4f)\n', hr_unit, exp(b(1)), stats.p(1));
             fprintf('  Variable 2: Baseline Tumor Volume (Z-score)\n');
