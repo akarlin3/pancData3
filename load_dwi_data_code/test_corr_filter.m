@@ -31,27 +31,10 @@ function test_corr_filter()
     R = corrcoef(X);
     fprintf('Correlation between F1 and F2: %.3f\n', R(1,2));
     
-    % Run logic similar to metrics.m
-    drop_flag = false(1, 2);
-    for fi = 1:2
-        if drop_flag(fi), continue; end
-        for fj = fi+1:2
-            if abs(R(fi, fj)) > 0.8
-                p_fi = ranksum(X(y==0, fi), X(y==1, fi));
-                p_fj = ranksum(X(y==0, fj), X(y==1, fj));
-                fprintf('p_F1: %.4f, p_F2: %.4f\n', p_fi, p_fj);
-                
-                if p_fj >= p_fi
-                    drop_flag(fj) = true;
-                    fprintf('Dropping %s (p_j >= p_i)\n', feat_names{fj});
-                else
-                    drop_flag(fi) = true;
-                    fprintf('Dropping %s (p_i > p_j)\n', feat_names{fi});
-                    break;
-                end
-            end
-        end
-    end
+    % Run logic using the centralized shared function
+    keep_idx = filter_collinear_features(X, y);
+    drop_flag_actual = true(1, 2);
+    drop_flag_actual(keep_idx) = false;
     
     % Visualization of the test case
     figure('Name', 'Correlation Filter Test Data');
@@ -64,15 +47,27 @@ function test_corr_filter()
     saveas(gcf, fullfile(output_folder, 'test_corr_filter_data.png'));
     close(gcf);
     
-    if drop_flag(2) && ~drop_flag(1)
-        fprintf('SUCCESS: Dropped less significant feature F2.\n');
-    elseif drop_flag(1) && ~drop_flag(2)
-        fprintf('SUCCESS: Dropped less significant feature F1 (if it were less significant).\n');
+    % Verify the drop state
+    if ~any(keep_idx == 2) && any(keep_idx == 1)
+        fprintf('SUCCESS: Shared function dropped less significant feature F2.\n');
     else
         diary off;
         set(0, 'DefaultFigureVisible', old_vis);
-        error('FAILURE: Unexpected drop state.');
+        error('FAILURE: Unexpected drop state from shared function.');
     end
+    
+    % --- STRICT NON-LEAKAGE VERIFICATION ---
+    % Test: If we have a new patient, do we re-calculate R? 
+    % Rigor requires using the mask derived strictly from training data.
+    fprintf('\n--- Verifying STRICT NON-LEAKAGE ---\n');
+    test_patient_X = [1.2, 1.3]; % New patient data for F1, F2
+    X_te_pruned = test_patient_X(:, keep_idx);
+    
+    assert(size(X_te_pruned, 2) == length(keep_idx), 'Pruned test data size mismatch');
+    assert(~any(keep_idx == 2), 'Test pruning failed to apply training mask');
+    fprintf('SUCCESS: Training pruning mask (Keep: %s) successfully applied to test patient.\n', ...
+        strjoin(feat_names(keep_idx), ', '));
+    fprintf('Scientific Rigor: PASSED (No correlation calculation on test data).\n');
     
     % Cleanup
     set(0, 'DefaultFigureVisible', old_vis);

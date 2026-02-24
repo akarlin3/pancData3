@@ -1460,18 +1460,38 @@ catch e
     fprintf('[FAIL] testOOFROC_YoudenCutoffFromLOOCV: %s\n', e.message);
     n_fail = n_fail + 1;
 end
-
-% testLPOCV_StrictlyPairedAUC
+% testCollinearity_NoGlobalLeakage
 try
-    % LPOCV header should say it is strictly for paired AUC only.
+    % filter_collinear_features should NOT be called on global matrices like X_clean_all or X_impute.
     code = metrics_code;
-    assert(contains(code, 'Paired AUC Scalar Only') || ...
-           contains(code, 'STRICTLY reserved'), ...
-        'LPOCV block must be labeled as strictly for paired AUC only');
-    fprintf('[PASS] testLPOCV_StrictlyPairedAUC\n');
+    assert(~contains(code, 'filter_collinear_features(X_clean_all'), ...
+        'filter_collinear_features should not be called on the full cohort X_clean_all');
+    assert(~contains(code, 'filter_collinear_features(X_impute'), ...
+        'filter_collinear_features should not be called on the full imputed matrix X_impute');
+    % It SHOULD be called on training folds
+    assert(contains(code, 'filter_collinear_features(X_tr_imp'), ...
+        'filter_collinear_features must be applied to training folds (X_tr_imp)');
+    fprintf('[PASS] testCollinearity_NoGlobalLeakage\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] testLPOCV_StrictlyPairedAUC: %s\n', e.message);
+    fprintf('[FAIL] testCollinearity_NoGlobalLeakage: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testCIndex_UnbiasedEvaluation
+try
+    % Harrell's C-index should be evaluated instead of binary LPOCV.
+    code = metrics_code;
+    assert(contains(code, "Harrell's C-index"), ...
+        'metrics.m should implement Harrell''s C-index evaluation');
+    assert(contains(code, 'drops mathematically "incomparable pairs"'), ...
+        'C-index section should specify dropping incomparable pairs');
+    assert(~contains(code, 'LPOCV (Leave-Pair-Out)'), ...
+        'Legacy LPOCV loop should be removed');
+    fprintf('[PASS] testCIndex_UnbiasedEvaluation\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testCIndex_UnbiasedEvaluation: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1808,6 +1828,22 @@ catch e
     n_fail = n_fail + 1;
 end
 
+% testDIR_SymmetricWorkflow
+try
+    % apply_dir_mask_propagation.m should implement the symmetric halfway-space logic.
+    apPath = fullfile(fileparts(mfilename('fullpath')), 'apply_dir_mask_propagation.m');
+    fid = fopen(apPath, 'r'); ap_code = fread(fid,'*char')'; fclose(fid);
+    assert(contains(ap_code, 'mid_img_refined'), ...
+        "apply_dir_mask_propagation should use a refined midpoint image");
+    assert(contains(ap_code, 'D_forward = D_forward_mid - D_backward_mid'), ...
+        "apply_dir_mask_propagation should compute the symmetric proxy field");
+    fprintf('[PASS] testDIR_SymmetricWorkflow\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDIR_SymmetricWorkflow: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
 %% ====================================================================
 %  21. TIME-DEPENDENT COX PH MODEL
 %  Verifies the counting-process panel builder and that metrics.m calls it.
@@ -1872,6 +1908,27 @@ try
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] testTD_MetricsCallsBuildTdPanel: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  22. DEEP LEARNING ISOLATION PROTOCOL
+%  Verifies that metrics.m enforces nested isolation for DL-processed data.
+% =====================================================================
+
+% testDL_Isolation_LogicPresent
+try
+    code = metrics_code;
+    assert(contains(code, 'DEEP LEARNING RIGOR AUDIT'), ...
+        'metrics.m should implement the DL Rigor Audit section');
+    assert(contains(code, 'dl_provenance.dncnn_train_ids'), ...
+        'Audit must check dncnn_train_ids');
+    assert(contains(code, 'error(''DATA LEAKAGE DETECTED'), ...
+        'LOOCV loop must error on detected leakage to prevent optimistic bias');
+    fprintf('[PASS] testDL_Isolation_LogicPresent\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testDL_Isolation_LogicPresent: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 

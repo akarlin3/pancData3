@@ -129,7 +129,33 @@ total_follow_up_time = days(censor_date - rtenddate);  % Follow-up duration
 % Summary statistics for the cohort
 fprintf('LR observed in          %d / %d patients (%2.2f%%)\n',numel(lf(lf==1)),numel(lf(isfinite(lf))),100*numel(lf(lf==1))/numel(lf(isfinite(lf))));
 fprintf('Median follow-up time = %2d days (%d - %d)\n',nanmedian(total_follow_up_time),nanmin(total_follow_up_time),nanmax(total_follow_up_time));
-fprintf('Median time to LF     = %2d days (%d - %d)\n',nanmedian(total_time(lf==1)),nanmin(total_time(lf==1)),nanmax(total_time(lf==1)));%% ========================================================================
+fprintf('Median time to LF     = %2d days (%d - %d)\n',nanmedian(total_time(lf==1)),nanmin(total_time(lf==1)),nanmax(total_time(lf==1)));
+
+%% ========================================================================
+%  SECTION 2.5: Deep Learning Rigor & Isolation Audit
+% =========================================================================
+% To prevent data leakage, deep learning models (dnCNN, IVIMnet) must NOT
+% have been trained or fine-tuned on any patients held out during cross-
+% validation. This section checks for a rigor manifest.
+
+fprintf('\n--- DEEP LEARNING RIGOR AUDIT ---\n');
+dl_provenance = struct();
+manifest_file = fullfile(pwd, 'dl_validation_manifest.mat');
+
+if exist('dl_provenance_workspace', 'var')
+    dl_provenance = dl_provenance_workspace;
+    fprintf('  Using DL provenance manifest from workspace.\n');
+elseif exist(manifest_file, 'file')
+    load(manifest_file, 'dl_provenance');
+    fprintf('  Loaded DL provenance manifest: %s\n', manifest_file);
+else
+    fprintf('  [WARNING] No DL provenance manifest found. Assuming Standard weights.\n');
+    fprintf('  [CRITICAL] Ensure dnCNN/IVIMnet weights are from 100%% independent datasets.\n');
+    % Initialize empty manifest (no patients flagged as leaky)
+    dl_provenance.dncnn_train_ids = {};
+    dl_provenance.ivimnet_train_ids = {};
+end
+%% ========================================================================
 %  SECTION 3: Pipeline Setup — Output Folder, Diary, and Figure Defaults
 % =========================================================================
 % Configure DWI processing type labels, create output directory for saved
@@ -937,20 +963,20 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         [~, idx_min] = min(mean_deviance);
         opt_lambda = common_Lambda(idx_min);
         
-        % Retrain final model on all data (imputed with full dataset context) using the optimal lambda
+        % Retrain final model on all data (imputed with full dataset context) using the optimal lambda.
+        % We omit the global collinearity filter here to avoid data leakage in the final reporting
+        % model; the Elastic Net penalty (Alpha=0.5) will handle multicollinearity during fit.
         X_clean_all = knn_impute_train_test(X_impute, [], 5);
-        keep_global = filter_collinear_features(X_clean_all, y_clean);
-        X_clean_kept = X_clean_all(:, keep_global);
         
         try
-            [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
+            [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1000000);
             
             coefs_en = B_final;
             
             % Map selected indices back to original 1..18 mapping
-            selected_filtered_idx = find(coefs_en ~= 0);
-            selected_indices = original_feature_indices(keep_global(selected_filtered_idx));
+            selected_indices = find(coefs_en ~= 0);
+            selected_indices = original_feature_indices(selected_indices);
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso(selected_indices), ', '));
@@ -972,8 +998,30 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     risk_scores_oof = nan(n_pts_impute, 1);
     is_high_risk_oof = false(n_pts_impute, 1);
     
+    % Pre-map patient IDs for leakage auditing
+    id_list_valid = id_list(valid_pts);
+    id_list_impute = id_list_valid(impute_mask);
+
     fprintf('  Generating unbiased out-of-fold risk scores via nested LOOCV...\n');
     for loo_i = 1:n_pts_impute
+        % --- Deep Learning Isolation Check ---
+        pat_id_i = id_list_impute{loo_i};
+        is_leaky = false;
+        if dtype == 2 % dnCNN
+            if any(strcmp(dl_provenance.dncnn_train_ids, pat_id_i))
+                is_leaky = true;
+            end
+        elseif dtype == 3 % IVIMnet
+            if any(strcmp(dl_provenance.ivimnet_train_ids, pat_id_i))
+                is_leaky = true;
+            end
+        end
+        
+        if is_leaky
+            error('DATA LEAKAGE DETECTED: Patient %s was used to train the %s model. Fundamental isolation broken.', ...
+                pat_id_i, dtype_label);
+        end
+
         % Create train fold (N-1)
         train_mask = true(n_pts_impute, 1);
         train_mask(loo_i) = false;
@@ -1111,6 +1159,15 @@ else
     fprintf('%s\n', strjoin(sig_disp_names, ', '));
 end
 
+% Build time-to-event vector for all valid patients
+times_km = m_total_time;
+times_km(m_lf==0) = m_total_follow_up_time(m_lf==0);
+events_km = m_lf;
+
+% Subset to valid patients for this specific fraction
+times_km = times_km(valid_pts);
+events_km = events_km(valid_pts);
+
 %% ---------- PRIMARY ROC Analysis (LOOCV Out-of-Fold Risk Scores) ----------
 % The full ROC curve and optimal decision threshold are computed exclusively
 % from risk_scores_all — the single, non-averaged out-of-fold prediction
@@ -1169,145 +1226,90 @@ end
 
 
 
-%% ---------- Leave-Pair-Out Cross-Validation (LPOCV) — Paired AUC Scalar Only ----------
-% LPOCV is STRICTLY reserved for generating the paired concordance AUC.
-% It does NOT produce the ROC curve, does NOT determine the optimal cutoff,
-% and is NOT used to classify individual patients.
-%
-% For each (LF, LC) pair, a model is trained on all other patients and
-% scores the held-out pair. A pair is concordant if the model assigns a
-% higher risk score to the actual LF patient. The proportion of concordant
-% pairs is the LPOCV AUC (Wilcoxon-Mann-Whitney estimator of P(score_LF > score_LC)).
-% The full ROC curve and optimal threshold come exclusively from LOOCV above.
+%% ---------- Harrell's C-index Evaluation (Out-of-Fold Risk Scores) ----------
+% Evaluates the continuous out-of-fold risk scores directly. Harrell's C-index 
+% (concordance index) explicitly drops mathematically "incomparable pairs" 
+% where a patient's censoring time precedes the paired event time.
 
-% 1. Setup Data (all candidate features for unbiased feature selection)
-labels = lf_group;
+fprintf('\n--- UNBIASED EVALUATION: Harrell''s C-index (LOOCV OOF Scores) ---\n');
 
-% Build predictor matrix from ALL candidate features (18 columns):
-% [8 Imaging | 10 Dosimetry/Sub-volumes] to allow Elastic Net to select within each fold
-lpocv_cols = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
-              f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
-              ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
-              f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
-              m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
-              d95_adc_sub(valid_pts, target_fx), v50_adc_sub(valid_pts, target_fx), ...
-              d95_d_sub(valid_pts, target_fx),   v50_d_sub(valid_pts, target_fx), ...
-              d95_f_sub(valid_pts, target_fx),   v50_f_sub(valid_pts, target_fx), ...
-              d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
+% 1. Extract valid pairs with out-of-fold scores
+valid_idx_c = find(~isnan(risk_scores_all) & ~isnan(times_km) & ~isnan(events_km));
+n_eval = length(valid_idx_c);
 
-% Exclude all dosimetry features for Post-RT scan (target_fx == 6)
-% (Sub-volume features 11-18 are now valid via DIR; no special exclusion needed otherwise)
-if target_fx == 6
-    lpocv_cols = lpocv_cols(:, 1:8);
-end
-
-% Ensure knn_impute_train_test is never fed columns composed entirely of NaNs
-valid_cols_lpocv = ~all(isnan(lpocv_cols), 1);
-lpocv_cols = lpocv_cols(:, valid_cols_lpocv);
-
-% Filter valid rows: Require valid outcome and at least some imaging data
-base_cols_lpocv = min(8, size(lpocv_cols, 2));
-has_any_imaging_lpocv = any(~isnan(lpocv_cols(:, 1:base_cols_lpocv)), 2);
-valid_rows = ~isnan(labels) & has_any_imaging_lpocv;
-X_data = lpocv_cols(valid_rows, :);
-Y_data = labels(valid_rows);
-
-% 2. Identify Indices for Each Class
-idx_lf = find(Y_data == 1); % Local Failures
-idx_lc = find(Y_data == 0); % Local Controls
-n_lf = length(idx_lf);
-n_lc = length(idx_lc);
-
-fprintf('\n--- Starting LPOCV (Leave-Pair-Out) ---\n');
-fprintf('Testing %d pairs (%d LF x %d LC)...\n', n_lf * n_lc, n_lf, n_lc);
-
-% 3. Iterate Through Every Pair
-pair_scores = zeros(n_lf, n_lc); % Store 1 (correct), 0 (wrong), 0.5 (tie)
-
-for i = 1:n_lf
-    for j = 1:n_lc
-        % The specific pair to leave out
-        current_lf = idx_lf(i);
-        current_lc = idx_lc(j);
+if n_eval < 2
+    fprintf('  Insufficient data for C-index calculation.\n');
+else
+    concordant = 0;
+    ties = 0;
+    total_comparable = 0;
+    
+    for i = 1:n_eval
+        ii = valid_idx_c(i);
+        ti = times_km(ii);
+        ei = events_km(ii);
+        si = risk_scores_all(ii);
         
-        % Training set: All data EXCEPT these two
-        train_mask = true(length(Y_data), 1);
-        train_mask([current_lf, current_lc]) = false;
-        
-        X_train = X_data(train_mask, :);
-        Y_train = Y_data(train_mask);
-        
-        % Impute train and test sets using KNN fitted strictly on training data
-        X_test_pair = X_data([current_lf, current_lc], :);
-        [X_train, X_test_pair] = knn_impute_train_test(X_train, X_test_pair, 5);
-        
-        % Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
-        % (mirrors the unified collinearity filter)
-        keep_fold_lpocv = filter_collinear_features(X_train, Y_train);
-        X_train_kept = X_train(:, keep_fold_lpocv);
-        X_test_pair_kept = X_test_pair(:, keep_fold_lpocv);
-        
-        % Feature selection via Elastic Net on correlation-filtered training data only (no leakage)
-        warning('off', 'all');
-        try
-            [B_cv, FitInfo_cv] = lassoglm(X_train_kept, Y_train, 'binomial', ...
-                'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
-            idx_min = FitInfo_cv.IndexMinDeviance;
-            % sel_features indexes into the kept (filtered) columns of X_train_kept
-            sel_features = find(B_cv(:, idx_min) ~= 0);
-        catch
-            sel_features = [];
+        for j = i+1:n_eval
+            jj = valid_idx_c(j);
+            tj = times_km(jj);
+            ej = events_km(jj);
+            sj = risk_scores_all(jj);
+            
+            % Harrell's Comparability Rules:
+            % 1. If both failed, comparable.
+            % 2. If one failed at T_i and the other is censored at T_j > T_i, comparable.
+            % Otherwise, incomparable.
+            
+            comparable = false;
+            better_survival_idx = 0;
+            worse_survival_idx = 0;
+            
+            if ti < tj
+                if ei == 1
+                    comparable = true;
+                    worse_survival_idx = ii;
+                    better_survival_idx = jj;
+                end
+            elseif tj < ti
+                if ej == 1
+                    comparable = true;
+                    worse_survival_idx = jj;
+                    better_survival_idx = ii;
+                end
+            else % ti == tj
+                if ei == 1 && ej == 1
+                    % Both failed at same time: technically a tie in time.
+                    % Typically dropped or handled as concordant if scores match.
+                    % Following "explicilty drop incomparable pairs" for ties in time.
+                end
+            end
+            
+            if comparable
+                total_comparable = total_comparable + 1;
+                score_worse = risk_scores_all(worse_survival_idx);
+                score_better = risk_scores_all(better_survival_idx);
+                
+                % C-index concordance: Higher risk score should have shorter survival (worse)
+                if score_worse > score_better
+                    concordant = concordant + 1;
+                elseif score_worse == score_better
+                    ties = ties + 1;
+                end
+            end
         end
-        warning('on', 'all');
-        
-        % If Elastic Net selects zero features, default to a tie (AUC = 0.5)
-        if isempty(sel_features)
-            pair_scores(i,j) = 0.5;
-            continue;
-        end
-        
-        % Do not refit an unpenalized GLM. Use the penalized Elastic Net coefficients directly
-        % to generate the risk score for the held-out pair.
-        score = X_test_pair_kept(:, sel_features) * B_cv(sel_features, idx_min) + FitInfo_cv.Intercept(idx_min);
-        prob_lf = score(1);
-        prob_lc = score(2);
-        
-        % Score the Pair (Concordance)
-        if prob_lf > prob_lc
-            pair_scores(i,j) = 1;   % Correct ranking
-        elseif prob_lf == prob_lc
-            pair_scores(i,j) = 0.5; % Tie
-        else
-            pair_scores(i,j) = 0;   % Incorrect ranking
-        end
+    end
+    
+    if total_comparable > 0
+        c_index = (concordant + 0.5 * ties) / total_comparable;
+        fprintf('  Evaluated Comparable Pairs: %d\n', total_comparable);
+        fprintf('  Harrell''s C-index: %.3f\n', c_index);
+    else
+        fprintf('  No comparable pairs found for C-index calculation.\n');
     end
 end
 
-% 4. Calculate LPOCV AUC
-% The AUC is simply the average of these pairwise scores
-auc_lpocv = mean(pair_scores(:));
-
-fprintf('LPOCV AUC = %.3f\n', auc_lpocv);
-
-% Final Validation Output
 fprintf('------------------------------------------------\n');
-fprintf('Unbiased Validation (LPOCV):\n');
-fprintf('  LPOCV AUC: %.3f\n', auc_lpocv);
-fprintf('  (Note: Optimistic training AUCs have been removed to prevent overfitting bias)\n');
-fprintf('------------------------------------------------\n');
-
-% 5. Visualization of the "Pairwise Matrix"
-% This heatmap shows which specific pairs were hard to classify
-figure('Name', ['LPOCV Pairwise Success ' fx_label ' — ' dtype_label], 'Position', [400, 400, 600, 500]);
-imagesc(pair_scores);
-colormap(gray); % White = Correct (1), Black = Wrong (0)
-title(['LPOCV Pairwise Ranking ' fx_label ' (AUC = ' num2str(auc_lpocv, '%.3f') ') (' dtype_label ')']);
-xlabel('Local Control Patients (Index)');
-ylabel('Local Failure Patients (Index)');
-colorbar;
-axis square;
-saveas(gcf, fullfile(output_folder, ['LPOCV_Pairwise_' fx_label '_' dtype_label '.png']));
-close(gcf);
 
 %% ---------- 2D Scatter Plot with Logistic Decision Boundary ----------
 % Visualizes the two-feature space for all pairs of significant variables
@@ -1375,14 +1377,7 @@ n_km = length(km_y_all);
 
 % (LOOCV logic moved to Elastic Net section to provide unified unbiased risk scores)
 
-% Build time-to-event vector for all valid patients
-times_km = m_total_time;
-times_km(m_lf==0) = m_total_follow_up_time(m_lf==0);
-events_km = m_lf;
-
-% Subset to valid patients for this specific fraction
-times_km = times_km(valid_pts);
-events_km = events_km(valid_pts);
+% (Survival data extraction moved earlier to support C-index calculation)
 
 % Compute and plot Kaplan-Meier survival curves for each risk group
 figure('Name', ['Kaplan-Meier ' fx_label ' — ' dtype_label], 'Position', [100, 100, 700, 600]);
@@ -1922,6 +1917,28 @@ if sum(valid_unbiased) > 5
         risk_scores_perm_oof = nan(n_pts_impute, 1);
         
         for loo_i = 1:n_pts_impute
+            % --- Deep Learning Isolation Check ---
+            pat_id_i = id_list_impute{loo_i};
+            is_leaky = false;
+            if dtype == 2 % dnCNN
+                if any(strcmp(dl_provenance.dncnn_train_ids, pat_id_i))
+                    is_leaky = true;
+                end
+            elseif dtype == 3 % IVIMnet
+                if any(strcmp(dl_provenance.ivimnet_train_ids, pat_id_i))
+                    is_leaky = true;
+                end
+            end
+            
+            if is_leaky
+                % Avoid parfor crash: normally we'd error, but since it's a parallel loop
+                % we'll just set a flag or let the inner logic fail. 
+                % Actually, better to catch this before the parfor, but the LOOCV is nested.
+                % We'll use a local error which parfor will catch.
+                error('DATA LEAKAGE DETECTED (Permutation): Patient %s leaked into %s.', ...
+                    pat_id_i, dtype_label);
+            end
+
             train_mask = true(n_pts_impute, 1);
             train_mask(loo_i) = false;
             X_tr_fold = X_impute(train_mask, :);
@@ -2473,7 +2490,6 @@ fprintf('\n=== Completed DWI Type %d: %s ===\n', dtype, dtype_label);
 end % for dtype
 diary off
 
-function [keep_idx] = filter_collinear_features(X, y)
     % Filters collinear features using Pearson |r| > 0.8 threshold.
     % When two features are highly correlated, the one with the higher univariate
     % Wilcoxon rank-sum p-value (less significant) is dropped.

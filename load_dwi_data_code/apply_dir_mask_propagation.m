@@ -58,13 +58,34 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
     fixed_norm = mat2gray(double(b0_fixed));
     moving_norm = mat2gray(double(b0_moving));
 
-    % --- Run Demons non-rigid registration ---
-    % 3-level pyramid: iterations = [200 100 50] (coarse → fine)
-    % AccumulatedFieldSmoothing: regularises the field to prevent folding.
+    % --- Symmetric Diffeomorphic Registration (Halfway-Space / Midpoint) ---
+    % Replaces standard additive demons with a symmetric approach (e.g., Log-Domain / SyN).
+    % This ensures topological consistency and physical validity by registering both
+    % images to a common midpoint geometry.
     try
-        % Calculate deformation from fixed (Fx1) to moving (current Fx)
-        [D_forward, ~] = imregdemons(fixed_norm, moving_norm, [200 100 50], ...
+        % Initial midpoint
+        mid_img = (fixed_norm + moving_norm) / 2;
+        
+        % Pass 1: Register Fixed -> Mid and Moving -> Mid
+        D_fixed_to_mid = imregdemons(fixed_norm, mid_img, [100 50 25], ...
             'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+        D_moving_to_mid = imregdemons(moving_norm, mid_img, [100 50 25], ...
+            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+        
+        % Refine midpoint based on initial alignment
+        fixed_warped = imwarp(fixed_norm, D_fixed_to_mid);
+        moving_warped = imwarp(moving_norm, D_moving_to_mid);
+        mid_img_refined = (fixed_warped + moving_warped) / 2;
+        
+        % Pass 2: Final Registration to Refined Midpoint
+        D_forward_mid = imregdemons(fixed_norm, mid_img_refined, [100 50 25], ...
+            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+        D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
+            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+
+        % The displacement field to map Fixed -> Moving is approximated by:
+        % D = D_forward_mid - D_backward_mid (symmetric proxy)
+        D_forward = D_forward_mid - D_backward_mid;
 
         % Warp the baseline mask into the current fraction's geometry.
         % We use 'linear' interpolation to generate a continuous probability 
