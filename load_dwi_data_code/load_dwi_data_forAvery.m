@@ -74,9 +74,10 @@
 skip_to_reload = true;
 
 % b-value threshold (s/mm²) used for segmented IVIM fitting.
-% b-values >= ivim_bthr are used to estimate D (true diffusion);
-% b-values <  ivim_bthr are used to estimate f and D* (pseudo-diffusion).
-% Common choices: 200 (clinical standard for abdominal IVIM) or 100.
+% b-values >= ivim_bthr are used to estimate D (true diffusion) via a 
+% monoexponential fit. b-values < ivim_bthr are used to estimate f and D*
+% (pseudo-diffusion), with D held fixed from Stage 1.
+% Set to 100 (includes b=0, 30 in low set; b=100, 150, 550 in high set).
 ivim_bthr = 100;
 
 %% ========================================================================
@@ -914,6 +915,11 @@ adc_thresh = 0.00115; % https://pubmed.ncbi.nlm.nih.gov/23545001/
 % Secondary ADC threshold for identifying "high ADC" sub-volume
 high_adc_thresh = 0.001;
 
+% Minimum voxel threshold for higher-order histogram metrics
+% (kurtosis, skewness, KS test). Returns NaN for smaller volumes to
+% prevent unstable estimates.
+min_vox_hist = 100;
+
 nTp = 6;   % number of timepoints (Fx1–Fx5 + post)
 nRpt = 6;  % max number of repeat scans at Fx1
 
@@ -1044,8 +1050,10 @@ for j=1:length(id_list)
 %                 adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                 gtv_vol(j,k) = numel(adc_vec)*vox_vol;   % GTV volume (cc)
                 adc_mean(j,k,dwi_type) = nanmean(adc_vec);
-                adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
-                adc_skew(j,k,dwi_type) = skewness(adc_vec);
+                if numel(adc_vec) >= min_vox_hist
+                    adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
+                    adc_skew(j,k,dwi_type) = skewness(adc_vec);
+                end
                 adc_sd(j,k,dwi_type) = nanstd(adc_vec);
                 
                 % Sub-volume: voxels with restricted diffusion (ADC < threshold)
@@ -1056,8 +1064,10 @@ for j=1:length(id_list)
                 adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
                 adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
                 adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
-                adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
-                adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
+                if numel(adc_vec_sub) >= min_vox_hist
+                    adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
+                    adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
+                end
 
                 % Normalised histogram (replace zeros with eps for log-safety)
                 % store histograms
@@ -1066,7 +1076,7 @@ for j=1:length(id_list)
                 adc_histograms(j,k,:,dwi_type) = p1;
                 % Two-sample KS test: current timepoint vs baseline (Fx1)
                 % compare difference from baseline (if available)
-                if ~isempty(adc_baseline)
+                if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist
                     [~,p,ks2stat] = kstest2(adc_vec,adc_baseline);
                     ks_stats_adc(j,k,dwi_type) = ks2stat;
                     ks_pvals_adc(j,k,dwi_type) = p;
@@ -1120,8 +1130,10 @@ for j=1:length(id_list)
 
                 % Whole-GTV D (true diffusion) statistics
                 d_mean(j,k,dwi_type) = nanmean(d_vec);
-                d_kurt(j,k,dwi_type) = kurtosis(d_vec);
-                d_skew(j,k,dwi_type) = skewness(d_vec);
+                if numel(d_vec) >= min_vox_hist
+                    d_kurt(j,k,dwi_type) = kurtosis(d_vec);
+                    d_skew(j,k,dwi_type) = skewness(d_vec);
+                end
                 d_sd(j,k,dwi_type) = nanstd(d_vec);
 
                 % Normalised D histogram
@@ -1130,7 +1142,7 @@ for j=1:length(id_list)
                 d_histograms(j,k,:,dwi_type) = p1;
                 % Two-sample KS test: D distribution vs baseline (Fx1)
                 % compare difference from baseline (if available)
-                if ~isempty(d_baseline)
+                if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist
                     [~,p,ks2stat] = kstest2(d_vec,d_baseline);
                     ks_stats_d(j,k,dwi_type) = ks2stat;
                     ks_pvals_d(j,k,dwi_type) = p;
@@ -1138,18 +1150,24 @@ for j=1:length(id_list)
 
                 % D sub-volume statistics (restricted region only)
                 d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
-                d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
-                d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
+                if numel(d_vec_sub) >= min_vox_hist
+                    d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
+                    d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
+                end
 
                 % Perfusion fraction (f) statistics
                 f_mean(j,k,dwi_type) = nanmean(f_vec);
-                f_kurt(j,k,dwi_type) = kurtosis(f_vec);
-                f_skew(j,k,dwi_type) = skewness(f_vec);
+                if numel(f_vec) >= min_vox_hist
+                    f_kurt(j,k,dwi_type) = kurtosis(f_vec);
+                    f_skew(j,k,dwi_type) = skewness(f_vec);
+                end
 
                 % Pseudo-diffusion coefficient (D*) statistics
                 dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
-                dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
-                dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
+                if numel(dstar_vec) >= min_vox_hist
+                    dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
+                    dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
+                end
             end
 
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---

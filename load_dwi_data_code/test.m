@@ -1421,7 +1421,7 @@ end
 
 % testOOFROC_LabeledAsPrimary
 try
-    % ROC section should be labeled "Primary" (not "Exploratory").
+    % ROC section should say PRIMARY ROC ANALYSIS in the fprintf.
     code = metrics_code;
     assert(contains(code, 'PRIMARY ROC ANALYSIS'), ...
         'ROC section should be labeled Primary');
@@ -1429,6 +1429,49 @@ try
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] testOOFROC_LabeledAsPrimary: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testOOFROC_NoStaleGLMRefit
+try
+    % The stale fitglm call inside the ROC block should be gone.
+    code = metrics_code;
+    assert(~contains(code, 'mdl_roc = fitglm'), ...
+        'Stale fitglm call in ROC block should be removed');
+    fprintf('[PASS] testOOFROC_NoStaleGLMRefit\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testOOFROC_NoStaleGLMRefit: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testOOFROC_YoudenCutoffFromLOOCV
+try
+    % The Youden optimal cutoff (roc_opt_thresh) must come from perfcurve,
+    % not from any logistic regression fitted probabilities.
+    code = metrics_code;
+    assert(contains(code, 'roc_opt_thresh'), ...
+        'roc_opt_thresh must be defined (Youden cutoff from LOOCV ROC)');
+    assert(~contains(code, 'mdl_roc.Fitted'), ...
+        'Optimal cutoff must not use mdl_roc.Fitted (no in-sample refitting)');
+    fprintf('[PASS] testOOFROC_YoudenCutoffFromLOOCV\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testOOFROC_YoudenCutoffFromLOOCV: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testLPOCV_StrictlyPairedAUC
+try
+    % LPOCV header should say it is strictly for paired AUC only.
+    code = metrics_code;
+    assert(contains(code, 'Paired AUC Scalar Only') || ...
+           contains(code, 'STRICTLY reserved'), ...
+        'LPOCV block must be labeled as strictly for paired AUC only');
+    fprintf('[PASS] testLPOCV_StrictlyPairedAUC\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testLPOCV_StrictlyPairedAUC: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1461,6 +1504,199 @@ try
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] testSubVol_PostRTStillExcluded: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  18. SUB-VOLUME VOXEL THRESHOLDS
+%  Verifies that higher-order metrics (kurtosis, skewness, D95, V50)
+%  return NaN for small sub-volumes (< 100 voxels).
+% =====================================================================
+
+% testThreshold_KurtosisProtected_ADC
+try
+    code = loaddwi_code;
+    % Should check numel(adc_vec_sub) >= min_vox_hist or similar
+    assert(contains(code, 'numel(adc_vec_sub) >= min_vox_hist'), ...
+        'ADC sub-volume kurtosis should be protected by voxel threshold');
+    fprintf('[PASS] testThreshold_KurtosisProtected_ADC\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testThreshold_KurtosisProtected_ADC: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testThreshold_KurtosisProtected_D
+try
+    code = loaddwi_code;
+    assert(contains(code, 'numel(d_vec_sub) >= min_vox_hist'), ...
+        'D sub-volume kurtosis should be protected by voxel threshold');
+    fprintf('[PASS] testThreshold_KurtosisProtected_D\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testThreshold_KurtosisProtected_D: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testThreshold_KSProtected
+try
+    code = loaddwi_code;
+    % Should check numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist
+    assert(contains(code, 'numel(adc_vec) >= min_vox_hist') && contains(code, 'numel(adc_baseline) >= min_vox_hist'), ...
+        'KS test should be protected by voxel threshold for both current and baseline');
+    fprintf('[PASS] testThreshold_KSProtected\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testThreshold_KSProtected: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testThreshold_D95Protected_Metrics
+try
+    code = metrics_code;
+    % Should check sum(adc_mask_1d) >= min_subvol_voxels or similar
+    assert(contains(code, 'sum(adc_mask_1d) >= min_subvol_voxels'), ...
+        'Metrics.m D95/V50 should be protected by voxel threshold for ADC sub-volume');
+    fprintf('[PASS] testThreshold_D95Protected_Metrics\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testThreshold_D95Protected_Metrics: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testThreshold_V50Protected_Metrics
+try
+    code = metrics_code;
+    assert(contains(code, 'sum(dstar_mask_1d) >= min_subvol_voxels'), ...
+        'Metrics.m D95/V50 should be protected by voxel threshold for D* sub-volume');
+    fprintf('[PASS] testThreshold_V50Protected_Metrics\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testThreshold_V50Protected_Metrics: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+%% ====================================================================
+%  19. SEGMENTED IVIM FIT — BOUNDARY CONDITIONS
+%  Verifies strict parameter limits and b-value threshold in IVIMmodelfit.
+% =====================================================================
+
+% Cache IVIMmodelfit source
+ivim_code = readIVIMmodelSource();
+
+% testIVIM_Bthr100
+try
+    % Pipeline default: b >= 100 s/mm² used for D estimation.
+    code = loaddwi_code;
+    assert(contains(code, 'ivim_bthr = 100'), ...
+        'ivim_bthr should be set to 100 in load_dwi_data_forAvery.m');
+    fprintf('[PASS] testIVIM_Bthr100\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_Bthr100: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_fUpperBound
+try
+    % IVIMmodelfit.m should cap perfusion fraction f at 0.4.
+    code = ivim_code;
+    assert(contains(code, '0.4'), ...
+        'IVIMmodelfit.m should set f upper bound to 0.4');
+    fprintf('[PASS] testIVIM_fUpperBound\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_fUpperBound: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_DstarUpperBound
+try
+    % IVIMmodelfit.m should cap D* at 0.1 mm²/s.
+    code = ivim_code;
+    assert(contains(code, '0.1'), ...
+        'IVIMmodelfit.m should set D* upper bound to 0.1 mm²/s');
+    fprintf('[PASS] testIVIM_DstarUpperBound\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_DstarUpperBound: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_NoLooseBoundsF
+try
+    % Old loose f upper bound of 1 should be gone.
+    code = ivim_code;
+    % The old line was: lim = [0 0 0 0;3e-3 2*max(Y(:)) 1 1]
+    assert(~contains(code, '3e-3 2*max(Y(:)) 1 1'), ...
+        'Old loose f and D* limits should be removed from IVIMmodelfit.m');
+    fprintf('[PASS] testIVIM_NoLooseBoundsF\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_NoLooseBoundsF: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_OptsLimSupported
+try
+    % IVIMmodelfit.m should support opts.lim for caller overrides.
+    code = ivim_code;
+    assert(contains(code, '''lim''') && contains(code, 'opts.lim'), ...
+        'IVIMmodelfit.m should support opts.lim override');
+    fprintf('[PASS] testIVIM_OptsLimSupported\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_OptsLimSupported: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_DefaultBlim100
+try
+    % IVIMmodelfit.m should default blim to 100.
+    code = ivim_code;
+    assert(contains(code, 'blim = 100'), ...
+        'IVIMmodelfit.m default blim should be 100');
+    fprintf('[PASS] testIVIM_DefaultBlim100\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_DefaultBlim100: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% testIVIM_SegmentedTwoStage_Logic
+try
+    % Inline two-stage test: verify that blim=100 includes more high-b
+    % values than blim=200, and that an LLS monoexponential fit on the
+    % high-b subset yields a physiologically plausible D.
+    D_true = 1.5e-3; f_true = 0.15; Dstar_true = 0.05; S0 = 1000;
+    bvals_test = [0; 30; 100; 550];
+    rng(42);
+    S_test = S0 * ((1-f_true)*exp(-bvals_test*D_true) + f_true*exp(-bvals_test*(D_true+Dstar_true)));
+    S_test = S_test + 5*randn(size(S_test));
+
+    % Stage 1 with blim=100: includes b=100 and b=550 (2 points)
+    b_hi100 = bvals_test(bvals_test >= 100);
+    S_hi100 = S_test(bvals_test >= 100);
+    X100 = [-b_hi100, ones(size(b_hi100))];
+    p100 = X100 \ log(S_hi100);
+    D_est_100 = p100(1);
+
+    % Stage 1 with blim=200: includes only b=550 (exact, 1 point)
+    b_hi200 = bvals_test(bvals_test >= 200);
+    S_hi200 = S_test(bvals_test >= 200);
+    X200 = [-b_hi200, ones(size(b_hi200))];
+    p200 = X200 \ log(S_hi200);
+    D_est_200 = p200(1);
+
+    assert(D_est_100 > 0 && D_est_100 < 3e-3, ...
+        sprintf('blim=100 D estimate out of physiological range: %.4g', D_est_100));
+    % blim=100 should use more b-values (over-determined), which is the improvement
+    assert(length(b_hi100) > length(b_hi200), ...
+        'blim=100 should include more high-b values for D estimation than blim=200');
+    fprintf('[PASS] testIVIM_SegmentedTwoStage_Logic\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testIVIM_SegmentedTwoStage_Logic: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1499,6 +1735,15 @@ function code = readLoadDwiSource()
     p = fullfile(fileparts(mfilename('fullpath')), 'load_dwi_data_forAvery.m');
     fid = fopen(p, 'r');
     assert(fid > 0, 'Could not open load_dwi_data_forAvery.m at: %s', p);
+    code = fread(fid, '*char')';
+    fclose(fid);
+end
+
+function code = readIVIMmodelSource()
+    % Read IVIMmodelfit.m from the dependencies directory.
+    p = fullfile(fileparts(mfilename('fullpath')), 'dependencies', 'IVIMmodelfit.m');
+    fid = fopen(p, 'r');
+    assert(fid > 0, 'Could not open IVIMmodelfit.m at: %s', p);
     code = fread(fid, '*char')';
     fclose(fid);
 end

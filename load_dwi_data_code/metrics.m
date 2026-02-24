@@ -463,9 +463,10 @@ for j = 1:length(m_id_list)
                 end
             end
             
-            % Parameters for 3D morphological cleanup
+            % Parameters for 3D morphological cleanup and statistical stability
             se = strel('sphere', 1);
             min_cc_voxels = 10;
+            min_subvol_voxels = 100;
             
             % 1. ADC Sub-volume Coverage
             adc_mask_1d = adc_vec < adc_thresh;
@@ -477,7 +478,7 @@ for j = 1:length(m_id_list)
                 adc_mask_1d = vol_3d(gtv_mask_3d == 1);
             end
             dose_adc_sub = dose_vec(adc_mask_1d);
-            if ~isempty(dose_adc_sub)
+            if ~isempty(dose_adc_sub) && sum(adc_mask_1d) >= min_subvol_voxels
                 d95_adc_sub(j,k) = prctile(dose_adc_sub, 5); % 5th percentile = D95
                 v50_adc_sub(j,k) = sum(dose_adc_sub >= 50) / length(dose_adc_sub) * 100;
             end
@@ -492,7 +493,7 @@ for j = 1:length(m_id_list)
                 d_mask_1d = vol_3d(gtv_mask_3d == 1);
             end
             dose_d_sub = dose_vec(d_mask_1d);
-            if ~isempty(dose_d_sub)
+            if ~isempty(dose_d_sub) && sum(d_mask_1d) >= min_subvol_voxels
                 d95_d_sub(j,k) = prctile(dose_d_sub, 5);
                 v50_d_sub(j,k) = sum(dose_d_sub >= 50) / length(dose_d_sub) * 100;
             end
@@ -507,7 +508,7 @@ for j = 1:length(m_id_list)
                 f_mask_1d = vol_3d(gtv_mask_3d == 1);
             end
             dose_f_sub = dose_vec(f_mask_1d);
-            if ~isempty(dose_f_sub)
+            if ~isempty(dose_f_sub) && sum(f_mask_1d) >= min_subvol_voxels
                 d95_f_sub(j,k) = prctile(dose_f_sub, 5);
                 v50_f_sub(j,k) = sum(dose_f_sub >= 50) / length(dose_f_sub) * 100;
             end
@@ -522,7 +523,7 @@ for j = 1:length(m_id_list)
                 dstar_mask_1d = vol_3d(gtv_mask_3d == 1);
             end
             dose_dstar_sub = dose_vec(dstar_mask_1d);
-            if ~isempty(dose_dstar_sub)
+            if ~isempty(dose_dstar_sub) && sum(dstar_mask_1d) >= min_subvol_voxels
                 d95_dstar_sub(j,k) = prctile(dose_dstar_sub, 5);
                 v50_dstar_sub(j,k) = sum(dose_dstar_sub >= 50) / length(dose_dstar_sub) * 100;
             end
@@ -1110,22 +1111,25 @@ else
     fprintf('%s\n', strjoin(sig_disp_names, ', '));
 end
 
-%% ---------- ROC Analysis (Receiver Operating Characteristic) ----------
-% Computes a single, robust ROC curve using the unbiased out-of-fold
-% risk scores (risk_scores_all) generated strictly via nested LOOCV.
-% Youden's J statistic (max[Sensitivity - FPR]) determines optimal cutoff.
+%% ---------- PRIMARY ROC Analysis (LOOCV Out-of-Fold Risk Scores) ----------
+% The full ROC curve and optimal decision threshold are computed exclusively
+% from risk_scores_all — the single, non-averaged out-of-fold prediction
+% produced by the nested LOOCV loop above. Each patient is scored exactly
+% once by a model that never saw their data.
+%
+% LPOCV (below) is RESERVED for the paired concordance AUC scalar only.
+% It does NOT determine the ROC curve or the optimum cutoff.
+%
+% Optimal cutoff is determined by Youden's J: max(Sensitivity - FPR).
 
 labels = lf_group; % 0 = LC, 1 = LF
 valid_roc = ~isnan(risk_scores_all) & ~isnan(labels);
 
 if sum(valid_roc) > 0
-    % Fit logistic regression to get probabilities from the risk scores for perfcurve
-    % (Or we can just feed the risk scores themselves if higher score = higher risk)
-    % A simple univariate GLM maps the scores back to [0,1] probabilities
-    mdl_roc = fitglm(risk_scores_all(valid_roc), labels(valid_roc), 'Distribution', 'binomial', 'Options', statset('MaxIter', 1000000));
+    % Use the LOOCV out-of-fold risk scores directly — no GLM refitting.
     [roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), risk_scores_all(valid_roc), 1);
     
-    % Optimal cutoff via Youden's J Statistic
+    % Optimal cutoff via Youden's J Statistic (maximise Sensitivity + Specificity - 1)
     [~, roc_opt_idx] = max(roc_Y - roc_X);
     roc_opt_thresh = roc_T(roc_opt_idx);
     
@@ -1134,17 +1138,17 @@ if sum(valid_roc) > 0
     hold on;
     
     plot(roc_X, roc_Y, 'b-', 'LineWidth', 2.5);
-    leg_entries = {sprintf('OOF Risk Score (AUC = %.3f)', roc_AUC)};
+    leg_entries = {sprintf('LOOCV OOF Risk Score (AUC = %.3f)', roc_AUC)};
     
     plot(roc_X(roc_opt_idx), roc_Y(roc_opt_idx), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
-    leg_entries{end+1} = 'Optimal Threshold (Youden)';
+    leg_entries{end+1} = sprintf('Youden Cutoff (score = %.3f)', roc_opt_thresh);
     
     plot([0 1], [0 1], 'k--', 'LineWidth', 1.5);
     leg_entries{end+1} = 'Random Guess';
     
     xlabel('False Positive Rate (1 - Specificity)', 'FontSize', 12, 'FontWeight', 'bold');
     ylabel('True Positive Rate (Sensitivity)', 'FontSize', 12, 'FontWeight', 'bold');
-    title(['Primary ROC Curve: Unbiased Risk Score Predicting Local Failure (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
+    title(['PRIMARY ROC Curve: LOOCV Out-of-Fold Risk Score (' fx_label ', ' dtype_label ')'], 'FontSize', 14);
     
     legend(leg_entries, 'Location', 'SouthEast', 'FontSize', 11);
     grid on; box on;
@@ -1153,26 +1157,28 @@ if sum(valid_roc) > 0
     close(gcf);
     
     % Print results to the command window
-    fprintf('\n--- PRIMARY ROC ANALYSIS (Out-of-Fold Risk Score) for %s ---\n', fx_label);
-    fprintf('Unbiased Risk Score: \n  AUC = %.3f \n  Optimal Threshold (Probability) = %.2f\n', ...
-        roc_AUC, roc_opt_thresh);
-    fprintf('  Sensitivity at Threshold = %.2f%%\n  Specificity at Threshold = %.2f%%\n\n', ...
+    fprintf('\n--- PRIMARY ROC ANALYSIS (LOOCV Out-of-Fold Risk Score) for %s ---\n', fx_label);
+    fprintf('  AUC  = %.3f\n  Youden Optimal Score Cutoff = %.4f\n', roc_AUC, roc_opt_thresh);
+    fprintf('  Sensitivity = %.1f%%  |  Specificity = %.1f%%\n\n', ...
         roc_Y(roc_opt_idx)*100, (1-roc_X(roc_opt_idx))*100);
 else
-    fprintf('\n--- PRIMARY ROC ANALYSIS (Out-of-Fold Risk Score) for %s ---\n', fx_label);
+    roc_AUC = NaN; roc_opt_thresh = NaN;
+    fprintf('\n--- PRIMARY ROC ANALYSIS (LOOCV OOF) for %s ---\n', fx_label);
     fprintf('Insufficient data for out-of-fold ROC analysis.\n\n');
 end
 
 
 
-%% ---------- Leave-Pair-Out Cross-Validation (LPOCV) ----------
-% LPOCV provides an unbiased AUC estimate by testing every possible
-% (LF, LC) pair. For each pair, a model is trained on all other patients
-% and scores the held-out pair. A pair is concordant if the model assigns
-% a higher P(LF) to the actual LF patient. The proportion of concordant
-% pairs equals the AUC. A heatmap shows which specific pairs were
-% correctly ranked.
-% We test every possible pair of (1 LF vs 1 LC).
+%% ---------- Leave-Pair-Out Cross-Validation (LPOCV) — Paired AUC Scalar Only ----------
+% LPOCV is STRICTLY reserved for generating the paired concordance AUC.
+% It does NOT produce the ROC curve, does NOT determine the optimal cutoff,
+% and is NOT used to classify individual patients.
+%
+% For each (LF, LC) pair, a model is trained on all other patients and
+% scores the held-out pair. A pair is concordant if the model assigns a
+% higher risk score to the actual LF patient. The proportion of concordant
+% pairs is the LPOCV AUC (Wilcoxon-Mann-Whitney estimator of P(score_LF > score_LC)).
+% The full ROC curve and optimal threshold come exclusively from LOOCV above.
 
 % 1. Setup Data (all candidate features for unbiased feature selection)
 labels = lf_group;

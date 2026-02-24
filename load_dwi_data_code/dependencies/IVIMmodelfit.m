@@ -191,10 +191,16 @@ end
 Y = im2Y(im,roi);
 
 % Define which parameters to estimate
+% Strict physiological bounds for pancreatic cancer IVIM:
+%   D    (true diffusion)   : [0, 3e-3] mm²/s
+%   S0   (signal at b=0)    : [0, 2*max(signal)]
+%   f    (perfusion fraction): [0, 0.4]  — prevents tissue being modelled as
+%                                          mostly vascular (physiologically >40% is very unlikely)
+%   D*   (pseudo-diffusion) : [0, 0.1]  mm²/s  — cap at 100 × 10⁻³ mm²/s
 pars = {'D','S0','f','Dstar'};
-lim = [0 0 0 0;3e-3 2*max(Y(:)) 1 1];
-% lim = [0 0 0 0;3e-3 200 1 100e-3];
-blim = 200;
+lim = [0   0           0   0;   ...
+       3e-3 2*max(Y(:)) 0.4 0.1];
+blim = 100;    % b-value (s/mm²) separating high-b (D estimation) from low-b (f, D* estimation)
 dispprog = false;
 
 n = 10000;
@@ -211,6 +217,9 @@ switch fittype
     case fittypes{1} % segmented
         if any(strcmp('bthr',opts_fields))
             blim = opts.bthr;
+        end
+        if any(strcmp('lim',opts_fields))
+            lim = opts.lim;  % caller may supply fully-custom limits
         end
         if any(strcmp('dispprog',opts_fields))
             dispprog = opts.dispprog;
