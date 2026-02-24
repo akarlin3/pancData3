@@ -377,6 +377,10 @@ for j = 1:length(mrn_list)
     mrn = mrn_list{j};
     fprintf('\n******* MRN: %s\n',mrn);
 
+    % Per-patient DIR reference: populated at Fx1, reused at Fx2+
+    b0_fx1_ref       = [];   % b=0 volume at baseline fraction
+    gtv_mask_fx1_ref = [];   % GTV mask at baseline fraction
+
     % read clinical data (local failure, immunotherapy) from spreadsheet
     i_pat = find(contains(strrep(T.Pat,'_','-'),strrep(id_list{j},'_','-')));
     immuno(j) = T.Immuno(i_pat(1));
@@ -663,7 +667,7 @@ for j = 1:length(mrn_list)
                     S_a = S_2d(adc_idx, :);
                     adc_vec(adc_idx) = (-bvalues(2:end) \ ...
                         permute(log(S_a(:,2:end) ./ S_a(:,1)), [2 1]))';
-                    adc_vec(adc_vec < 0) = 0;  % clamp noise-driven negative ADC estimates
+                    adc_vec(adc_vec < 0) = nan;  % clamp noise-driven negative ADC estimates
                 end
                 adc_map = reshape(adc_vec, adc_sz);
 
@@ -695,7 +699,7 @@ for j = 1:length(mrn_list)
                         S_a_d = S_2d_d(adc_idx_d, :);
                         adc_vec_d(adc_idx_d) = (-bvalues(2:end) \ ...
                             permute(log(S_a_d(:,2:end) ./ S_a_d(:,1)), [2 1]))';
-                        adc_vec_d(adc_vec_d < 0) = 0;  % clamp noise-driven negative ADC estimates
+                        adc_vec_d(adc_vec_d < 0) = nan;  % drop noise-driven negative ADC estimates (failed fit)
                     end
                     adc_map_dncnn = reshape(adc_vec_d, adc_sz_d);
                 end
@@ -748,15 +752,48 @@ for j = 1:length(mrn_list)
             end
 
             % --- Compute DVH parameters within GTVp ---
+            % For fractions after baseline (fi > 1), use a DIR-propagated GTV mask
+            % to correct for inter-fraction tumor deformation. The Demons displacement
+            % field is cached to disk to avoid redundant computation on re-runs.
+            gtv_mask_for_dvh = gtv_mask; % default: use raw mask
+            if havedwi && havegtvp
+                b0_current = dwi(:,:,:,1); % b=0 is always the first volume
+                if fi == 1
+                    % Cache the Fx1 reference for downstream DIR calls
+                    b0_fx1_ref = b0_current;
+                    gtv_mask_fx1_ref = gtv_mask;
+                elseif fi > 1 && ~isempty(b0_fx1_ref) && ~isempty(gtv_mask_fx1_ref)
+                    % Try to load a previously saved displacement field
+                    dir_cache_file = fullfile([dataloc id_list{j} '/nii/'], ...
+                        sprintf('dir_field_rpi%d_fx%d.mat', rpi, fi));
+                    if exist(dir_cache_file, 'file')
+                        tmp_dir = load(dir_cache_file, 'gtv_mask_warped');
+                        gtv_mask_for_dvh = tmp_dir.gtv_mask_warped;
+                        fprintf('  [DIR] Loaded cached warped mask for Fx%d rpi%d\n', fi, rpi);
+                    else
+                        fprintf('  [DIR] Running imregdemons for Fx%d rpi%d...\n', fi, rpi);
+                        gtv_mask_warped = apply_dir_mask_propagation(b0_fx1_ref, b0_current, gtv_mask_fx1_ref);
+                        if ~isempty(gtv_mask_warped)
+                            gtv_mask_for_dvh = gtv_mask_warped;
+                            % Cache to disk
+                            save(dir_cache_file, 'gtv_mask_warped');
+                            fprintf('  [DIR] Done. Warped mask saved.\n');
+                        else
+                            fprintf('  [DIR] Registration failed for Fx%d rpi%d. Falling back to raw Fx%d mask.\n', fi, rpi, fi);
+                        end
+                    end
+                end
+            end
+
             if havedose && havegtvp
-                dmean_gtvp(j,fi) = nanmean(dose_map(gtv_mask==1));
+                dmean_gtvp(j,fi) = nanmean(dose_map(gtv_mask_for_dvh==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 % Compute DVH with 2000 bins, extracting D95% and V50Gy
-                [dvhparams, dvh_values] = dvh(dose_map, gtv_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
+                [dvhparams, dvh_values] = dvh(dose_map, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 d95_gtvp(j,fi) = dvhparams.("D95% (Gy)");
                 v50gy_gtvp(j,fi) = dvhparams.("V50Gy (%)");
 
-                data_vectors_gtvp(j,fi,rpi).dose_vector = dose_map(gtv_mask==1);
+                data_vectors_gtvp(j,fi,rpi).dose_vector = dose_map(gtv_mask_for_dvh==1);
                 data_vectors_gtvp(j,fi,rpi).dvh = dvh_values;
                 data_vectors_gtvp(j,fi,rpi).d95 = dvhparams.("D95% (Gy)");
                 data_vectors_gtvp(j,fi,rpi).v50gy = dvhparams.("V50Gy (%)");

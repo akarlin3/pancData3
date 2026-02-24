@@ -10,6 +10,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;
     
+    % Z-score standardize features based on training fold to compute distances
+    mu_tr = mean(X_tr, 1, 'omitnan');
+    sd_tr = std(X_tr, 0, 1, 'omitnan');
+    sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero
+    Z_tr = (X_tr - mu_tr) ./ sd_tr;
+    
     % --- 1. Impute Training Set (X_tr) ---
     for i = 1:n_tr
         missing_idx = isnan(X_tr(i, :));
@@ -20,7 +26,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
                     if sum(valid_feat) > 0
                         % Euclidean distance normalized by mutually observed features
-                        dist(j) = sqrt(sum((X_tr(i, valid_feat) - X_tr(j, valid_feat)).^2) / sum(valid_feat));
+                        dist(j) = sqrt(sum((Z_tr(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
                     end
                 end
             end
@@ -40,6 +46,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
     % --- 2. Impute Test/Validation Set (X_te) using Training Data ---
     if ~isempty(X_te)
         X_te_imp = X_te;
+        Z_te = (X_te - mu_tr) ./ sd_tr;
         n_te = size(X_te, 1);
         for i = 1:n_te
             missing_idx = isnan(X_te(i, :));
@@ -48,7 +55,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
                 for j = 1:n_tr
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
                     if sum(valid_feat) > 0
-                        dist(j) = sqrt(sum((X_te(i, valid_feat) - X_tr(j, valid_feat)).^2) / sum(valid_feat));
+                        dist(j) = sqrt(sum((Z_te(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
                     end
                 end
                 [~, sorted_idx] = sort(dist);
