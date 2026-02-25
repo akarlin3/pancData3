@@ -87,6 +87,11 @@ function img_isolated = apply_dncnn_symmetric(img, gtv_mask, net, expand_voxels)
         
         % Apply target-derived normalization parameters to the entire bounding box
         img_cropped = (single(img_cropped) - mu_target) / sigma_target;
+        
+        % Implement post-normalization Winsorization (Soft-Clipping)
+        % Clamp voxels to [-3.5, 3.5] to prevent ReLU activation saturation 
+        % caused by background tissue mapping to extreme Z-scores.
+        img_cropped = max(-3.5, min(3.5, img_cropped));
     end
 
     % 5. Pass this true, expanded anatomical region through the dnCNN

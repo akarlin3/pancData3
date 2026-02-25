@@ -905,6 +905,10 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     X_impute = X_lasso_all(impute_mask, :);
     y_clean  = y_lasso_all(impute_mask);
 
+    % Pre-map patient IDs for leakage auditing and imputation row exclusion
+    id_list_valid = id_list(valid_pts);
+    id_list_impute = id_list_valid(impute_mask);
+
     % --- Proper 5-fold CV for Lambda Selection to prevent Data Leakage ---
     rng(42); % Set seed for reproducibility
     cvp = cvpartition(y_clean, 'KFold', 5);
@@ -922,7 +926,9 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         X_te = X_impute(te_idx, :); y_te = y_clean(te_idx);
         
         % 1. Impute strictly using training fold
-        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5);
+        id_tr = id_list_impute(tr_idx);
+        id_te = id_list_impute(te_idx);
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, id_tr, id_te);
         
         % 2. Pre-filter features with Pearson |r| > 0.8 using strictly training data
         keep_fold = filter_collinear_features(X_tr_imp, y_tr);
@@ -965,7 +971,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         % Retrain final model on all data (imputed with full dataset context) using the optimal lambda.
         % We omit the global collinearity filter here to avoid data leakage in the final reporting
         % model; the Elastic Net penalty (Alpha=0.5) will handle multicollinearity during fit.
-        X_clean_all = knn_impute_train_test(X_impute, [], 5);
+        X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
         
         try
             [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
@@ -1029,7 +1035,9 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         X_te_fold = X_impute(loo_i, :);
         
         % 1. Impute using KNN fitted strictly on training data
-        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5);
+        id_tr_loo = id_list_impute(train_mask);
+        id_te_loo = id_list_impute(loo_i);
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5, id_tr_loo, id_te_loo);
         
         % 2. Pre-filter: drop features with Pearson |r| > 0.8 using ONLY training data
         % (mirrors the unified collinearity filter)
@@ -2066,11 +2074,13 @@ else
     warning('error', 'stats:coxphfit:IterationLimit');
     is_firth_td = false;
     try
-        % Define survival response for competing risks (0=censored, 1=progression, 2=competing risk)
-        % fitcox handles start-stop (counting process) data via the survival object.
-        y_td_surv = survival(t_start_td, t_stop_td, event_td, 'EventValues', [1, 2]);
+        % Treat competing risks (2) as right-censored (0) for Cause-Specific Hazard.
+        % This prevents the Fine-Gray subdistribution hazard's artificial risk-set inflation.
+        event_td_csh = event_td;
+        event_td_csh(event_td_csh == 2) = 0;
+        y_td_surv = survival(t_start_td, t_stop_td, event_td_csh);
         
-        % Fit Fine-Gray subdistribution hazard model specifically for the event of interest (1)
+        % Fit Cause-Specific Hazard (CSH) model specifically for the primary event (1)
         mdl_td = fitcox(X_td_global, y_td_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
         
         b_td        = mdl_td.Coefficients.Estimate;
@@ -2321,27 +2331,24 @@ for p_idx = 1:n_vp
     end
     warning(w_state);
     
+    % Fit Accelerated Failure Time (AFT) outcome regression model (Weibull)
+    % Using baseline variables: vol_valid, adc_valid
+    % AFT model tracks the actual event distribution, whereas IPCW tracks censoring.
+    try
+        Z_aft_train = [vol_valid(train_pat_mask), adc_valid(train_pat_mask)];
+        T_aft_train = train_times;
+        E_aft_train = (train_cens == 1); % 1 if event of interest, 0 otherwise
+        
+        % MATLAB's fitregres for Weibull AFT
+        mdl_aft = fitregres(Z_aft_train, T_aft_train, 'Censoring', ~E_aft_train, 'Distribution', 'weibull');
+    catch
+        mdl_aft = [];
+    end
+    
     oof_risk_history{p_idx}.cens_b = b_cens;
     oof_risk_history{p_idx}.cens_H = H_cens;
     oof_risk_history{p_idx}.Z_test = Z_test;
-
-    % Calculate IPCW training distribution for stabilization
-    W_train_fold = zeros(length(train_times), 1);
-    for ti_idx = 1:length(train_times)
-        if cens_model_events(ti_idx) == 0 % Only for events
-            T_target = train_times(ti_idx);
-            idx_G_tr = find(H_cens(:,1) <= T_target, 1, 'last');
-            if isempty(idx_G_tr)
-                G_tr = 1;
-            else
-                G_tr = exp(-H_cens(idx_G_tr, 2) * exp(Z_train(ti_idx, :) * b_cens));
-            end
-            if G_tr <= 1e-5, G_tr = 1e-5; end
-            W_train_fold(ti_idx) = 1 / (G_tr^2);
-        end
-    end
-    % Truncate at 95th percentile of the training fold's IPC weights
-    oof_risk_history{p_idx}.w_thresh = prctile(W_train_fold(W_train_fold > 0), 95);
+    oof_risk_history{p_idx}.mdl_aft = mdl_aft;
 end
 
 concordant = 0; discordant = 0; weights_sum = 0;
@@ -2375,15 +2382,26 @@ for i = 1:n_vp
             G_Ti = exp(-H_0_t * exp(Z_test_i * b_c));
         end
         
-        if G_Ti <= 0 || isnan(G_Ti)
-            G_Ti = 1e-5;
+        % --- Doubly Robust Weight Stabilization ---
+        % If censoring probability G(t) is too low, use AFT predicted survival to stabilize
+        if G_Ti < 0.05 && ~isempty(oof_risk_history{i}.mdl_aft)
+            try
+                % Predict survival probability at T_i from AFT model
+                mdl_aft = oof_risk_history{i}.mdl_aft;
+                y_pred_log = [1, Z_test_i] * mdl_aft.Coefficients.Estimate;
+                sigma_aft = mdl_aft.Scale;
+                % Weibull: S(t) = exp(-exp((log(t) - mu)/sigma))
+                G_Ti_stabilized = exp(-exp((log(T_i) - y_pred_log) / sigma_aft));
+                
+                % Use the AFT estimate as a floor/stabilizer
+                G_Ti = max(G_Ti, G_Ti_stabilized);
+            catch
+                G_Ti = 0.05;
+            end
+        elseif G_Ti < 0.05
+            G_Ti = 0.05;
         end
         W_i = 1 / (G_Ti^2);
-        
-        % Apply stabilized truncation
-        if isfield(oof_risk_history{i}, 'w_thresh') && W_i > oof_risk_history{i}.w_thresh
-            W_i = oof_risk_history{i}.w_thresh;
-        end
         
         for j = 1:n_vp
             if i ~= j && surv_time_all(j) > T_i && ~isempty(oof_risk_history{j})

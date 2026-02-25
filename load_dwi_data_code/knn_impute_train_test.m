@@ -1,11 +1,16 @@
-function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
+function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te)
 % knn_impute_train_test Imputes missing data safely for cross-validation
 %
 % Integrates robust K-Nearest Neighbors (KNN) imputation ensuring that the
 % imputation model is fitted strictly on the training fold (X_tr) and then
 % applied to the test fold (X_te) to prevent data leakage.
+%
+% Also prevents temporal data leakage by excluding rows from the same patient 
+% during distance calculation if pat_id_tr/pat_id_te are provided.
     if nargin < 3, k = 5; end
     if nargin < 2, X_te = []; end
+    if nargin < 4, pat_id_tr = []; end
+    if nargin < 5, pat_id_te = []; end
     
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;
@@ -22,7 +27,13 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
         if any(missing_idx)
             dist = inf(n_tr, 1);
             for j = 1:n_tr
-                if i ~= j
+                % Condition for neighbor selection:
+                % 1. Must not be the same row (i ~= j)
+                % 2. If patient IDs are provided, must not be the same patient
+                is_same_row = (i == j);
+                is_same_patient = ~isempty(pat_id_tr) && (pat_id_tr(i) == pat_id_tr(j));
+                
+                if ~is_same_row && ~is_same_patient
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
                     if sum(valid_feat) > 0
                         % Euclidean distance normalized by mutually observed features
@@ -53,9 +64,16 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k)
             if any(missing_idx)
                 dist = inf(n_tr, 1);
                 for j = 1:n_tr
-                    valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
-                    if sum(valid_feat) > 0
-                        dist(j) = sqrt(sum((Z_te(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
+                    % Condition for neighbor selection:
+                    % If patient IDs are provided, must not be the same patient
+                    is_same_patient = ~isempty(pat_id_tr) && ~isempty(pat_id_te) && ...
+                                      (pat_id_te(i) == pat_id_tr(j));
+                    
+                    if ~is_same_patient
+                        valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
+                        if sum(valid_feat) > 0
+                            dist(j) = sqrt(sum((Z_te(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
+                        end
                     end
                 end
                 [~, sorted_idx] = sort(dist);
