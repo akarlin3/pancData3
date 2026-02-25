@@ -1,0 +1,33 @@
+# MATLAB Specific
+*.asv
+*.m~
+*.mex*
+*.mat
+slprj/
+sfprj/
+
+# Medical Imaging Data
+*.nii
+*.nii.gz
+*.dcm
+*.ima
+*.dcm.*
+
+# Project Specific / PHI Protection
+saved_figures/
+mock_data/
+
+# OS Specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*~
