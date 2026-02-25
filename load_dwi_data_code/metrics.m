@@ -2288,6 +2288,25 @@ for p_idx = 1:n_vp
     T_start_test = opt_panel.t_start(test_mask);
     T_stop_test = opt_panel.t_stop(test_mask);
     
+    % Time-stratified collinearity filter: derive the pruning mask exclusively
+    % from Fraction 1 (baseline) rows of the training fold, then apply
+    % uniformly across all longitudinal rows in both X_train and X_test.
+    % pat_event_train broadcasts the patient-level binary event flag to every
+    % row so that filter_collinear_features receives a y vector aligned with
+    % X_train rows; the function internally subsets to frac==1 rows for both
+    % the correlation matrix and the Wilcoxon significance tests.
+    frac_train = opt_panel.frac(train_mask);
+    pat_ids_train = opt_panel.pat_id(train_mask);
+    unique_tr_pats = unique(pat_ids_train);
+    pat_event_train = zeros(size(pat_ids_train));
+    for ui = 1:length(unique_tr_pats)
+        rows_ui = (pat_ids_train == unique_tr_pats(ui));
+        pat_event_train(rows_ui) = any(E_train(rows_ui) > 0);
+    end
+    keep_td = filter_collinear_features(X_train, pat_event_train, frac_train);
+    X_train = X_train(:, keep_td);
+    X_test  = X_test(:, keep_td);
+
     if sum(test_mask) == 0
         continue;
     end
@@ -2300,7 +2319,7 @@ for p_idx = 1:n_vp
     catch
         try
             unique_train_pats = unique(pat_id_td(train_mask));
-            X_last = nan(length(unique_train_pats), td_n_feat);
+            X_last = nan(length(unique_train_pats), length(keep_td));
             E_last = nan(length(unique_train_pats), 1);
             T_train_pat = pat_id_td(train_mask);
             for ui = 1:length(unique_train_pats)
@@ -2311,7 +2330,7 @@ for p_idx = 1:n_vp
             mdl_firth = fitglm(X_last, E_last, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
             b_loo = mdl_firth.Coefficients.Estimate(2:end);
         catch
-            b_loo = nan(td_n_feat, 1);
+            b_loo = nan(length(keep_td), 1);
         end
     end
     warning(w_state);

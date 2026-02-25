@@ -1911,6 +1911,24 @@ catch e
     n_fail = n_fail + 1;
 end
 
+% testTD_TimeStratifiedCollinearityFilter
+try
+    code = metrics_code;
+    assert(contains(code, 'filter_collinear_features(X_train, pat_event_train, frac_train)'), ...
+        'TD LOOCV must call filter_collinear_features with frac_train for time-stratified filtering');
+    assert(contains(code, 'frac_train = opt_panel.frac(train_mask)'), ...
+        'TD LOOCV must extract frac_train from the optimal panel training rows');
+    assert(contains(code, 'X_train = X_train(:, keep_td)'), ...
+        'TD LOOCV must apply keep_td mask to X_train');
+    assert(contains(code, 'X_test  = X_test(:, keep_td)'), ...
+        'TD LOOCV must apply the same keep_td mask to X_test');
+    fprintf('[PASS] testTD_TimeStratifiedCollinearityFilter\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] testTD_TimeStratifiedCollinearityFilter: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
 %% ====================================================================
 %  22. DEEP LEARNING ISOLATION PROTOCOL
 %  Verifies that metrics.m enforces nested isolation for DL-processed data.
