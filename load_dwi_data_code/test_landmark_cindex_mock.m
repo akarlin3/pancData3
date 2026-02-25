@@ -30,8 +30,8 @@ dtype = 1;
 [X_td, t_start_td, t_stop_td, event_td, pat_id_td, frac_td] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
 
-%% ---------- Time-Dependent IPCW Concordance ----------
-fprintf('\n--- TIME-DEPENDENT IPCW CONCORDANCE (Out-of-Fold Validation) ---\n');
+%% ---------- Competing-Risks Concordance Index (Wolbers' CIF-Weighted IPCW) ----------
+fprintf('\n--- COMPETING-RISKS CONCORDANCE INDEX (Wolbers, CIF-Weighted IPCW) ---\n');
 
 td_n_feat = numel(td_feat_arrays);
 
@@ -152,6 +152,31 @@ for p_idx = 1:n_vp
     oof_risk_history{p_idx}.cens_H = H_cens;
     oof_risk_history{p_idx}.Z_test = Z_test;
     oof_risk_history{p_idx}.mdl_aft = mdl_aft;
+
+    % Aalen-Johansen estimator of the CIF for the competing risk (cause 2).
+    aj_times = sort(unique(train_times));
+    aj_cif2  = zeros(size(aj_times));
+    S_aj     = 1;
+    for aj_t = 1:length(aj_times)
+        t_aj   = aj_times(aj_t);
+        n_risk = sum(train_times >= t_aj);
+        d2     = sum(train_times == t_aj & train_cens == 2);
+        d1     = sum(train_times == t_aj & train_cens == 1);
+        if n_risk > 0
+            if aj_t > 1
+                aj_cif2(aj_t) = aj_cif2(aj_t - 1) + S_aj * (d2 / n_risk);
+            else
+                aj_cif2(aj_t) = S_aj * (d2 / n_risk);
+            end
+            S_aj = S_aj * (1 - (d1 + d2) / n_risk);
+        elseif aj_t > 1
+            aj_cif2(aj_t) = aj_cif2(aj_t - 1);
+        end
+    end
+    oof_risk_history{p_idx}.cif2_times = aj_times;
+    oof_risk_history{p_idx}.cif2_vals  = aj_cif2;
+end
+
 fprintf('  Found %d events (type 1) out of %d patients.\n', sum(surv_event_all == 1), n_vp);
 concordant = 0; discordant = 0; weights_sum = 0;
 
@@ -232,12 +257,68 @@ for i = 1:n_vp
                 end
             end
         end
+
+        % --- Competing-risk pairs (Wolbers' extension) ---
+        % Patient i has event of interest (1) at T_i.
+        % Patient j has competing event (2) at T_j < T_i.
+        % This is a strictly comparable pair: i should have higher progression risk.
+        % Weight = CIF_2(T_j) / G(T_j)^2 (IPCW adjusted by competing-risk CIF).
+        for j = 1:n_vp
+            if i ~= j && surv_event_all(j) == 2 && surv_time_all(j) < T_i && ~isempty(oof_risk_history{j})
+                T_j = surv_time_all(j);
+                risk_j = NaN;
+                idx_j = find(T_j >= oof_risk_history{j}.t_start - 1e-5 & T_j <= oof_risk_history{j}.t_stop + 1e-5, 1, 'last');
+                if isempty(idx_j) && T_j == oof_risk_history{j}.t_start(1)
+                    idx_j = 1;
+                elseif isempty(idx_j) && T_j > oof_risk_history{j}.t_stop(end)
+                    idx_j = length(oof_risk_history{j}.risk);
+                end
+                if ~isempty(idx_j)
+                    risk_j = oof_risk_history{j}.risk(idx_j);
+                end
+
+                if ~isnan(risk_j)
+                    % Compute G(T_j) from j's leave-one-out censoring model
+                    H_c_j  = oof_risk_history{j}.cens_H;
+                    b_c_j  = oof_risk_history{j}.cens_b;
+                    Z_j    = oof_risk_history{j}.Z_test;
+                    idx_Gj = find(H_c_j(:,1) <= T_j, 1, 'last');
+                    if isempty(idx_Gj)
+                        G_Tj = 1;
+                    else
+                        G_Tj = exp(-H_c_j(idx_Gj, 2) * exp(Z_j * b_c_j));
+                    end
+                    G_Tj = max(G_Tj, 0.05);
+
+                    % Interpolate CIF_2 at T_j from j's fold-specific AJ estimate
+                    cif2_Tj = 0;
+                    if isfield(oof_risk_history{j}, 'cif2_times') && ~isempty(oof_risk_history{j}.cif2_times)
+                        idx_c2 = find(oof_risk_history{j}.cif2_times <= T_j, 1, 'last');
+                        if ~isempty(idx_c2)
+                            cif2_Tj = oof_risk_history{j}.cif2_vals(idx_c2);
+                        end
+                    end
+                    cif2_Tj = max(cif2_Tj, 1e-4);  % floor to avoid zero weight
+
+                    W_cr = cif2_Tj / (G_Tj^2);
+                    if risk_i > risk_j
+                        concordant = concordant + W_cr;
+                    elseif risk_i < risk_j
+                        discordant = discordant + W_cr;
+                    else
+                        concordant = concordant + 0.5 * W_cr;
+                        discordant = discordant + 0.5 * W_cr;
+                    end
+                    weights_sum = weights_sum + W_cr;
+                end
+            end
+        end
     end
 end
 
 if weights_sum > 0
     IPCW_C = concordant / weights_sum;
-    fprintf('  Continuous Time-Dependent IPCW C-index: %.4f\n\n', IPCW_C);
+    fprintf('  Competing-Risks Concordance Index (Wolbers, CIF-weighted IPCW): %.4f\n\n', IPCW_C);
 else
-    fprintf('  Cannot compute IPCW C-index (weights=0 or no comparable pairs).\n\n');
+    fprintf('  Cannot compute Competing-Risks C-index (weights=0 or no comparable pairs).\n\n');
 end
