@@ -379,8 +379,9 @@ for j = 1:length(mrn_list)
     fprintf('\n******* MRN: %s\n',mrn);
 
     % Per-patient DIR reference: populated at Fx1, reused at Fx2+
-    b0_fx1_ref       = [];   % b=0 volume at baseline fraction
-    gtv_mask_fx1_ref = [];   % GTV mask at baseline fraction
+    b0_fx1_ref        = [];   % b=0 volume at baseline fraction
+    gtv_mask_fx1_ref  = [];   % GTVp mask at baseline fraction
+    gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
     i_pat = find(contains(strrep(T.Pat,'_','-'),strrep(id_list{j},'_','-')));
@@ -706,57 +707,11 @@ for j = 1:length(mrn_list)
                 end
             end
 
-            % --- Extract voxel-level biomarkers within GTVp ---
-            if havegtvp
-                % Compute summary statistics within the primary GTV
-                adc_mean(j,fi,rpi) = nanmean(adc_map(gtv_mask==1));
-                % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-                adc_kurtosis(j,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
-
-                d_mean(j,fi,rpi) = nanmean(d_map(gtv_mask==1));
-                % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                d_kurtosis(j,fi,rpi) = kurtosis(d_map(gtv_mask==1));
-
-                % Store voxel-level vectors and metadata in the output struct
-                data_vectors_gtvp(j,fi,rpi).adc_vector = adc_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).d_vector = d_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).f_vector = f_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).dstar_vector = dstar_map(gtv_mask==1);    
-                data_vectors_gtvp(j,fi,rpi).ID = id_list{j};
-                data_vectors_gtvp(j,fi,rpi).MRN = mrn_list{j};
-                data_vectors_gtvp(j,fi,rpi).LF = lf(j);
-                data_vectors_gtvp(j,fi,rpi).Immuno = immuno(j);
-                data_vectors_gtvp(j,fi,rpi).Fraction = fi;
-                data_vectors_gtvp(j,fi,rpi).Repeatability_index = rpi;
-                data_vectors_gtvp(j,fi,rpi).vox_vol = dwi_vox_vol;
-
-                % Store DnCNN-denoised biomarker vectors (pipeline variant 2)
-                if havedenoised
-                    d_mean_dncnn(j,fi,rpi) = nanmean(d_map_dncnn(gtv_mask==1));
-                    data_vectors_gtvp(j,fi,rpi).d_vector_dncnn = d_map_dncnn(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).f_vector_dncnn = f_map_dncnn(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).adc_vector_dncnn = adc_map_dncnn(gtv_mask==1);
-                end
-
-                % Store IVIMnet deep-learning fit vectors (pipeline variant 3)
-                if haveivimnet
-%                     mdic = {"D_ivimnet": D_out, "f_ivimnet":f_out, "Dstar_ivimnet":Dstar_out, "S0_ivimnet":S0_out}
-                    D_ivimnet = rot90(D_ivimnet);
-                    f_ivimnet = rot90(f_ivimnet);
-                    Dstar_ivimnet = rot90(Dstar_ivimnet);
-                    S0_ivimnet = rot90(S0_ivimnet);
-                    d_mean_ivimnet(j,fi,rpi) = nanmean(D_ivimnet(gtv_mask==1));
-
-                    data_vectors_gtvp(j,fi,rpi).d_vector_ivimnet = D_ivimnet(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).f_vector_ivimnet = f_ivimnet(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtv_mask==1);
-                end
-            end
-
-            % --- Compute DVH parameters within GTVp ---
-            % For fractions after baseline (fi > 1), use a DIR-propagated GTV mask
-            % AND a DIR-warped dose map to correct for inter-fraction deformation.
+            % --- Deformable Image Registration (DIR): propagate GTV mask and ---
+            % --- compute displacement field for inter-fraction alignment       ---
+            % Performed BEFORE biomarker extraction so that the DIR inverse field
+            % is available to warp native-space DnCNN parameter maps into the
+            % baseline geometry prior to radiomic feature extraction.
             % The Demons displacement field is cached to disk to avoid redundant
             % computation on re-runs.
             gtv_mask_for_dvh = gtv_mask;  % default: raw mask (updated below for fi>1)
@@ -767,9 +722,12 @@ for j = 1:length(mrn_list)
             if havedwi && havegtvp
                 b0_current = dwi(:,:,:,1); % b=0 is always the first volume
                 if fi == 1
-                    % Cache the Fx1 reference for downstream DIR calls
-                    b0_fx1_ref       = b0_current;
-                    gtv_mask_fx1_ref = gtv_mask;
+                    % Cache the Fx1 references for downstream DIR calls
+                    b0_fx1_ref        = b0_current;
+                    gtv_mask_fx1_ref  = gtv_mask;
+                    if havegtvn
+                        gtvn_mask_fx1_ref = gtvn_mask;
+                    end
                 elseif fi > 1 && ~isempty(b0_fx1_ref) && ~isempty(gtv_mask_fx1_ref)
                     dir_cache_file = fullfile([dataloc id_list{j} '/nii/'], ...
                         sprintf('dir_field_rpi%d_fx%d.mat', rpi, fi));
@@ -805,6 +763,84 @@ for j = 1:length(mrn_list)
                 end
             end
 
+            % --- Warp native-space DnCNN parameter maps to baseline geometry ---
+            % The DnCNN network is applied to the raw, unwarped fractional MRI to
+            % preserve the physical Rician noise distribution. After fitting IVIM
+            % on the native-space denoised signal, the resulting parameter maps are
+            % warped into baseline geometry using the DIR inverse field (-D_forward)
+            % so that radiomic features are extracted in a consistent anatomical
+            % reference frame. -D_forward is the first-order approximation of the
+            % inverse displacement field (current-fraction to baseline) for the
+            % symmetric Demons registration used in apply_dir_mask_propagation.
+            if havedenoised && fi > 1 && ~isempty(D_forward_cur) && ~isempty(b0_fx1_ref)
+                ref3d_bl = imref3d(size(b0_fx1_ref));
+                d_map_dncnn     = imwarp(d_map_dncnn,     -D_forward_cur, 'Interp', 'linear', ...
+                    'OutputView', ref3d_bl, 'FillValues', nan);
+                f_map_dncnn     = imwarp(f_map_dncnn,     -D_forward_cur, 'Interp', 'linear', ...
+                    'OutputView', ref3d_bl, 'FillValues', nan);
+                dstar_map_dncnn = imwarp(dstar_map_dncnn, -D_forward_cur, 'Interp', 'linear', ...
+                    'OutputView', ref3d_bl, 'FillValues', nan);
+                adc_map_dncnn   = imwarp(adc_map_dncnn,   -D_forward_cur, 'Interp', 'linear', ...
+                    'OutputView', ref3d_bl, 'FillValues', nan);
+                fprintf('  [DnCNN] Warped native-space parameter maps to baseline geometry.\n');
+            end
+
+            % --- Extract voxel-level biomarkers within GTVp ---
+            if havegtvp
+                % Compute summary statistics within the primary GTV
+                adc_mean(j,fi,rpi) = nanmean(adc_map(gtv_mask==1));
+                % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
+                adc_kurtosis(j,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
+
+                d_mean(j,fi,rpi) = nanmean(d_map(gtv_mask==1));
+                % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                d_kurtosis(j,fi,rpi) = kurtosis(d_map(gtv_mask==1));
+
+                % Store voxel-level vectors and metadata in the output struct
+                data_vectors_gtvp(j,fi,rpi).adc_vector = adc_map(gtv_mask==1);
+                data_vectors_gtvp(j,fi,rpi).d_vector = d_map(gtv_mask==1);
+                data_vectors_gtvp(j,fi,rpi).f_vector = f_map(gtv_mask==1);
+                data_vectors_gtvp(j,fi,rpi).dstar_vector = dstar_map(gtv_mask==1);    
+                data_vectors_gtvp(j,fi,rpi).ID = id_list{j};
+                data_vectors_gtvp(j,fi,rpi).MRN = mrn_list{j};
+                data_vectors_gtvp(j,fi,rpi).LF = lf(j);
+                data_vectors_gtvp(j,fi,rpi).Immuno = immuno(j);
+                data_vectors_gtvp(j,fi,rpi).Fraction = fi;
+                data_vectors_gtvp(j,fi,rpi).Repeatability_index = rpi;
+                data_vectors_gtvp(j,fi,rpi).vox_vol = dwi_vox_vol;
+
+                % Store DnCNN-denoised biomarker vectors (pipeline variant 2).
+                % For fi > 1: the parameter maps have been warped to baseline
+                % geometry; extract within the baseline GTV mask for spatial
+                % consistency. For fi == 1: maps are already in native/baseline
+                % space; use the native mask directly.
+                if havedenoised
+                    dncnn_mask_p = gtv_mask;
+                    if fi > 1 && ~isempty(gtv_mask_fx1_ref)
+                        dncnn_mask_p = gtv_mask_fx1_ref;
+                    end
+                    d_mean_dncnn(j,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
+                    data_vectors_gtvp(j,fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_p==1);
+                    data_vectors_gtvp(j,fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_p==1);
+                    data_vectors_gtvp(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_p==1);
+                    data_vectors_gtvp(j,fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_p==1);
+                end
+
+                % Store IVIMnet deep-learning fit vectors (pipeline variant 3)
+                if haveivimnet
+%                     mdic = {"D_ivimnet": D_out, "f_ivimnet":f_out, "Dstar_ivimnet":Dstar_out, "S0_ivimnet":S0_out}
+                    D_ivimnet = rot90(D_ivimnet);
+                    f_ivimnet = rot90(f_ivimnet);
+                    Dstar_ivimnet = rot90(Dstar_ivimnet);
+                    S0_ivimnet = rot90(S0_ivimnet);
+                    d_mean_ivimnet(j,fi,rpi) = nanmean(D_ivimnet(gtv_mask==1));
+
+                    data_vectors_gtvp(j,fi,rpi).d_vector_ivimnet = D_ivimnet(gtv_mask==1);
+                    data_vectors_gtvp(j,fi,rpi).f_vector_ivimnet = f_ivimnet(gtv_mask==1);
+                    data_vectors_gtvp(j,fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtv_mask==1);
+                end
+            end
+
             if havedose && havegtvp
                 dmean_gtvp(j,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
@@ -836,12 +872,18 @@ for j = 1:length(mrn_list)
                 data_vectors_gtvn(j,fi,rpi).vox_vol = dwi_vox_vol;
             end
 
-            % Store DnCNN-denoised vectors for GTVn
+            % Store DnCNN-denoised vectors for GTVn.
+            % For fi > 1 the parameter maps have been warped to baseline geometry;
+            % extract within the baseline GTVn mask for spatial consistency.
             if havedenoised && havegtvn
-                data_vectors_gtvn(j,fi,rpi).d_vector_dncnn = d_map_dncnn(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).f_vector_dncnn = f_map_dncnn(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).adc_vector_dncnn = adc_map_dncnn(gtvn_mask==1);
+                dncnn_mask_n = gtvn_mask;
+                if fi > 1 && ~isempty(gtvn_mask_fx1_ref)
+                    dncnn_mask_n = gtvn_mask_fx1_ref;
+                end
+                data_vectors_gtvn(j,fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_n==1);
+                data_vectors_gtvn(j,fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_n==1);
+                data_vectors_gtvn(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_n==1);
+                data_vectors_gtvn(j,fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_n==1);
             end
 
             % Store IVIMnet vectors for GTVn
