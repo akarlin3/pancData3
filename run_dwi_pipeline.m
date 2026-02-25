@@ -12,6 +12,12 @@ function run_dwi_pipeline(config_path)
 % 
 % It explicitly passes data between modules to avoid workspace pollution
 % and includes error handling to halt execution if checks fail.
+% Dynamically set up the MATLAB path based on the orchestrator's location
+    pipeline_dir = fileparts(mfilename('fullpath'));
+    addpath(fullfile(pipeline_dir, 'core'));
+    addpath(fullfile(pipeline_dir, 'utils'));
+    addpath(fullfile(pipeline_dir, 'dependencies'));
+    % (Do not add the 'tests' directory to the main path to keep production clean)
 
     if nargin < 1
         config_path = 'config.json';
