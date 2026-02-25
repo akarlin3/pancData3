@@ -2138,6 +2138,155 @@ else
     fprintf('  Time-Dependent Cox model complete.\n\n');
 end
 
+%% ---------- Landmark Analysis for Out-of-fold C-index ----------
+fprintf('\n--- LANDMARK ANALYSIS (Out-of-Fold Validation) ---\n');
+
+td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
+                   f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
+td_n_feat = numel(td_feat_arrays);
+td_scan_days = [0, 5, 10, 15, 20, 90]; 
+
+surv_time_all = td_tot_time; 
+surv_event_all = td_lf;
+valid_idx_pts = find(valid_pts);
+n_vp = length(valid_idx_pts);
+
+landmarks = [30, 90, 180];
+n_lm = length(landmarks);
+
+for lm_idx = 1:n_lm
+    L = landmarks(lm_idx);
+    fprintf('  Evaluating Landmark L = %d days...\n', L);
+    
+    % 1. Identify patients at risk at time L
+    at_risk = (surv_time_all > L);
+    if sum(at_risk) < 10
+        fprintf('    Not enough patients at risk at L=%d. Skipping.\n', L);
+        continue;
+    end
+    
+    % 2. Build cross-sectional dataset at time L
+    X_L = nan(n_vp, td_n_feat);
+    for i = 1:n_vp
+        if at_risk(i)
+            for f_idx = 1:td_n_feat
+                feat_mat = td_feat_arrays{f_idx};
+                for t = length(td_scan_days):-1:1
+                    if td_scan_days(t) <= L && ~isnan(feat_mat(i, t))
+                        X_L(i, f_idx) = feat_mat(i, t);
+                        break;
+                    end
+                end
+            end
+        end
+    end
+    
+    % Patients with complete covariates at L
+    complete_data = at_risk & ~any(isnan(X_L), 2);
+    if sum(complete_data) < 10
+        fprintf('    Not enough patients with complete covariates at L=%d. Skipping.\n', L);
+        continue;
+    end
+    
+    % Outcomes from Landmark L
+    surv_time_L = surv_time_all - L; 
+    surv_event_L = surv_event_all;
+    
+    oof_risk = nan(n_vp, 1);
+    patients_to_test = find(complete_data);
+    
+    % 3. LOPOCV Loop
+    for p_idx = 1:length(patients_to_test)
+        loo_i = patients_to_test(p_idx);
+        pt_id = m_id_list{loo_i};
+        
+        is_leaky = false;
+        if dtype == 2 && isfield(dl_provenance, 'dncnn_train_ids') && any(strcmp(dl_provenance.dncnn_train_ids, pt_id))
+            is_leaky = true;
+        elseif dtype == 3 && isfield(dl_provenance, 'ivimnet_train_ids') && any(strcmp(dl_provenance.ivimnet_train_ids, pt_id))
+            is_leaky = true;
+        end
+        if is_leaky
+            continue;
+        end
+        
+        train_mask = complete_data;
+        train_mask(loo_i) = false;
+        
+        X_train = X_L(train_mask, :);
+        T_train = surv_time_L(train_mask);
+        E_train = surv_event_L(train_mask);
+        X_test = X_L(loo_i, :);
+        
+        w_state = warning('off', 'all');
+        try
+            b_loo = coxphfit(X_train, T_train, 'Censoring', ~E_train, 'Options', statset('MaxIter', 100));
+            oof_risk(loo_i) = X_test * b_loo;
+        catch
+            try
+                mdl_firth = fitglm(X_train, E_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
+                b_loo = mdl_firth.Coefficients.Estimate(2:end);
+                oof_risk(loo_i) = X_test * b_loo;
+            catch
+                oof_risk(loo_i) = NaN;
+            end
+        end
+        warning(w_state);
+    end
+    
+    % 4. Compute Uno's C-statistic
+    valid_oof = ~isnan(oof_risk) & complete_data;
+    if sum(valid_oof) < 5 || sum(surv_event_L(valid_oof)) < 2
+        fprintf('    Not enough complete out-of-fold predictions. Skipping C-index.\n');
+        continue;
+    end
+    
+    T_valid = surv_time_L(valid_oof);
+    E_valid = surv_event_L(valid_oof);
+    R_valid = oof_risk(valid_oof);
+    
+    % Estimate censoring distribution G(t)
+    [F_cens, x_cens] = ecdf(surv_time_L(complete_data), 'Censoring', surv_event_L(complete_data));
+    G_cens = 1 - F_cens;
+    
+    n_v = length(T_valid);
+    concordant = 0; discordant = 0; weights = 0;
+    
+    for i = 1:n_v
+        if E_valid(i) == 1
+            idx_G = find(x_cens <= T_valid(i), 1, 'last');
+            if isempty(idx_G) || G_cens(idx_G) == 0
+                G_Ti = 1;
+            else
+                G_Ti = G_cens(idx_G);
+            end
+            
+            W_i = 1 / (G_Ti^2);
+            
+            for j = 1:n_v
+                if T_valid(j) > T_valid(i)
+                    if R_valid(i) > R_valid(j) 
+                        concordant = concordant + W_i;
+                    elseif R_valid(i) < R_valid(j)
+                        discordant = discordant + W_i;
+                    else
+                        concordant = concordant + 0.5 * W_i;
+                        discordant = discordant + 0.5 * W_i;
+                    end
+                    weights = weights + W_i;
+                end
+            end
+        end
+    end
+    
+    if weights > 0
+        Uno_C = concordant / weights;
+        fprintf('    Uno''s C-statistic (L=%d): %.4f\n\n', L, Uno_C);
+    else
+        fprintf('    Cannot compute Uno''s C (weights=0).\n\n');
+    end
+end
+
 % --- PART C: SUB-VOLUME STATISTICS ---
 % We used: D < 0.001 and f < 0.1
 % Let's look at Fx2 (where the Dose finding was significant)
@@ -2490,25 +2639,3 @@ fprintf('\n=== Completed DWI Type %d: %s ===\n', dtype, dtype_label);
 end % for dtype
 diary off
 
-    % Filters collinear features using Pearson |r| > 0.8 threshold.
-    % When two features are highly correlated, the one with the higher univariate
-    % Wilcoxon rank-sum p-value (less significant) is dropped.
-    R = corrcoef(X);
-    drop_idx = false(1, size(X, 2));
-    for fi = 1:size(X, 2)
-        if drop_idx(fi), continue; end
-        for fj = fi+1:size(X, 2)
-            if abs(R(fi, fj)) > 0.8
-                p_fi = ranksum(X(y==0, fi), X(y==1, fi));
-                p_fj = ranksum(X(y==0, fj), X(y==1, fj));
-                if p_fj >= p_fi
-                    drop_idx(fj) = true;
-                else
-                    drop_idx(fi) = true;
-                    break;
-                end
-            end
-        end
-    end
-    keep_idx = find(~drop_idx);
-end

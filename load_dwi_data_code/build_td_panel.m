@@ -47,8 +47,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
-    % Pre-allocate with a generous upper bound (n_pts * nTp rows)
-    max_rows = n_pts * nTp;
+    % Pre-allocate with a generous upper bound (n_pts * nTp * 2 rows due to splitting)
+    max_rows = n_pts * nTp * 2;
     X_buf       = nan(max_rows, n_feat);
     t_start_buf = nan(max_rows, 1);
     t_stop_buf  = nan(max_rows, 1);
@@ -99,13 +99,43 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
                 continue;
             end
 
-            row = row + 1;
-            X_buf(row, :)       = cov_row;
-            t_start_buf(row)    = day_tp;
-            t_stop_buf(row)     = day_next;
-            event_buf(row)      = false;   % will set on last valid row below
-            pat_buf(row)        = j;
-            last_valid_row      = row;
+            % Implement 90-day biological validity window
+            if day_next - day_tp > 90
+                % First interval: current fraction values for 90 days
+                row = row + 1;
+                X_buf(row, :)       = cov_row;
+                t_start_buf(row)    = day_tp;
+                t_stop_buf(row)     = day_tp + 90;
+                event_buf(row)      = false;
+                pat_buf(row)        = j;
+                last_valid_row      = row;
+                
+                % Second interval: remainder of time reverting to baseline (Fraction 1)
+                baseline_cov_row = nan(1, n_feat);
+                for fi = 1:n_feat
+                    arr = feat_arrays{fi};
+                    if size(arr, 2) >= 1
+                        baseline_cov_row(fi) = arr(j, 1);
+                    end
+                end
+                
+                row = row + 1;
+                X_buf(row, :)       = baseline_cov_row;
+                t_start_buf(row)    = day_tp + 90;
+                t_stop_buf(row)     = day_next;
+                event_buf(row)      = false;
+                pat_buf(row)        = j;
+                last_valid_row      = row;
+            else
+                % Normal interval
+                row = row + 1;
+                X_buf(row, :)       = cov_row;
+                t_start_buf(row)    = day_tp;
+                t_stop_buf(row)     = day_next;
+                event_buf(row)      = false;   % will set on last valid row below
+                pat_buf(row)        = j;
+                last_valid_row      = row;
+            end
         end
 
         % Mark the last interval for this patient as the event row (if LF)
