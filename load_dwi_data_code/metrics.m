@@ -2030,7 +2030,7 @@ td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~i
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
 
 % Global exploratory scaling using all patients
-X_td_global_def = scale_td_panel(X_td_def, td_feat_names, pat_id_td_def, frac_td_def, unique(pat_id_td_def));
+X_td_global_def = scale_td_panel(X_td_def, td_feat_names, pat_id_td_def, t_start_td_def, unique(pat_id_td_def));
 
 td_ok = (sum(event_td_def) >= 3) && (size(X_td_global_def, 1) > td_n_feat + 1);
 
@@ -2209,7 +2209,7 @@ for p_idx = 1:n_vp
             te_mask = ismember(inner_pat_ids, active_te_ids);
             
             % Scale using ONLY inner training fold patients
-            inner_X_scaled_tr = scale_td_panel(inner_X, td_feat_names, inner_pat_ids, inner_frac, active_tr_ids);
+            inner_X_scaled_tr = scale_td_panel(inner_X, td_feat_names, inner_pat_ids, inner_t_start, active_tr_ids);
             
             try
                 [b_in, logl_in] = coxphfit(inner_X_scaled_tr(tr_mask, :), [inner_t_start(tr_mask), inner_t_stop(tr_mask)], ...
@@ -2232,7 +2232,7 @@ for p_idx = 1:n_vp
     % Now proceed with the optimal panel for outer LOOCV test
     train_mask = (opt_panel.pat_id ~= p_idx);
     train_pat_ids = unique(opt_panel.pat_id(train_mask));
-    X_td_scaled = scale_td_panel(opt_panel.X, td_feat_names, opt_panel.pat_id, opt_panel.frac, train_pat_ids);
+    X_td_scaled = scale_td_panel(opt_panel.X, td_feat_names, opt_panel.pat_id, opt_panel.t_start, train_pat_ids);
 
     X_train = X_td_scaled(train_mask, :);
     T_start_train = opt_panel.t_start(train_mask);
@@ -2279,8 +2279,9 @@ for p_idx = 1:n_vp
     
     % Covariate-adjusted conditional censoring model
     vol_valid = m_gtv_vol(valid_pts, 1);
-    Z_train = vol_valid(train_pat_mask);
-    Z_test  = vol_valid(p_idx);
+    adc_valid = ADC_abs(valid_pts, 1);
+    Z_train = [vol_valid(train_pat_mask), adc_valid(train_pat_mask)];
+    Z_test  = [vol_valid(p_idx), adc_valid(p_idx)];
     cens_model_events = (train_cens == 0); % 1 if censored, 0 if failed
     
     w_state = warning('off', 'all');

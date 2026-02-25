@@ -19,6 +19,8 @@ td_tot_time = randi([10, 200], n_vp, 1);
 td_lf = randi([0, 1], n_vp, 1);
 m_id_list = arrayfun(@(x) sprintf('Pt%d', x), 1:n_vp, 'UniformOutput', false);
 
+m_gtv_vol = rand(n_vp, nTp) * 100;
+
 % minimal provenance
 dl_provenance = struct();
 dtype = 1;
@@ -55,7 +57,7 @@ for p_idx = 1:n_vp
     
     % Scale specifically for this LOOCV fold
     train_pat_ids = unique(pat_id_td(train_mask));
-    X_td_scaled = scale_td_panel(X_td, td_feat_names, pat_id_td, frac_td, train_pat_ids);
+    X_td_scaled = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, train_pat_ids);
 
     X_train = X_td_scaled(train_mask, :);
     T_start_train = t_start_td(train_mask);
@@ -101,8 +103,9 @@ for p_idx = 1:n_vp
     train_cens = surv_event_all(train_pat_mask);
     
     % Covariate-adjusted conditional censoring model
-    Z_train = ADC_abs(train_pat_mask, 1);
-    Z_test  = ADC_abs(p_idx, 1);
+    vol_valid = m_gtv_vol(:, 1);
+    Z_train = [vol_valid(train_pat_mask), ADC_abs(train_pat_mask, 1)];
+    Z_test  = [vol_valid(p_idx), ADC_abs(p_idx, 1)];
     cens_model_events = (train_cens == 0); % 1 if censored, 0 if failed
     
     w_state = warning('off', 'all');

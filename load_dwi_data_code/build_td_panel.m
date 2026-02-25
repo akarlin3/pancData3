@@ -53,8 +53,15 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
-    % Pre-allocate with a generous upper bound (n_pts * nTp * 150 rows due to decay splitting)
-    max_rows = n_pts * nTp * 150;
+    % --- Collect Global Event Times for Exact Risk Set Splitting ---
+    % Since Cox Partial Likelihood is only evaluated at failure times, splitting
+    % at these times provides mathematically exact continuous evaluation.
+    global_event_times = unique(total_time_vec(lf_vec == 1));
+    global_event_times(isnan(global_event_times)) = [];
+    global_event_times = sort(global_event_times);
+
+    % Pre-allocate with a generous upper bound (n_pts * (nTp + total_events))
+    max_rows = n_pts * (nTp + length(global_event_times));
     X_buf       = nan(max_rows, n_feat);
     t_start_buf = nan(max_rows, 1);
     t_stop_buf  = nan(max_rows, 1);
@@ -128,16 +135,22 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 end
                 lambda = -log(0.5) / decay_half_life;
                 
-                % Discretize the remaining time into 30-day intervals for smooth approximation
-                step_size = 30;
+                % Implement exact risk-set splitting at global event times
+                % Find all event times that fall within this decay window
                 t_curr = day_tp + 90;
+                interval_events = global_event_times(global_event_times > t_curr & global_event_times < day_next);
                 
-                while t_curr < day_next
-                    t_chunk_end = min(t_curr + step_size, day_next);
+                % Define all unique stop-times (chunk boundaries) for this interval
+                chunk_boundaries = unique([interval_events; day_next]);
+                chunk_boundaries = sort(chunk_boundaries);
+                
+                for b_idx = 1:length(chunk_boundaries)
+                    t_chunk_end = chunk_boundaries(b_idx);
                     
-                    % Evaluate exponential at the midpoint of the current chunk
-                    t_mid = (t_curr + t_chunk_end) / 2;
-                    decay_factor = exp(-lambda * (t_mid - day_tp - 90));
+                    % MATLAB evaluates the covariate exactly at event time t.
+                    % Therefore, we evaluate the continuous decay function at t_chunk_end.
+                    exact_eval_time = t_chunk_end;
+                    decay_factor = exp(-lambda * (exact_eval_time - day_tp - 90));
                     
                     decay_cov_row = nan(1, n_feat);
                     for fi = 1:n_feat
@@ -146,7 +159,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                             x_base = arr(j, 1);
                             x_frac = cov_row(fi);
                             % Asymptotic decay towards baseline. 
-                            % If feature is a delta (x_base = 0), this becomes x_frac * decay_factor
                             decay_cov_row(fi) = x_base + (x_frac - x_base) * decay_factor;
                         end
                     end

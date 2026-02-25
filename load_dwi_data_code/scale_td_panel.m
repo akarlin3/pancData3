@@ -1,16 +1,21 @@
-function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, frac_td, train_pat_ids)
+function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids)
 % scale_td_panel  Applies timepoint-specific standard scaling to TD features.
 %
-%   [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, frac_td, train_pat_ids)
+%   [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids)
 %
-%   Computes independent mu and sigma for each feature and each fraction 
+%   Computes independent mu and sigma for each feature and each temporal week 
 %   strictly from the rows belonging to train_pat_ids, and scales ALL rows 
 %   in X_td_raw using those specific parameters.
     
     n_feat = length(feat_names);
-    n_rows = size(X_td_raw, 1);
     X_td_scaled = X_td_raw;
-    unique_fracs = unique(frac_td(~isnan(frac_td)));
+    
+    % Compute temporal week: Day 0 -> Week 0; Days 1-7 -> Week 1; etc.
+    temporal_week_td = zeros(size(t_start_td));
+    pos_mask = t_start_td > 0;
+    temporal_week_td(pos_mask) = ceil(t_start_td(pos_mask) / 7);
+    
+    unique_weeks = unique(temporal_week_td(~isnan(temporal_week_td)));
     
     % Identify which rows belong to the training set
     is_train_row = ismember(pat_id_td, train_pat_ids);
@@ -22,34 +27,33 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, frac_td
                         contains(name_fi, 'pct', 'IgnoreCase', true) || ...
                         contains(name_fi, 'diff', 'IgnoreCase', true);
 
-        for fn = 1:length(unique_fracs)
-            tp_val = unique_fracs(fn);
+        for fn = 1:length(unique_weeks)
+            week_val = unique_weeks(fn);
             
-            % Rows for this specific fraction
-            frac_mask = (frac_td == tp_val);
+            % Rows for this specific temporal week
+            week_mask = (temporal_week_td == week_val);
             
-            % Training rows for this fraction
-            train_frac_mask = frac_mask & is_train_row;
+            % Training rows for this week
+            train_week_mask = week_mask & is_train_row;
             
             mu_col = 0;
             sd_col = 1;
 
-            if is_derivative && tp_val == 1
-                % Derivative features at Fx1 are identically 0
+            if is_derivative && week_val == 0
+                % Derivative features at Baseline (Week 0) are identically 0
                 mu_col = 0;
                 sd_col = 1;
             else
-                % Extract training values for this specific fraction.
-                % To prevent row-weighted bias (e.g. from 90-day decay splitting), 
-                % we extract the first occurrence per patient.
-                train_pats_in_frac = unique(pat_id_td(train_frac_mask));
-                unique_vals = zeros(length(train_pats_in_frac), 1);
+                % Extract training values for this specific week.
+                % To prevent row-weighted bias, extract the first occurrence per patient.
+                train_pats_in_week = unique(pat_id_td(train_week_mask));
+                unique_vals = zeros(length(train_pats_in_week), 1);
                 
                 valid_cnt = 0;
-                for p_idx = 1:length(train_pats_in_frac)
-                    pid = train_pats_in_frac(p_idx);
-                    % First row for this patient at this fraction
-                    idx = find(train_frac_mask & (pat_id_td == pid), 1, 'first');
+                for p_idx = 1:length(train_pats_in_week)
+                    pid = train_pats_in_week(p_idx);
+                    % First row for this patient at this week
+                    idx = find(train_week_mask & (pat_id_td == pid), 1, 'first');
                     val = X_td_raw(idx, fi);
                     if ~isnan(val)
                         valid_cnt = valid_cnt + 1;
@@ -71,9 +75,9 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, frac_td
                 end
             end
             
-            % Apply scaling to ALL rows (train + test) for this fraction
-            cols_to_scale = X_td_raw(frac_mask, fi);
-            X_td_scaled(frac_mask, fi) = (cols_to_scale - mu_col) / sd_col;
+            % Apply scaling to ALL rows (train + test) for this week
+            cols_to_scale = X_td_raw(week_mask, fi);
+            X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
         end
     end
 end
