@@ -1759,16 +1759,16 @@ catch e
     n_fail = n_fail + 1;
 end
 
-% testDIR_DoseWarped_NotRigid
+% testDIR_DoseMapRemainsRigid
 try
-    % load_dwi_data_forAvery.m should apply imwarp to the dose map.
+    % load_dwi_data_forAvery.m should NOT apply imwarp to the dose map.
     code = loaddwi_code;
-    assert(contains(code, 'imwarp(dose_map, D_forward_cur'), ...
-        'Dose map must be warped with D_forward_cur via imwarp before DVH extraction');
-    fprintf('[PASS] testDIR_DoseWarped_NotRigid\n');
+    assert(~contains(code, 'imwarp(dose_map, D_forward_cur'), ...
+        'Dose map must remain rigidly aligned and should NOT be warped via imwarp');
+    fprintf('[PASS] testDIR_DoseMapRemainsRigid\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] testDIR_DoseWarped_NotRigid: %s\n', e.message);
+    fprintf('[FAIL] testDIR_DoseMapRemainsRigid: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
@@ -1798,17 +1798,16 @@ catch e
     n_fail = n_fail + 1;
 end
 
-% testDIR_GTVnDoseAlsoWarped
+% testDIR_GTVnDoseRemainsRigid
 try
-    % GTVn dose block must also use the warped dose (dose_map_dvh_n).
+    % GTVn dose block must also use the rigid dose (dose_map_dvh_n).
     code = loaddwi_code;
-    assert(contains(code, 'imwarp(dose_map, D_forward_cur') && ...
-           contains(code, 'dose_map_dvh_n'), ...
-        'GTVn dose block must warp dose_map with D_forward_cur into dose_map_dvh_n');
-    fprintf('[PASS] testDIR_GTVnDoseAlsoWarped\n');
+    assert(~contains(code, 'dose_map_dvh_n = imwarp(dose_map'), ...
+        'GTVn dose block must not warp dose_map into dose_map_dvh_n');
+    fprintf('[PASS] testDIR_GTVnDoseRemainsRigid\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] testDIR_GTVnDoseAlsoWarped: %s\n', e.message);
+    fprintf('[FAIL] testDIR_GTVnDoseRemainsRigid: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 

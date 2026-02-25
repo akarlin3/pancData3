@@ -2281,6 +2281,28 @@ for p_idx = 1:n_vp
         continue;
     end
     
+    % --- Determine Collinearity Pruning Mask ---
+    % Calculate the collinearity pruning mask based strictly on the current outer-fold training patients.
+    % We use the first panel since Fraction 1 (baseline) features are identical across half-lives.
+    base_panel = td_panels{1};
+    base_train_mask = (base_panel.pat_id ~= p_idx);
+    base_train_pat_ids = unique(base_panel.pat_id(base_train_mask));
+    
+    % Scale baseline panel to ensure filter_collinear_features operates on scaled data
+    base_X_td_scaled = scale_td_panel(base_panel.X, td_feat_names, base_panel.pat_id, base_panel.t_start, base_train_pat_ids);
+    base_X_train = base_X_td_scaled(base_train_mask, :);
+    
+    base_E_train  = base_panel.event(base_train_mask);
+    base_frac_train = base_panel.frac(base_train_mask);
+    
+    base_unique_tr_pats = unique(base_panel.pat_id(base_train_mask));
+    base_pat_event_train = zeros(size(base_panel.pat_id(base_train_mask)));
+    for ui = 1:length(base_unique_tr_pats)
+        rows_ui = (base_panel.pat_id(base_train_mask) == base_unique_tr_pats(ui));
+        base_pat_event_train(rows_ui) = any(base_E_train(rows_ui) > 0);
+    end
+    keep_td = filter_collinear_features(base_X_train, base_pat_event_train, base_frac_train);
+
     % --- Inner CV to select optimal decay_half_life ---
     inner_hl_logl = zeros(length(half_life_grid), 1);
     
@@ -2307,8 +2329,8 @@ for p_idx = 1:n_vp
             tr_mask = ismember(inner_pat_ids, active_tr_ids);
             te_mask = ismember(inner_pat_ids, active_te_ids);
             
-            % Scale using ONLY inner training fold patients
-            inner_X_scaled_tr = scale_td_panel(inner_X, td_feat_names, inner_pat_ids, inner_t_start, active_tr_ids);
+            % Scale using ONLY inner training fold patients, applying pruning mask
+            inner_X_scaled_tr = scale_td_panel(inner_X(:, keep_td), td_feat_names(keep_td), inner_pat_ids, inner_t_start, active_tr_ids);
             
             try
                 [b_in, logl_in] = coxphfit(inner_X_scaled_tr(tr_mask, :), [inner_t_start(tr_mask), inner_t_stop(tr_mask)], ...
@@ -2331,7 +2353,8 @@ for p_idx = 1:n_vp
     % Now proceed with the optimal panel for outer LOOCV test
     train_mask = (opt_panel.pat_id ~= p_idx);
     train_pat_ids = unique(opt_panel.pat_id(train_mask));
-    X_td_scaled = scale_td_panel(opt_panel.X, td_feat_names, opt_panel.pat_id, opt_panel.t_start, train_pat_ids);
+    % Apply collinearity pruning mask obtained prior to the inner CV loop
+    X_td_scaled = scale_td_panel(opt_panel.X(:, keep_td), td_feat_names(keep_td), opt_panel.pat_id, opt_panel.t_start, train_pat_ids);
 
     X_train = X_td_scaled(train_mask, :);
     T_start_train = opt_panel.t_start(train_mask);
@@ -2342,15 +2365,8 @@ for p_idx = 1:n_vp
     X_test = X_td_scaled(test_mask, :);
     T_start_test = opt_panel.t_start(test_mask);
     T_stop_test = opt_panel.t_stop(test_mask);
-    
-    % Time-stratified collinearity filter: derive the pruning mask exclusively
-    % from Fraction 1 (baseline) rows of the training fold, then apply
-    % uniformly across all longitudinal rows in both X_train and X_test.
-    % pat_event_train broadcasts the patient-level binary event flag to every
-    % row so that filter_collinear_features receives a y vector aligned with
-    % X_train rows; the function internally subsets to frac==1 rows for both
-    % the correlation matrix and the Wilcoxon significance tests.
-    frac_train = opt_panel.frac(train_mask);
+
+    % --- Elastic Net Feature Selection (Grouped CV) ---
     pat_ids_train = opt_panel.pat_id(train_mask);
     unique_tr_pats = unique(pat_ids_train);
     pat_event_train = zeros(size(pat_ids_train));
@@ -2358,9 +2374,29 @@ for p_idx = 1:n_vp
         rows_ui = (pat_ids_train == unique_tr_pats(ui));
         pat_event_train(rows_ui) = any(E_train(rows_ui) > 0);
     end
-    keep_td = filter_collinear_features(X_train, pat_event_train, frac_train);
-    X_train = X_train(:, keep_td);
-    X_test  = X_test(:, keep_td);
+    
+    pt_id_strs = cellstr(num2str(pat_ids_train));
+    cv_fold_ids = make_grouped_folds(pt_id_strs, 5);
+    
+    try
+        [B_en, FI_en] = lassoglm(X_train, pat_event_train, 'binomial', ...
+            'Alpha', 0.5, 'CV', cv_fold_ids, 'Standardize', true, ...
+            'Options', statset('UseParallel', false));
+        
+        idx_opt = FI_en.IndexMinDeviance;
+        keep_en_logical = (B_en(:, idx_opt) ~= 0);
+        
+        if sum(keep_en_logical) > 0
+            % keep_td holds the indices into the original X_global.
+            % X_train currently has length(keep_td) columns.
+            keep_td = keep_td(keep_en_logical);
+            X_train = X_train(:, keep_en_logical);
+            X_test  = X_test(:, keep_en_logical);
+        end
+    catch
+        % If lassoglm fails to converge, fall back to using all collinear-filtered features
+    end
+    % --- END Elastic Net ---
 
     if sum(test_mask) == 0
         continue;

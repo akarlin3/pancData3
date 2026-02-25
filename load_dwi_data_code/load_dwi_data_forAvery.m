@@ -752,14 +752,10 @@ for j = 1:length(mrn_list)
                         end
                     end
 
-                    % --- Warp the dose map with the same displacement field ---
-                    % This ensures dose sub-volumes (V50, D95) are drawn from the
-                    % tissue voxels that actually received that dose, not rigid
-                    % neighbours that may correspond to adjacent bowel.
-                    if ~isempty(D_forward_cur) && ~isempty(ref3d_cur)
-                        dose_map_dvh = imwarp(dose_map, D_forward_cur, 'Interp', 'linear', ...
-                            'OutputView', ref3d_cur, 'FillValues', 0);
-                    end
+                    % --- DO NOT warp the dose map ---
+                    % The dose map remains rigidly aligned. Sub-volume dose metrics (V50, D95)
+                    % are computed by sampling this static beam grid against the deformed daily
+                    % anatomy (gtv_mask_for_dvh).
                 end
             end
 
@@ -844,8 +840,8 @@ for j = 1:length(mrn_list)
             if havedose && havegtvp
                 dmean_gtvp(j,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
-                % DVH uses the DIR-warped dose so that sub-volume dose metrics
-                % (D95%, V50Gy) are spatially consistent with the DWI maps.
+                % DVH uses the strictly rigid dose against the DIR-warped daily GTV tissue mask
+                % so that dose correctly reflects the true static beam delivered to deformed anatomy.
                 [dvhparams, dvh_values] = dvh(dose_map_dvh, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 d95_gtvp(j,fi) = dvhparams.("D95% (Gy)");
                 v50gy_gtvp(j,fi) = dvhparams.("V50Gy (%)");
@@ -900,13 +896,9 @@ for j = 1:length(mrn_list)
             end
 
             % Compute DVH parameters within GTVn
-            % Apply DIR-warped dose if available (D_forward_cur set by GTVp block above).
+            % Sample rigidly aligned dose map against the GTVn mask.
             if havedose && havegtvn
-                dose_map_dvh_n = dose_map;  % default: rigid dose
-                if ~isempty(D_forward_cur) && ~isempty(ref3d_cur)
-                    dose_map_dvh_n = imwarp(dose_map, D_forward_cur, 'Interp', 'linear', ...
-                        'OutputView', ref3d_cur, 'FillValues', 0);
-                end
+                dose_map_dvh_n = dose_map;  % rigidly aligned dose
                 dmean_gtvn(j,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
