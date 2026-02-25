@@ -69,6 +69,55 @@ function test_corr_filter()
         strjoin(feat_names(keep_idx), ', '));
     fprintf('Scientific Rigor: PASSED (No correlation calculation on test data).\n');
     
+    % --- TIME-STRATIFIED COLLINEARITY FILTER VERIFICATION ---
+    % Test: When frac_vec is provided, correlation must be computed exclusively
+    % on Fraction 1 (baseline) rows. Late-stage collinearity must NOT
+    % influence the pruning mask applied at baseline.
+    fprintf('\n--- Verifying TIME-STRATIFIED COLLINEARITY FILTERING ---\n');
+    rng(99);
+    n_td = 60;   % total longitudinal rows (3 fractions × 20 patients)
+    n_pts_td = 20;
+    
+    % frac_vec: rows 1-20 are Fraction 1 (baseline), 21-40 Fraction 2, 41-60 Fraction 3
+    frac_vec = [ones(n_pts_td,1); 2*ones(n_pts_td,1); 3*ones(n_pts_td,1)];
+    
+    % Patient-level event labels (broadcast to all rows for that patient)
+    y_pat = [zeros(n_pts_td/2,1); ones(n_pts_td/2,1)];
+    y_td  = repmat(y_pat, 3, 1);
+    
+    % Baseline features: F1 and F2 are NOT correlated at Fraction 1
+    f1_base = [randn(n_pts_td/2,1); randn(n_pts_td/2,1) + 2];
+    f2_base = randn(n_pts_td, 1);          % independent of f1_base
+    
+    % At later fractions, F1 and F2 become strongly correlated (radiation response)
+    f1_late = repmat(f1_base, 2, 1) + 0.1*randn(2*n_pts_td, 1);
+    f2_late = f1_late + 0.05*randn(2*n_pts_td, 1);  % near-identical at late fractions
+    
+    X_td_test = [[f1_base, f2_base]; [f1_late, f2_late]];
+    
+    R_global = corrcoef(X_td_test);
+    R_base   = corrcoef(X_td_test(frac_vec==1, :));
+    fprintf('Global |r|(F1,F2): %.3f  |  Baseline-only |r|(F1,F2): %.3f\n', ...
+        abs(R_global(1,2)), abs(R_base(1,2)));
+    
+    % Global filter (no frac_vec): late-stage collinearity may cause a drop
+    keep_global = filter_collinear_features(X_td_test, y_td);
+    % Time-stratified filter: must be computed only on baseline rows
+    keep_strat  = filter_collinear_features(X_td_test, y_td, frac_vec);
+    
+    % Baseline rows are NOT highly correlated, so both features should survive
+    assert(length(keep_strat) == 2 && isequal(keep_strat(:)', [1, 2]), ...
+        'TIME-STRATIFIED FAILURE: Baseline-independent features incorrectly dropped.');
+    fprintf('SUCCESS: Time-stratified filter retained both features (baseline r=%.3f < 0.8).\n', ...
+        abs(R_base(1,2)));
+    
+    % Global filter should drop one due to late-stage collinearity
+    if length(keep_global) < 2
+        fprintf('INFO: Global filter dropped a feature due to late-stage collinearity (r=%.3f).\n', ...
+            abs(R_global(1,2)));
+    end
+    fprintf('TIME-STRATIFIED TEST: PASSED\n');
+    
     % Cleanup
     set(0, 'DefaultFigureVisible', old_vis);
     diary off;
