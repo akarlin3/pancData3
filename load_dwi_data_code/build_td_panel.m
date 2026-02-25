@@ -1,5 +1,5 @@
 function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
-    feat_arrays, ~, lf_vec, total_time_vec, nTp, scan_days)
+    feat_arrays, feat_names, lf_vec, total_time_vec, nTp, scan_days)
 % build_td_panel  Converts longitudinal DWI arrays into a counting-process
 %   (start–stop) panel for fitting time-dependent Cox PH models.
 %
@@ -47,8 +47,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
-    % Pre-allocate with a generous upper bound (n_pts * nTp * 2 rows due to splitting)
-    max_rows = n_pts * nTp * 2;
+    % Pre-allocate with a generous upper bound (n_pts * nTp * 150 rows due to decay splitting)
+    max_rows = n_pts * nTp * 150;
     X_buf       = nan(max_rows, n_feat);
     t_start_buf = nan(max_rows, 1);
     t_stop_buf  = nan(max_rows, 1);
@@ -101,7 +101,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
 
             % Implement 90-day biological validity window
             if day_next - day_tp > 90
-                % First interval: current fraction values for 90 days
+                % 1. Acute phase: current fraction values for 90 days
                 row = row + 1;
                 X_buf(row, :)       = cov_row;
                 t_start_buf(row)    = day_tp;
@@ -110,22 +110,44 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
                 pat_buf(row)        = j;
                 last_valid_row      = row;
                 
-                % Second interval: remainder of time reverting to baseline (Fraction 1)
-                baseline_cov_row = nan(1, n_feat);
-                for fi = 1:n_feat
-                    arr = feat_arrays{fi};
-                    if size(arr, 2) >= 1
-                        baseline_cov_row(fi) = arr(j, 1);
-                    end
-                end
+                % 2. Decay phase: asymptotic return to baseline
+                % Define lambda for 50% decay at 18 months (~547.5 days)
+                decay_half_life = 547.5 - 90; 
+                lambda = -log(0.5) / decay_half_life;
                 
-                row = row + 1;
-                X_buf(row, :)       = baseline_cov_row;
-                t_start_buf(row)    = day_tp + 90;
-                t_stop_buf(row)     = day_next;
-                event_buf(row)      = false;
-                pat_buf(row)        = j;
-                last_valid_row      = row;
+                % Discretize the remaining time into 30-day intervals for smooth approximation
+                step_size = 30;
+                t_curr = day_tp + 90;
+                
+                while t_curr < day_next
+                    t_chunk_end = min(t_curr + step_size, day_next);
+                    
+                    % Evaluate exponential at the midpoint of the current chunk
+                    t_mid = (t_curr + t_chunk_end) / 2;
+                    decay_factor = exp(-lambda * (t_mid - day_tp - 90));
+                    
+                    decay_cov_row = nan(1, n_feat);
+                    for fi = 1:n_feat
+                        arr = feat_arrays{fi};
+                        if size(arr, 2) >= 1
+                            x_base = arr(j, 1);
+                            x_frac = cov_row(fi);
+                            % Asymptotic decay towards baseline. 
+                            % If feature is a delta (x_base = 0), this becomes x_frac * decay_factor
+                            decay_cov_row(fi) = x_base + (x_frac - x_base) * decay_factor;
+                        end
+                    end
+                    
+                    row = row + 1;
+                    X_buf(row, :)       = decay_cov_row;
+                    t_start_buf(row)    = t_curr;
+                    t_stop_buf(row)     = t_chunk_end;
+                    event_buf(row)      = false;
+                    pat_buf(row)        = j;
+                    last_valid_row      = row;
+                    
+                    t_curr = t_chunk_end;
+                end
             else
                 % Normal interval
                 row = row + 1;
@@ -156,14 +178,40 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
         return;
     end
 
-    % Z-score each covariate column (using available, non-NaN data)
-    % This makes HR coefficients comparable across features with different scales.
+    % Z-score each covariate column
+    % To prevent row-weighted bias, compute mu and sigma from unique patient rows.
     for fi = 1:n_feat
-        col     = X_td(:, fi);
-        mu_col  = mean(col, 'omitnan');
-        sd_col  = std(col,  'omitnan');
-        if sd_col > 0
+        name_fi = feat_names{fi};
+        is_derivative = contains(name_fi, 'Delta', 'IgnoreCase', true) || ...
+                        contains(name_fi, 'Change', 'IgnoreCase', true) || ...
+                        contains(name_fi, 'pct', 'IgnoreCase', true) || ...
+                        contains(name_fi, 'diff', 'IgnoreCase', true);
+
+        if is_derivative
+            % Derivative features: mathematically zero at Fraction 1.
+            % Compute mu/sigma from mid-treatment fractional rows (col 2 to end).
+            if size(feat_arrays{fi}, 2) > 1
+                unique_vals = feat_arrays{fi}(:, 2:end);
+                unique_vals = unique_vals(~isnan(unique_vals));
+                mu_col = mean(unique_vals);
+                sd_col = std(unique_vals);
+            else
+                mu_col = 0;
+                sd_col = 1;
+            end
+        else
+            % Absolute features: compute mu/sigma strictly from Fraction 1 baseline rows.
+            unique_vals = feat_arrays{fi}(:, 1);
+            unique_vals = unique_vals(~isnan(unique_vals));
+            mu_col = mean(unique_vals);
+            sd_col = std(unique_vals);
+        end
+
+        col = X_td(:, fi);
+        if sd_col > 0 && ~isnan(mu_col) && ~isnan(sd_col)
             X_td(:, fi) = (col - mu_col) / sd_col;
+        elseif ~isnan(mu_col)
+            X_td(:, fi) = col - mu_col; % just center if sd=0
         end
     end
 

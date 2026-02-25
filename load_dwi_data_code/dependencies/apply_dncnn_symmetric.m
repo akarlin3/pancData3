@@ -39,9 +39,10 @@ function img_denoised = apply_dncnn_symmetric(img, net, pad_size)
         error('Input image must be 2D or 3D.');
     end
 
-    % 2. Pad the array using symmetric reflection
-    % This reflects the edge pixels outward, preventing boundary zeros.
-    img_padded = padarray(img, pad_dims, 'symmetric');
+    % 2. Pad the array using replicate boundary conditions
+    % This extrapolates a flat spatial gradient based strictly on the outermost
+    % tumor boundary signal, preventing convolution of adjacent structures.
+    img_padded = padarray(img, pad_dims, 'replicate');
     
     % 3. Format for the network (Deep Learning Toolbox usually expects 
     % specific formatting like 'SSCB' or numeric arrays for predict)

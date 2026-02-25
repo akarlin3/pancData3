@@ -2138,8 +2138,8 @@ else
     fprintf('  Time-Dependent Cox model complete.\n\n');
 end
 
-%% ---------- Landmark Analysis for Out-of-fold C-index ----------
-fprintf('\n--- LANDMARK ANALYSIS (Out-of-Fold Validation) ---\n');
+%% ---------- Time-Dependent IPCW Concordance ----------
+fprintf('\n--- TIME-DEPENDENT IPCW CONCORDANCE (Out-of-Fold Validation) ---\n');
 
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
                    f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
@@ -2151,140 +2151,132 @@ surv_event_all = td_lf;
 valid_idx_pts = find(valid_pts);
 n_vp = length(valid_idx_pts);
 
-landmarks = [30, 90, 180];
-n_lm = length(landmarks);
+oof_risk_history = cell(n_vp, 1);
 
-for lm_idx = 1:n_lm
-    L = landmarks(lm_idx);
-    fprintf('  Evaluating Landmark L = %d days...\n', L);
+for p_idx = 1:n_vp
+    pt_id = m_id_list{valid_idx_pts(p_idx)};
     
-    % 1. Identify patients at risk at time L
-    at_risk = (surv_time_all > L);
-    if sum(at_risk) < 10
-        fprintf('    Not enough patients at risk at L=%d. Skipping.\n', L);
+    is_leaky = false;
+    if dtype == 2 && isfield(dl_provenance, 'dncnn_train_ids') && any(strcmp(dl_provenance.dncnn_train_ids, pt_id))
+        is_leaky = true;
+    elseif dtype == 3 && isfield(dl_provenance, 'ivimnet_train_ids') && any(strcmp(dl_provenance.ivimnet_train_ids, pt_id))
+        is_leaky = true;
+    end
+    if is_leaky
         continue;
     end
     
-    % 2. Build cross-sectional dataset at time L
-    X_L = nan(n_vp, td_n_feat);
-    for i = 1:n_vp
-        if at_risk(i)
-            for f_idx = 1:td_n_feat
-                feat_mat = td_feat_arrays{f_idx};
-                for t = length(td_scan_days):-1:1
-                    if td_scan_days(t) <= L && ~isnan(feat_mat(i, t))
-                        X_L(i, f_idx) = feat_mat(i, t);
-                        break;
-                    end
-                end
+    train_mask = (pat_id_td ~= p_idx);
+    X_train = X_td(train_mask, :);
+    T_start_train = t_start_td(train_mask);
+    T_stop_train = t_stop_td(train_mask);
+    E_train = event_td(train_mask);
+    
+    test_mask = (pat_id_td == p_idx);
+    X_test = X_td(test_mask, :);
+    T_start_test = t_start_td(test_mask);
+    T_stop_test = t_stop_td(test_mask);
+    
+    if sum(test_mask) == 0
+        continue;
+    end
+    
+    w_state = warning('off', 'all');
+    try
+        [b_loo, ~] = coxphfit(X_train, [T_start_train, T_stop_train], 'Censoring', ~E_train, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+    catch
+        try
+            unique_train_pats = unique(pat_id_td(train_mask));
+            X_last = nan(length(unique_train_pats), td_n_feat);
+            E_last = nan(length(unique_train_pats), 1);
+            T_train_pat = pat_id_td(train_mask);
+            for ui = 1:length(unique_train_pats)
+                rows = find(T_train_pat == unique_train_pats(ui));
+                X_last(ui, :) = X_train(rows(end), :);
+                E_last(ui) = E_train(rows(end));
             end
+            mdl_firth = fitglm(X_last, E_last, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
+            b_loo = mdl_firth.Coefficients.Estimate(2:end);
+        catch
+            b_loo = nan(td_n_feat, 1);
         end
     end
+    warning(w_state);
     
-    % Patients with complete covariates at L
-    complete_data = at_risk & ~any(isnan(X_L), 2);
-    if sum(complete_data) < 10
-        fprintf('    Not enough patients with complete covariates at L=%d. Skipping.\n', L);
-        continue;
-    end
+    oof_risk_history{p_idx} = struct('risk', X_test * b_loo, 't_start', T_start_test, 't_stop', T_stop_test);
     
-    % Outcomes from Landmark L
-    surv_time_L = surv_time_all - L; 
-    surv_event_L = surv_event_all;
+    train_pat_mask = true(n_vp, 1);
+    train_pat_mask(p_idx) = false;
+    train_times = surv_time_all(train_pat_mask);
+    train_cens = surv_event_all(train_pat_mask);
     
-    oof_risk = nan(n_vp, 1);
-    patients_to_test = find(complete_data);
-    
-    % 3. LOPOCV Loop
-    for p_idx = 1:length(patients_to_test)
-        loo_i = patients_to_test(p_idx);
-        pt_id = m_id_list{loo_i};
+    [F_cens, x_cens] = ecdf(train_times, 'Censoring', train_cens);
+    oof_risk_history{p_idx}.F_cens = F_cens;
+    oof_risk_history{p_idx}.x_cens = x_cens;
+end
+
+concordant = 0; discordant = 0; weights_sum = 0;
+
+for i = 1:n_vp
+    if surv_event_all(i) == 1 && ~isempty(oof_risk_history{i})
+        T_i = surv_time_all(i);
         
-        is_leaky = false;
-        if dtype == 2 && isfield(dl_provenance, 'dncnn_train_ids') && any(strcmp(dl_provenance.dncnn_train_ids, pt_id))
-            is_leaky = true;
-        elseif dtype == 3 && isfield(dl_provenance, 'ivimnet_train_ids') && any(strcmp(dl_provenance.ivimnet_train_ids, pt_id))
-            is_leaky = true;
+        risk_i = NaN;
+        idx_i = find(T_i > oof_risk_history{i}.t_start & T_i <= oof_risk_history{i}.t_stop, 1, 'last');
+        if isempty(idx_i) && T_i == oof_risk_history{i}.t_start(1)
+            idx_i = 1;
         end
-        if is_leaky
+        if ~isempty(idx_i)
+            risk_i = oof_risk_history{i}.risk(idx_i);
+        end
+        
+        if isnan(risk_i)
             continue;
         end
         
-        train_mask = complete_data;
-        train_mask(loo_i) = false;
-        
-        X_train = X_L(train_mask, :);
-        T_train = surv_time_L(train_mask);
-        E_train = surv_event_L(train_mask);
-        X_test = X_L(loo_i, :);
-        
-        w_state = warning('off', 'all');
-        try
-            b_loo = coxphfit(X_train, T_train, 'Censoring', ~E_train, 'Options', statset('MaxIter', 100));
-            oof_risk(loo_i) = X_test * b_loo;
-        catch
-            try
-                mdl_firth = fitglm(X_train, E_train, 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
-                b_loo = mdl_firth.Coefficients.Estimate(2:end);
-                oof_risk(loo_i) = X_test * b_loo;
-            catch
-                oof_risk(loo_i) = NaN;
-            end
+        F_c = oof_risk_history{i}.F_cens;
+        x_c = oof_risk_history{i}.x_cens;
+        G_cens = 1 - F_c;
+        idx_G = find(x_c <= T_i, 1, 'last');
+        if isempty(idx_G) || G_cens(idx_G) == 0
+            G_Ti = 1;
+        else
+            G_Ti = G_cens(idx_G);
         end
-        warning(w_state);
-    end
-    
-    % 4. Compute Uno's C-statistic
-    valid_oof = ~isnan(oof_risk) & complete_data;
-    if sum(valid_oof) < 5 || sum(surv_event_L(valid_oof)) < 2
-        fprintf('    Not enough complete out-of-fold predictions. Skipping C-index.\n');
-        continue;
-    end
-    
-    T_valid = surv_time_L(valid_oof);
-    E_valid = surv_event_L(valid_oof);
-    R_valid = oof_risk(valid_oof);
-    
-    % Estimate censoring distribution G(t)
-    [F_cens, x_cens] = ecdf(surv_time_L(complete_data), 'Censoring', surv_event_L(complete_data));
-    G_cens = 1 - F_cens;
-    
-    n_v = length(T_valid);
-    concordant = 0; discordant = 0; weights = 0;
-    
-    for i = 1:n_v
-        if E_valid(i) == 1
-            idx_G = find(x_cens <= T_valid(i), 1, 'last');
-            if isempty(idx_G) || G_cens(idx_G) == 0
-                G_Ti = 1;
-            else
-                G_Ti = G_cens(idx_G);
-            end
-            
-            W_i = 1 / (G_Ti^2);
-            
-            for j = 1:n_v
-                if T_valid(j) > T_valid(i)
-                    if R_valid(i) > R_valid(j) 
+        W_i = 1 / (G_Ti^2);
+        
+        for j = 1:n_vp
+            if i ~= j && surv_time_all(j) > T_i && ~isempty(oof_risk_history{j})
+                risk_j = NaN;
+                idx_j = find(T_i > oof_risk_history{j}.t_start & T_i <= oof_risk_history{j}.t_stop, 1, 'last');
+                if isempty(idx_j) && T_i == oof_risk_history{j}.t_start(1)
+                    idx_j = 1;
+                end
+                if ~isempty(idx_j)
+                    risk_j = oof_risk_history{j}.risk(idx_j);
+                end
+                
+                if ~isnan(risk_j)
+                    if risk_i > risk_j
                         concordant = concordant + W_i;
-                    elseif R_valid(i) < R_valid(j)
+                    elseif risk_i < risk_j
                         discordant = discordant + W_i;
                     else
                         concordant = concordant + 0.5 * W_i;
                         discordant = discordant + 0.5 * W_i;
                     end
-                    weights = weights + W_i;
+                    weights_sum = weights_sum + W_i;
                 end
             end
         end
     end
-    
-    if weights > 0
-        Uno_C = concordant / weights;
-        fprintf('    Uno''s C-statistic (L=%d): %.4f\n\n', L, Uno_C);
-    else
-        fprintf('    Cannot compute Uno''s C (weights=0).\n\n');
-    end
+end
+
+if weights_sum > 0
+    IPCW_C = concordant / weights_sum;
+    fprintf('  Continuous Time-Dependent IPCW C-index: %.4f\n\n', IPCW_C);
+else
+    fprintf('  Cannot compute IPCW C-index (weights=0 or no comparable pairs).\n\n');
 end
 
 % --- PART C: SUB-VOLUME STATISTICS ---
