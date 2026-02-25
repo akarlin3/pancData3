@@ -16,7 +16,9 @@ Dstar_abs = rand(n_vp, nTp) * 0.5;
 td_feat_arrays = {ADC_abs, D_abs, f_abs, Dstar_abs};
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
 td_tot_time = randi([10, 200], n_vp, 1);
-td_lf = randi([0, 1], n_vp, 1);
+% Event indicator: 0 = censored, 1 = disease progression (event of interest),
+% 2 = competing risk (e.g., non-cancer death).
+td_lf = randi([0, 2], n_vp, 1); 
 m_id_list = arrayfun(@(x) sprintf('Pt%d', x), 1:n_vp, 'UniformOutput', false);
 
 m_gtv_vol = rand(n_vp, nTp) * 100;
@@ -75,7 +77,12 @@ for p_idx = 1:n_vp
     
     w_state = warning('off', 'all');
     try
-        [b_loo, ~] = coxphfit(X_train, [T_start_train, T_stop_train], 'Censoring', ~E_train, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        % Define survival response for competing risks
+        y_train_surv = survival(T_start_train, T_stop_train, E_train, 'EventValues', [1, 2]);
+        
+        % Fit Fine-Gray subdistribution hazard model for the event of interest (1)
+        mdl_loo = fitcox(X_train, y_train_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        b_loo = mdl_loo.Coefficients.Estimate;
     catch
         try
             unique_train_pats = unique(pat_id_td(train_mask));
@@ -124,6 +131,24 @@ for p_idx = 1:n_vp
     oof_risk_history{p_idx}.cens_b = b_cens;
     oof_risk_history{p_idx}.cens_H = H_cens;
     oof_risk_history{p_idx}.Z_test = Z_test;
+
+    % Calculate IPCW training distribution for stabilization
+    W_train_fold = zeros(length(train_times), 1);
+    for ti_idx = 1:length(train_times)
+        if cens_model_events(ti_idx) == 0 % Only for events
+            T_target = train_times(ti_idx);
+            idx_G_tr = find(H_cens(:,1) <= T_target, 1, 'last');
+            if isempty(idx_G_tr)
+                G_tr = 1;
+            else
+                G_tr = exp(-H_cens(idx_G_tr, 2) * exp(Z_train(ti_idx, :) * b_cens));
+            end
+            if G_tr <= 1e-5, G_tr = 1e-5; end
+            W_train_fold(ti_idx) = 1 / (G_tr^2);
+        end
+    end
+    % Truncate at 95th percentile of the training fold's IPC weights
+    oof_risk_history{p_idx}.w_thresh = prctile(W_train_fold(W_train_fold > 0), 95);
 end
 
 concordant = 0; discordant = 0; weights_sum = 0;
@@ -161,6 +186,11 @@ for i = 1:n_vp
             G_Ti = 1e-5;
         end
         W_i = 1 / (G_Ti^2);
+        
+        % Apply stabilized truncation
+        if isfield(oof_risk_history{i}, 'w_thresh') && W_i > oof_risk_history{i}.w_thresh
+            W_i = oof_risk_history{i}.w_thresh;
+        end
         
         for j = 1:n_vp
             if i ~= j && surv_time_all(j) > T_i && ~isempty(oof_risk_history{j})

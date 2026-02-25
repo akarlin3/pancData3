@@ -102,18 +102,17 @@ clinical_data_sheet = [dataloc 'MASTER_pancreas_DWIanalysis.xlsx'];
 T = readtable(clinical_data_sheet,'Sheet','Clin List_MR');
 
 % Pre-allocate outcome arrays matched to the patient list
-lf = nan(size(mrn_list));                % Local failure flag (0 or 1)
-lf_date = NaT(size(mrn_list));           % Date of locoregional failure
-censor_date = NaT(size(mrn_list));       % Last known follow-up / censor date
-rtstartdate = NaT(size(mrn_list));       % Radiation therapy start date
-rtenddate = NaT(size(mrn_list));         % Radiation therapy end date
-
-% Match each study patient (by MRN) to the clinical spreadsheet
-for j=1:length(mrn_list)
-    i_find = find(ismember(T.MRN,str2num(mrn_list{j})));
-    if ~isempty(i_find)
-        i_find = i_find(1);  % Use first match if duplicates exist
+        % Event indicator: 0 = censored, 1 = disease progression (event of interest),
+        % 2 = competing risk (e.g., non-cancer death).
         lf(j) = T.LocalOrRegionalFailure(i_find);
+        
+        % [TEMPLATE] Handle competing risks (e.g., if deceased but no LF recorded)
+        if ismember('CauseOfDeath', T.Properties.VariableNames)
+            cod = T.CauseOfDeath{i_find};
+            if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
+                lf(j) = 2; % Competing risk
+            end
+        end
         lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
         % Take the later of local or regional censor dates
         censor_date(j) = max(T.LocalFailureDateOfLocalFailureOrCensor(i_find),T.RegionalFailureDateOfRegionalFailureOrCensor(i_find));
@@ -1775,7 +1774,15 @@ for vi = 1:n_sig
         warning('error', 'stats:coxphfit:FitWarning');
         warning('error', 'stats:coxphfit:IterationLimit');
         try
-            [b, logl, H, stats] = coxphfit(cox_biomarker, cox_times, 'Censoring', ~cox_events, 'Options', statset('MaxIter', 1000000));
+            % Define survival response for competing risks
+            y_cox_surv = survival(cox_times, cox_events, 'EventValues', [1, 2]);
+            mdl_univar = fitcox(cox_biomarker, y_cox_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+            
+            b = mdl_univar.Coefficients.Estimate;
+            stats.se = mdl_univar.Coefficients.SE;
+            stats.p = mdl_univar.Coefficients.pValue;
+            stats.sschres = residuals(mdl_univar, 'Schoenfeld');
+            logl = mdl_univar.LogLikelihood;
             is_firth = false;
         catch ME
             if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')
@@ -1860,10 +1867,14 @@ if sum(valid_unbiased) > 5
     unbiased_times = times_km;
     unbiased_events = events_km;
     warning('error', 'stats:coxphfit:FitWarning');
-    warning('error', 'stats:coxphfit:IterationLimit');
     try
-        [b_unbiased, logl_true, ~, stats_unbiased] = coxphfit(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), ...
-            'Censoring', ~unbiased_events(valid_unbiased), 'Options', statset('MaxIter', 1000000));
+        y_unbiased_surv = survival(unbiased_times(valid_unbiased), unbiased_events(valid_unbiased), 'EventValues', [1, 2]);
+        mdl_unbiased = fitcox(risk_scores_all(valid_unbiased), y_unbiased_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        
+        b_unbiased = mdl_unbiased.Coefficients.Estimate;
+        logl_true = mdl_unbiased.LogLikelihood;
+        stats_unbiased.se = mdl_unbiased.Coefficients.SE;
+        stats_unbiased.p = mdl_unbiased.Coefficients.pValue;
         is_firth_unbiased = false;
     catch ME
         if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')
@@ -2055,9 +2066,20 @@ else
     warning('error', 'stats:coxphfit:IterationLimit');
     is_firth_td = false;
     try
-        [b_td, logl_td, ~, stats_td] = coxphfit(X_td_global, [t_start_td, t_stop_td], ...
-            'Censoring', ~event_td, 'Ties', 'breslow', ...
-            'Options', statset('MaxIter', 1000000));
+        % Define survival response for competing risks (0=censored, 1=progression, 2=competing risk)
+        % fitcox handles start-stop (counting process) data via the survival object.
+        y_td_surv = survival(t_start_td, t_stop_td, event_td, 'EventValues', [1, 2]);
+        
+        % Fit Fine-Gray subdistribution hazard model specifically for the event of interest (1)
+        mdl_td = fitcox(X_td_global, y_td_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        
+        b_td        = mdl_td.Coefficients.Estimate;
+        logl_td     = mdl_td.LogLikelihood;
+        stats_td.se = mdl_td.Coefficients.SE;
+        stats_td.p  = mdl_td.Coefficients.pValue;
+        
+        % Extract scaled Schoenfeld residuals for PH check
+        stats_td.sschres = residuals(mdl_td, 'Schoenfeld');
     catch ME_td
         if contains(ME_td.identifier, 'FitWarning') || ...
            contains(ME_td.identifier, 'IterationLimit') || ...
@@ -2248,9 +2270,11 @@ for p_idx = 1:n_vp
         continue;
     end
     
-    w_state = warning('off', 'all');
     try
-        [b_loo, ~] = coxphfit(X_train, [T_start_train, T_stop_train], 'Censoring', ~E_train, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        % Define survival response for competing risks
+        y_train_surv = survival(T_start_train, T_stop_train, E_train, 'EventValues', [1, 2]);
+        mdl_loo = fitcox(X_train, y_train_surv, 'EventOfInterest', 1, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        b_loo = mdl_loo.Coefficients.Estimate;
     catch
         try
             unique_train_pats = unique(pat_id_td(train_mask));
@@ -2300,6 +2324,24 @@ for p_idx = 1:n_vp
     oof_risk_history{p_idx}.cens_b = b_cens;
     oof_risk_history{p_idx}.cens_H = H_cens;
     oof_risk_history{p_idx}.Z_test = Z_test;
+
+    % Calculate IPCW training distribution for stabilization
+    W_train_fold = zeros(length(train_times), 1);
+    for ti_idx = 1:length(train_times)
+        if cens_model_events(ti_idx) == 0 % Only for events
+            T_target = train_times(ti_idx);
+            idx_G_tr = find(H_cens(:,1) <= T_target, 1, 'last');
+            if isempty(idx_G_tr)
+                G_tr = 1;
+            else
+                G_tr = exp(-H_cens(idx_G_tr, 2) * exp(Z_train(ti_idx, :) * b_cens));
+            end
+            if G_tr <= 1e-5, G_tr = 1e-5; end
+            W_train_fold(ti_idx) = 1 / (G_tr^2);
+        end
+    end
+    % Truncate at 95th percentile of the training fold's IPC weights
+    oof_risk_history{p_idx}.w_thresh = prctile(W_train_fold(W_train_fold > 0), 95);
 end
 
 concordant = 0; discordant = 0; weights_sum = 0;
@@ -2337,6 +2379,11 @@ for i = 1:n_vp
             G_Ti = 1e-5;
         end
         W_i = 1 / (G_Ti^2);
+        
+        % Apply stabilized truncation
+        if isfield(oof_risk_history{i}, 'w_thresh') && W_i > oof_risk_history{i}.w_thresh
+            W_i = oof_risk_history{i}.w_thresh;
+        end
         
         for j = 1:n_vp
             if i ~= j && surv_time_all(j) > T_i && ~isempty(oof_risk_history{j})
@@ -2472,7 +2519,14 @@ try
             warning('error', 'stats:coxphfit:FitWarning');
             warning('error', 'stats:coxphfit:IterationLimit');
             try
-                [b, logl, H, stats] = coxphfit([x_biomarker, x_vol], y_time, 'Censoring', ~y_event, 'Options', statset('MaxIter', 1000000));
+                y_final_surv = survival(y_time, y_event, 'EventValues', [1, 2]);
+                mdl_final = fitcox([x_biomarker, x_vol], y_final_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+                
+                b = mdl_final.Coefficients.Estimate;
+                logl = mdl_final.LogLikelihood;
+                stats.se = mdl_final.Coefficients.SE;
+                stats.p = mdl_final.Coefficients.pValue;
+                stats.sschres = residuals(mdl_final, 'Schoenfeld');
                 is_firth = false;
             catch ME
                 if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit') || contains(lower(ME.message), 'perfect')

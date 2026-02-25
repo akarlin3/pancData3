@@ -26,8 +26,10 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %               panel for comparable HRs across features).
 %   t_start   - [n_intervals × 1] interval start times (days).
 %   t_stop    - [n_intervals × 1] interval stop times (days).
-%   event_td  - [n_intervals × 1] logical: 1 on the terminal row of an LF
-%               patient when the scan falls before the event time.
+%   event_td  - [n_intervals × 1] categorical event indicator:
+%               0 = censored, 1 = disease progression (event of interest),
+%               2 = competing risk (e.g., non-cancer death).
+%               The event code is assigned to the terminal row of each patient.
 %   pat_id_td - [n_intervals × 1] patient index for cluster-robust SE.
 %   frac_td   - [n_intervals × 1] Measurement fraction index (1 to nTp) generating row.
 %
@@ -65,7 +67,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     X_buf       = nan(max_rows, n_feat);
     t_start_buf = nan(max_rows, 1);
     t_stop_buf  = nan(max_rows, 1);
-    event_buf   = false(max_rows, 1);
+    event_buf   = zeros(max_rows, 1);
     pat_buf     = zeros(max_rows, 1);
     frac_buf    = nan(max_rows, 1);
 
@@ -187,9 +189,9 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             end
         end
 
-        % Mark the last interval for this patient as the event row (if LF)
-        if last_valid_row > 0 && lf_j == 1
-            event_buf(last_valid_row) = true;
+        % Mark the last interval for this patient with the event code (if not censored)
+        if last_valid_row > 0 && lf_j > 0
+            event_buf(last_valid_row) = lf_j;
         end
     end
 

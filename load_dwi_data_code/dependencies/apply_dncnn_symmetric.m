@@ -66,7 +66,30 @@ function img_isolated = apply_dncnn_symmetric(img, gtv_mask, net, expand_voxels)
         error('Input image must be a 2D or 3D coordinate array.');
     end
 
-    % 3. Pass this true, expanded anatomical region through the dnCNN
+    % 3. Extract the same cropped region from the GTV mask for mask-constrained normalization
+    if ndims(img) == 2
+        mask_cropped = gtv_mask(r_min:r_max, c_min:c_max);
+    else
+        mask_cropped = gtv_mask(r_min:r_max, c_min:c_max, z_min:z_max);
+    end
+
+    % 4. Calculate mu and sigma strictly usingvoxels within the GTV mask
+    target_voxels = single(img_cropped(mask_cropped > 0));
+    
+    if ~isempty(target_voxels)
+        mu_target = mean(target_voxels, 'all');
+        sigma_target = std(target_voxels, 0, 'all');
+        
+        % Safety check: avoid divide-by-zero for uniform or very small regions
+        if sigma_target < 1e-8
+            sigma_target = 1.0;
+        end
+        
+        % Apply target-derived normalization parameters to the entire bounding box
+        img_cropped = (single(img_cropped) - mu_target) / sigma_target;
+    end
+
+    % 5. Pass this true, expanded anatomical region through the dnCNN
     if isa(net, 'dlnetwork') || isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork')
         img_denoised_cropped = predict(net, single(img_cropped));
         if isa(img_denoised_cropped, 'dlarray')
@@ -77,7 +100,7 @@ function img_isolated = apply_dncnn_symmetric(img, gtv_mask, net, expand_voxels)
         img_denoised_cropped = denoiseImage(img_cropped, net);
     end
     
-    % 4. Matrix insertion back to full-field dimensions
+    % 6. Matrix insertion back to full-field dimensions
     img_denoised_full = zeros(orig_size, class(img_denoised_cropped));
     
     if ndims(img) == 2
