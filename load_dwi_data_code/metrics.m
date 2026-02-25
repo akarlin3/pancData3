@@ -909,9 +909,13 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     id_list_valid = id_list(valid_pts);
     id_list_impute = id_list_valid(impute_mask);
 
-    % --- Proper 5-fold CV for Lambda Selection to prevent Data Leakage ---
+    % --- Grouped 5-fold CV for Lambda Selection (Intra-Patient Leakage Prevention) ---
+    % All rows belonging to the same patient are assigned to the same fold,
+    % preventing multiple time-point rows (start-stop format) from leaking
+    % across folds when lassoglm's internal CV splits the data.
     rng(42); % Set seed for reproducibility
-    cvp = cvpartition(y_clean, 'KFold', 5);
+    fold_id_en = make_grouped_folds(id_list_impute, 5);
+    n_folds_en = max(fold_id_en);
     n_lambdas = 25;
     
     % Manual CV to find optimal lambda without data leakage
@@ -919,9 +923,9 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
     cv_failed = false;
     
     warning('off', 'all');
-    for cv_i = 1:cvp.NumTestSets
-        tr_idx = training(cvp, cv_i);
-        te_idx = test(cvp, cv_i);
+    for cv_i = 1:n_folds_en
+        tr_idx = (fold_id_en ~= cv_i);
+        te_idx = (fold_id_en == cv_i);
         X_tr = X_impute(tr_idx, :); y_tr = y_clean(tr_idx);
         X_te = X_impute(te_idx, :); y_te = y_clean(te_idx);
         
@@ -940,7 +944,7 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
                     'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1000000);
                 common_Lambda = FitInfo_fold.Lambda;
-                all_deviance = zeros(length(common_Lambda), cvp.NumTestSets);
+                all_deviance = zeros(length(common_Lambda), n_folds_en);
             else
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
                     'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1000000);
@@ -1045,14 +1049,40 @@ sig_p_best = ones(1, 4);   % Best univariate p-value (for downstream sorting)
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
-        % 3. Nested 5-fold CV for Lambda selection on the train fold
+        % 3. Nested grouped 5-fold CV for Lambda selection (patient-grouped folds)
+        % make_grouped_folds ensures all rows of the same patient stay in
+        % the same inner fold, preventing intra-patient leakage.
         warning('off', 'all');
         try
+            inn_fold_id = make_grouped_folds(id_tr_loo, 5);
+            n_inn_folds = max(inn_fold_id);
+            inn_Lambda = []; inn_deviance = [];
+            for inn_i = 1:n_inn_folds
+                inn_tr = (inn_fold_id ~= inn_i);
+                inn_te = (inn_fold_id == inn_i);
+                if inn_i == 1
+                    [B_inn, FI_inn] = lassoglm(X_tr_kept(inn_tr,:), y_tr_fold(inn_tr), 'binomial', ...
+                        'Alpha', 0.5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
+                    inn_Lambda = FI_inn.Lambda;
+                    inn_deviance = zeros(numel(inn_Lambda), n_inn_folds);
+                else
+                    [B_inn, FI_inn] = lassoglm(X_tr_kept(inn_tr,:), y_tr_fold(inn_tr), 'binomial', ...
+                        'Alpha', 0.5, 'Lambda', inn_Lambda, 'Standardize', true, 'MaxIter', 1000000);
+                end
+                p_inn = 1 ./ (1 + exp(-(X_tr_kept(inn_te,:) * B_inn + FI_inn.Intercept)));
+                p_inn = max(min(p_inn, 1 - 1e-10), 1e-10);
+                y_te_m = repmat(y_tr_fold(inn_te), 1, numel(inn_Lambda));
+                inn_deviance(:, inn_i) = (-2 * sum(y_te_m .* log(p_inn) + (1 - y_te_m) .* log(1 - p_inn), 1))';
+            end
+            if isempty(inn_Lambda)
+                error('grouped_cv:noLambda', 'No lambda path computed in inner CV.');
+            end
+            [~, best_idx] = min(mean(inn_deviance, 2));
+            opt_lam_loo = inn_Lambda(best_idx);
             [B_loo, FitInfo_loo] = lassoglm(X_tr_kept, y_tr_fold, 'binomial', ...
-                'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
-            best_idx = FitInfo_loo.IndexMinDeviance;
-            coefs_loo = B_loo(:, best_idx);
-            intercept_loo = FitInfo_loo.Intercept(best_idx);
+                'Alpha', 0.5, 'Lambda', opt_lam_loo, 'Standardize', true, 'MaxIter', 1000000);
+            coefs_loo = B_loo;
+            intercept_loo = FitInfo_loo.Intercept;
         catch
             coefs_loo = zeros(size(X_tr_kept, 2), 1);
             intercept_loo = 0;
@@ -1971,11 +2001,36 @@ if sum(valid_unbiased) > 5
             
             w_state = warning('off', 'all');
             try
+                id_tr_perm = id_list_impute(train_mask);
+                perm_fold_id = make_grouped_folds(id_tr_perm, 5);
+                n_perm_folds = max(perm_fold_id);
+                perm_Lambda = []; perm_deviance = [];
+                for perm_i = 1:n_perm_folds
+                    p_tr = (perm_fold_id ~= perm_i);
+                    p_te = (perm_fold_id == perm_i);
+                    if perm_i == 1
+                        [B_perm, FI_perm] = lassoglm(X_tr_kept(p_tr,:), y_tr_fold(p_tr), 'binomial', ...
+                            'Alpha', 0.5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
+                        perm_Lambda = FI_perm.Lambda;
+                        perm_deviance = zeros(numel(perm_Lambda), n_perm_folds);
+                    else
+                        [B_perm, FI_perm] = lassoglm(X_tr_kept(p_tr,:), y_tr_fold(p_tr), 'binomial', ...
+                            'Alpha', 0.5, 'Lambda', perm_Lambda, 'Standardize', true, 'MaxIter', 1000000);
+                    end
+                    p_hat = 1 ./ (1 + exp(-(X_tr_kept(p_te,:) * B_perm + FI_perm.Intercept)));
+                    p_hat = max(min(p_hat, 1 - 1e-10), 1e-10);
+                    y_te_m = repmat(y_tr_fold(p_te), 1, numel(perm_Lambda));
+                    perm_deviance(:, perm_i) = (-2 * sum(y_te_m .* log(p_hat) + (1 - y_te_m) .* log(1 - p_hat), 1))';
+                end
+                if isempty(perm_Lambda)
+                    error('grouped_cv:noLambda', 'No lambda path in permutation inner CV.');
+                end
+                [~, best_idx] = min(mean(perm_deviance, 2));
+                opt_lam_perm = perm_Lambda(best_idx);
                 [B_loo, FitInfo_loo] = lassoglm(X_tr_kept, y_tr_fold, 'binomial', ...
-                    'Alpha', 0.5, 'CV', 5, 'NumLambda', 25, 'Standardize', true, 'MaxIter', 1000000);
-                best_idx = FitInfo_loo.IndexMinDeviance;
-                coefs_loo = B_loo(:, best_idx);
-                intercept_loo = FitInfo_loo.Intercept(best_idx);
+                    'Alpha', 0.5, 'Lambda', opt_lam_perm, 'Standardize', true, 'MaxIter', 1000000);
+                coefs_loo = B_loo;
+                intercept_loo = FitInfo_loo.Intercept;
             catch
                 coefs_loo = zeros(size(X_tr_kept, 2), 1);
                 intercept_loo = 0;
