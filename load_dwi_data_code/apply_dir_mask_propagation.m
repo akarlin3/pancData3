@@ -17,9 +17,13 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 %                       image space via the estimated deformation field. Empty
 %                       ([]) if registration fails or image sizes mismatch.
 %     D_forward       - Demons displacement field (same size as b0_moving,
-%                       4th dim = 3 for XYZ). Returned so callers can reuse
-%                       the field to warp other volumes (e.g., dose maps)
-%                       without re-running Demons.
+%                       4th dim = 3 for XYZ). Maps baseline to current-fraction
+%                       coordinates. Returned so callers can reuse the field to
+%                       warp other volumes (e.g., dose maps) without re-running
+%                       Demons. To warp a current-fraction volume back into
+%                       baseline geometry (e.g., quantitative parameter maps
+%                       produced by DnCNN-IVIM fitting in native space), use
+%                       the approximate inverse field: -D_forward.
 %     ref3d           - imref3d spatial reference object matching b0_moving.
 %
 %   Algorithm:
