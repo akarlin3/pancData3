@@ -1,3 +1,4 @@
+function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data(config_struct)
 %% load_dwi_data_forAvery.m
 % =========================================================================
 % PURPOSE
@@ -71,14 +72,14 @@
 % and saving) and jump directly to Section 4 (reload saved data).
 % This is useful when the .mat save file already exists and you only want
 % to re-run the downstream analysis (Section 5).
-skip_to_reload = true;
+skip_to_reload = config_struct.skip_to_reload;
 
 % b-value threshold (s/mm²) used for segmented IVIM fitting.
 % b-values >= ivim_bthr are used to estimate D (true diffusion) via a 
 % monoexponential fit. b-values < ivim_bthr are used to estimate f and D*
 % (pseudo-diffusion), with D held fixed from Stage 1.
 % Set to 100 (includes b=0, 30 in low set; b=100, 150, 550 in high set).
-ivim_bthr = 100;
+ivim_bthr = config_struct.ivim_bthr;
 
 %% ========================================================================
 %  SECTION 1 — FILE DISCOVERY
@@ -93,7 +94,7 @@ if ~skip_to_reload
 % \\pensmph6\mpcsresearch1\aliottae\
 
 % Root path to the pancreas DWI data on the network share
-dataloc = '\\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\';
+dataloc = config_struct.dataloc;
 
 % List all patient folders, excluding any 'template' directories
 patlist= clean_dir_command(dataloc);
@@ -318,13 +319,13 @@ end
 % I use two executables (non matlab functions_ which need to be at the
 % following two locations. You can adjust these two directories to wherever
 % they are installed on your computer.
-dcm2nii_call = 'C:\Program Files\MRIcroGL/Resources/dcm2niix.exe';   % dcm2niix path
-conv_call = 'C:\Users\aliottae\Anaconda3\Lib\site-packages\dcmrtstruct2nii\facade/';  % RT struct converter (unused below)
+dcm2nii_call = config_struct.dcm2nii_call;   % dcm2niix path
+if isfield(config_struct, 'conv_call'), conv_call = config_struct.conv_call; end  % RT struct converter (unused below)
 
-dataloc = '\\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\';
+dataloc = config_struct.dataloc;
 
 % load clinical data (local failure and immunotherapy status per patient)
-clinical_data_sheet = [dataloc 'MASTER_pancreas_DWIanalysis.xlsx'];
+clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 T = readtable(clinical_data_sheet,'Sheet','Clin List');
 
 % load dwi data locations (optionally reload from a previous run)
@@ -945,7 +946,7 @@ end % if ~skip_to_reload
 
 % Set platform-dependent data path (Windows UNC vs macOS mount)
 if ispc
-    dataloc = '\\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\';
+    dataloc = config_struct.dataloc;
 else
     dataloc = '/Volumes/aliottae/pancreas_dwi/';
 end
@@ -970,15 +971,15 @@ load(datasave);
 
 % ADC threshold for identifying "restricted diffusion" sub-volume
 % (1.15×10⁻³ mm²/s, per Muraoka et al. 2013)
-adc_thresh = 0.00115; % https://pubmed.ncbi.nlm.nih.gov/23545001/
+adc_thresh = config_struct.adc_thresh; % https://pubmed.ncbi.nlm.nih.gov/23545001/
 
 % Secondary ADC threshold for identifying "high ADC" sub-volume
-high_adc_thresh = 0.001;
+high_adc_thresh = config_struct.high_adc_thresh;
 
 % Minimum voxel threshold for higher-order histogram metrics
 % (kurtosis, skewness, KS test). Returns NaN for smaller volumes to
 % prevent unstable estimates.
-min_vox_hist = 100;
+min_vox_hist = config_struct.min_vox_hist;
 
 nTp = 6;   % number of timepoints (Fx1–Fx5 + post)
 nRpt = 6;  % max number of repeat scans at Fx1
@@ -1040,7 +1041,7 @@ ks_pvals_d = nan(length(id_list),nTp,3);
 % ADC: last entry: 1 - normal, 2: dncnn + ivim fit
 % Fraction of GTV voxels exceeding adc_max — high values suggest motion artefact
 fx_corrupted = nan(length(id_list),nTp,2); % count voxels with adc>3e-3 (indicative of motion corruption)
-adc_max = 3.0e-3;  % corruption threshold (mm²/s)
+adc_max = config_struct.adc_max;  % corruption threshold (mm²/s)
 
 % --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
 adc_mean_rpt = nan(length(id_list),nRpt,2);
@@ -1285,4 +1286,10 @@ for j=1:length(id_list)
             end
         end
     end
+end
+summary_metrics = struct('adc_mean', adc_mean, 'adc_kurt', adc_kurt, 'adc_skew', adc_skew, 'adc_sd', adc_sd, 'd_mean', d_mean, 'f_mean', f_mean, 'dstar_mean', dstar_mean, ...
+    'adc_sub_vol', adc_sub_vol, 'adc_sub_vol_pc', adc_sub_vol_pc, 'high_adc_sub_vol', high_adc_sub_vol, 'd_kurt', d_kurt, 'd_skew', d_skew, 'd_sd', d_sd, ...
+    'f_kurt', f_kurt, 'f_skew', f_skew, 'dstar_kurt', dstar_kurt, 'dstar_skew', dstar_skew, 'd_sub_mean', d_sub_mean, 'd_sub_kurt', d_sub_kurt, ...
+    'd_sub_skew', d_sub_skew, 'adc_histograms', adc_histograms, 'd_histograms', d_histograms, 'ks_stats_adc', ks_stats_adc, 'ks_pvals_adc', ks_pvals_adc, ...
+    'ks_stats_d', ks_stats_d, 'ks_pvals_d', ks_pvals_d, 'fx_corrupted', fx_corrupted, 'gtv_vol', gtv_vol);
 end

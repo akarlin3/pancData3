@@ -1,0 +1,12 @@
+{
+    "dataloc": "\\\\pensmph6\\mpcsresearch1\\aliottae\\pancreas_dwi\\",
+    "dcm2nii_call": "C:\\Program Files\\MRIcroGL\\Resources\\dcm2niix.exe",
+    "clinical_data_sheet": "MASTER_pancreas_DWIanalysis.xlsx",
+    "skip_to_reload": true,
+    "ivim_bthr": 100,
+    "adc_thresh": 0.00115,
+    "high_adc_thresh": 0.001,
+    "min_vox_hist": 100,
+    "adc_max": 0.003,
+    "patient_ids": []
+}
