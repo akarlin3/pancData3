@@ -1,85 +1,91 @@
-function img_denoised = apply_dncnn_symmetric(img, net, pad_size)
-% apply_dncnn_symmetric - Applies spatial dnCNN denoising with symmetric padding 
-% to mitigate edge-artifacts at the tissue margins (e.g., GTV boundaries).
-%
-% Zero-padding pulls background values into the convolutional kernels,
-% artificially suppressing signals at the boundaries and corrupting dose 
-% metrics like D95. Symmetric reflection mitigates this.
+function img_isolated = apply_dncnn_symmetric(img, gtv_mask, net, expand_voxels)
+% apply_dncnn_symmetric - Refactored to eliminate synthetic padding.
+% 
+% Extracts a bounding box expanded by exactly 'expand_voxels' in every 
+% direction beyond the extremes of the GTV mask. This allows the spatial 
+% kernels to process real surrounding healthy tissue gradients rather than 
+% synthetic edge artifacts.
 %
 % Inputs:
-%   img      - The original 2D or 3D image array before GTV masking
-%   net      - The trained DnCNN dlnetwork or SeriesNetwork
-%   pad_size - (Optional) The padding size. Should match or exceed 
-%              the largest receptive field of the network. For a standard 
-%              17-layer DnCNN, the receptive field is 35x35 (pad=17).
-%              Default is 17 if not provided.
+%   img           - The original 2D or 3D raw, full-field MRI array
+%   gtv_mask      - The Gross Tumor Volume mask (same dimensions as img)
+%   net           - The trained DnCNN dlnetwork or SeriesNetwork
+%   expand_voxels - (Optional) Number of absolute voxels to expand the 
+%                   bounding box beyond the GTV extremes. Default is 15.
 %
 % Outputs:
-%   img_denoised - The denoised image, perfectly cropped back to original 
-%                  matrix dimensions.
+%   img_isolated  - The denoised image, strictly masked to the GTV for 
+%                   radiomic extraction, with surrounding values zeroed.
 
-    if nargin < 3
-        % Default pad size for a standard 17-layer DnCNN
-        pad_size = 17; 
+    if nargin < 4
+        % Default expansion explicitly set to 15 voxels as required
+        expand_voxels = 15; 
     end
 
-    % 1. Get original dimensions for cropping
+    % 1. Get original dimensions and validate match
     orig_size = size(img);
-    
-    % Handle 2D vs 3D cases for padding
+    assert(isequal(orig_size, size(gtv_mask)), 'Image and GTV mask must have identical dimensions.');
+
+    % 2. Extract bounding box from the raw, full-field MRI
     if ndims(img) == 2
-        pad_dims = [pad_size, pad_size];
+        [row, col] = find(gtv_mask > 0);
+        
+        if isempty(row)
+            img_isolated = img .* 0; % No GTV found
+            return;
+        end
+        
+        % Calculate expanded bounding box with rigid boundary clamping
+        r_min = max(1, min(row) - expand_voxels);
+        r_max = min(orig_size(1), max(row) + expand_voxels);
+        c_min = max(1, min(col) - expand_voxels);
+        c_max = min(orig_size(2), max(col) + expand_voxels);
+        
+        % Extract true anatomical region incorporating surrounding healthy tissue
+        img_cropped = img(r_min:r_max, c_min:c_max);
+        
     elseif ndims(img) == 3
-        % Assuming 2D spatial convolution is applied slice-by-slice,
-        % or 3D spatial convolution. If 3D conv, we pad in all 3 dims.
-        % We will conservatively pad all 3 spatial dimensions here, 
-        % or you can adjust to [pad_size, pad_size, 0] for 2D slice-by-slice.
-        pad_dims = [pad_size, pad_size, pad_size];
+        ind = find(gtv_mask > 0);
+        if isempty(ind)
+            img_isolated = img .* 0; 
+            return;
+        end
+        [row, col, z] = ind2sub(orig_size, ind);
+        
+        % Calculate expanded bounding box with rigid boundary clamping
+        r_min = max(1, min(row) - expand_voxels);
+        r_max = min(orig_size(1), max(row) + expand_voxels);
+        c_min = max(1, min(col) - expand_voxels);
+        c_max = min(orig_size(2), max(col) + expand_voxels);
+        z_min = max(1, min(z) - expand_voxels);
+        z_max = min(orig_size(3), max(z) + expand_voxels);
+        
+        % Extract true anatomical region incorporating surrounding healthy tissue
+        img_cropped = img(r_min:r_max, c_min:c_max, z_min:z_max);
     else
-        error('Input image must be 2D or 3D.');
+        error('Input image must be a 2D or 3D coordinate array.');
     end
 
-    % 2. Pad the array using replicate boundary conditions
-    % This extrapolates a flat spatial gradient based strictly on the outermost
-    % tumor boundary signal, preventing convolution of adjacent structures.
-    img_padded = padarray(img, pad_dims, 'replicate');
-    
-    % 3. Format for the network (Deep Learning Toolbox usually expects 
-    % specific formatting like 'SSCB' or numeric arrays for predict)
-    % Depending on how your pipeline calls the network, you might use predict()
-    % or forward(). For standard predict with a formatted dlarray:
-    
-    % (Note: If you use the standard predict(net, img_padded), uncomment below)
-    % img_denoised_padded = predict(net, img_padded);
-    
-    % If using MATLAB's built-in denoiseImage (which uses a pretrained DnCNN):
-    % img_denoised_padded = denoiseImage(img_padded, net);
-    
-    % Placeholder for inference (replace with your exact inference call):
+    % 3. Pass this true, expanded anatomical region through the dnCNN
     if isa(net, 'dlnetwork') || isa(net, 'SeriesNetwork') || isa(net, 'DAGNetwork')
-        % Extract underlying data if it returns a dlarray
-        img_denoised_padded = predict(net, single(img_padded));
-        if isa(img_denoised_padded, 'dlarray')
-            img_denoised_padded = extractdata(img_denoised_padded);
+        img_denoised_cropped = predict(net, single(img_cropped));
+        if isa(img_denoised_cropped, 'dlarray')
+            img_denoised_cropped = extractdata(img_denoised_cropped);
         end
     else
         % Fallback for built-in or custom wrappers
-        img_denoised_padded = denoiseImage(img_padded, net);
+        img_denoised_cropped = denoiseImage(img_cropped, net);
     end
     
-    % 4. Precisely crop the output back to original dimensions
-    % Crop syntax: img( start : end, start : end, ... )
+    % 4. Matrix insertion back to full-field dimensions
+    img_denoised_full = zeros(orig_size, class(img_denoised_cropped));
+    
     if ndims(img) == 2
-        img_denoised = img_denoised_padded(...
-            pad_dims(1) + 1 : pad_dims(1) + orig_size(1), ...
-            pad_dims(2) + 1 : pad_dims(2) + orig_size(2));
+        img_denoised_full(r_min:r_max, c_min:c_max) = img_denoised_cropped;
     elseif ndims(img) == 3
-        img_denoised = img_denoised_padded(...
-            pad_dims(1) + 1 : pad_dims(1) + orig_size(1), ...
-            pad_dims(2) + 1 : pad_dims(2) + orig_size(2), ...
-            pad_dims(3) + 1 : pad_dims(3) + orig_size(3));
+        img_denoised_full(r_min:r_max, c_min:c_max, z_min:z_max) = img_denoised_cropped;
     end
-
-    % The resulting img_denoised can now be safely masked by the GTV 
-    % without suppressing boundary diffusion metrics.
+    
+    % 5. Apply the exact GTV mask after inference to strictly isolate tumor values
+    img_isolated = img_denoised_full .* double(gtv_mask > 0);
 end

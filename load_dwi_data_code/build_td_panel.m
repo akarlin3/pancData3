@@ -1,10 +1,10 @@
-function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
-    feat_arrays, feat_names, lf_vec, total_time_vec, nTp, scan_days)
+function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel( ...
+    feat_arrays, feat_names, lf_vec, total_time_vec, nTp, scan_days, decay_half_life_months)
 % build_td_panel  Converts longitudinal DWI arrays into a counting-process
 %   (start–stop) panel for fitting time-dependent Cox PH models.
 %
-%   [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
-%       feat_arrays, feat_names, lf_vec, total_time_vec, nTp, scan_days)
+%   [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel( ...
+%       feat_arrays, feat_names, lf_vec, total_time_vec, nTp, scan_days, decay_half_life_months)
 %
 %   Inputs
 %   ------
@@ -17,6 +17,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
 %   nTp          - number of timepoints (columns in feat_arrays).
 %   scan_days    - [1 × nTp] approximate day of each scan relative to Fx1.
 %                  Default: [0 5 10 15 20 90] (Fx1 through Post-RT).
+%   decay_half_life_months - [scalar] biological half-life for washout (months).
+%                            Default: 18.
 %
 %   Outputs
 %   -------
@@ -27,6 +29,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
 %   event_td  - [n_intervals × 1] logical: 1 on the terminal row of an LF
 %               patient when the scan falls before the event time.
 %   pat_id_td - [n_intervals × 1] patient index for cluster-robust SE.
+%   frac_td   - [n_intervals × 1] Measurement fraction index (1 to nTp) generating row.
 %
 %   Algorithm (counting-process representation)
 %   -------------------------------------------
@@ -45,6 +48,9 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
     if nargin < 6 || isempty(scan_days)
         scan_days = [0, 5, 10, 15, 20, 90];
     end
+    if nargin < 7 || isempty(decay_half_life_months)
+        decay_half_life_months = 18;  % Default half-life of 18 months
+    end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
     % Pre-allocate with a generous upper bound (n_pts * nTp * 150 rows due to decay splitting)
@@ -54,6 +60,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
     t_stop_buf  = nan(max_rows, 1);
     event_buf   = false(max_rows, 1);
     pat_buf     = zeros(max_rows, 1);
+    frac_buf    = nan(max_rows, 1);
 
     row = 0;
     for j = 1:n_pts
@@ -108,11 +115,17 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
                 t_stop_buf(row)     = day_tp + 90;
                 event_buf(row)      = false;
                 pat_buf(row)        = j;
+                frac_buf(row)       = tp;
                 last_valid_row      = row;
                 
                 % 2. Decay phase: asymptotic return to baseline
-                % Define lambda for 50% decay at 18 months (~547.5 days)
-                decay_half_life = 547.5 - 90; 
+                % Define lambda for 50% decay (e.g. at 18 months (~547.5 days))
+                % Average month is ~30.416 days (365/12).
+                total_decay_days = decay_half_life_months * 30.416;
+                decay_half_life = total_decay_days - 90; 
+                if decay_half_life <= 0 
+                    decay_half_life = 1; % guard against immediate washout
+                end
                 lambda = -log(0.5) / decay_half_life;
                 
                 % Discretize the remaining time into 30-day intervals for smooth approximation
@@ -144,6 +157,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
                     t_stop_buf(row)     = t_chunk_end;
                     event_buf(row)      = false;
                     pat_buf(row)        = j;
+                    frac_buf(row)       = tp;
                     last_valid_row      = row;
                     
                     t_curr = t_chunk_end;
@@ -156,6 +170,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
                 t_stop_buf(row)     = day_next;
                 event_buf(row)      = false;   % will set on last valid row below
                 pat_buf(row)        = j;
+                frac_buf(row)       = tp;
                 last_valid_row      = row;
             end
         end
@@ -172,47 +187,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td] = build_td_panel( ...
     t_stop    = t_stop_buf(1:row);
     event_td  = event_buf(1:row);
     pat_id_td = pat_buf(1:row);
+    frac_td   = frac_buf(1:row);
 
     if row == 0
         warning('build_td_panel:noData', 'No valid intervals were generated. Check inputs.');
         return;
-    end
-
-    % Z-score each covariate column
-    % To prevent row-weighted bias, compute mu and sigma from unique patient rows.
-    for fi = 1:n_feat
-        name_fi = feat_names{fi};
-        is_derivative = contains(name_fi, 'Delta', 'IgnoreCase', true) || ...
-                        contains(name_fi, 'Change', 'IgnoreCase', true) || ...
-                        contains(name_fi, 'pct', 'IgnoreCase', true) || ...
-                        contains(name_fi, 'diff', 'IgnoreCase', true);
-
-        if is_derivative
-            % Derivative features: mathematically zero at Fraction 1.
-            % Compute mu/sigma from mid-treatment fractional rows (col 2 to end).
-            if size(feat_arrays{fi}, 2) > 1
-                unique_vals = feat_arrays{fi}(:, 2:end);
-                unique_vals = unique_vals(~isnan(unique_vals));
-                mu_col = mean(unique_vals);
-                sd_col = std(unique_vals);
-            else
-                mu_col = 0;
-                sd_col = 1;
-            end
-        else
-            % Absolute features: compute mu/sigma strictly from Fraction 1 baseline rows.
-            unique_vals = feat_arrays{fi}(:, 1);
-            unique_vals = unique_vals(~isnan(unique_vals));
-            mu_col = mean(unique_vals);
-            sd_col = std(unique_vals);
-        end
-
-        col = X_td(:, fi);
-        if sd_col > 0 && ~isnan(mu_col) && ~isnan(sd_col)
-            X_td(:, fi) = (col - mu_col) / sd_col;
-        elseif ~isnan(mu_col)
-            X_td(:, fi) = col - mu_col; % just center if sd=0
-        end
     end
 
     fprintf('  [TD Panel] %d patients → %d intervals (%d events)\n', ...

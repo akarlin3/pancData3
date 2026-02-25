@@ -23,7 +23,7 @@ m_id_list = arrayfun(@(x) sprintf('Pt%d', x), 1:n_vp, 'UniformOutput', false);
 dl_provenance = struct();
 dtype = 1;
 
-[X_td, t_start_td, t_stop_td, event_td, pat_id_td] = ...
+[X_td, t_start_td, t_stop_td, event_td, pat_id_td, frac_td] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
 
 %% ---------- Time-Dependent IPCW Concordance ----------
@@ -52,13 +52,18 @@ for p_idx = 1:n_vp
     end
     
     train_mask = (pat_id_td ~= p_idx);
-    X_train = X_td(train_mask, :);
+    
+    % Scale specifically for this LOOCV fold
+    train_pat_ids = unique(pat_id_td(train_mask));
+    X_td_scaled = scale_td_panel(X_td, td_feat_names, pat_id_td, frac_td, train_pat_ids);
+
+    X_train = X_td_scaled(train_mask, :);
     T_start_train = t_start_td(train_mask);
     T_stop_train = t_stop_td(train_mask);
     E_train = event_td(train_mask);
     
     test_mask = (pat_id_td == p_idx);
-    X_test = X_td(test_mask, :);
+    X_test = X_td_scaled(test_mask, :);
     T_start_test = t_start_td(test_mask);
     T_stop_test = t_stop_td(test_mask);
     
@@ -95,9 +100,27 @@ for p_idx = 1:n_vp
     train_times = surv_time_all(train_pat_mask);
     train_cens = surv_event_all(train_pat_mask);
     
-    [F_cens, x_cens] = ecdf(train_times, 'Censoring', train_cens);
-    oof_risk_history{p_idx}.F_cens = F_cens;
-    oof_risk_history{p_idx}.x_cens = x_cens;
+    % Covariate-adjusted conditional censoring model
+    Z_train = ADC_abs(train_pat_mask, 1);
+    Z_test  = ADC_abs(p_idx, 1);
+    cens_model_events = (train_cens == 0); % 1 if censored, 0 if failed
+    
+    w_state = warning('off', 'all');
+    try
+        [b_cens, ~, H_cens, ~] = coxphfit(Z_train, train_times, 'Censoring', ~cens_model_events, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        if isempty(H_cens)
+            error('Empty hazard');
+        end
+    catch
+        b_cens = 0;
+        [F_cens_km, x_cens_km] = ecdf(train_times, 'Censoring', train_cens);
+        H_cens = [x_cens_km, -log(1 - F_cens_km)];
+    end
+    warning(w_state);
+    
+    oof_risk_history{p_idx}.cens_b = b_cens;
+    oof_risk_history{p_idx}.cens_H = H_cens;
+    oof_risk_history{p_idx}.Z_test = Z_test;
 end
 
 concordant = 0; discordant = 0; weights_sum = 0;
@@ -119,14 +142,20 @@ for i = 1:n_vp
             continue;
         end
         
-        F_c = oof_risk_history{i}.F_cens;
-        x_c = oof_risk_history{i}.x_cens;
-        G_cens = 1 - F_c;
-        idx_G = find(x_c <= T_i, 1, 'last');
-        if isempty(idx_G) || G_cens(idx_G) == 0
+        H_c = oof_risk_history{i}.cens_H;
+        b_c = oof_risk_history{i}.cens_b;
+        Z_test_i = oof_risk_history{i}.Z_test;
+        
+        idx_G = find(H_c(:,1) <= T_i, 1, 'last');
+        if isempty(idx_G)
             G_Ti = 1;
         else
-            G_Ti = G_cens(idx_G);
+            H_0_t = H_c(idx_G, 2);
+            G_Ti = exp(-H_0_t * exp(Z_test_i * b_c));
+        end
+        
+        if G_Ti <= 0 || isnan(G_Ti)
+            G_Ti = 1e-5;
         end
         W_i = 1 / (G_Ti^2);
         

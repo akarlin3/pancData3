@@ -2026,11 +2026,27 @@ td_tot_time = m_total_time(valid_pts);
 cens_mask_td = (td_lf == 0) & ~isnan(m_total_follow_up_time(valid_pts));
 td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~isnan(m_total_follow_up_time(:)));
 
-[X_td, t_start_td, t_stop_td, event_td, pat_id_td] = ...
-    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
+[X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
+    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
 
-td_ok = (sum(event_td) >= 3) && (size(X_td, 1) > td_n_feat + 1);
-if ~td_ok
+% Global exploratory scaling using all patients
+X_td_global_def = scale_td_panel(X_td_def, td_feat_names, pat_id_td_def, frac_td_def, unique(pat_id_td_def));
+
+td_ok = (sum(event_td_def) >= 3) && (size(X_td_global_def, 1) > td_n_feat + 1);
+
+half_life_grid = [3, 6, 12, 18, 24];
+td_panels = cell(length(half_life_grid), 1);
+for hl_idx = 1:length(half_life_grid)
+    [X_i, t_start_i, t_stop_i, ev_i, pid_i, frac_i] = ...
+        build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, half_life_grid(hl_idx));
+    td_panels{hl_idx} = struct('X', X_i, 't_start', t_start_i, 't_stop', t_stop_i, 'event', ev_i, 'pat_id', pid_i, 'frac', frac_i);
+end
+
+if td_ok
+    % In-sample Time-Dependent Cox report (exploratory)
+    % We just use the 18-month default or the best in-sample. We'll stick to 18-month here to avoid complexity
+    X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
+    X_td_global = X_td_global_def;
     fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td));
 else
     % ---- Fit the time-dependent Cox model --------------------------------
@@ -2039,7 +2055,7 @@ else
     warning('error', 'stats:coxphfit:IterationLimit');
     is_firth_td = false;
     try
-        [b_td, logl_td, ~, stats_td] = coxphfit(X_td, [t_start_td, t_stop_td], ...
+        [b_td, logl_td, ~, stats_td] = coxphfit(X_td_global, [t_start_td, t_stop_td], ...
             'Censoring', ~event_td, 'Ties', 'breslow', ...
             'Options', statset('MaxIter', 1000000));
     catch ME_td
@@ -2052,7 +2068,7 @@ else
             for ii = 1:n_vp
                 rows_ii = (pat_id_td == ii);
                 if any(rows_ii)
-                    td_last_X(ii, :) = X_td(find(rows_ii, 1, 'last'), :);
+                    td_last_X(ii, :) = X_td_global(find(rows_ii, 1, 'last'), :);
                 end
             end
             valid_firth_td = ~any(isnan(td_last_X), 2) & ~isnan(td_lf);
@@ -2062,7 +2078,7 @@ else
             b_td           = mdl_firth_td.Coefficients.Estimate(2:end);
             stats_td.se    = mdl_firth_td.Coefficients.SE(2:end);
             stats_td.p     = mdl_firth_td.Coefficients.pValue(2:end);
-            stats_td.sschres = zeros(size(X_td,1), td_n_feat);
+            stats_td.sschres = zeros(size(X_td_global,1), td_n_feat);
             logl_td        = mdl_firth_td.LogLikelihood;
             is_firth_td    = true;
         else
@@ -2076,7 +2092,7 @@ else
 
     % ---- Likelihood-ratio test vs. null model (no covariates) -----------
     try
-        [~, logl_null_td] = coxphfit(zeros(size(X_td,1),1), [t_start_td, t_stop_td], ...
+        [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
             'Censoring', ~event_td, 'Ties', 'breslow', ...
             'Options', statset('MaxIter', 100));
         LRT_stat = 2 * (logl_td - logl_null_td);
@@ -2166,16 +2182,67 @@ for p_idx = 1:n_vp
         continue;
     end
     
-    train_mask = (pat_id_td ~= p_idx);
-    X_train = X_td(train_mask, :);
-    T_start_train = t_start_td(train_mask);
-    T_stop_train = t_stop_td(train_mask);
-    E_train = event_td(train_mask);
+    % --- Inner CV to select optimal decay_half_life ---
+    inner_hl_logl = zeros(length(half_life_grid), 1);
     
-    test_mask = (pat_id_td == p_idx);
-    X_test = X_td(test_mask, :);
-    T_start_test = t_start_td(test_mask);
-    T_stop_test = t_stop_td(test_mask);
+    cvp_inner = cvpartition(td_lf(valid_idx_pts ~= valid_idx_pts(p_idx)), 'KFold', 5);
+    w_state = warning('off', 'all');
+    for hl_idx = 1:length(half_life_grid)
+        panel = td_panels{hl_idx};
+        inner_pat_ids = panel.pat_id(panel.pat_id ~= p_idx);
+        inner_X = panel.X(panel.pat_id ~= p_idx, :);
+        inner_t_start = panel.t_start(panel.pat_id ~= p_idx);
+        inner_t_stop = panel.t_stop(panel.pat_id ~= p_idx);
+        inner_event = panel.event(panel.pat_id ~= p_idx);
+        inner_frac = panel.frac(panel.pat_id ~= p_idx);
+        
+        inner_logl_k = 0;
+        for cv_i = 1:cvp_inner.NumTestSets
+            tr_inner_pts = find(training(cvp_inner, cv_i));
+            te_inner_pts = find(test(cvp_inner, cv_i));
+            
+            true_tr_ids = find(1:n_vp ~= p_idx);
+            active_tr_ids = true_tr_ids(tr_inner_pts);
+            active_te_ids = true_tr_ids(te_inner_pts);
+            
+            tr_mask = ismember(inner_pat_ids, active_tr_ids);
+            te_mask = ismember(inner_pat_ids, active_te_ids);
+            
+            % Scale using ONLY inner training fold patients
+            inner_X_scaled_tr = scale_td_panel(inner_X, td_feat_names, inner_pat_ids, inner_frac, active_tr_ids);
+            
+            try
+                [b_in, logl_in] = coxphfit(inner_X_scaled_tr(tr_mask, :), [inner_t_start(tr_mask), inner_t_stop(tr_mask)], ...
+                    'Censoring', ~inner_event(tr_mask), 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+                
+                [~, logl_all] = coxphfit(inner_X_scaled_tr(tr_mask | te_mask, :), [inner_t_start(tr_mask | te_mask), inner_t_stop(tr_mask | te_mask)], ...
+                    'Censoring', ~inner_event(tr_mask | te_mask), 'Ties', 'breslow', 'Init', b_in, 'Options', statset('MaxIter', 0));
+                inner_logl_k = inner_logl_k + (logl_all - logl_in);
+            catch
+                % pass
+            end
+        end
+        inner_hl_logl(hl_idx) = inner_logl_k;
+    end
+    warning(w_state);
+    
+    [~, best_hl_idx] = max(inner_hl_logl);
+    opt_panel = td_panels{best_hl_idx};
+    
+    % Now proceed with the optimal panel for outer LOOCV test
+    train_mask = (opt_panel.pat_id ~= p_idx);
+    train_pat_ids = unique(opt_panel.pat_id(train_mask));
+    X_td_scaled = scale_td_panel(opt_panel.X, td_feat_names, opt_panel.pat_id, opt_panel.frac, train_pat_ids);
+
+    X_train = X_td_scaled(train_mask, :);
+    T_start_train = opt_panel.t_start(train_mask);
+    T_stop_train = opt_panel.t_stop(train_mask);
+    E_train = opt_panel.event(train_mask);
+    
+    test_mask = (opt_panel.pat_id == p_idx);
+    X_test = X_td_scaled(test_mask, :);
+    T_start_test = opt_panel.t_start(test_mask);
+    T_stop_test = opt_panel.t_stop(test_mask);
     
     if sum(test_mask) == 0
         continue;
@@ -2210,9 +2277,28 @@ for p_idx = 1:n_vp
     train_times = surv_time_all(train_pat_mask);
     train_cens = surv_event_all(train_pat_mask);
     
-    [F_cens, x_cens] = ecdf(train_times, 'Censoring', train_cens);
-    oof_risk_history{p_idx}.F_cens = F_cens;
-    oof_risk_history{p_idx}.x_cens = x_cens;
+    % Covariate-adjusted conditional censoring model
+    vol_valid = m_gtv_vol(valid_pts, 1);
+    Z_train = vol_valid(train_pat_mask);
+    Z_test  = vol_valid(p_idx);
+    cens_model_events = (train_cens == 0); % 1 if censored, 0 if failed
+    
+    w_state = warning('off', 'all');
+    try
+        [b_cens, ~, H_cens, ~] = coxphfit(Z_train, train_times, 'Censoring', ~cens_model_events, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        if isempty(H_cens)
+            error('Empty hazard');
+        end
+    catch
+        b_cens = 0;
+        [F_cens_km, x_cens_km] = ecdf(train_times, 'Censoring', train_cens);
+        H_cens = [x_cens_km, -log(1 - F_cens_km)];
+    end
+    warning(w_state);
+    
+    oof_risk_history{p_idx}.cens_b = b_cens;
+    oof_risk_history{p_idx}.cens_H = H_cens;
+    oof_risk_history{p_idx}.Z_test = Z_test;
 end
 
 concordant = 0; discordant = 0; weights_sum = 0;
@@ -2234,14 +2320,20 @@ for i = 1:n_vp
             continue;
         end
         
-        F_c = oof_risk_history{i}.F_cens;
-        x_c = oof_risk_history{i}.x_cens;
-        G_cens = 1 - F_c;
-        idx_G = find(x_c <= T_i, 1, 'last');
-        if isempty(idx_G) || G_cens(idx_G) == 0
+        H_c = oof_risk_history{i}.cens_H;
+        b_c = oof_risk_history{i}.cens_b;
+        Z_test_i = oof_risk_history{i}.Z_test;
+        
+        idx_G = find(H_c(:,1) <= T_i, 1, 'last');
+        if isempty(idx_G)
             G_Ti = 1;
         else
-            G_Ti = G_cens(idx_G);
+            H_0_t = H_c(idx_G, 2);
+            G_Ti = exp(-H_0_t * exp(Z_test_i * b_c));
+        end
+        
+        if G_Ti <= 0 || isnan(G_Ti)
+            G_Ti = 1e-5;
         end
         W_i = 1 / (G_Ti^2);
         
