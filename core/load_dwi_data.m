@@ -322,11 +322,8 @@ data_file = [dataloc 'adc_vectors.mat'];
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 
 % Initialise output struct arrays for GTVp (primary) and GTVn (nodal)
-data_vectors_gtvp = struct; %cell(1,4,length(fx_search),6);
-data_vectors_gtvn = struct; %cell(1,4,length(fx_search)-1);
-
-% dwi_vectors_gtvn = cell(1,4,6);
-% dose_vectors_gtvn = cell(1,4,6);
+data_vectors_gtvp = struct;
+data_vectors_gtvn = struct;
 
 % Pre-allocate summary metric arrays (patient × fraction × repeat)
 adc_mean = nan(size(dwi_locations));
@@ -399,10 +396,6 @@ for j = 1:length(mrn_list)
                 dicomdoseloc = [];  % no dose for post-treatment scan
             end
 
-            % basefolder = '/Volumes/aliottae/pancreas_dwi/P2-TRM/';
-            % fxfolder = 'Fx1 - repeatability/';
-            % dicomloc = [basefolder fxfolder '/DWI/'];
-            % struct_file = [basefolder fxfolder 'ROI_GTV_20200821.mat'];
             outloc = [basefolder '/nii/'];   % output directory for NIfTI files
 
             % get the dwi file list (DICOM)
@@ -909,7 +902,7 @@ delete(h);  % close waitbar
 fprintf('\n--- SECTION 3: Save Results ---\n');
 %  SECTION 3 — SAVE RESULTS
 
-datasave = [dataloc 'dwi_vectors.mat'];
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
 % Create a date-stamped backup before overwriting
 if exist(datasave,'file')
     dt = datetime('now');
@@ -927,14 +920,10 @@ end % if ~skip_to_reload
 fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
 %  SECTION 4 — RELOAD SAVED DATA
 
-% Set platform-dependent data path (Windows UNC vs macOS mount)
-if ispc
-    dataloc = config_struct.dataloc;
-else
-    dataloc = '/Volumes/aliottae/pancreas_dwi/';
-end
+% Set data path from configuration
+dataloc = config_struct.dataloc;
 
-datasave = [dataloc 'dwi_vectors.mat'];
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
 load(datasave);
 
 %% ========================================================================

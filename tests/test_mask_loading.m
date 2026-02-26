@@ -1,18 +1,25 @@
 % Test 3D mask loading
 diary(fullfile('saved_figures', 'test_mask_loading_output.txt'));
 diary on;
-dataloc = '\\pensmph6\mpcsresearch1\aliottae\pancreas_dwi\';
-load([dataloc 'dwi_vectors.mat'], 'id_list', 'data_vectors_gtvp', 'gtv_locations');
+
+if isfile('config.json')
+    config_struct = parse_config('config.json');
+    dataloc = config_struct.dataloc;
+else
+    dataloc = [pwd filesep];
+end
+
+load(fullfile(dataloc, 'dwi_vectors.mat'), 'id_list', 'data_vectors_gtvp', 'gtv_locations');
 
 found = false;
 for j = 1:size(gtv_locations,1)
     for k = 1:size(gtv_locations,2)
         gtv_mat = gtv_locations{j,k,1};
         if ~isempty(gtv_mat)
-            % convert MacOS path to Windows dataloc
-            gtv_mat = strrep(gtv_mat, '/Volumes/aliottae/pancreas_dwi/', dataloc);
-            % replace forward slashes with backward slashes
-            gtv_mat = strrep(gtv_mat, '/', '\');
+            % Ensure correct file separator for current platform
+            gtv_mat = strrep(gtv_mat, '/', filesep);
+            gtv_mat = strrep(gtv_mat, '\', filesep);
+
             if exist(gtv_mat, 'file')
                 load(gtv_mat, 'Stvol3d');
                 gtv_mask = Stvol3d;
