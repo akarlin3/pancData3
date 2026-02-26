@@ -68,7 +68,7 @@ function run_dwi_pipeline(config_path)
         % and returns a flag (is_valid) and/or sanitized data.
         % Adjust the function signature below if sanity_checks.m requires
         % different input arguments based on its actual implementation.
-        [is_valid, validation_msg, validated_data_gtvp, validated_data_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn);
+        [is_valid, validation_msg, validated_data_gtvp, validated_data_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics);
         
         if ~is_valid
             error('Sanity checks failed: %s', validation_msg);
@@ -96,12 +96,12 @@ function run_dwi_pipeline(config_path)
 
     % Step 5: Visualize Results
     try
-        fprintf('[5/5] Generating visualizations... ');
-        % NOTE: Assumes visualize_results.m accepts the calculated results
-        % and configuration to produce plots.
+        fprintf('\n[5/5] Visualizing results...\n');
+        % NOTE: Assumes visualize_results.m accepts the raw data, summary metrics,
+        % calculated results, and configuration to produce plots.
         % Adjust as needed based on the actual visualize_results.m signature.
-        visualize_results(calculated_results, config_struct);
-        fprintf('Done.\n');
+        visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
+        fprintf('      Done: Visualizations generated.\n');
     catch ME
         fprintf('FAILED (Non-Fatal).\n');
         fprintf('Error generating visualizations: %s\n', ME.message);

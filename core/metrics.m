@@ -1,58 +1,32 @@
-%% metrics.m — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% =========================================================================
-% This script computes quantitative imaging biomarkers from diffusion-
-% weighted MRI (DWI) and intravoxel incoherent motion (IVIM) data acquired
-% during fractionated radiotherapy for pancreatic cancer.
-%
-% Pipeline overview:
-%   1. Repeatability metrics (within-subject coefficient of variation, wCV)
-%   2. Clinical outcome data loading (local failure status, time-to-event)
-%   3. Longitudinal metric visualization (absolute & percent-change plots)
-%   4. Dose–volume histogram (DVH) metrics for DWI-defined sub-volumes
-%   5. Univariate analysis (Wilcoxon rank-sum boxplots: LC vs LF at each fraction)
-%   6. Multiple-comparison corrections (FDR / Benjamini-Hochberg,
-%      Holm-Bonferroni)
-%   7. Elastic Net–regularized feature selection (α=0.5, L1+L2, 5-fold CV)
-%   8. ROC analysis with Youden's J optimal cutoff
-%   9. Multivariable logistic regression (with Firth penalized fallback)
-%  10. Leave-pair-out (LPOCV) cross-validation
-%  11. Kaplan-Meier survival analysis stratified by imaging biomarker
-%  12. Representative parametric ADC maps (responder vs non-responder)
-%  13. Sanity-check panels (volume change, heterogeneity, noise floor)
-%
-% Inputs (expected in workspace from upstream load_dwi_data pipeline):
-%   adc_mean_rpt, adc_sub_rpt, d_mean_rpt, f_mean_rpt, dstar_mean_rpt
-%       — Repeat-scan measurements [n_patients x n_repeats x n_dwi_types]
-%   n_rpt              — Number of repeat scans per patient
-%   adc_mean, d_mean, f_mean, dstar_mean
-%       — Longitudinal metric arrays [n_patients x n_timepoints x n_types]
-%   gtv_vol            — GTV volumes [n_patients x n_timepoints]
-%   id_list, mrn_list  — Patient identifiers
-%   d95_gtvp, v50gy_gtvp, data_vectors_gtvp — Dose and voxel-level data
-%   dataloc            — Root data directory path
-%   nTp                — Number of timepoints (fractions + post-RT)
-%
-% Outputs:
-%   Figures saved to ./saved_figures/
-%   CSV tables saved to dataloc
-%   Diary log saved to ./saved_figures/metrics_output.txt
-%
-% Dependencies: MATLAB Statistics and Machine Learning Toolbox,
-%               load_untouch_nii (NIfTI I/O), Image Processing Toolbox
+function calculated_results = metrics(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
+% METRICS — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % =========================================================================
 
-%% ========================================================================
-%  WORKSPACE CLEANUP
-%  test.m runs as a script and leaks variables into the base workspace that
-%  shadow built-in MATLAB functions used here (e.g. lines(), test(),
-%  training()). Clear them defensively before metrics begins.
-% =========================================================================
-cleanup_names = {'lines', 'test', 'training', 'text', 'labels', 'cvp', 'k', 'n_pass', 'n_fail', ...
-                 'metrics_code', 'vis_code'};
-for ci = 1:numel(cleanup_names)
-    if exist(cleanup_names{ci}, 'var'), clear(cleanup_names{ci}); end
-end
-clear cleanup_names ci
+% Extract parameters
+dataloc = config_struct.dataloc;
+
+adc_mean = summary_metrics.adc_mean;
+adc_sd = summary_metrics.adc_sd;
+d_mean = summary_metrics.d_mean;
+f_mean = summary_metrics.f_mean;
+dstar_mean = summary_metrics.dstar_mean;
+ivim_sub_vol = summary_metrics.ivim_sub_vol;
+adc_mean_rpt = summary_metrics.adc_mean_rpt;
+adc_sub_rpt = summary_metrics.adc_sub_rpt;
+d_mean_rpt = summary_metrics.d_mean_rpt;
+f_mean_rpt = summary_metrics.f_mean_rpt;
+dstar_mean_rpt = summary_metrics.dstar_mean_rpt;
+n_rpt = summary_metrics.n_rpt;
+id_list = summary_metrics.id_list;
+mrn_list = summary_metrics.mrn_list;
+gtv_vol = summary_metrics.gtv_vol;
+d95_gtvp = summary_metrics.d95_gtvp;
+v50gy_gtvp = summary_metrics.v50gy_gtvp;
+dmean_gtvp = summary_metrics.dmean_gtvp;
+gtv_locations = summary_metrics.gtv_locations;
+dwi_locations = summary_metrics.dwi_locations;
+
+nTp = size(adc_mean, 2);
 
 %% ========================================================================
 %  SECTION 1: Repeatability — Within-Subject Coefficient of Variation (wCV)
@@ -102,11 +76,18 @@ clinical_data_sheet = [dataloc 'MASTER_pancreas_DWIanalysis.xlsx'];
 T = readtable(clinical_data_sheet,'Sheet','Clin List_MR');
 
 % Pre-allocate outcome arrays matched to the patient list
-        % Event indicator: 0 = censored, 1 = disease progression (event of interest),
-        % 2 = competing risk (e.g., non-cancer death).
+lf = nan(length(id_list), 1);
+lf_date = repmat(datetime(NaT), length(id_list), 1);
+censor_date = repmat(datetime(NaT), length(id_list), 1);
+rtstartdate = repmat(datetime(NaT), length(id_list), 1);
+rtenddate = repmat(datetime(NaT), length(id_list), 1);
+
+for j = 1:length(id_list)
+    i_find = find(contains(strrep(T.Pat,'_','-'), strrep(id_list{j},'_','-')));
+    if ~isempty(i_find)
+        i_find = i_find(1);
         lf(j) = T.LocalOrRegionalFailure(i_find);
         
-        % [TEMPLATE] Handle competing risks (e.g., if deceased but no LF recorded)
         if ismember('CauseOfDeath', T.Properties.VariableNames)
             cod = T.CauseOfDeath{i_find};
             if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
@@ -114,7 +95,6 @@ T = readtable(clinical_data_sheet,'Sheet','Clin List_MR');
             end
         end
         lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
-        % Take the later of local or regional censor dates
         censor_date(j) = max(T.LocalFailureDateOfLocalFailureOrCensor(i_find),T.RegionalFailureDateOfRegionalFailureOrCensor(i_find));
         rtstartdate(j) = T.RTStartDate(i_find);
         rtenddate(j) = T.RTStopDate(i_find);
@@ -1440,10 +1420,13 @@ if sum(is_high_risk) > 0 && sum(~is_high_risk) > 0
     legend({'High Risk', 'Low Risk'}, 'Location', 'SouthWest');
     
     % Perform log-rank test approximation via univariate Cox regression
-    [~, ~, ~, stats] = coxphfit(is_high_risk, times_km, 'Censoring', ~events_km);
-    p_val_km = stats.p;
-    
-    title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)\nLog-Rank p = %.4f', fx_label, dtype_label, p_val_km);
+    try
+        [~, ~, ~, stats] = coxphfit(double(is_high_risk), times_km, 'Censoring', ~events_km);
+        p_val_km = stats.p;
+        title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)\nLog-Rank p = %.4f', fx_label, dtype_label, p_val_km);
+    catch
+        title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)\nLog-Rank p = NaN (Fit Failed)', fx_label, dtype_label);
+    end
 else
     fprintf('Warning: Risk groups are degenerate. Skipping KM stratification.\n');
     title_str = sprintf('Kaplan-Meier (LOOCV): Stratified by Multivariable Risk Score (%s) (%s)', fx_label, dtype_label);
@@ -1451,7 +1434,7 @@ end
 xlabel('Time to Local Failure (Days)', 'FontSize', 12);
 ylabel('Local Control Probability', 'FontSize', 12);
 title(title_str, 'FontSize', 14);
-grid on; axis([0 max(times)+50 0 1.05]);
+grid on; axis([0 max(times_km)+50 0 1.05]);
 saveas(gcf, fullfile(output_folder, ['Kaplan_Meier_' fx_label '_' dtype_label '.png']));
 close(gcf);
 
@@ -1598,7 +1581,8 @@ for p = 1:2
             case 2 % D
                 opts = struct(); opts.bthr = 100;
                 slice_dwi = dwi_img(:,:,z_slice,:);
-                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                slice_dwi = cat(3, slice_dwi, slice_dwi); % Bypass MATLAB 3D singleton drop
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 2);
                 ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
                 slice_map = squeeze(ivim_fit(:,:,1,1));
                 slice_map(slice_map < 0) = 0; 
@@ -1606,7 +1590,8 @@ for p = 1:2
             case 3 % f
                 opts = struct(); opts.bthr = 100;
                 slice_dwi = dwi_img(:,:,z_slice,:);
-                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                slice_dwi = cat(3, slice_dwi, slice_dwi); % Bypass MATLAB 3D singleton drop
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 2);
                 ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
                 slice_map = squeeze(ivim_fit(:,:,1,3));
                 slice_map(slice_map < 0) = 0;
@@ -1614,7 +1599,8 @@ for p = 1:2
             case 4 % D*
                 opts = struct(); opts.bthr = 100;
                 slice_dwi = dwi_img(:,:,z_slice,:);
-                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 1);
+                slice_dwi = cat(3, slice_dwi, slice_dwi); % Bypass MATLAB 3D singleton drop
+                mask_ivim = true(size(slice_dwi,1), size(slice_dwi,2), 2);
                 ivim_fit = IVIMmodelfit(slice_dwi, bvals, "seg", mask_ivim, opts);
                 slice_map = squeeze(ivim_fit(:,:,1,4));
                 slice_map(slice_map < 0) = 0;
@@ -1815,23 +1801,23 @@ for vi = 1:n_sig
     curr_sig_name = sig_names{vi};
     if sig_is_abs(vi), var_desc = 'Absolute'; else, var_desc = 'Continuous Delta'; end
 
-    valid_cox = ~isnan(curr_sig_pct_full) & ~isnan(times) & ~isnan(events);
-    cox_times = times(valid_cox);
-    cox_events = events(valid_cox);
+    valid_cox = ~isnan(curr_sig_pct_full) & ~isnan(times_km) & ~isnan(events_km);
+    cox_times = times_km(valid_cox);
+    cox_events = events_km(valid_cox);
     cox_biomarker = curr_sig_pct_full(valid_cox);
 
     if sum(valid_cox) > 5
         warning('error', 'stats:coxphfit:FitWarning');
         warning('error', 'stats:coxphfit:IterationLimit');
         try
-            % Define survival response for competing risks
-            y_cox_surv = survival(cox_times, cox_events, 'EventValues', [1, 2]);
-            mdl_univar = fitcox(cox_biomarker, y_cox_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+            % Treat competing risks as censored for standard Cox
+            is_censored = (cox_events ~= 1);
+            mdl_univar = fitcox(cox_biomarker, cox_times, 'Censoring', is_censored, 'TieBreakMethod', 'breslow');
             
-            b = mdl_univar.Coefficients.Estimate;
+            b = mdl_univar.Coefficients.Beta;
             stats.se = mdl_univar.Coefficients.SE;
             stats.p = mdl_univar.Coefficients.pValue;
-            stats.sschres = residuals(mdl_univar, 'Schoenfeld');
+            stats.sschres = mdl_univar.Residuals.ScaledSchoenfeld;
             logl = mdl_univar.LogLikelihood;
             is_firth = false;
         catch ME
@@ -1918,10 +1904,10 @@ if sum(valid_unbiased) > 5
     unbiased_events = events_km;
     warning('error', 'stats:coxphfit:FitWarning');
     try
-        y_unbiased_surv = survival(unbiased_times(valid_unbiased), unbiased_events(valid_unbiased), 'EventValues', [1, 2]);
-        mdl_unbiased = fitcox(risk_scores_all(valid_unbiased), y_unbiased_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        is_censored = (unbiased_events(valid_unbiased) ~= 1);
+        mdl_unbiased = fitcox(risk_scores_all(valid_unbiased), unbiased_times(valid_unbiased), 'Censoring', is_censored, 'TieBreakMethod', 'breslow');
         
-        b_unbiased = mdl_unbiased.Coefficients.Estimate;
+        b_unbiased = mdl_unbiased.Coefficients.Beta;
         logl_true = mdl_unbiased.LogLikelihood;
         stats_unbiased.se = mdl_unbiased.Coefficients.SE;
         stats_unbiased.p = mdl_unbiased.Coefficients.pValue;
@@ -2061,7 +2047,8 @@ if sum(valid_unbiased) > 5
                 mdl_null = fitglm(risk_scores_perm_all(valid_idx), e_perm(valid_idx), 'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior');
                 logl_null(p_i) = mdl_null.LogLikelihood;
             else
-                [~, logl_iter, ~, ~] = coxphfit(risk_scores_perm_all(valid_idx), t_perm(valid_idx), 'Censoring', ~e_perm(valid_idx), 'Options', statset('MaxIter', 100));
+                is_censored_perm = (e_perm(valid_idx) ~= 1);
+                [~, logl_iter, ~, ~] = coxphfit(risk_scores_perm_all(valid_idx), t_perm(valid_idx), 'Censoring', is_censored_perm, 'Options', statset('MaxIter', 100));
                 logl_null(p_i) = logl_iter;
             end
         catch
@@ -2145,12 +2132,13 @@ else
         % This prevents the Fine-Gray subdistribution hazard's artificial risk-set inflation.
         event_td_csh = event_td;
         event_td_csh(event_td_csh == 2) = 0;
-        y_td_surv = survival(t_start_td, t_stop_td, event_td_csh);
+        T_td = [t_start_td, t_stop_td];
+        is_censored = (event_td_csh == 0);
         
         % Fit Cause-Specific Hazard (CSH) model specifically for the primary event (1)
-        mdl_td = fitcox(X_td_global, y_td_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        mdl_td = fitcox(X_td_global, T_td, 'Censoring', is_censored, 'Ties', 'breslow');
         
-        b_td        = mdl_td.Coefficients.Estimate;
+        b_td        = mdl_td.Coefficients.Beta;
         logl_td     = mdl_td.LogLikelihood;
         stats_td.se = mdl_td.Coefficients.SE;
         stats_td.p  = mdl_td.Coefficients.pValue;
@@ -2191,8 +2179,9 @@ else
 
     % ---- Likelihood-ratio test vs. null model (no covariates) -----------
     try
+        is_censored_null = (event_td == 0);
         [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
-            'Censoring', ~event_td, 'Ties', 'breslow', ...
+            'Censoring', is_censored_null, 'Ties', 'breslow', ...
             'Options', statset('MaxIter', 100));
         LRT_stat = 2 * (logl_td - logl_null_td);
         LRT_p    = 1 - chi2cdf(LRT_stat, td_n_feat);
@@ -2326,11 +2315,13 @@ for p_idx = 1:n_vp
             keep_inner = filter_collinear_features(inner_X_train, inner_pat_event_train, inner_frac_train);
             
             try
+                is_censored_inner_tr = (inner_E_train ~= 1);
                 [b_in, logl_in] = coxphfit(inner_X_train(:, keep_inner), [inner_t_start(tr_mask), inner_t_stop(tr_mask)], ...
-                    'Censoring', ~inner_event(tr_mask), 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+                    'Censoring', is_censored_inner_tr, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
                 
+                is_censored_inner_all = (inner_event(tr_mask | te_mask) ~= 1);
                 [~, logl_all] = coxphfit(inner_X_scaled_tr(tr_mask | te_mask, keep_inner), [inner_t_start(tr_mask | te_mask), inner_t_stop(tr_mask | te_mask)], ...
-                    'Censoring', ~inner_event(tr_mask | te_mask), 'Ties', 'breslow', 'Init', b_in, 'Options', statset('MaxIter', 0));
+                    'Censoring', is_censored_inner_all, 'Ties', 'breslow', 'Init', b_in, 'Options', statset('MaxIter', 0));
                 inner_logl_k = inner_logl_k + (logl_all - logl_in);
             catch
                 % pass
@@ -2401,9 +2392,10 @@ for p_idx = 1:n_vp
     
     try
         % Define survival response for competing risks
-        y_train_surv = survival(T_start_train, T_stop_train, E_train, 'EventValues', [1, 2]);
-        mdl_loo = fitcox(X_train, y_train_surv, 'EventOfInterest', 1, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
-        b_loo = mdl_loo.Coefficients.Estimate;
+        T_train_cox = [T_start_train, T_stop_train];
+        is_censored_train = (E_train ~= 1);
+        mdl_loo = fitcox(X_train, T_train_cox, 'Censoring', is_censored_train, 'Ties', 'breslow', 'Options', statset('MaxIter', 100));
+        b_loo = mdl_loo.Coefficients.Beta;
     catch
         try
             unique_train_pats = unique(pat_id_td(train_mask));
@@ -2736,10 +2728,10 @@ try
             warning('error', 'stats:coxphfit:FitWarning');
             warning('error', 'stats:coxphfit:IterationLimit');
             try
-                y_final_surv = survival(y_time, y_event, 'EventValues', [1, 2]);
-                mdl_final = fitcox([x_biomarker, x_vol], y_final_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+                is_censored = (y_event ~= 1);
+                mdl_final = fitcox([x_biomarker, x_vol], y_time, 'Censoring', is_censored, 'Ties', 'breslow');
                 
-                b = mdl_final.Coefficients.Estimate;
+                b = mdl_final.Coefficients.Beta;
                 logl = mdl_final.LogLikelihood;
                 stats.se = mdl_final.Coefficients.SE;
                 stats.p = mdl_final.Coefficients.pValue;
@@ -2994,4 +2986,6 @@ warning('on', 'all');
 fprintf('\n=== Completed DWI Type %d: %s ===\n', dtype, dtype_label);
 end % for dtype
 diary off
+calculated_results = struct('id_list', {id_list}, 'lf', lf, 'lf_date', lf_date, 'censor_date', censor_date, 'total_time', total_time, 'total_follow_up_time', total_follow_up_time);
+end
 

@@ -2,11 +2,8 @@
 description: Runs the DWI Workflow
 ---
 
-1. Add dependencies folder to Matlab PATH
-2. Run load_dwi_data_forAvery.m
-3. Run test.m
-4. Run test_mask_loading.m
-5. Run test_corr_filter.m
-6. Run sanity_checks.m
-7. Run visualize_results.m
-8. Run metrics.m
+1. Verify that `config.json` exists in the workspace root. 
+2. Use the `mcp_matlab-mcp_evaluate_matlab_code` tool to run the pipeline.
+   - `project_path`: `c:\Users\karlina1\Desktop\pancData3`
+   - `code`: `run_dwi_pipeline('config.json')`
+3. Run tests using the `mcp_matlab-mcp_run_matlab_file` tool on `c:\Users\karlina1\Desktop\pancData3\run_all_tests.m`.

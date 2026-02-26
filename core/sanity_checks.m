@@ -1,5 +1,15 @@
-%% sanity_checks.m — "Understand the Data" (Validation & Sanity Checking)
-%
+function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics)
+% SANITY_CHECKS — "Understand the Data" (Validation & Sanity Checking)
+is_valid = true;
+validation_msg = 'Passed';
+
+id_list = summary_metrics.id_list;
+mrn_list = summary_metrics.mrn_list;
+adc_mean = summary_metrics.adc_mean;
+d_mean = summary_metrics.d_mean;
+f_mean = summary_metrics.f_mean;
+dstar_mean = summary_metrics.dstar_mean;
+d95_gtvp = summary_metrics.d95_gtvp;
 % Run this script AFTER loading the saved workspace from
 % load_dwi_data_forAvery.m (i.e., after the "reload saved result" and
 % "pull in maps and compute longitudinal metrics" sections have executed).
@@ -245,3 +255,13 @@ fprintf('\n======================================================\n');
 fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');
 diary off
+
+if align_issues == 0
+    is_valid = true;
+    validation_msg = sprintf('Passed all alignment checks. %d convergence warnings.', conv_issues);
+else
+    % We treat alignment mismatch as invalidating the run
+    is_valid = false;
+    validation_msg = sprintf('Failed %d alignment checks.', align_issues);
+end
+end

@@ -1,25 +1,7 @@
-%% visualize_results.m — "Visualizing It" (Generating Plots)
+function visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct)
+% VISUALIZE_RESULTS — "Visualizing It" (Generating Plots)
 %
-% Run this script AFTER loading the saved workspace from
-% load_dwi_data_forAvery.m (i.e., after the "reload saved result" and
-% "pull in maps and compute longitudinal metrics" sections have executed).
-%
-% Required workspace variables:
-%   data_vectors_gtvp  – struct array [nPat x nTp x nDwiType] with per-voxel
-%                        ADC, D, f, D* and dose vectors inside the GTV
-%   id_list            – cell array of patient folder-name identifiers
-%   mrn_list           – cell array of medical-record-number strings
-%   lf                 – binary vector (0 = Local Control, 1 = Local Failure)
-%   adc_mean, d_mean, f_mean, dstar_mean
-%                      – [nPat x nTp x nDwiType] summary arrays of mean
-%                        diffusion biomarkers per patient/timepoint/DWI type
-%   d95_gtvp, dmean_gtvp
-%                      – [nPat x nTp] RT Dose coverage metrics (D95 and
-%                        mean dose) sampled on the GTV mask
-%   dataloc            – root path to patient data folders
-%   (and NIfTI helpers on the MATLAB path: load_untouch_nii, fit_adc_mono)
-%
-% This script generates three families of visualizations:
+% This function generates three families of visualizations:
 %   1. Parameter Maps overlaid on Anatomy
 %      – ADC maps computed from the Fx1 DWI volume, overlaid on the b=0
 %        anatomical image with the GTV contour
@@ -29,6 +11,18 @@
 %   3. Scatter Plots for Dose–Diffusion Correlation
 %      – RT Dose (mean GTV dose and D95) plotted against diffusion
 %        metrics to identify clusters, thresholds, or linear trends
+
+% Extract required variables
+id_list = summary_metrics.id_list;
+mrn_list = summary_metrics.mrn_list;
+lf = summary_metrics.lf;
+adc_mean = summary_metrics.adc_mean;
+d_mean = summary_metrics.d_mean;
+f_mean = summary_metrics.f_mean;
+dstar_mean = summary_metrics.dstar_mean;
+d95_gtvp = summary_metrics.d95_gtvp;
+dmean_gtvp = summary_metrics.dmean_gtvp;
+dataloc = config_struct.dataloc;
 
 fprintf('\n======================================================\n');
 fprintf('  VISUALIZE RESULTS — Generating Plots\n');
@@ -54,12 +48,9 @@ nPat = length(id_list);
 fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
 
 % Build a logical mask identifying patients with usable clinical and
-% imaging data.  If a previous script (e.g. metrics.m) already created
-% valid_pts, reuse it; otherwise require a finite LF label and a
+% imaging data.  Require a finite LF label and a
 % non-NaN baseline ADC value (Standard DWI, Fx1).
-if ~exist('valid_pts','var')
-    valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,1));
-end
+valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,1));
 % Subset the outcome labels to the valid patients for later grouping
 lf_group = lf(valid_pts);
 
@@ -406,3 +397,4 @@ fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');
 diary off
+end
