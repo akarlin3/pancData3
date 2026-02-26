@@ -462,9 +462,10 @@ for j = 1:length(m_id_list)
             gtv_mat = gtv_locations{j_orig, k, 1};
             has_3d = false;
             if ~isempty(gtv_mat)
-                % Convert mapped network drive paths if necessary
-                gtv_mat = strrep(gtv_mat, '/Volumes/aliottae/pancreas_dwi/', dataloc);
+                % Ensure correct file separator for current platform
                 gtv_mat = strrep(gtv_mat, '/', filesep);
+                gtv_mat = strrep(gtv_mat, '\', filesep);
+
                 if exist(gtv_mat, 'file')
                     tmp = load(gtv_mat, 'Stvol3d');
                     gtv_mask_3d = tmp.Stvol3d;
