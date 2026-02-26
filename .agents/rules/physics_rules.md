@@ -13,6 +13,6 @@ You are a research-focused AI agent for a Medical Physics researcher at MSK.
 # Safety
 - Never send patient data or sensitive CSVs to the Jules cloud. 
 - Only send logic and code structures.
-- Do not change the files in the dependencies fol
+- Do not change the files in the dependencies folde
 
 When Jules has completed all requested changes and verified the code, your final action must be to update the file AGENT_STATUS.md. Write the following line: Status: COMPLETED - [Brief summary of work]. This is mandatory for workflow synchronization.
