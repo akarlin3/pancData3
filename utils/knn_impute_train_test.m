@@ -1,4 +1,4 @@
-function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te)
+function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te, target_cols)
 % knn_impute_train_test Imputes missing data safely for cross-validation
 %
 % Integrates robust K-Nearest Neighbors (KNN) imputation ensuring that the
@@ -7,6 +7,10 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 %
 % Also prevents temporal data leakage by excluding rows from the same patient 
 % during distance calculation if pat_id_tr/pat_id_te are provided.
+%
+% target_cols (optional): Indices or logical mask of columns to exclude from
+%                         distance computation (e.g., survival outcomes).
+    if nargin < 6, target_cols = []; end
     if nargin < 3, k = 5; end
     if nargin < 2, X_te = []; end
     if nargin < 4, pat_id_tr = []; end
@@ -35,6 +39,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 
                 if ~is_same_row && ~is_same_patient
                     valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
+                    if ~isempty(target_cols)
+                        valid_feat(target_cols) = false;
+                    end
                     if sum(valid_feat) > 0
                         % Euclidean distance normalized by mutually observed features
                         dist(j) = sqrt(sum((Z_tr(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
@@ -71,6 +78,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     
                     if ~is_same_patient
                         valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
+                        if ~isempty(target_cols)
+                            valid_feat(target_cols) = false;
+                        end
                         if sum(valid_feat) > 0
                             dist(j) = sqrt(sum((Z_te(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
                         end
