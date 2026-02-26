@@ -50,12 +50,29 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
         for fj = fi+1:n_feats
             if drop_idx(fj), continue; end
             if abs(R(fi, fj)) > 0.8
-                % Compute univariate significance for both features
-                p_fi = ranksum(X_corr(y_corr==0, fi), X_corr(y_corr==1, fi));
-                p_fj = ranksum(X_corr(y_corr==0, fj), X_corr(y_corr==1, fj));
+                % Compute univariate C-index against binary target for both features.
+                % We use ROC AUC for binary targets, taking max(AUC, 1-AUC) 
+                % to measure predictive magnitude irrespective of direction.
                 
-                % Drop the feature that is less significant (higher p-value)
-                if p_fj >= p_fi
+                valid_fi = ~isnan(X_corr(:, fi)) & ~isnan(y_corr);
+                if sum(valid_fi) > 2
+                    [~, ~, ~, auc_fi] = perfcurve(y_corr(valid_fi), X_corr(valid_fi, fi), 1);
+                    c_idx_fi = max(auc_fi, 1 - auc_fi);
+                else
+                    c_idx_fi = 0.5;
+                end
+                
+                valid_fj = ~isnan(X_corr(:, fj)) & ~isnan(y_corr);
+                if sum(valid_fj) > 2
+                    [~, ~, ~, auc_fj] = perfcurve(y_corr(valid_fj), X_corr(valid_fj, fj), 1);
+                    c_idx_fj = max(auc_fj, 1 - auc_fj);
+                else
+                    c_idx_fj = 0.5;
+                end
+                
+                % Drop the feature that has weaker predictive power (lower C-index)
+                % Ties drop the latter feature by default
+                if c_idx_fj <= c_idx_fi
                     drop_idx(fj) = true;
                     % Keep looking for other features to drop for fi
                 else

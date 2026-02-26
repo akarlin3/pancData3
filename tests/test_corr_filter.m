@@ -20,9 +20,9 @@ function test_corr_filter()
     n = 50;
     y = [zeros(n/2, 1); ones(n/2, 1)];
     
-    % F1: Very significant
+    % F1: Very predictive (high C-index)
     f1 = [randn(n/2, 1); randn(n/2, 1) + 2];
-    % F2: Highly correlated with F1, but less significant
+    % F2: Highly correlated with F1, but weaker C-index
     f2 = f1 + 0.5*randn(n, 1) + 0.5;
     
     X = [f1, f2];
@@ -40,7 +40,7 @@ function test_corr_filter()
     figure('Name', 'Correlation Filter Test Data');
     scatter(f1(y==0), f2(y==0), 50, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
     scatter(f1(y==1), f2(y==1), 50, 'r', 'filled', 'MarkerEdgeColor', 'k');
-    xlabel('F1 (More Significant)'); ylabel('F2 (Correlated)');
+    xlabel('F1 (Stronger C-index)'); ylabel('F2 (Correlated)');
     title(sprintf('Correlation Filter Mock Data (r=%.2f)', R(1,2)));
     legend('LC', 'LF', 'Location', 'best');
     grid on;
@@ -49,7 +49,7 @@ function test_corr_filter()
     
     % Verify the drop state
     if ~any(keep_idx == 2) && any(keep_idx == 1)
-        fprintf('SUCCESS: Shared function dropped less significant feature F2.\n');
+        fprintf('SUCCESS: Shared function dropped feature F2 with weaker C-index.\n');
     else
         diary off;
         set(0, 'DefaultFigureVisible', old_vis);

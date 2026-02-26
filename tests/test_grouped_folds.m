@@ -16,8 +16,9 @@ fprintf('Running test_grouped_folds...\n\n');
 try
     % 3 patients, each with 2 rows (simulating start-stop format)
     ids = {'P1'; 'P1'; 'P2'; 'P2'; 'P3'; 'P3'};
+    y = [1; 0; 0; 0; 1; 1];
     rng(0);
-    fold_id = make_grouped_folds(ids, 3);
+    fold_id = make_grouped_folds(ids, y, 3);
 
     % Each patient contributes 2 rows; both rows must share the same fold.
     assert(fold_id(1) == fold_id(2), 'P1 rows must share a fold');
@@ -35,8 +36,9 @@ end
 % -----------------------------------------------------------------------
 try
     ids = {'A'; 'A'; 'B'; 'C'; 'C'; 'D'; 'D'; 'D'; 'E'};
+    y = zeros(length(ids), 1);
     rng(1);
-    fold_id = make_grouped_folds(ids, 5);
+    fold_id = make_grouped_folds(ids, y, 5);
 
     assert(min(fold_id) == 1,           'Minimum fold ID must be 1');
     assert(max(fold_id) == 5,           'Maximum fold ID must equal k');
@@ -50,13 +52,14 @@ catch e
 end
 
 % -----------------------------------------------------------------------
-%  3. k is clamped when n_folds > n_unique_patients
+%  3. k is clamped when n_folds > min_class_count or n_unique
 % -----------------------------------------------------------------------
 try
     % 2 unique patients, request 5 folds -> should give 2 folds at most
     ids = {'X'; 'X'; 'Y'; 'Y'};
+    y = [1; 0; 0; 0];
     rng(2);
-    fold_id = make_grouped_folds(ids, 5);
+    fold_id = make_grouped_folds(ids, y, 5);
 
     actual_k = max(fold_id);
     assert(actual_k <= 2, sprintf('Actual folds (%d) must be <= n_unique_patients (2)', actual_k));
@@ -82,8 +85,9 @@ try
         end
     end
     ids = ids(:);  % column cell array
+    y = randi([0 1], length(ids), 1);
 
-    fold_id = make_grouped_folds(ids, 5);
+    fold_id = make_grouped_folds(ids, y, 5);
     assert(all(fold_id ~= 0), 'Every row must receive a valid fold ID');
     assert(numel(fold_id) == numel(ids), 'Output length must match input length');
     fprintf('[PASS] test_no_unassigned_rows\n');
@@ -94,24 +98,36 @@ catch e
 end
 
 % -----------------------------------------------------------------------
-%  5. Cross-sectional data (one row per patient) — verify grouping matches
-%     a standard k-fold partition exactly in terms of patient isolation
+%  5. Stratification test (minority class spread)
 % -----------------------------------------------------------------------
 try
     rng(4);
-    n = 20;
-    ids = arrayfun(@(i) sprintf('S%02d', i), 1:n, 'UniformOutput', false)';
-    fold_id = make_grouped_folds(ids, 5);
-
-    % With one row per patient, each fold should have ~n/5 = 4 patients
-    for f = 1:5
-        n_in_fold = sum(fold_id == f);
-        assert(n_in_fold >= 1, sprintf('Fold %d must be non-empty', f));
+    n = 10;
+    ids = cell((n*2), 1);
+    y = zeros((n*2), 1);
+    
+    for i=1:n
+        ids{2*i - 1} = sprintf('S%02d', i);
+        ids{2*i} = sprintf('S%02d', i);
     end
-    fprintf('[PASS] test_cross_sectional_one_row_per_patient\n');
+    
+    % Only patient S01 and S02 have an event
+    y(1:2) = 1; % S01
+    y(3:4) = 1; % S02
+    
+    % We have 10 patients, 2 events. Limit to 2 folds so stratification places 1 event per fold.
+    fold_id = make_grouped_folds(ids, y, 2);
+    
+    s01_fold = fold_id(1);
+    s02_fold = fold_id(3);
+    
+    assert(s01_fold ~= s02_fold, 'Events were clustered in the same fold rather than stratified');
+    assert(max(fold_id) == 2, 'K should have clamped/succeeded down to 2');
+    
+    fprintf('[PASS] test_stratified_spread\n');
     n_pass = n_pass + 1;
 catch e
-    fprintf('[FAIL] test_cross_sectional_one_row_per_patient: %s\n', e.message);
+    fprintf('[FAIL] test_stratified_spread: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 

@@ -28,7 +28,7 @@ Helper scripts for specific data processing and modeling tasks:
 
 ### `tests/`
 Contains an extensive suite of MATLAB tests simulating scenarios and asserting correctness of statistical models and data transformations:
-- **`TestDwiPipeline.m`**: Comprehensive tests covering imputation bounds, leakage, IPCW weighting, competing risks analysis, and feature space matching.
+- **`test_dwi_pipeline.m`**: Comprehensive tests covering imputation bounds, leakage, IPCW weighting, competing risks analysis, and feature space matching.
 - **`test_corr_filter.m`**: Validates correlation pruning logic.
 - **`test_grouped_folds.m`**: Asserts no data leakage occurs across generated folds.
 - **`test_knn_temporal_leakage.m`**: Confirms KNN imputation enforces infinite distances for rows originating from the same patient.

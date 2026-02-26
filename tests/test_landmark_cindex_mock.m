@@ -1,5 +1,12 @@
 % test_landmark_cindex_mock.m
 % Generate some mock data for the Landmark validation logic
+
+% Add necessary paths
+baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
+addpath(fullfile(baseDir, 'core'));
+addpath(fullfile(baseDir, 'utils'));
+addpath(fullfile(baseDir, 'dependencies'));
+
 rng(42);
 clc;
 n_vp = 40;
