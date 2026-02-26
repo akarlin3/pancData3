@@ -55,6 +55,7 @@ valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,1));
 lf_group = lf(valid_pts);
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');
 %  1. PARAMETER MAPS OVERLAID ON ANATOMY
 %  For each patient with Fx1 data available, load the DWI volume, compute
 %  the ADC map via monoexponential fit, and display three panels per
@@ -213,6 +214,7 @@ else
 end
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
 %  2. DISTRIBUTIONS OF EXTRACTED FEATURES
 %  For each DWI processing pipeline (Standard, dnCNN, IVIMnet):
 %    2a. Histograms — overlay Local-Control vs Local-Failure distributions
@@ -313,6 +315,7 @@ close(gcf);
 fprintf('  Histograms and box plots generated for ADC, D, f, D* (%s).\n', dtype_label);
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 3: Scatter Plots for Dose Correlation ---\n');
 %  3. SCATTER PLOTS FOR DOSE–DIFFUSION CORRELATION
 %  For each diffusion metric (ADC, D, f) plot it against two dose
 %  endpoints — Mean GTV Dose and D95 — to explore potential dose–response

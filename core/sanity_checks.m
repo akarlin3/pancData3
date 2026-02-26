@@ -59,6 +59,7 @@ nTp  = size(adc_mean, 2);         % number of timepoints (typically 6: Fx1–Fx5
 fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 1: Verify Convergence ---\n');
 %  1. VERIFY CONVERGENCE
 %  Iterate over every patient × timepoint and inspect the per-voxel
 %  vectors produced by the IVIM / ADC model fits.  Non-physical values
@@ -123,6 +124,7 @@ else
 end
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 2: Identify Missingness & Outliers ---\n');
 %  2. IDENTIFY MISSINGNESS & OUTLIERS
 %  2a. Missingness — For each summary metric and fraction, count how many
 %      patients have NaN values (i.e., missing or failed acquisitions).
@@ -203,6 +205,7 @@ else
 end
 
 %% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 3: Data Alignment (RT Dose <-> DWI) ---\n');
 %  3. DATA ALIGNMENT
 %  For each patient and fraction, compare the number of voxels in the
 %  dose vector with the number in the ADC vector (both sampled on the

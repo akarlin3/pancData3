@@ -82,11 +82,8 @@ skip_to_reload = config_struct.skip_to_reload;
 ivim_bthr = config_struct.ivim_bthr;
 
 %% ========================================================================
+fprintf('\n--- SECTION 1: File Discovery ---\n');
 %  SECTION 1 — FILE DISCOVERY
-%  Scan the network share to locate all patient folders, DWI DICOM
-%  directories, GTV masks, nodal GTV masks, and RT dose folders.
-%  Results are stored in cell arrays indexed by (patient, fraction, repeat).
-%  ========================================================================
 
 if ~skip_to_reload
 
@@ -303,18 +300,8 @@ for j=1:length(patlist)
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 2: DICOM-to-NIFTI Conversion, Model Fitting, & Data Extraction ---\n');
 %  SECTION 2 — DICOM-TO-NIFTI CONVERSION, MODEL FITTING & DATA EXTRACTION
-%  For each patient × fraction × repeat scan:
-%    1. Convert DWI DICOMs to NIfTI using dcm2niix
-%    2. Save GTV masks (.mat → .nii.gz)
-%    3. Resample RT dose onto DWI geometry
-%    4. Load NIfTI volumes, extract b-values, sort by b-value
-%    5. Fit ADC (monoexponential) and IVIM (segmented biexponential) models
-%    6. Optionally process DnCNN-denoised and IVIMnet pipeline variants
-%    7. Extract voxel-level biomarker vectors within GTV masks
-%    8. Compute DVH parameters (Dmean, D95, V50Gy)
-%    9. Store results in data_vectors_gtvp / data_vectors_gtvn structs
-%  ========================================================================
 
 % I use two executables (non matlab functions_ which need to be at the
 % following two locations. You can adjust these two directories to wherever
@@ -919,10 +906,8 @@ end
 delete(h);  % close waitbar
 
 %% ========================================================================
+fprintf('\n--- SECTION 3: Save Results ---\n');
 %  SECTION 3 — SAVE RESULTS
-%  Back up any existing save file (with today's date) and persist the
-%  workspace variables needed for downstream analysis.
-%  ========================================================================
 
 datasave = [dataloc 'dwi_vectors.mat'];
 % Create a date-stamped backup before overwriting
@@ -939,10 +924,8 @@ fprintf('saved %s\n',datasave);
 end % if ~skip_to_reload
 
 %% ========================================================================
+fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
 %  SECTION 4 — RELOAD SAVED DATA
-%  Entry point for downstream analysis scripts. Load the previously saved
-%  .mat file so Sections 1-3 can be skipped.
-%  ========================================================================
 
 % Set platform-dependent data path (Windows UNC vs macOS mount)
 if ispc
@@ -955,19 +938,8 @@ datasave = [dataloc 'dwi_vectors.mat'];
 load(datasave);
 
 %% ========================================================================
+fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
-%  Compute per-patient, per-timepoint summary statistics from the loaded
-%  voxel-level data vectors:
-%    - Mean, kurtosis, skewness, SD of ADC, D, f, D*
-%    - Sub-volume metrics (voxels below ADC / D thresholds)
-%    - Histogram distributions and two-sample KS tests vs baseline
-%    - Corruption flags (fraction of voxels with ADC > 3×10⁻³ mm²/s)
-%    - Repeatability metrics from Fx1 repeat scans (for wCV estimation)
-%  Three DWI processing pipelines are compared:
-%    dwi_type 1 = standard (raw DWI)
-%    dwi_type 2 = DnCNN-denoised + conventional IVIM fit
-%    dwi_type 3 = IVIMnet deep-learning IVIM fit
-%  ========================================================================
 
 % ADC threshold for identifying "restricted diffusion" sub-volume
 % (1.15×10⁻³ mm²/s, per Muraoka et al. 2013)

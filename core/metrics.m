@@ -29,6 +29,7 @@ dwi_locations = summary_metrics.dwi_locations;
 nTp = size(adc_mean, 2);
 
 %% ========================================================================
+fprintf('\n--- SECTION 1: Repeatability Analysis ---\n');
 %  SECTION 1: Repeatability — Within-Subject Coefficient of Variation (wCV)
 % =========================================================================
 % wCV quantifies scan-rescan reproducibility. It is defined as:
@@ -66,6 +67,7 @@ fprintf('f     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2
 fprintf('Dstar wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',nanmean(dstar_wCV(:,1))*100,char(177),nanstd(dstar_wCV(:,1))*100,nanmean(dstar_wCV(:,2))*100,char(177),nanstd(dstar_wCV(:,2))*100,nanmean(dstar_wCV(:,3))*100,char(177),nanstd(dstar_wCV(:,3))*100)
 
 %% ========================================================================
+fprintf('\n--- SECTION 2: Load Clinical Outcome Data ---\n');
 %  SECTION 2: Load Clinical Outcome Data
 % =========================================================================
 % Reads the master clinical spreadsheet to extract:
@@ -135,6 +137,7 @@ else
     dl_provenance.ivimnet_train_ids = {};
 end
 %% ========================================================================
+fprintf('\n--- SECTION 3: Pipeline Setup ---\n');
 %  SECTION 3: Pipeline Setup — Output Folder, Diary, and Figure Defaults
 % =========================================================================
 % Configure DWI processing type labels, create output directory for saved
@@ -154,6 +157,7 @@ if ~exist('nTp', 'var') || isempty(nTp)
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 4: Baseline Data Completeness Check ---\n');
 %  SECTION 4: Baseline Data Completeness Check
 % =========================================================================
 % Report patients missing Fx1 (pretreatment) ADC or GTV volume.
@@ -176,6 +180,7 @@ for j = 1:length(id_list)
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 5: Longitudinal Metric Plotting ---\n');
 %  SECTION 5: Longitudinal Metric Plotting (per DWI processing type)
 % =========================================================================
 % For each DWI type (Standard, dnCNN, IVIMnet):
@@ -405,6 +410,7 @@ saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.
 close(gcf);
 
 %% ========================================================================
+fprintf('\n--- SECTION 6: Target Coverage (Sub-Volume Dose Metrics) ---\n');
 %  SECTION 6: Target Coverage — Sub-Volume Dose Metrics (D95, V50)
 % =========================================================================
 % For each patient and timepoint, define treatment-resistant sub-volumes
@@ -538,6 +544,7 @@ for j = 1:length(m_id_list)
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 7: Univariate Analysis ---\n');
 %  SECTION 7: Univariate Analysis — Metric Sets vs Local Failure (Wilcoxon Rank-Sum)
 % =========================================================================
 % For each metric × timepoint combination, run a Wilcoxon rank-sum test comparing
@@ -666,6 +673,7 @@ for s = 1:length(metric_sets)
     close(gcf);
 end
 %% ========================================================================
+fprintf('\n--- SECTION 8: Compile and Export Significant Results ---\n');
 %  SECTION 8: Compile and Export All Significant (p < 0.05) Wilcoxon Rank-Sum Results
 % =========================================================================
 % Re-iterates through all metric sets and timepoints to collect every
@@ -740,6 +748,7 @@ else
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 9: FDR Correction ---\n');
 %  SECTION 9: FDR Correction — Per-Timepoint Benjamini-Hochberg
 % =========================================================================
 % BH is applied INDEPENDENTLY for each timepoint. Pooling across timepoints
@@ -798,6 +807,7 @@ if ~isempty(sig_pval)
 end
 
 %% ========================================================================
+fprintf('\n--- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 %  SECTION 10: Per-Timepoint Analysis Loop (Fx2 and Fx3)
 % =========================================================================
 % For each target fraction (Fx2, Fx3), this loop performs:
