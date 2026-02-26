@@ -353,15 +353,14 @@ lf = zeros(size(mrn_list));      % local failure (1 = yes)
 immuno = zeros(size(mrn_list));  % received immunotherapy (1 = yes)
 
 % Track problematic DWI acquisitions for manual review
-bad_dwi_locations = cell(1);
-bad_dwi_count = 0;
-
-h = waitbar(0,'loading dwi data');
+bad_dwi_locations_per_patient = cell(length(mrn_list), 1);
 
 % --- Main processing loop: iterate over patients ---
-for j = 1:length(mrn_list)
+parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
     fprintf('\n******* MRN: %s\n',mrn);
+    
+    bad_dwi_list_j = {};
 
     % Per-patient DIR reference: populated at Fx1, reused at Fx2+
     b0_fx1_ref        = [];   % b=0 volume at baseline fraction
@@ -430,8 +429,7 @@ for j = 1:length(mrn_list)
                     nfiles_after = length(dir(outloc));
                     if (nfiles_after - nfiles_before) ~=4
                         fprintf('!!!! incorrect number of DWI files generated for %s... need to fix!\n',fx_id);
-                        bad_dwi_count = bad_dwi_count+1;
-                        bad_dwi_locations{bad_dwi_count} = dicomloc;
+                        bad_dwi_list_j{end+1} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -442,8 +440,8 @@ for j = 1:length(mrn_list)
             % Stvol3d is the 3-D binary mask variable stored in the .mat file
             if ~isempty(struct_file)
                 if ~exist([outloc gtvname '.nii.gz'],'file')
-                    load(struct_file);
-                    gtv_mask = Stvol3d;
+                    tmp = load(struct_file);
+                    gtv_mask = tmp.Stvol3d;
                     niftiwrite(rot90(double(gtv_mask),-1),[outloc gtvname],'Compressed',true);
                 end
             end
@@ -451,8 +449,8 @@ for j = 1:length(mrn_list)
             % --- Save GTVn (nodal) mask as NIfTI, if present ---
             if ~isempty(struct_file_gtvn)
                 if ~exist([outloc gtvn_name '.nii.gz'],'file')
-                    load(struct_file_gtvn);
-                    gtvn_mask = Stvol3d;
+                    tmp = load(struct_file_gtvn);
+                    gtvn_mask = tmp.Stvol3d;
                     niftiwrite(rot90(double(gtvn_mask),-1),[outloc gtvn_name],'Compressed',true);
                 end
             end
@@ -518,8 +516,7 @@ for j = 1:length(mrn_list)
                     fprintf('bvalue file not found!\n');
                     havedwi = 0;
                     if bad_dwi_found==0
-                        bad_dwi_count = bad_dwi_count+1;
-                        bad_dwi_locations{bad_dwi_count} = dicomloc;
+                        bad_dwi_list_j{end+1} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -528,8 +525,7 @@ for j = 1:length(mrn_list)
                     fprintf('DWI does not have expected dimensions found: %s skipping\n',mat2str(size(dwi)))
                     havedwi = 0;
                     if bad_dwi_found==0
-                        bad_dwi_count = bad_dwi_count+1;
-                        bad_dwi_locations{bad_dwi_count} = dicomloc;
+                        bad_dwi_list_j{end+1} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -556,7 +552,11 @@ for j = 1:length(mrn_list)
                 ivimnet_file = [basefolder '/ivimnet/' ivimid];
                 if exist(ivimnet_file,'file')
                     % Loads D_ivimnet, f_ivimnet, Dstar_ivimnet, S0_ivimnet
-                    load(ivimnet_file);
+                    tmp = load(ivimnet_file);
+                    D_ivimnet = tmp.D_ivimnet;
+                    f_ivimnet = tmp.f_ivimnet;
+                    Dstar_ivimnet = tmp.Dstar_ivimnet;
+                    S0_ivimnet = tmp.S0_ivimnet;
                     haveivimnet=1;
                 end
             end
@@ -893,10 +893,13 @@ for j = 1:length(mrn_list)
             end
         end
     end
-    h = waitbar(j/length(mrn_list));  % update progress bar
+    bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
+    fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
 end
 
-delete(h);  % close waitbar
+% Flatten bad_dwi_locations
+bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
+bad_dwi_count = length(bad_dwi_locations);
 
 %% ========================================================================
 fprintf('\n--- SECTION 3: Save Results ---\n');
