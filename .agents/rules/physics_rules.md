@@ -15,4 +15,4 @@ You are a research-focused AI agent for a Medical Physics researcher at MSK.
 - Only send logic and code structures.
 - Do not change the files in the dependencies folde
 
-When Jules has completed all requested changes and verified the code, your final action must be to update the file AGENT_STATUS.md. Write the following line: Status: COMPLETED - [Brief summary of work]. This is mandatory for workflow synchronization.
+When Jules has completed all requested changes and verified the code, your final action must be to update the file .agents/agent_status.md. Write the following line: Status: COMPLETED - [Brief summary of work]. This is mandatory for workflow synchronization.
