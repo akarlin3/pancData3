@@ -1,6 +1,14 @@
 function run_dwi_pipeline(config_path, steps_to_run)
 % RUN_DWI_PIPELINE Master orchestrator function for the DWI analysis pipeline
 %
+% [ORCHESTRATOR PATTERN]:
+% This function acts as the central controller for the DWI analysis workflow.
+% Instead of monolithic scripts, the pipeline is broken down into modular steps
+% (Load -> Sanity -> Metrics -> Visualize). The orchestrator manages:
+%   1. Data Flow: Passing outputs from one module as inputs to the next.
+%   2. Error Handling: Catching exceptions and halting execution gracefully.
+%   3. Environment: Setting up paths and verifying dependencies dynamically.
+%
 % Usage:
 %   run_dwi_pipeline('config.json');
 %   run_dwi_pipeline('config.json', {'load', 'sanity', 'metrics', 'visualize'});
@@ -15,12 +23,16 @@ function run_dwi_pipeline(config_path, steps_to_run)
 % and includes error handling to halt execution if checks fail.
     % --- Initialization Block ---
     % 1) Dynamically add folders to the MATLAB path
+    % This ensures that helper functions in 'core', 'utils', and 'dependencies'
+    % are accessible regardless of the current working directory.
     pipeline_dir = fileparts(mfilename('fullpath'));
     addpath(fullfile(pipeline_dir, 'core'));
     addpath(fullfile(pipeline_dir, 'utils'));
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     % 2) Programmatically check for required toolboxes
+    % The pipeline relies on specific toolboxes (Stats, Image).
+    % Verification prevents obscure runtime errors deep within the code.
     if ~license('test', 'Statistics_Toolbox')
         error('InitializationError:MissingToolbox', ...
             'The "Statistics and Machine Learning Toolbox" is required but not installed or licensed.');
@@ -45,6 +57,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
     fprintf('=======================================================\n');
 
     % Step 1: Parse configuration
+    % Reads the JSON configuration file to determine input/output paths
+    % and analysis parameters.
     try
         fprintf('[1/5] Parsing configuration from %s... ', config_path);
         config_struct = parse_config(config_path);
@@ -56,6 +70,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
     end
 
     % Step 2: Load DWI Data
+    % Calls core/load_dwi_data.m to process raw DICOMs or reload pre-processed data.
+    % If successful, returns structured data arrays for downstream analysis.
     if ismember('load', steps_to_run)
         try
             fprintf('[2/5] Loading DWI data... \n');
@@ -93,6 +109,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
     end
 
     % Step 3: Sanity Checks
+    % Validates data integrity (checking for NaNs, Infs, spatial alignment issues).
+    % Prevents garbage-in-garbage-out by halting if critical checks fail.
     if ismember('sanity', steps_to_run)
         try
             fprintf('[3/5] Running sanity checks... ');
@@ -119,6 +137,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
     end
 
     % Step 4: Calculate Metrics
+    % Computes statistical metrics (survival analysis, feature selection,
+    % longitudinal trending) on the validated data.
     if ismember('metrics', steps_to_run)
         try
             fprintf('[4/5] Calculating metrics... ');
@@ -154,6 +174,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
     end
 
     % Step 5: Visualize Results
+    % Generates plots, reports, and visual summaries of the analysis.
+    % Errors here are non-fatal to preserve the calculated results.
     if ismember('visualize', steps_to_run)
         try
             fprintf('\n[5/5] Visualizing results...\n');

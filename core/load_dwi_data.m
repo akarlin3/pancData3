@@ -72,6 +72,10 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 % and saving) and jump directly to Section 4 (reload saved data).
 % This is useful when the .mat save file already exists and you only want
 % to re-run the downstream analysis (Section 5).
+% [CHECKPOINTING STRATEGY]:
+% If skip_to_reload is TRUE, the script bypasses raw data discovery and processing,
+% assuming 'dwi_vectors.mat' is present. This allows rapid iteration on 
+% statistical metrics (Section 5) without re-running expensive DICOM conversions.
 skip_to_reload = config_struct.skip_to_reload;
 
 % b-value threshold (s/mm²) used for segmented IVIM fitting.
@@ -355,12 +359,95 @@ immuno = zeros(size(mrn_list));  % received immunotherapy (1 = yes)
 % Track problematic DWI acquisitions for manual review
 bad_dwi_locations_per_patient = cell(length(mrn_list), 1);
 
+% Checkpoint directory setup
+checkpoint_dir = fullfile(dataloc, 'processed_patients');
+if ~isfolder(checkpoint_dir)
+    mkdir(checkpoint_dir);
+end
+
+% Scan for existing checkpoints to identify completed patients
+patient_completed = false(size(mrn_list));
+for j = 1:length(mrn_list)
+    mrn = mrn_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    if exist(checkpoint_file, 'file')
+        patient_completed(j) = true;
+    end
+end
+
 % --- Main processing loop: iterate over patients ---
+% [PARALLELIZATION STRATEGY]:
+% Iterates over patients (j) in parallel using parfor. Since patients are 
+% statistically independent units, this is embarrassingly parallel.
+% Output variables (data_vectors_gtvp/n, summary arrays) are sliced variables,
+% meaning each worker writes to a specific index (j,:,:), preventing race conditions.
+% 'bad_dwi_locations_per_patient' accumulates errors per worker and is flattened later.
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
+    
+    if patient_completed(j)
+        fprintf('Skipping patient %d/%d (MRN %s) - already processed.\n', j, length(mrn_list), mrn);
+        continue;
+    end
+
     fprintf('\n******* MRN: %s\n',mrn);
     
     bad_dwi_list_j = {};
+
+    % Localized output variables for this patient iteration
+    pat_data_vectors_gtvp = struct;
+    pat_data_vectors_gtvn = struct;
+    pat_dmean_gtvp = nan(1, size(dwi_locations, 2));
+    pat_dmean_gtvn = nan(1, size(dwi_locations, 2));
+    pat_d95_gtvp = nan(1, size(dwi_locations, 2));
+    pat_d95_gtvn = nan(1, size(dwi_locations, 2));
+    pat_v50gy_gtvp = nan(1, size(dwi_locations, 2));
+    pat_v50gy_gtvn = nan(1, size(dwi_locations, 2));
+    pat_adc_mean = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_adc_kurtosis = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_d_mean = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_d_kurtosis = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_d_mean_dncnn = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_d_mean_ivimnet = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+
+    % Initialize potential fields to ensure struct consistency
+    for fi=1:size(dwi_locations,2)
+        for rpi=1:size(dwi_locations,3)
+            % GTVp fields
+            pat_data_vectors_gtvp(fi,rpi).adc_vector = [];
+            pat_data_vectors_gtvp(fi,rpi).d_vector = [];
+            pat_data_vectors_gtvp(fi,rpi).f_vector = [];
+            pat_data_vectors_gtvp(fi,rpi).dstar_vector = [];
+            pat_data_vectors_gtvp(fi,rpi).dose_vector = [];
+            pat_data_vectors_gtvp(fi,rpi).dvh = [];
+            pat_data_vectors_gtvp(fi,rpi).d95 = [];
+            pat_data_vectors_gtvp(fi,rpi).v50gy = [];
+            pat_data_vectors_gtvp(fi,rpi).d_vector_dncnn = [];
+            pat_data_vectors_gtvp(fi,rpi).f_vector_dncnn = [];
+            pat_data_vectors_gtvp(fi,rpi).dstar_vector_dncnn = [];
+            pat_data_vectors_gtvp(fi,rpi).adc_vector_dncnn = [];
+            pat_data_vectors_gtvp(fi,rpi).d_vector_ivimnet = [];
+            pat_data_vectors_gtvp(fi,rpi).f_vector_ivimnet = [];
+            pat_data_vectors_gtvp(fi,rpi).dstar_vector_ivimnet = [];
+            
+            % GTVn fields
+            pat_data_vectors_gtvn(fi,rpi).adc_vector = [];
+            pat_data_vectors_gtvn(fi,rpi).d_vector = [];
+            pat_data_vectors_gtvn(fi,rpi).f_vector = [];
+            pat_data_vectors_gtvn(fi,rpi).dstar_vector = [];
+            pat_data_vectors_gtvn(fi,rpi).dose_vector = [];
+            pat_data_vectors_gtvn(fi,rpi).dvh = [];
+            pat_data_vectors_gtvn(fi,rpi).d95 = [];
+            pat_data_vectors_gtvn(fi,rpi).v50gy = [];
+            pat_data_vectors_gtvn(fi,rpi).d_vector_dncnn = [];
+            pat_data_vectors_gtvn(fi,rpi).f_vector_dncnn = [];
+            pat_data_vectors_gtvn(fi,rpi).dstar_vector_dncnn = [];
+            pat_data_vectors_gtvn(fi,rpi).adc_vector_dncnn = [];
+            pat_data_vectors_gtvn(fi,rpi).d_vector_ivimnet = [];
+            pat_data_vectors_gtvn(fi,rpi).f_vector_ivimnet = [];
+            pat_data_vectors_gtvn(fi,rpi).dstar_vector_ivimnet = [];
+        end
+    end
 
     % Per-patient DIR reference: populated at Fx1, reused at Fx2+
     b0_fx1_ref        = [];   % b=0 volume at baseline fraction
@@ -369,8 +456,8 @@ parfor j = 1:length(mrn_list)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
     i_pat = find(contains(strrep(T.Pat,'_','-'),strrep(id_list{j},'_','-')));
-    immuno(j) = T.Immuno(i_pat(1));
-    lf(j) = T.LF(i_pat(1));
+    pat_immuno = T.Immuno(i_pat(1));
+    pat_lf = T.LF(i_pat(1));
 
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
@@ -615,6 +702,18 @@ parfor j = 1:length(mrn_list)
                 % Segmented IVIM fit: b < bthr separates perfusion from diffusion.
                 % b >= bthr used to estimate D (true tissue diffusion),
                 % b < bthr used to estimate f and D* (pseudo-diffusion).
+                % [PHYSICS EXPLANATION]:
+                % The Intravoxel Incoherent Motion (IVIM) model describes signal decay as:
+                % S/S0 = f * exp(-b * D*) + (1-f) * exp(-b * D)
+                % where:
+                %   D  = True diffusion coefficient (thermal Brownian motion)
+                %   f  = Perfusion fraction (volume fraction of capillaries)
+                %   D* = Pseudo-diffusion coefficient (blood flow velocity)
+                % 
+                % Segmented Fitting Approach:
+                % 1. Fit D using only high b-values (>= bthr), where perfusion contribution is negligible.
+                %    Approximation: S ~ (1-f) * exp(-b * D)  => log(S) linear vs b
+                % 2. Fix D, then fit f and D* using all b-values (or low b-values).
                 opts = [];
                 opts.bthr = ivim_bthr; % set in USER OPTIONS (default 200 s/mm2; clinical standard for abdominal IVIM)
 
@@ -640,6 +739,12 @@ parfor j = 1:length(mrn_list)
                 end
 
                 % Monoexponential ADC fit — log-linear OLS on active voxels only.
+                % [PHYSICS EXPLANATION]:
+                % Apparent Diffusion Coefficient (ADC) assumes a simple mono-exponential decay:
+                % S = S0 * exp(-b * ADC)
+                % Linearized form: ln(S/S0) = -b * ADC
+                % Solved via Ordinary Least Squares (OLS) on the log-signal.
+                %
                 % Pre-filtering to voxels with all-positive signal prevents the
                 % log-linear operation from freezing on large zero-signal backgrounds.
                 adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];
@@ -726,7 +831,8 @@ parfor j = 1:length(mrn_list)
                             gtv_mask_for_dvh = gtv_mask_warped;
                             % Cache mask + displacement field to disk
                             D_forward = D_forward_cur;  ref3d = ref3d_cur; %#ok<NASGU>
-                            save(dir_cache_file, 'gtv_mask_warped', 'D_forward', 'ref3d');
+                            % Use helper function to save within parfor loop (transparency fix)
+                            parsave_dir_cache(dir_cache_file, gtv_mask_warped, D_forward, ref3d);
                             fprintf('  [DIR] Done. Warped mask + D_forward saved.\n');
                         else
                             fprintf('  [DIR] Registration failed for Fx%d rpi%d. Falling back to rigid dose/mask.\n', fi, rpi);
@@ -765,26 +871,26 @@ parfor j = 1:length(mrn_list)
             % --- Extract voxel-level biomarkers within GTVp ---
             if havegtvp
                 % Compute summary statistics within the primary GTV
-                adc_mean(j,fi,rpi) = nanmean(adc_map(gtv_mask==1));
+                pat_adc_mean(1,fi,rpi) = nanmean(adc_map(gtv_mask==1));
                 % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-                adc_kurtosis(j,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
+                pat_adc_kurtosis(1,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
 
-                d_mean(j,fi,rpi) = nanmean(d_map(gtv_mask==1));
+                pat_d_mean(1,fi,rpi) = nanmean(d_map(gtv_mask==1));
                 % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                d_kurtosis(j,fi,rpi) = kurtosis(d_map(gtv_mask==1));
+                pat_d_kurtosis(1,fi,rpi) = kurtosis(d_map(gtv_mask==1));
 
                 % Store voxel-level vectors and metadata in the output struct
-                data_vectors_gtvp(j,fi,rpi).adc_vector = adc_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).d_vector = d_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).f_vector = f_map(gtv_mask==1);
-                data_vectors_gtvp(j,fi,rpi).dstar_vector = dstar_map(gtv_mask==1);    
-                data_vectors_gtvp(j,fi,rpi).ID = id_list{j};
-                data_vectors_gtvp(j,fi,rpi).MRN = mrn_list{j};
-                data_vectors_gtvp(j,fi,rpi).LF = lf(j);
-                data_vectors_gtvp(j,fi,rpi).Immuno = immuno(j);
-                data_vectors_gtvp(j,fi,rpi).Fraction = fi;
-                data_vectors_gtvp(j,fi,rpi).Repeatability_index = rpi;
-                data_vectors_gtvp(j,fi,rpi).vox_vol = dwi_vox_vol;
+                pat_data_vectors_gtvp(fi,rpi).adc_vector = adc_map(gtv_mask==1);
+                pat_data_vectors_gtvp(fi,rpi).d_vector = d_map(gtv_mask==1);
+                pat_data_vectors_gtvp(fi,rpi).f_vector = f_map(gtv_mask==1);
+                pat_data_vectors_gtvp(fi,rpi).dstar_vector = dstar_map(gtv_mask==1);    
+                pat_data_vectors_gtvp(fi,rpi).ID = id_list{j};
+                pat_data_vectors_gtvp(fi,rpi).MRN = mrn_list{j};
+                pat_data_vectors_gtvp(fi,rpi).LF = pat_lf;
+                pat_data_vectors_gtvp(fi,rpi).Immuno = pat_immuno;
+                pat_data_vectors_gtvp(fi,rpi).Fraction = fi;
+                pat_data_vectors_gtvp(fi,rpi).Repeatability_index = rpi;
+                pat_data_vectors_gtvp(fi,rpi).vox_vol = dwi_vox_vol;
 
                 % Store DnCNN-denoised biomarker vectors (pipeline variant 2).
                 % For fi > 1: the parameter maps have been warped to baseline
@@ -796,11 +902,11 @@ parfor j = 1:length(mrn_list)
                     if fi > 1 && ~isempty(gtv_mask_fx1_ref)
                         dncnn_mask_p = gtv_mask_fx1_ref;
                     end
-                    d_mean_dncnn(j,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
-                    data_vectors_gtvp(j,fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_p==1);
-                    data_vectors_gtvp(j,fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_p==1);
-                    data_vectors_gtvp(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_p==1);
-                    data_vectors_gtvp(j,fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_p==1);
+                    pat_d_mean_dncnn(1,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
+                    pat_data_vectors_gtvp(fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_p==1);
+                    pat_data_vectors_gtvp(fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_p==1);
+                    pat_data_vectors_gtvp(fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_p==1);
+                    pat_data_vectors_gtvp(fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_p==1);
                 end
 
                 % Store IVIMnet deep-learning fit vectors (pipeline variant 3)
@@ -810,43 +916,43 @@ parfor j = 1:length(mrn_list)
                     f_ivimnet = rot90(f_ivimnet);
                     Dstar_ivimnet = rot90(Dstar_ivimnet);
                     S0_ivimnet = rot90(S0_ivimnet);
-                    d_mean_ivimnet(j,fi,rpi) = nanmean(D_ivimnet(gtv_mask==1));
+                    pat_d_mean_ivimnet(1,fi,rpi) = nanmean(D_ivimnet(gtv_mask==1));
 
-                    data_vectors_gtvp(j,fi,rpi).d_vector_ivimnet = D_ivimnet(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).f_vector_ivimnet = f_ivimnet(gtv_mask==1);
-                    data_vectors_gtvp(j,fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtv_mask==1);
+                    pat_data_vectors_gtvp(fi,rpi).d_vector_ivimnet = D_ivimnet(gtv_mask==1);
+                    pat_data_vectors_gtvp(fi,rpi).f_vector_ivimnet = f_ivimnet(gtv_mask==1);
+                    pat_data_vectors_gtvp(fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtv_mask==1);
                 end
             end
 
             if havedose && havegtvp
-                dmean_gtvp(j,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
+                pat_dmean_gtvp(1,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 % DVH uses the strictly rigid dose against the DIR-warped daily GTV tissue mask
                 % so that dose correctly reflects the true static beam delivered to deformed anatomy.
                 [dvhparams, dvh_values] = dvh(dose_map_dvh, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
-                d95_gtvp(j,fi) = dvhparams.("D95% (Gy)");
-                v50gy_gtvp(j,fi) = dvhparams.("V50Gy (%)");
+                pat_d95_gtvp(1,fi) = dvhparams.("D95% (Gy)");
+                pat_v50gy_gtvp(1,fi) = dvhparams.("V50Gy (%)");
 
-                data_vectors_gtvp(j,fi,rpi).dose_vector = dose_map_dvh(gtv_mask_for_dvh==1);
-                data_vectors_gtvp(j,fi,rpi).dvh = dvh_values;
-                data_vectors_gtvp(j,fi,rpi).d95 = dvhparams.("D95% (Gy)");
-                data_vectors_gtvp(j,fi,rpi).v50gy = dvhparams.("V50Gy (%)");
+                pat_data_vectors_gtvp(fi,rpi).dose_vector = dose_map_dvh(gtv_mask_for_dvh==1);
+                pat_data_vectors_gtvp(fi,rpi).dvh = dvh_values;
+                pat_data_vectors_gtvp(fi,rpi).d95 = dvhparams.("D95% (Gy)");
+                pat_data_vectors_gtvp(fi,rpi).v50gy = dvhparams.("V50Gy (%)");
             end
 
             % --- Extract voxel-level biomarkers within GTVn (nodal GTV) ---
             % now collect gtvn info
             if havegtvn
-                data_vectors_gtvn(j,fi,rpi).adc_vector = adc_map(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).d_vector = d_map(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).f_vector = f_map(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).dstar_vector = dstar_map(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).ID = id_list{j};
-                data_vectors_gtvn(j,fi,rpi).MRN = mrn_list{j};
-                data_vectors_gtvn(j,fi,rpi).LF = lf(j);
-                data_vectors_gtvn(j,fi,rpi).Immuno = immuno(j);
-                data_vectors_gtvn(j,fi,rpi).Fraction = fi;
-                data_vectors_gtvn(j,fi,rpi).Repeatability_index = rpi;
-                data_vectors_gtvn(j,fi,rpi).vox_vol = dwi_vox_vol;
+                pat_data_vectors_gtvn(fi,rpi).adc_vector = adc_map(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).d_vector = d_map(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).f_vector = f_map(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).dstar_vector = dstar_map(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).ID = id_list{j};
+                pat_data_vectors_gtvn(fi,rpi).MRN = mrn_list{j};
+                pat_data_vectors_gtvn(fi,rpi).LF = pat_lf;
+                pat_data_vectors_gtvn(fi,rpi).Immuno = pat_immuno;
+                pat_data_vectors_gtvn(fi,rpi).Fraction = fi;
+                pat_data_vectors_gtvn(fi,rpi).Repeatability_index = rpi;
+                pat_data_vectors_gtvn(fi,rpi).vox_vol = dwi_vox_vol;
             end
 
             % Store DnCNN-denoised vectors for GTVn.
@@ -857,10 +963,10 @@ parfor j = 1:length(mrn_list)
                 if fi > 1 && ~isempty(gtvn_mask_fx1_ref)
                     dncnn_mask_n = gtvn_mask_fx1_ref;
                 end
-                data_vectors_gtvn(j,fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_n==1);
-                data_vectors_gtvn(j,fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_n==1);
-                data_vectors_gtvn(j,fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_n==1);
-                data_vectors_gtvn(j,fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_n==1);
+                pat_data_vectors_gtvn(fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_n==1);
+                pat_data_vectors_gtvn(fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_n==1);
+                pat_data_vectors_gtvn(fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_n==1);
+                pat_data_vectors_gtvn(fi,rpi).adc_vector_dncnn  = adc_map_dncnn(dncnn_mask_n==1);
             end
 
             % Store IVIMnet vectors for GTVn
@@ -871,30 +977,98 @@ parfor j = 1:length(mrn_list)
                 Dstar_ivimnet = rot90(Dstar_ivimnet);
                 S0_ivimnet = rot90(S0_ivimnet);
 
-                data_vectors_gtvn(j,fi,rpi).d_vector_ivimnet = D_ivimnet(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).f_vector_ivimnet = f_ivimnet(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).d_vector_ivimnet = D_ivimnet(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).f_vector_ivimnet = f_ivimnet(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).dstar_vector_ivimnet = Dstar_ivimnet(gtvn_mask==1);
             end
 
             % Compute DVH parameters within GTVn
             % Sample rigidly aligned dose map against the GTVn mask.
             if havedose && havegtvn
                 dose_map_dvh_n = dose_map;  % rigidly aligned dose
-                dmean_gtvn(j,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
+                pat_dmean_gtvn(1,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
-                d95_gtvn(j,fi) = dvhparams.("D95% (Gy)");
-                v50gy_gtvn(j,fi) = dvhparams.("V50Gy (%)");
+                pat_d95_gtvn(1,fi) = dvhparams.("D95% (Gy)");
+                pat_v50gy_gtvn(1,fi) = dvhparams.("V50Gy (%)");
 
-                data_vectors_gtvn(j,fi,rpi).dose_vector = dose_map_dvh_n(gtvn_mask==1);
-                data_vectors_gtvn(j,fi,rpi).dvh = dvh_values;
-                data_vectors_gtvn(j,fi,rpi).d95 = dvhparams.("D95% (Gy)");
-                data_vectors_gtvn(j,fi,rpi).v50gy = dvhparams.("V50Gy (%)");
+                pat_data_vectors_gtvn(fi,rpi).dose_vector = dose_map_dvh_n(gtvn_mask==1);
+                pat_data_vectors_gtvn(fi,rpi).dvh = dvh_values;
+                pat_data_vectors_gtvn(fi,rpi).d95 = dvhparams.("D95% (Gy)");
+                pat_data_vectors_gtvn(fi,rpi).v50gy = dvhparams.("V50Gy (%)");
             end
         end
     end
     bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
+    
+    % Collect output struct for checkpointing
+    pat_data_out = struct();
+    pat_data_out.data_vectors_gtvp = pat_data_vectors_gtvp;
+    pat_data_out.data_vectors_gtvn = pat_data_vectors_gtvn;
+    pat_data_out.dmean_gtvp = pat_dmean_gtvp;
+    pat_data_out.dmean_gtvn = pat_dmean_gtvn;
+    pat_data_out.d95_gtvp = pat_d95_gtvp;
+    pat_data_out.d95_gtvn = pat_d95_gtvn;
+    pat_data_out.v50gy_gtvp = pat_v50gy_gtvp;
+    pat_data_out.v50gy_gtvn = pat_v50gy_gtvn;
+    pat_data_out.adc_mean = pat_adc_mean;
+    pat_data_out.adc_kurtosis = pat_adc_kurtosis;
+    pat_data_out.d_mean = pat_d_mean;
+    pat_data_out.d_kurtosis = pat_d_kurtosis;
+    pat_data_out.d_mean_dncnn = pat_d_mean_dncnn;
+    pat_data_out.d_mean_ivimnet = pat_d_mean_ivimnet;
+    pat_data_out.lf = pat_lf;
+    pat_data_out.immuno = pat_immuno;
+    pat_data_out.bad_dwi_list = bad_dwi_list_j;
+    
+    % Save checkpoint
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    parsave_checkpoint(checkpoint_file, pat_data_out);
+    
     fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
+end
+
+% Reconstruct global arrays from checkpoints
+for j = 1:length(mrn_list)
+    mrn = mrn_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    
+    if exist(checkpoint_file, 'file')
+        % Load checkpoint
+        loaded_data = load(checkpoint_file);
+        
+        % Assign back to global arrays
+        % Struct arrays
+        data_vectors_gtvp(j,:,:) = loaded_data.data_vectors_gtvp;
+        data_vectors_gtvn(j,:,:) = loaded_data.data_vectors_gtvn;
+        
+        % Scalar/Vector arrays (patient x fraction)
+        dmean_gtvp(j,:) = loaded_data.dmean_gtvp;
+        dmean_gtvn(j,:) = loaded_data.dmean_gtvn;
+        d95_gtvp(j,:) = loaded_data.d95_gtvp;
+        d95_gtvn(j,:) = loaded_data.d95_gtvn;
+        v50gy_gtvp(j,:) = loaded_data.v50gy_gtvp;
+        v50gy_gtvn(j,:) = loaded_data.v50gy_gtvn;
+        
+        % Summary metrics (patient x fraction x repeat)
+        adc_mean(j,:,:) = loaded_data.adc_mean;
+        if isfield(loaded_data, 'adc_kurtosis')
+            adc_kurtosis(j,:,:) = loaded_data.adc_kurtosis;
+        end
+        d_mean(j,:,:) = loaded_data.d_mean;
+        if isfield(loaded_data, 'd_kurtosis')
+            d_kurtosis(j,:,:) = loaded_data.d_kurtosis;
+        end
+        d_mean_dncnn(j,:,:) = loaded_data.d_mean_dncnn;
+        d_mean_ivimnet(j,:,:) = loaded_data.d_mean_ivimnet;
+        
+        % Clinical data and tracking
+        lf(j) = loaded_data.lf;
+        immuno(j) = loaded_data.immuno;
+        bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
+    else
+        fprintf('Warning: No checkpoint found for patient %d (MRN %s) during reconstruction.\n', j, mrn);
+    end
 end
 
 % Flatten bad_dwi_locations
@@ -904,6 +1078,9 @@ bad_dwi_count = length(bad_dwi_locations);
 %% ========================================================================
 fprintf('\n--- SECTION 3: Save Results ---\n');
 %  SECTION 3 — SAVE RESULTS
+%  [CHECKPOINT]: Saves the output of the computationally intensive Section 2.
+%  This .mat file serves as the input for Section 4, allowing the pipeline
+%  to resume from here in future runs.
 
 datasave = fullfile(dataloc, 'dwi_vectors.mat');
 % Create a date-stamped backup before overwriting
@@ -922,6 +1099,8 @@ end % if ~skip_to_reload
 %% ========================================================================
 fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
 %  SECTION 4 — RELOAD SAVED DATA
+%  [ENTRY POINT]: If skip_to_reload=true, execution begins here.
+%  Loads the pre-processed 'dwi_vectors.mat' containing voxel-level data.
 
 % Set data path from configuration
 dataloc = config_struct.dataloc;
@@ -1275,4 +1454,8 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     save(summary_metrics_file, 'summary_metrics');
 end
 
+end
+
+function parsave_checkpoint(fname, data)
+    save(fname, '-struct', 'data');
 end
