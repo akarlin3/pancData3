@@ -251,20 +251,19 @@ m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
 % Defensive padding: ensure longitudinal arrays have nTp columns to prevent 
 % crashes during Post-RT (column 6) analysis when dose was only calculated 
-% for Fractions 1-5.
-long_vars = {'m_gtv_vol', 'm_d95_gtvp', 'm_v50gy_gtvp', 'dmean_gtvp'};
-for lv = 1:numel(long_vars)
-    vname = long_vars{lv};
-    if exist(vname, 'var')
-        curr_v = eval(vname);
-        % curr_v is [nPat x nTimepoints]
-        if size(curr_v, 2) < nTp
-            % Pad with NaNs
-            padding = nan(size(curr_v, 1), nTp - size(curr_v, 2));
-            curr_v = [curr_v, padding];
-            assignin('caller', vname, curr_v);
-        end
-    end
+% for Fractions 1-5. Direct access is faster than eval/assignin and avoids
+% disabling JIT optimizations.
+if size(m_gtv_vol, 2) < nTp
+    m_gtv_vol = [m_gtv_vol, nan(size(m_gtv_vol, 1), nTp - size(m_gtv_vol, 2))];
+end
+if size(m_d95_gtvp, 2) < nTp
+    m_d95_gtvp = [m_d95_gtvp, nan(size(m_d95_gtvp, 1), nTp - size(m_d95_gtvp, 2))];
+end
+if size(m_v50gy_gtvp, 2) < nTp
+    m_v50gy_gtvp = [m_v50gy_gtvp, nan(size(m_v50gy_gtvp, 1), nTp - size(m_v50gy_gtvp, 2))];
+end
+if size(dmean_gtvp, 2) < nTp
+    dmean_gtvp = [dmean_gtvp, nan(size(dmean_gtvp, 1), nTp - size(dmean_gtvp, 2))];
 end
 
 if exclude_missing_baseline
