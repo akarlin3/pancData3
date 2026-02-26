@@ -322,11 +322,8 @@ data_file = [dataloc 'adc_vectors.mat'];
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 
 % Initialise output struct arrays for GTVp (primary) and GTVn (nodal)
-data_vectors_gtvp = struct; %cell(1,4,length(fx_search),6);
-data_vectors_gtvn = struct; %cell(1,4,length(fx_search)-1);
-
-% dwi_vectors_gtvn = cell(1,4,6);
-% dose_vectors_gtvn = cell(1,4,6);
+data_vectors_gtvp = struct;
+data_vectors_gtvn = struct;
 
 % Pre-allocate summary metric arrays (patient × fraction × repeat)
 adc_mean = nan(size(dwi_locations));
