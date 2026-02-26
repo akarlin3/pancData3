@@ -1,52 +1,43 @@
 # pancData
 
-Analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) data, including IVIM model fitting, ADC computation, and correlation with RT dose maps.
+Analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) data, including IVIM model fitting, ADC computation, spatial Deep Learning denoising, and correlation with RT dose maps.
 
-## Scripts
+## Repository Structure & Scripts
 
-### `load_dwi_data_code/load_dwi_data_forAvery.m`
-Main pipeline script. Loads DICOM DWI data, fits ADC and IVIM models, extracts dose metrics, computes longitudinal biomarkers, and performs statistical analyses (ANOVA, ROC, Cox regression).
+### Root Directory
+- **`run_dwi_pipeline.m`**: The main orchestrator of the pipeline. It handles environment setup (adding paths, checking toolboxes), loads configurations, and subsequently calls modular processing steps.
+- **`run_all_tests.m`**: The master test runner for the MATLAB DWI pipeline. It automatically discovers and executes all class-based and function-based tests located in the `tests/` directory, outputting a formatted coverage report and asserting success for CI/CD environments.
+- **`config.json`** & **`config.example.json`**: Configuration files used by the pipeline to customize parameters such as data paths, feature selection criteria, and temporal groupings without modifying source code.
 
-### `load_dwi_data_code/sanity_checks.m`
-Data validation script ("Understand the Data"). Run after loading the workspace produced by the main pipeline. Performs:
-- **Verify Convergence** — checks all voxel-level ADC and IVIM fit outputs for `Inf`, `NaN`, and negative diffusion coefficients.
-- **Identify Missingness & Outliers** — summarises `NaN` patterns across patients/fractions and flags biomarker values that are extreme outliers (>3 IQR from the cohort median).
-- **Data Alignment** — confirms that RT Dose and DWI volumes are spatially consistent by comparing voxel counts and checking for excessive `NaN` fractions inside the GTV mask.
+### `core/`
+Contains the primary logic blocks for the DWI analysis:
+- **`load_dwi_data.m`**: Loads DICOM DWI data, applies Deep Learning denoising, fits ADC and IVIM models, extracts dose metrics, and builds the baseline clinical features.
+- **`sanity_checks.m`**: Validates data by checking convergence (identifying `NaN`, `Inf`, or negative outputs), summarizing missingness, outlining outliers, and confirming spatial alignment between Dose and DWI maps.
+- **`metrics.m`**: The main statistical engine. It evaluates repeatability, builds longitudinal data, handles temporal grouping, applies stabilized IPCW techniques for survival analysis, performs feature selection, and evaluates Competing Risks models (Cause-Specific Hazards) or Logistic Regression.
+- **`visualize_results.m`**: Generates visual outputs, including parameter maps overlaid on anatomical MRI, feature distributions by outcome, and longitudinal trajectories.
 
-### `load_dwi_data_code/visualize_results.m`
-Visualization script ("Visualizing It"). Run after loading the workspace produced by the main pipeline. Generates:
-- **Parameter Maps overlaid on Anatomy** — ADC maps displayed on top of b=0 anatomical MRI slices with GTV contours for representative patients.
-- **Distributions of Extracted Features** — histograms and box plots of baseline ADC, D, f, and D* grouped by clinical outcome (Local Control vs Local Failure).
-- **Scatter Plots for Dose Correlation** — RT Dose (mean and D95) plotted against diffusion metrics with Spearman correlation and linear trend lines.
+### `utils/`
+Helper scripts for specific data processing and modeling tasks:
+- **`parse_config.m`**: Parses `config.json` into MATLAB structs.
+- **`build_td_panel.m`**: Structures patients' longitudinal data into time-dependent panels.
+- **`scale_td_panel.m`**: Handles timepoint-specific feature scaling across varying fractions.
+- **`make_grouped_folds.m`**: Generates patient-stratified folds for grouped cross-validation, preventing intra-patient data leakage.
+- **`knn_impute_train_test.m`**: A specialized KNN imputer enforcing strict bounds against temporal leakage.
+- **`filter_collinear_features.m`**: Prunes highly collinear features before model fitting.
+- **`apply_dir_mask_propagation.m`**: Handles spatial deformations and rigid alignment.
 
-### `load_dwi_data_code/metrics.m`
-Statistical analysis script ("Quantitative Metrics & Outcome Analysis"). Run after loading the workspace produced by the main pipeline. Performs:
-- **Repeatability** — within-subject coefficient of variation (wCV) for ADC, D, f, and D* across repeat Fx1 scans.
-- **Clinical Outcome Loading** — reads the master spreadsheet to extract local failure status and time-to-event data for each patient.
-- **Longitudinal Visualization** — absolute and percent-change plots of diffusion biomarkers across fractions.
-- **DVH Sub-volume Analysis** — dose–volume histogram metrics for DWI-defined sub-volumes.
-- **Univariate Analysis** — ANOVA box plots comparing Local Control vs Local Failure at each fraction.
-- **Multiple-Comparison Corrections** — Benjamini-Hochberg FDR (full metric sweep) and Holm-Bonferroni FWER control.
-- **Feature Selection** — Elastic Net (α = 0.5) regularized logistic regression with 5-fold cross-validation and correlation pre-filtering (|r| > 0.8).
-- **ROC Analysis** — Youden's J optimal cutoff and AUC computation.
-- **Multivariable Logistic Regression** — with Firth penalized fallback for sparse data.
-- **Survival Analysis** — Leave-One-Out cross-validated Kaplan-Meier curves stratified by imaging biomarker risk group.
-- **Parametric Maps** — representative ADC map panels for responder vs non-responder patients.
+### `tests/`
+Contains an extensive suite of MATLAB tests simulating scenarios and asserting correctness of statistical models and data transformations:
+- **`TestDwiPipeline.m`**: Comprehensive tests covering imputation bounds, leakage, IPCW weighting, competing risks analysis, and feature space matching.
+- **`test_corr_filter.m`**: Validates correlation pruning logic.
+- **`test_grouped_folds.m`**: Asserts no data leakage occurs across generated folds.
+- **`test_knn_temporal_leakage.m`**: Confirms KNN imputation enforces infinite distances for rows originating from the same patient.
+- **`test_mask_loading.m`**: Checks target-constrained normalization logic and boundary padding.
+- **`test_normalization_logic.m`**, **`test_landmark_cindex.m`**, etc.: Specialized unit tests for various mathematical operations in the codebase.
 
-### `load_dwi_data_code/test.m`
-MATLAB test script for the statistical and analytical procedures in `metrics.m`. Run with:
-```matlab
-test
-```
-Covers:
-- **Benjamini-Hochberg FDR** — q-value computation, monotonicity, capping at 1, and edge cases.
-- **Holm-Bonferroni FWER** — threshold formula, step-down early-stop behavior, and boundary conditions.
-- **Correlation Pre-filtering** — drop/keep logic for |r| > 0.8, including negative correlation and chain-dropping.
-- **LOOCV Kaplan-Meier** — no data-leakage verification, training set size, and risk-assignment correctness.
-- **Elastic Net** — confirms α = 0.5 is used (not pure LASSO).
-- **All-Fractions Loop** — verifies the analysis iterates over all fractions (2 : nTp), not a hardcoded subset.
-- **Targeted FDR Removal** — confirms post-hoc cherry-picked sections have been removed.
-- **ADC Fitting via fit_adc_mono** — confirms `fit_adc_mono` is called instead of inline OLS.
-
-### `load_dwi_data_code/dependencies/`
-Utility functions used by the pipeline: NIfTI loaders, IVIM model fitting (segmented and Bayesian), ADC fitting, RT dose sampling, and DVH computation.
+### `dependencies/`
+External resources and third-party logic used directly by the pipeline:
+- NIfTI reading/writing scripts (`load_untouch_nii`, `load_nii_ext`, etc.).
+- Custom deep learning routines like `apply_dncnn_symmetric.m` for spatial denoising.
+- Script implementations for Intravoxel Incoherent Motion (IVIM) fitting (`IVIMmodelfit.m`, `IVIM_seg.m`, `IVIM_bayes.m`) and mono-exponential ADC (`fit_adc_mono.m`).
+- Functions for DVH processing (`dvh.m`, `sample_rtdose_on_image.m`).

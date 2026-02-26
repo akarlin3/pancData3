@@ -5,7 +5,7 @@ function config_struct = parse_config(json_path)
 %   config_struct = parse_config('config.json')
 
     if ~isfile(json_path)
-        error('Configuration file %s not found.', json_path);
+        error('Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
         raw_json = fileread(json_path);
