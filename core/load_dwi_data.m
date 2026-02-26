@@ -396,10 +396,6 @@ for j = 1:length(mrn_list)
                 dicomdoseloc = [];  % no dose for post-treatment scan
             end
 
-            % basefolder = '/Volumes/aliottae/pancreas_dwi/P2-TRM/';
-            % fxfolder = 'Fx1 - repeatability/';
-            % dicomloc = [basefolder fxfolder '/DWI/'];
-            % struct_file = [basefolder fxfolder 'ROI_GTV_20200821.mat'];
             outloc = [basefolder '/nii/'];   % output directory for NIfTI files
 
             % get the dwi file list (DICOM)
@@ -906,7 +902,7 @@ delete(h);  % close waitbar
 fprintf('\n--- SECTION 3: Save Results ---\n');
 %  SECTION 3 — SAVE RESULTS
 
-datasave = [dataloc 'dwi_vectors.mat'];
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
 % Create a date-stamped backup before overwriting
 if exist(datasave,'file')
     dt = datetime('now');
@@ -924,14 +920,10 @@ end % if ~skip_to_reload
 fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
 %  SECTION 4 — RELOAD SAVED DATA
 
-% Set platform-dependent data path (Windows UNC vs macOS mount)
-if ispc
-    dataloc = config_struct.dataloc;
-else
-    dataloc = '/Volumes/aliottae/pancreas_dwi/';
-end
+% Set data path from configuration
+dataloc = config_struct.dataloc;
 
-datasave = [dataloc 'dwi_vectors.mat'];
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
 load(datasave);
 
 %% ========================================================================
