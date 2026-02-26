@@ -10,6 +10,9 @@ function config_struct = parse_config(json_path)
     try
         raw_json = fileread(json_path);
         config_struct = jsondecode(raw_json);
+        if ~isfield(config_struct, 'use_checkpoints')
+            config_struct.use_checkpoints = false;
+        end
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         error('Failed to parse JSON configuration file: %s', ME.message);

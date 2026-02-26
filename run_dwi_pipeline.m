@@ -83,11 +83,22 @@ function run_dwi_pipeline(config_path)
     % Step 4: Calculate Metrics
     try
         fprintf('[4/5] Calculating metrics... ');
-        % NOTE: Assumes metrics.m accepts the validated data and original
-        % summary metrics, returning a struct of computed results.
-        % Adjust as needed based on the actual metrics.m signature.
-        calculated_results = metrics(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
-        fprintf('Done.\n');
+        metrics_file = fullfile(config_struct.dataloc, 'metrics_results.mat');
+        if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints && exist(metrics_file, 'file')
+            fprintf('  [CHECKPOINT] Found existing metrics_results.mat. Loading and skipping metrics computation...\n');
+            load(metrics_file, 'calculated_results');
+        else
+            % NOTE: Assumes metrics.m accepts the validated data and original
+            % summary metrics, returning a struct of computed results.
+            % Adjust as needed based on the actual metrics.m signature.
+            calculated_results = metrics(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
+            
+            if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+                fprintf('  [CHECKPOINT] Saving metrics_results.mat...\n');
+                save(metrics_file, 'calculated_results');
+            end
+            fprintf('Done.\n');
+        end
     catch ME
         fprintf('FAILED.\n');
         fprintf('Error during metrics calculation: %s\n', ME.message);
@@ -97,11 +108,22 @@ function run_dwi_pipeline(config_path)
     % Step 5: Visualize Results
     try
         fprintf('\n[5/5] Visualizing results...\n');
-        % NOTE: Assumes visualize_results.m accepts the raw data, summary metrics,
-        % calculated results, and configuration to produce plots.
-        % Adjust as needed based on the actual visualize_results.m signature.
-        visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
-        fprintf('      Done: Visualizations generated.\n');
+        vis_file = fullfile(config_struct.dataloc, 'visualizations_done.mat');
+        if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints && exist(vis_file, 'file')
+            fprintf('  [CHECKPOINT] Found existing visualizations_done.mat. Skipping visualization generation...\n');
+        else
+            % NOTE: Assumes visualize_results.m accepts the raw data, summary metrics,
+            % calculated results, and configuration to produce plots.
+            % Adjust as needed based on the actual visualize_results.m signature.
+            visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
+            
+            if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+                fprintf('  [CHECKPOINT] Saving visualizations_done.mat...\n');
+                vis_done = true;
+                save(vis_file, 'vis_done');
+            end
+            fprintf('      Done: Visualizations generated.\n');
+        end
     catch ME
         fprintf('FAILED (Non-Fatal).\n');
         fprintf('Error generating visualizations: %s\n', ME.message);

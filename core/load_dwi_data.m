@@ -941,6 +941,15 @@ load(datasave);
 fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
 
+summary_metrics_file = [dataloc 'summary_metrics.mat'];
+if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+    if exist(summary_metrics_file, 'file')
+        fprintf('  [CHECKPOINT] Found existing summary_metrics.mat. Loading and skipping metrics computation...\n');
+        load(summary_metrics_file, 'summary_metrics');
+        return;
+    end
+end
+
 % ADC threshold for identifying "restricted diffusion" sub-volume
 % (1.15×10⁻³ mm²/s, per Muraoka et al. 2013)
 adc_thresh = config_struct.adc_thresh; % https://pubmed.ncbi.nlm.nih.gov/23545001/
@@ -1268,4 +1277,10 @@ summary_metrics = struct('adc_mean', adc_mean, 'adc_kurt', adc_kurt, 'adc_skew',
     'id_list', {id_list}, 'mrn_list', {mrn_list}, 'd95_gtvp', d95_gtvp, 'v50gy_gtvp', v50gy_gtvp, 'lf', lf, 'immuno', immuno, ...
     'adc_mean_rpt', adc_mean_rpt, 'adc_sub_rpt', adc_sub_rpt, 'd_mean_rpt', d_mean_rpt, 'f_mean_rpt', f_mean_rpt, 'dstar_mean_rpt', dstar_mean_rpt, ...
     'n_rpt', n_rpt, 'dmean_gtvp', dmean_gtvp, 'gtv_locations', {gtv_locations}, 'dwi_locations', {dwi_locations});
+
+if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+    fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
+    save(summary_metrics_file, 'summary_metrics');
+end
+
 end

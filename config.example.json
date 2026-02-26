@@ -9,5 +9,6 @@
     "high_adc_thresh": 0.001,
     "min_vox_hist": 100,
     "adc_max": 0.003,
+    "use_checkpoints": true,
     "patient_ids": []
 }
