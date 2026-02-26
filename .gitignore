@@ -12,10 +12,21 @@ sfprj/
 *.dcm
 *.ima
 *.dcm.*
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.csv
+*.xlsx
+*.dicom
+*patient_data*
+*cohort*
 
 # Project Specific / PHI Protection
 saved_figures/
 mock_data/
+/data/
+/results/figures/
 
 # OS Specific
 .DS_Store
@@ -31,6 +42,11 @@ Thumbs.db
 .idea/
 *.swp
 *~
+.env
+venv/
+node_modules/
+__pycache__/
+*.log
 
 # Configuration
 config.json
