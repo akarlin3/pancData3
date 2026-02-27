@@ -589,6 +589,10 @@ figure_titles = {
 
 time_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};
 
+% Pre-allocate storage for p-values to avoid redundant computation later
+% Structure: p_val_store(set_index).p_vals(metric_index, timepoint_index)
+p_val_store = struct('p_vals', {});
+
 % Iterate through each set of metrics
 for s = 1:length(metric_sets)
     current_metrics = metric_sets{s};
@@ -606,6 +610,9 @@ for s = 1:length(metric_sets)
     end
     cols_to_plot = min(max_cols, length(time_labels));
     
+    % Initialize storage for this set
+    p_val_store(s).p_vals = nan(num_rows, cols_to_plot);
+
     plot_idx = 1;
     
     for m = 1:num_rows
@@ -635,6 +642,9 @@ for s = 1:length(metric_sets)
                 % Compute Wilcoxon rank-sum quietly
                 p = ranksum(y(g==0), y(g==1));
                 
+                % Store p-value for reuse
+                p_val_store(s).p_vals(m, tp) = p;
+
                 % Plot boxplot
                 boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
                 
@@ -696,30 +706,31 @@ for s = 1:length(metric_sets)
         cols_to_plot = min(size(metric_data, 2), length(time_labels));
         
         for tp = 1:cols_to_plot
-            % Extract data for this fraction and valid patients
-            y_raw = metric_data(valid_pts, tp);
-            has_data = ~isnan(y_raw);
-            y = y_raw(has_data);
-            g = lf_group(has_data);
+            % Retrieve stored p-value
+            if tp <= size(p_val_store(s).p_vals, 2)
+                p = p_val_store(s).p_vals(m, tp);
+            else
+                p = nan;
+            end
             
-            % Check if we have enough data in both groups
-            unique_groups = unique(g);
-            if length(unique_groups) > 1 && length(y) > 2
-                p = ranksum(y(g==0), y(g==1));
+            % Record the variable if it reaches statistical significance
+            if ~isnan(p) && p < 0.05
+                % Extract data for this fraction and valid patients for mean calculation
+                y_raw = metric_data(valid_pts, tp);
+                has_data = ~isnan(y_raw);
+                y = y_raw(has_data);
+                g = lf_group(has_data);
+
+                % Calculate group means for context
+                mean_LC = mean(y(g == 0), 'omitnan');
+                mean_LF = mean(y(g == 1), 'omitnan');
                 
-                % Record the variable if it reaches statistical significance
-                if p < 0.05
-                    % Calculate group means for context
-                    mean_LC = mean(y(g == 0), 'omitnan');
-                    mean_LF = mean(y(g == 1), 'omitnan');
-                    
-                    % Append to storage arrays
-                    sig_metric{end+1, 1} = current_names{m};
-                    sig_fraction{end+1, 1} = time_labels{tp};
-                    sig_pval(end+1, 1) = p;
-                    sig_mean_LC(end+1, 1) = mean_LC;
-                    sig_mean_LF(end+1, 1) = mean_LF;
-                end
+                % Append to storage arrays
+                sig_metric{end+1, 1} = current_names{m};
+                sig_fraction{end+1, 1} = time_labels{tp};
+                sig_pval(end+1, 1) = p;
+                sig_mean_LC(end+1, 1) = mean_LC;
+                sig_mean_LF(end+1, 1) = mean_LF;
             end
         end
     end
@@ -765,13 +776,15 @@ if ~isempty(sig_pval)
             current_metrics = metric_sets{s};
             current_names = set_names{s};
             for mi = 1:length(current_metrics)
-                metric_data = current_metrics{mi};
-                if tp > size(metric_data, 2), continue; end
-                y_raw = metric_data(valid_pts, tp);
-                g = lf_group(~isnan(y_raw));
-                y = y_raw(~isnan(y_raw));
-                if length(unique(g)) > 1 && length(y) > 2
-                    tp_pvals(end+1, 1)  = ranksum(y(g==0), y(g==1));
+                % Retrieve stored p-value
+                if tp <= size(p_val_store(s).p_vals, 2)
+                    p = p_val_store(s).p_vals(mi, tp);
+                else
+                    p = nan;
+                end
+
+                if ~isnan(p)
+                    tp_pvals(end+1, 1)  = p;
                     tp_labels{end+1, 1} = current_names{mi};
                 end
             end
