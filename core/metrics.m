@@ -41,11 +41,11 @@ fprintf('\n--- SECTION 1: Repeatability Analysis ---\n');
 
 % --- ADC repeatability (whole-GTV mean) ---
 adc_wCV = squeeze(nanstd(adc_mean_rpt,[],2))./squeeze(nanmean(adc_mean_rpt,2));
-adc_wCV(n_rpt<2) = nan;
+adc_wCV(n_rpt<2, :) = nan;
 
 % --- ADC repeatability (low-ADC subregion mean) ---
 adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,[],2))./squeeze(nanmean(adc_sub_rpt,2));
-adc_wCV_sub(n_rpt<2) = nan;
+adc_wCV_sub(n_rpt<2, :) = nan;
 
 % Print ADC wCV: whole-GTV and subregion, for Standard and dnCNN pipelines
 fprintf('ADC   wCV (whole gtv) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',nanmean(adc_wCV(:,1))*100,char(177),nanstd(adc_wCV(:,1))*100,nanmean(adc_wCV(:,2))*100,char(177),nanstd(adc_wCV(:,2))*100)
@@ -54,13 +54,13 @@ fprintf('ADC   wCV (subregion) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',nanmea
 % --- IVIM parameter repeatability (D, f, D*) ---
 % Each has 3 DWI types: Standard, dnCNN, IVIMnet
 d_wCV = squeeze(nanstd(d_mean_rpt,[],2))./squeeze(nanmean(d_mean_rpt,2));
-d_wCV(repmat(n_rpt,[1,3])<2) = nan;  % Mask patients with <2 repeats
+d_wCV(n_rpt<2, :) = nan;  % Mask patients with <2 repeats
 
 f_wCV = squeeze(nanstd(f_mean_rpt,[],2))./squeeze(nanmean(f_mean_rpt,2));
-f_wCV(repmat(n_rpt,[1,3])<2) = nan;
+f_wCV(n_rpt<2, :) = nan;
 
 dstar_wCV = squeeze(nanstd(dstar_mean_rpt,[],2))./squeeze(nanmean(dstar_mean_rpt,2));
-dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+dstar_wCV(n_rpt<2, :) = nan;
 
 % Print IVIM wCV for all three processing pipelines (char(177) = ± symbol)
 fprintf('D     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',nanmean(d_wCV(:,1))*100,char(177),nanstd(d_wCV(:,1))*100,nanmean(d_wCV(:,2))*100,char(177),nanstd(d_wCV(:,2))*100,nanmean(d_wCV(:,3))*100,char(177),nanstd(d_wCV(:,3))*100)
