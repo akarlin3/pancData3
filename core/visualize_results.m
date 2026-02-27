@@ -82,11 +82,11 @@ for j = 1:nPat
     end
     s = data_vectors_gtvp(j, 1, 1);
     if isempty(s.adc_vector), continue; end
-    basefolder = [dataloc id_list{j} '/'];
-    nii_path   = [basefolder '/nii/'];
-    if exist([nii_path 'fx1_dwi1.nii.gz'], 'file') && ...
-       exist([nii_path 'fx1_dwi1.bval'],   'file') && ...
-       exist([nii_path 'fx1_gtv1.nii.gz'], 'file')
+    basefolder = fullfile(dataloc, id_list{j});
+    nii_path   = fullfile(basefolder, 'nii');
+    if exist(fullfile(nii_path, 'fx1_dwi1.nii.gz'), 'file') && ...
+       exist(fullfile(nii_path, 'fx1_dwi1.bval'),   'file') && ...
+       exist(fullfile(nii_path, 'fx1_gtv1.nii.gz'), 'file')
         n_eligible = n_eligible + 1;
     end
 end
@@ -102,11 +102,11 @@ for j = 1:nPat
     if isempty(s.adc_vector), continue; end
 
     % Build file paths for the Fx1 DWI volume, b-value table, and GTV mask
-    basefolder = [dataloc id_list{j} '/'];
-    nii_path   = [basefolder '/nii/'];
-    dwi_file   = [nii_path 'fx1_dwi1.nii.gz'];
-    bval_file  = [nii_path 'fx1_dwi1.bval'];
-    gtv_file   = [nii_path 'fx1_gtv1.nii.gz'];
+    basefolder = fullfile(dataloc, id_list{j});
+    nii_path   = fullfile(basefolder, 'nii');
+    dwi_file   = fullfile(nii_path, 'fx1_dwi1.nii.gz');
+    bval_file  = fullfile(nii_path, 'fx1_dwi1.bval');
+    gtv_file   = fullfile(nii_path, 'fx1_gtv1.nii.gz');
 
     % All three files must exist on disk to proceed
     if ~exist(dwi_file, 'file') || ~exist(bval_file, 'file') || ~exist(gtv_file, 'file')
