@@ -25,6 +25,9 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             testCase.ConfigStruct.dcm2nii_call = 'dummy_dcm2niix';
             testCase.ConfigStruct.adc_thresh = 0.00115;
             testCase.ConfigStruct.high_adc_thresh = 0.001;
+            testCase.ConfigStruct.d_thresh = 0.001;
+            testCase.ConfigStruct.f_thresh = 0.1;
+            testCase.ConfigStruct.dstar_thresh = 0.01;
             testCase.ConfigStruct.min_vox_hist = 10; % Lowered for small mock
             testCase.ConfigStruct.adc_max = 3.0e-3;
             testCase.ConfigStruct.clinical_data_sheet = 'mock_sheet.xlsx';
