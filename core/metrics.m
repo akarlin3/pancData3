@@ -73,8 +73,8 @@ fprintf('\n--- SECTION 2: Load Clinical Outcome Data ---\n');
 %   - Local/regional failure status (binary: 0=LC, 1=LF)
 %   - Failure and censor dates for time-to-event analysis
 %   - RT start/stop dates for computing post-treatment intervals
-clinical_data_sheet = [dataloc 'MASTER_pancreas_DWIanalysis.xlsx'];
-T = readtable(clinical_data_sheet,'Sheet','Clin List_MR');
+clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
+T = readtable(clinical_data_sheet,'Sheet', config_struct.clinical_sheet_name);
 
 % Pre-allocate outcome arrays matched to the patient list
 lf = nan(length(id_list), 1);

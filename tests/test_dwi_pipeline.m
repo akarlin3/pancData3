@@ -1270,6 +1270,24 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'LOOCV loop must error on detected leakage to prevent optimistic bias');
         end
 
+        function testConfig_ClinicalDataSheet_NotHardcoded(testCase)
+            % metrics.m should use config_struct.clinical_data_sheet and clinical_sheet_name
+            fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'metrics.m'), 'r');
+            if fid == -1, code = ''; return; end
+            code = fread(fid, '*char')';
+            fclose(fid);
+
+            testCase.verifyTrue(~contains(code, '[dataloc ''MASTER_pancreas_DWIanalysis.xlsx'']'), ...
+            'Hardcoded clinical data sheet filename should be removed');
+            testCase.verifyTrue(contains(code, 'config_struct.clinical_data_sheet'), ...
+            'Should use config_struct.clinical_data_sheet');
+
+            testCase.verifyTrue(~contains(code, '''Sheet'',''Clin List_MR'''), ...
+            'Hardcoded clinical sheet name should be removed');
+            testCase.verifyTrue(contains(code, 'config_struct.clinical_sheet_name'), ...
+            'Should use config_struct.clinical_sheet_name');
+        end
+
     end
 end
 
