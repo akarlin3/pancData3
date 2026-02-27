@@ -83,8 +83,12 @@ censor_date = repmat(datetime(NaT), length(id_list), 1);
 rtstartdate = repmat(datetime(NaT), length(id_list), 1);
 rtenddate = repmat(datetime(NaT), length(id_list), 1);
 
+% Optimize performance by pre-processing keys once (O(N) instead of O(N^2))
+pat_normalized = strrep(T.Pat,'_','-');
+id_list_normalized = strrep(id_list,'_','-');
+
 for j = 1:length(id_list)
-    i_find = find(contains(strrep(T.Pat,'_','-'), strrep(id_list{j},'_','-')));
+    i_find = find(contains(pat_normalized, id_list_normalized{j}));
     if ~isempty(i_find)
         i_find = i_find(1);
         lf(j) = T.LocalOrRegionalFailure(i_find);
