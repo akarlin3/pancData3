@@ -1,5 +1,6 @@
 function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics)
 % SANITY_CHECKS — "Understand the Data" (Validation & Sanity Checking)
+% Author: Avery Karlin
 is_valid = true;
 validation_msg = 'Passed';
 
