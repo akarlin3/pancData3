@@ -45,42 +45,34 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
     n_feats = size(X, 2);
     drop_idx = false(1, n_feats);
     
+    % Pre-compute all C-indices to prevent redundant perfcurve calls
+    % This is an O(N) operation instead of O(N^2)
+    c_indices = 0.5 * ones(1, n_feats);
     for fi = 1:n_feats
-        if drop_idx(fi), continue; end
-        for fj = fi+1:n_feats
-            if drop_idx(fj), continue; end
-            if abs(R(fi, fj)) > 0.8
-                % Compute univariate C-index against binary target for both features.
-                % We use ROC AUC for binary targets, taking max(AUC, 1-AUC) 
-                % to measure predictive magnitude irrespective of direction.
-                
-                valid_fi = ~isnan(X_corr(:, fi)) & ~isnan(y_corr);
-                if sum(valid_fi) > 2
-                    [~, ~, ~, auc_fi] = perfcurve(y_corr(valid_fi), X_corr(valid_fi, fi), 1);
-                    c_idx_fi = max(auc_fi, 1 - auc_fi);
-                else
-                    c_idx_fi = 0.5;
-                end
-                
-                valid_fj = ~isnan(X_corr(:, fj)) & ~isnan(y_corr);
-                if sum(valid_fj) > 2
-                    [~, ~, ~, auc_fj] = perfcurve(y_corr(valid_fj), X_corr(valid_fj, fj), 1);
-                    c_idx_fj = max(auc_fj, 1 - auc_fj);
-                else
-                    c_idx_fj = 0.5;
-                end
-                
-                % Drop the feature that has weaker predictive power (lower C-index)
-                % Ties drop the latter feature by default
-                if c_idx_fj <= c_idx_fi
-                    drop_idx(fj) = true;
-                    % Keep looking for other features to drop for fi
-                else
-                    drop_idx(fi) = true;
-                    % fi is dropped, so we stop looking for its correlates
-                    break;
-                end
-            end
+        valid_idx = ~isnan(X_corr(:, fi)) & ~isnan(y_corr);
+        if sum(valid_idx) > 2
+            [~, ~, ~, auc] = perfcurve(y_corr(valid_idx), X_corr(valid_idx, fi), 1);
+            c_indices(fi) = max(auc, 1 - auc);
+        end
+    end
+    
+    % Find highly collinear pairs
+    [row_idx, col_idx] = find(abs(tril(R, -1)) > 0.8);
+    
+    % Process pairs sequentially, dropping the weaker feature
+    for idx = 1:length(row_idx)
+        fi = row_idx(idx);
+        fj = col_idx(idx);
+        
+        if drop_idx(fi) || drop_idx(fj)
+            continue; % One of them is already dropped
+        end
+        
+        % Drop the feature that has weaker predictive power
+        if c_indices(fj) <= c_indices(fi)
+            drop_idx(fj) = true;
+        else
+            drop_idx(fi) = true;
         end
     end
     keep_idx = find(~drop_idx);

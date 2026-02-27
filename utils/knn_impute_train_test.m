@@ -26,30 +26,50 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     Z_tr = (X_tr - mu_tr) ./ sd_tr;
     
     % --- 1. Impute Training Set (X_tr) ---
+    % Create a boolean mask of valid search space coordinates
+    search_space = Z_tr;
+    if ~isempty(target_cols)
+        search_space(:, target_cols) = nan; % mask out target columns from distance metric
+    end
+    
     for i = 1:n_tr
         missing_idx = isnan(X_tr(i, :));
         if any(missing_idx)
-            dist = inf(n_tr, 1);
-            for j = 1:n_tr
-                % Condition for neighbor selection:
-                % 1. Must not be the same row (i ~= j)
-                % 2. If patient IDs are provided, must not be the same patient
-                is_same_row = (i == j);
-                is_same_patient = ~isempty(pat_id_tr) && (pat_id_tr(i) == pat_id_tr(j));
-                
-                if ~is_same_row && ~is_same_patient
-                    valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
-                    if ~isempty(target_cols)
-                        valid_feat(target_cols) = false;
-                    end
-                    if sum(valid_feat) > 0
-                        % Euclidean distance normalized by mutually observed features
-                        dist(j) = sqrt(sum((Z_tr(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
-                    end
-                end
+            % Extract the precise query point, masking valid features
+            query_pt = search_space(i, :);
+            valid_feat = ~isnan(query_pt);
+            
+            % We cannot search if the query has no valid features left
+            if sum(valid_feat) == 0
+                continue;
             end
-            [~, sorted_idx] = sort(dist);
-            neighbors = sorted_idx(1:min(k, sum(dist < inf))); % Only use valid neighbors
+            
+            % Build temporary KD-tree strictly on mutually observed features for this query
+            % Note: Incomplete data requires querying against subsets where this query's valid
+            % features are non-NaN in the reference set.
+            ref_idx = find(~any(isnan(search_space(:, valid_feat)), 2));
+            
+            % Remove self and same-patient from reference index pool
+            if ~isempty(pat_id_tr)
+                is_same_patient = (pat_id_tr(ref_idx) == pat_id_tr(i));
+                ref_idx(is_same_patient) = [];
+            else
+                ref_idx(ref_idx == i) = []; % just remove self
+            end
+            
+            if isempty(ref_idx)
+                continue;
+            end
+            
+            % Extract pure coordinates
+            Y_coords = search_space(ref_idx, valid_feat);
+            X_coord = query_pt(valid_feat);
+            
+            % KDTree distance calculation (O(N log N))
+            [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+            
+            % Map back to absolute indices
+            neighbors = ref_idx(neighbor_indices_local);
             
             for m = find(missing_idx)
                 vals = X_tr(neighbors, m);
@@ -66,28 +86,38 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
         X_te_imp = X_te;
         Z_te = (X_te - mu_tr) ./ sd_tr;
         n_te = size(X_te, 1);
+        
+        search_space_te = Z_te;
+        if ~isempty(target_cols)
+            search_space_te(:, target_cols) = nan;
+        end
+        
         for i = 1:n_te
             missing_idx = isnan(X_te(i, :));
             if any(missing_idx)
-                dist = inf(n_tr, 1);
-                for j = 1:n_tr
-                    % Condition for neighbor selection:
-                    % If patient IDs are provided, must not be the same patient
-                    is_same_patient = ~isempty(pat_id_tr) && ~isempty(pat_id_te) && ...
-                                      (pat_id_te(i) == pat_id_tr(j));
-                    
-                    if ~is_same_patient
-                        valid_feat = ~missing_idx & ~isnan(X_tr(j, :));
-                        if ~isempty(target_cols)
-                            valid_feat(target_cols) = false;
-                        end
-                        if sum(valid_feat) > 0
-                            dist(j) = sqrt(sum((Z_te(i, valid_feat) - Z_tr(j, valid_feat)).^2) / sum(valid_feat));
-                        end
-                    end
+                query_pt = search_space_te(i, :);
+                valid_feat = ~isnan(query_pt);
+                
+                if sum(valid_feat) == 0
+                    continue;
                 end
-                [~, sorted_idx] = sort(dist);
-                neighbors = sorted_idx(1:min(k, sum(dist < inf)));
+                
+                ref_idx = find(~any(isnan(search_space(:, valid_feat)), 2));
+                
+                if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
+                    is_same_patient = (pat_id_tr(ref_idx) == pat_id_te(i));
+                    ref_idx(is_same_patient) = [];
+                end
+                
+                if isempty(ref_idx)
+                    continue;
+                end
+                
+                Y_coords = search_space(ref_idx, valid_feat);
+                X_coord = query_pt(valid_feat);
+                
+                [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+                neighbors = ref_idx(neighbor_indices_local);
                 
                 for m = find(missing_idx)
                     vals = X_tr(neighbors, m);

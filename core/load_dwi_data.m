@@ -576,9 +576,9 @@ parfor j = 1:length(mrn_list)
             % load the data
             havedwi = 0;
             if exist([outloc scanID '.nii.gz'],'file')
-                dwi_dat = load_untouch_nii([outloc scanID '.nii.gz']);
-                dwi = rot90(dwi_dat.img);            % orient to standard view
-                dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);  % voxel dimensions in mm
+                dwi_info = niftiinfo([outloc scanID '.nii.gz']);
+                dwi = rot90(niftiread(dwi_info));            % orient to standard view
+                dwi_dims = dwi_info.PixelDimensions(1:3);  % voxel dimensions in mm (Native NIfTI)
                 dwi_vox_vol = prod(dwi_dims*0.1);    % voxel volume in cc (mm→cm)
                 fprintf('...Loaded %s. ',[outloc scanID '.nii.gz']);
                 havedwi = 1;
@@ -625,8 +625,8 @@ parfor j = 1:length(mrn_list)
                 dncnnid = [scanID '_dncnn.nii.gz'];
                 dncnn_file = [basefolder '/dncnn/' dncnnid];
                 if exist(dncnn_file,'file')
-                    dwi_dat_dncnn = load_untouch_nii(dncnn_file);
-                    dwi_dncnn = rot90(dwi_dat_dncnn.img);
+                    dncnn_info = niftiinfo(dncnn_file);
+                    dwi_dncnn = rot90(niftiread(dncnn_info));
                     % Normalise denoised signal to [0,1] for IVIM fitting
                     dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
                     havedenoised=1;
@@ -652,8 +652,8 @@ parfor j = 1:length(mrn_list)
             % --- Load GTVp mask and validate spatial dimensions ---
             havegtvp = 0;
             if exist([outloc gtvname '.nii.gz'],'file')
-                gtv_dat = load_untouch_nii([outloc gtvname '.nii.gz']);
-                gtv_mask = rot90(gtv_dat.img);
+                gtvp_info = niftiinfo([outloc gtvname '.nii.gz']);
+                gtv_mask = rot90(niftiread(gtvp_info));
                 fprintf('...Loaded %s\n',[outloc gtvname '.nii.gz']);
                 havegtvp = 1;
 
@@ -669,8 +669,8 @@ parfor j = 1:length(mrn_list)
             % --- Load GTVn (nodal) mask and validate dimensions ---
             havegtvn = 0;
             if exist([outloc gtvn_name '.nii.gz'],'file')
-                gtvn_dat = load_untouch_nii([outloc gtvn_name '.nii.gz']);
-                gtvn_mask = rot90(gtvn_dat.img);
+                gtvn_info = niftiinfo([outloc gtvn_name '.nii.gz']);
+                gtvn_mask = rot90(niftiread(gtvn_info));
                 fprintf('... *NODAL* Loaded %s\n',[outloc gtvn_name '.nii.gz']);
                 havegtvn = 1;
 
@@ -685,8 +685,8 @@ parfor j = 1:length(mrn_list)
             % --- Load resampled RT dose map ---
             havedose = 0;
             if exist([outloc dosename '.nii.gz'],'file')
-                dose_dat = load_untouch_nii([outloc dosename '.nii.gz']);
-                dose_map = rot90(dose_dat.img);
+                dose_info = niftiinfo([outloc dosename '.nii.gz']);
+                dose_map = rot90(niftiread(dose_info));
                 fprintf('...Loaded %s\n',[outloc dosename '.nii.gz']);
                 havedose = 1;
             end
