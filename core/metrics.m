@@ -419,10 +419,10 @@ fprintf('\n--- SECTION 6: Target Coverage (Sub-Volume Dose Metrics) ---\n');
 %
 % Thresholds chosen based on literature values for restricted diffusion
 % in pancreatic adenocarcinoma.
-adc_thresh = 0.00115;   % ADC threshold (mm^2/s) — restricted diffusion
-d_thresh = 0.001;       % D (true diffusion) threshold (mm^2/s)
-f_thresh = 0.1;         % f (perfusion fraction) threshold — low perfusion
-dstar_thresh = 0.01;    % D* (pseudo-diffusion) threshold (mm^2/s)
+adc_thresh   = config_struct.adc_thresh;    % ADC threshold (mm^2/s) — restricted diffusion
+d_thresh     = config_struct.d_thresh;      % D (true diffusion) threshold (mm^2/s)
+f_thresh     = config_struct.f_thresh;      % f (perfusion fraction) threshold — low perfusion
+dstar_thresh = config_struct.dstar_thresh;  % D* (pseudo-diffusion) threshold (mm^2/s)
 
 % Initialize storage arrays [n_patients x n_timepoints]
 d95_adc_sub = nan(length(m_id_list), nTp);

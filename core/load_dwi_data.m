@@ -1256,6 +1256,10 @@ adc_thresh = config_struct.adc_thresh; % https://pubmed.ncbi.nlm.nih.gov/2354500
 % Secondary ADC threshold for identifying "high ADC" sub-volume
 high_adc_thresh = config_struct.high_adc_thresh;
 
+% IVIM thresholds for sub-volume identification
+d_thresh = config_struct.d_thresh;
+f_thresh = config_struct.f_thresh;
+
 % Minimum voxel threshold for higher-order histogram metrics
 % (kurtosis, skewness, KS test). Returns NaN for smaller volumes to
 % prevent unstable estimates.
@@ -1466,7 +1470,7 @@ for j=1:length(id_list)
 
                 % Joint D–f sub-volume: voxels with low D AND low f
                 % come up with a 2D metric for identifying subvolumes
-                ivim_vec_sub = d_vec(d_vec<0.001 & f_vec<0.1);
+                ivim_vec_sub = d_vec(d_vec<d_thresh & f_vec<f_thresh);
                 ivim_sub_vol(j,k,dwi_type) = numel(ivim_vec_sub)*vox_vol;
 
                 % D sub-volume restricted to ADC-thresholded voxels
