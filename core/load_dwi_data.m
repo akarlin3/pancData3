@@ -1,5 +1,6 @@
 function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data(config_struct)
 %% load_dwi_data_forAvery.m
+% Author: Avery Karlin
 % =========================================================================
 % PURPOSE
 %   Main data loading, processing, and analysis pipeline for a pancreatic
