@@ -250,7 +250,7 @@ m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
 % Defensive padding: ensure longitudinal arrays have nTp columns to prevent 
 % crashes during Post-RT (column 6) analysis when dose was only calculated 
-% for Fractions 1-5. Direct access is faster than eval/assignin and avoids
+% for Fractions 1-5. Direct access is faster and avoids
 % disabling JIT optimizations.
 if size(m_gtv_vol, 2) < nTp
     m_gtv_vol = [m_gtv_vol, nan(size(m_gtv_vol, 1), nTp - size(m_gtv_vol, 2))];
