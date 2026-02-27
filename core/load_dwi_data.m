@@ -591,8 +591,7 @@ parfor j = 1:length(mrn_list)
                     bval_data = tline;
                     fclose(fid);
 
-                    bvalues = strsplit(bval_data,' ');
-                    bvalues = cellfun(@str2num,bvalues');
+                    bvalues = sscanf(bval_data, '%f');
 
                     % Sort b-values ascending and reorder the 4-D DWI volume
                     [b_sort,i_sort] = sort(bvalues,'ascend');

@@ -1562,7 +1562,7 @@ for p = 1:2
         
         % Read b-values from text file (space-delimited single line)
         fid = fopen(bval_file);
-        bvals = str2num(fgetl(fid)); 
+        bvals = sscanf(fgetl(fid), '%f')';
         fclose(fid);
         bvals = bvals(:); % Column vector
         
