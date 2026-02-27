@@ -1001,11 +1001,11 @@ parfor j = 1:length(mrn_list)
             % --- Extract voxel-level biomarkers within GTVp ---
             if havegtvp
                 % Compute summary statistics within the primary GTV
-                pat_adc_mean(1,fi,rpi) = nanmean(adc_map(gtv_mask==1));
+                pat_adc_mean(1,fi,rpi) = mean(adc_map(gtv_mask==1), 'omitnan');
                 % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
                 pat_adc_kurtosis(1,fi,rpi) = kurtosis(adc_map(gtv_mask==1));
 
-                pat_d_mean(1,fi,rpi) = nanmean(d_map(gtv_mask==1));
+                pat_d_mean(1,fi,rpi) = mean(d_map(gtv_mask==1), 'omitnan');
                 % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                 pat_d_kurtosis(1,fi,rpi) = kurtosis(d_map(gtv_mask==1));
 
@@ -1032,7 +1032,7 @@ parfor j = 1:length(mrn_list)
                     if fi > 1 && ~isempty(gtv_mask_fx1_ref)
                         dncnn_mask_p = gtv_mask_fx1_ref;
                     end
-                    pat_d_mean_dncnn(1,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
+                    pat_d_mean_dncnn(1,fi,rpi) = mean(d_map_dncnn(dncnn_mask_p==1), 'omitnan');
                     pat_data_vectors_gtvp(fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_p==1);
                     pat_data_vectors_gtvp(fi,rpi).f_vector_dncnn    = f_map_dncnn(dncnn_mask_p==1);
                     pat_data_vectors_gtvp(fi,rpi).dstar_vector_dncnn = dstar_map_dncnn(dncnn_mask_p==1);
@@ -1046,7 +1046,7 @@ parfor j = 1:length(mrn_list)
                     f_ivimnet = rot90(f_ivimnet);
                     Dstar_ivimnet = rot90(Dstar_ivimnet);
                     S0_ivimnet = rot90(S0_ivimnet);
-                    pat_d_mean_ivimnet(1,fi,rpi) = nanmean(D_ivimnet(gtv_mask==1));
+                    pat_d_mean_ivimnet(1,fi,rpi) = mean(D_ivimnet(gtv_mask==1), 'omitnan');
 
                     pat_data_vectors_gtvp(fi,rpi).d_vector_ivimnet = D_ivimnet(gtv_mask==1);
                     pat_data_vectors_gtvp(fi,rpi).f_vector_ivimnet = f_ivimnet(gtv_mask==1);
@@ -1055,7 +1055,7 @@ parfor j = 1:length(mrn_list)
             end
 
             if havedose && havegtvp
-                pat_dmean_gtvp(1,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
+                pat_dmean_gtvp(1,fi) = mean(dose_map_dvh(gtv_mask_for_dvh==1), 'omitnan');
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 % DVH uses the strictly rigid dose against the DIR-warped daily GTV tissue mask
                 % so that dose correctly reflects the true static beam delivered to deformed anatomy.
@@ -1116,7 +1116,7 @@ parfor j = 1:length(mrn_list)
             % Sample rigidly aligned dose map against the GTVn mask.
             if havedose && havegtvn
                 dose_map_dvh_n = dose_map;  % rigidly aligned dose
-                pat_dmean_gtvn(1,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
+                pat_dmean_gtvn(1,fi) = mean(dose_map_dvh_n(gtvn_mask==1), 'omitnan');
                 dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 pat_d95_gtvn(1,fi) = dvhparams.("D95% (Gy)");
@@ -1392,7 +1392,7 @@ for j=1:length(id_list)
             if ~isempty(adc_vec)
 %                 adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                 gtv_vol(j,k) = numel(adc_vec)*vox_vol;   % GTV volume (cc)
-                adc_mean(j,k,dwi_type) = nanmean(adc_vec);
+                adc_mean(j,k,dwi_type) = mean(adc_vec, 'omitnan');
                 if numel(adc_vec) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
                     % Retained for archival completeness; do not use in primary feature pool.
@@ -1408,7 +1408,7 @@ for j=1:length(id_list)
 
                 adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
                 adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
-                adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
+                adc_sub_mean(j,k,dwi_type) = mean(adc_vec_sub, 'omitnan');
                 if numel(adc_vec_sub) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
@@ -1475,7 +1475,7 @@ for j=1:length(id_list)
                 d_vec_sub = d_vec(adc_vec<adc_thresh);
 
                 % Whole-GTV D (true diffusion) statistics
-                d_mean(j,k,dwi_type) = nanmean(d_vec);
+                d_mean(j,k,dwi_type) = mean(d_vec, 'omitnan');
                 if numel(d_vec) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     d_kurt(j,k,dwi_type) = kurtosis(d_vec);
@@ -1496,7 +1496,7 @@ for j=1:length(id_list)
                 end
 
                 % D sub-volume statistics (restricted region only)
-                d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
+                d_sub_mean(j,k,dwi_type) = mean(d_vec_sub, 'omitnan');
                 if numel(d_vec_sub) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
@@ -1504,7 +1504,7 @@ for j=1:length(id_list)
                 end
 
                 % Perfusion fraction (f) statistics
-                f_mean(j,k,dwi_type) = nanmean(f_vec);
+                f_mean(j,k,dwi_type) = mean(f_vec, 'omitnan');
                 if numel(f_vec) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     f_kurt(j,k,dwi_type) = kurtosis(f_vec);
@@ -1512,7 +1512,7 @@ for j=1:length(id_list)
                 end
 
                 % Pseudo-diffusion coefficient (D*) statistics
-                dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
+                dstar_mean(j,k,dwi_type) = mean(dstar_vec, 'omitnan');
                 if numel(dstar_vec) >= min_vox_hist
                     % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
                     dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
@@ -1547,18 +1547,18 @@ for j=1:length(id_list)
                     % Store per-repeat mean ADC and corruption metric
                     if ~isempty(adc_vec)
                         rp_count = rp_count+1;
-                        adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
+                        adc_mean_rpt(j,rpi,dwi_type) = mean(adc_vec, 'omitnan');
                         fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
 
                         adc_vec_sub = adc_vec(adc_vec<adc_thresh);
-                        adc_sub_rpt(j,rpi,dwi_type) = nanmean(adc_vec_sub);
+                        adc_sub_rpt(j,rpi,dwi_type) = mean(adc_vec_sub, 'omitnan');
                     end
 
                     % Store per-repeat mean IVIM parameters
                     if ~isempty(d_vec)
-                        d_mean_rpt(j,rpi,dwi_type) = nanmean(d_vec);
-                        f_mean_rpt(j,rpi,dwi_type) = nanmean(f_vec);
-                        dstar_mean_rpt(j,rpi,dwi_type) = nanmean(dstar_vec);
+                        d_mean_rpt(j,rpi,dwi_type) = mean(d_vec, 'omitnan');
+                        f_mean_rpt(j,rpi,dwi_type) = mean(f_vec, 'omitnan');
+                        dstar_mean_rpt(j,rpi,dwi_type) = mean(dstar_vec, 'omitnan');
                     end
                 end
                 % Record number of valid repeats (standard pipeline only)

@@ -917,7 +917,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             adc_vec = [1.5e-3; 2.0e-3; NaN; 1.8e-3];
             m = mean(adc_vec, 'omitnan');
             testCase.verifyTrue(abs(m - mean([1.5e-3; 2.0e-3; 1.8e-3])) < 1e-15, ...
-            'nanmean should exclude NaN failed fits');
+            'mean(..., "omitnan") should exclude NaN failed fits');
         end
 
         function testPerTimepointFDR_SmallerFamilySize(testCase)
