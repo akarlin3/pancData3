@@ -1,5 +1,6 @@
 function calculated_results = metrics(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % METRICS — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
+% Author: Avery Karlin
 % =========================================================================
 
 % Extract parameters

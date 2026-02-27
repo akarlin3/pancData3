@@ -1,5 +1,6 @@
 function visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct)
 % VISUALIZE_RESULTS — "Visualizing It" (Generating Plots)
+% Author: Avery Karlin
 %
 % This function generates three families of visualizations:
 %   1. Parameter Maps overlaid on Anatomy
