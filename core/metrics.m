@@ -27,8 +27,6 @@ dmean_gtvp = summary_metrics.dmean_gtvp;
 gtv_locations = summary_metrics.gtv_locations;
 dwi_locations = summary_metrics.dwi_locations;
 
-nTp = size(adc_mean, 2);
-
 %% ========================================================================
 fprintf('\n--- SECTION 1: Repeatability Analysis ---\n');
 %  SECTION 1: Repeatability — Within-Subject Coefficient of Variation (wCV)
