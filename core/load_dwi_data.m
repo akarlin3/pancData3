@@ -131,32 +131,32 @@ gtvn_locations = cell(length(patlist),6,6); % a few cases have a nodal gtv as we
 
 % --- Main discovery loop: iterate over patients × fractions ---
 for j=1:length(patlist)
-    basefolder = [dataloc patlist(j).name '/'];
+    basefolder = fullfile(dataloc, patlist(j).name);
     have_mrn = 0;    % flag: MRN already extracted for this patient
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
-        fxtmp = clean_dir_command([basefolder '*' fx_search{fi} '*']);
+        fxtmp = clean_dir_command(fullfile(basefolder, ['*' fx_search{fi} '*']));
         if isempty(fxtmp)
             fprintf('%s, no %s folder\n',patlist(j).name,fx_search{fi});
         else
-            fxfolder = [basefolder fxtmp(1).name '/'];
+            fxfolder = fullfile(basefolder, fxtmp(1).name);
             % ok, now find the DWI data for that fraction (there may be 1
             % or more for repeatability analysis)
-            dwi_search = clean_dir_command([fxfolder '*DWI*']);
+            dwi_search = clean_dir_command(fullfile(fxfolder, '*DWI*'));
             % Fallback: some sites stored DICOMs under a generic 'DICOM' folder
-            if isempty(dwi_search), dwi_search = clean_dir_command([fxfolder '*DICOM*']); dwi_search = dwi_search(~contains({dwi_search.name}, 't2')); end
+            if isempty(dwi_search), dwi_search = clean_dir_command(fullfile(fxfolder, '*DICOM*')); dwi_search = dwi_search(~contains({dwi_search.name}, 't2')); end
 
             % Verify each candidate folder actually contains .dcm files
             if ~isempty(dwi_search)
                 contains_dicom = zeros(size(dwi_search));
                 for dwii=1:length(dwi_search)
-                    if ~isempty(dir([dwi_search(dwii).folder '/' dwi_search(dwii).name '/*.dcm']))
+                    if ~isempty(dir(fullfile(dwi_search(dwii).folder, dwi_search(dwii).name, '*.dcm')))
                         contains_dicom(dwii) = 1;
                     else
                         % Some folders nest DICOMs in a subdirectory called 'DICOM'
-                        if ~isempty(dir([dwi_search(dwii).folder '/' dwi_search(dwii).name '/DICOM/*.dcm']))
+                        if ~isempty(dir(fullfile(dwi_search(dwii).folder, dwi_search(dwii).name, 'DICOM', '*.dcm')))
                             contains_dicom(dwii) = 1;
-                            dwi_search(dwii).name = [dwi_search(dwii).name '/DICOM/'];
+                            dwi_search(dwii).name = fullfile(dwi_search(dwii).name, 'DICOM');
                         end
                     end
                 end
@@ -168,12 +168,12 @@ for j=1:length(patlist)
             else
                 % --- Store DWI path & extract DICOM metadata for each repeat scan ---
                 for dwii=1:length(dwi_search)
-                    dwi_locations{j,fi,dwii} = [dwi_search(dwii).folder '/' dwi_search(dwii).name '/'];
+                    dwi_locations{j,fi,dwii} = fullfile(dwi_search(dwii).folder, dwi_search(dwii).name);
 
                     if have_fx_date==0
                         % get the MRN and study date from an arbitrary DICOM header
-                        dicom_files = dir([dwi_locations{j,fi,dwii} '*.dcm']);
-                        pat_data = dicominfo([dicom_files(5).folder '/' dicom_files(5).name]);
+                        dicom_files = dir(fullfile(dwi_locations{j,fi,dwii}, '*.dcm'));
+                        pat_data = dicominfo(fullfile(dicom_files(5).folder, dicom_files(5).name));
                         if have_mrn==0
                             mrn_list{j} = pat_data.PatientID;
                             id_list{j} = patlist(j).name;
@@ -189,12 +189,12 @@ for j=1:length(patlist)
                     if ~contains(patlist(j).name,'two')
                         % find associated GTV (need to avoid using the date in
                         % the filenames to query)
-                        gtv_search = dir([fxfolder '*GTV*' int2str(dwii) '*.mat']);
-                        single_gtv_search = dir([fxfolder '*GTV*.mat']);
+                        gtv_search = dir(fullfile(fxfolder, ['*GTV*' int2str(dwii) '*.mat']));
+                        single_gtv_search = dir(fullfile(fxfolder, '*GTV*.mat'));
                         % this can be simpler if only one GTV exists
                         % If only one GTV mask exists, use it directly
                         if isscalar(single_gtv_search)
-                            gtv_locations{j,fi,dwii} = [fxfolder '/' single_gtv_search.name];
+                            gtv_locations{j,fi,dwii} = fullfile(fxfolder, single_gtv_search.name);
                         else
                             % Multiple GTV masks exist — match by repeat index (dwii)
                             % using the second underscore-delimited token in the filename
@@ -228,7 +228,7 @@ for j=1:length(patlist)
                                 fprintf('%s/%s: Redundant GTV%ds found\n',patlist(j).name,fx_search{fi},dwii);
                             end
                             if sum(gtv_search_result)==1
-                                gtv_locations{j,fi,dwii} = [fxfolder '/' gtv_search(gtv_search_result==1).name];
+                                gtv_locations{j,fi,dwii} = fullfile(fxfolder, gtv_search(gtv_search_result==1).name);
                             end
                         end
                     else
@@ -236,45 +236,45 @@ for j=1:length(patlist)
                         % Search multiple naming conventions for the primary
                         % pancreatic GTV (GTVp): GTV_MR, GTVp, GTV_panc
                         % special logic for GTVn cases.
-                        gtv_search1 = dir([fxfolder '*GTV_MR' int2str(dwii) '*.mat']);
-                        gtv_search2 = dir([fxfolder '*GTVp' int2str(dwii) '*.mat']);
-                        gtv_search3 = dir([fxfolder '*GTV_panc*' int2str(dwii) '*.mat']);
-                        single_gtv_search1 = dir([fxfolder '*GTV_MR*.mat']);
-                        single_gtv_search2 = dir([fxfolder '*GTVp*.mat']);
-                        single_gtv_search3 = dir([fxfolder '*GTV_panc*.mat']);
+                        gtv_search1 = dir(fullfile(fxfolder, ['*GTV_MR' int2str(dwii) '*.mat']));
+                        gtv_search2 = dir(fullfile(fxfolder, ['*GTVp' int2str(dwii) '*.mat']));
+                        gtv_search3 = dir(fullfile(fxfolder, ['*GTV_panc*' int2str(dwii) '*.mat']));
+                        single_gtv_search1 = dir(fullfile(fxfolder, '*GTV_MR*.mat'));
+                        single_gtv_search2 = dir(fullfile(fxfolder, '*GTVp*.mat'));
+                        single_gtv_search3 = dir(fullfile(fxfolder, '*GTV_panc*.mat'));
 
                         % Combine results from all naming conventions
                         gtv_search = cat(1,gtv_search1,gtv_search2,gtv_search3);
                         single_gtv_search = cat(1,single_gtv_search1,single_gtv_search2,single_gtv_search3);
 
                         % Search for nodal GTV masks: GTV_LN, GTVn, GTV_node
-                        gtvn_search1 = dir([fxfolder '*GTV*LN' int2str(dwii) '*.mat']);
-                        gtvn_search2 = dir([fxfolder '*GTVn' int2str(dwii) '*.mat']);
-                        gtvn_search3 = dir([fxfolder '*GTV_node*' int2str(dwii) '*.mat']);
-                        single_gtvn_search1 = dir([fxfolder '*GTV*LN*.mat']);
-                        single_gtvn_search2 = dir([fxfolder '*GTVn*.mat']);
-                        single_gtvn_search3 = dir([fxfolder '*GTV_node*.mat']);
+                        gtvn_search1 = dir(fullfile(fxfolder, ['*GTV*LN' int2str(dwii) '*.mat']));
+                        gtvn_search2 = dir(fullfile(fxfolder, ['*GTVn' int2str(dwii) '*.mat']));
+                        gtvn_search3 = dir(fullfile(fxfolder, ['*GTV_node*' int2str(dwii) '*.mat']));
+                        single_gtvn_search1 = dir(fullfile(fxfolder, '*GTV*LN*.mat'));
+                        single_gtvn_search2 = dir(fullfile(fxfolder, '*GTVn*.mat'));
+                        single_gtvn_search3 = dir(fullfile(fxfolder, '*GTV_node*.mat'));
 
                         gtvn_search = cat(1,gtvn_search1,gtvn_search2,gtvn_search3);
                         single_gtvn_search = cat(1,single_gtvn_search1,single_gtvn_search2,single_gtvn_search3);
 
                         % Assign GTVp path (prefer unique match; fall back to repeat-indexed)
                         if isscalar(single_gtv_search)
-                            gtv_locations{j,fi,dwii} = [fxfolder '/' single_gtv_search.name];
+                            gtv_locations{j,fi,dwii} = fullfile(fxfolder, single_gtv_search.name);
                         else
                             if isscalar(gtv_search)
                                 gtv_name = gtv_search.name;
-                                gtv_locations{j,fi,dwii} = [fxfolder '/' gtv_name];
+                                gtv_locations{j,fi,dwii} = fullfile(fxfolder, gtv_name);
                             end
                         end
 
                         % Assign GTVn path (same logic as GTVp)
                         if isscalar(single_gtvn_search)
-                            gtvn_locations{j,fi,dwii} = [fxfolder '/' single_gtvn_search.name];
+                            gtvn_locations{j,fi,dwii} = fullfile(fxfolder, single_gtvn_search.name);
                         else
                             if isscalar(gtvn_search)
                                 gtvn_name = gtvn_search.name;
-                                gtvn_locations{j,fi,dwii} = [fxfolder '/' gtvn_name];
+                                gtvn_locations{j,fi,dwii} = fullfile(fxfolder, gtvn_name);
                             end
                         end
                     end
@@ -285,12 +285,12 @@ for j=1:length(patlist)
 
             % --- Locate RT dose DICOM folder for this fraction ---
             % find rtdose
-            dose_search = clean_dir_command([fxfolder '*rtdose*']);
+            dose_search = clean_dir_command(fullfile(fxfolder, '*rtdose*'));
             if ~isempty(dose_search)
                 % Verify the rtdose folder contains DICOM files
                 contains_dicom = zeros(size(dose_search));
                 for di=1:length(dose_search)
-                    if ~isempty(dir([dose_search(di).folder '/' dose_search(di).name '/*.dcm']))
+                    if ~isempty(dir(fullfile(dose_search(di).folder, dose_search(di).name, '*.dcm')))
                         contains_dicom(di) = 1;
                     end
                 end
@@ -298,7 +298,7 @@ for j=1:length(patlist)
             end
             if ~isempty(dose_search)
                 fprintf('%s/%s: found rtdose\n',patlist(j).name,fx_search{fi});
-                rtdose_locations{j,fi} = [fxfolder '/' dose_search(1).name '/'];
+                rtdose_locations{j,fi} = fullfile(fxfolder, dose_search(1).name);
             end
         end
     end
@@ -321,7 +321,7 @@ clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 T = readtable(clinical_data_sheet,'Sheet','Clin List');
 
 % load dwi data locations (optionally reload from a previous run)
-data_file = [dataloc 'adc_vectors.mat'];
+data_file = fullfile(dataloc, 'adc_vectors.mat');
 %load(data_file,'dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','mrn_list','id_list','fx_dates');
 
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
@@ -464,13 +464,13 @@ parfor j = 1:length(mrn_list)
     for fi=1:size(dwi_locations,2)
         for rpi = 1:size(dwi_locations,3)
 
-            basefolder = [dataloc id_list{j} '/'];
-            fxtmp = clean_dir_command([basefolder '*' fx_search{fi} '*']);
+            basefolder = fullfile(dataloc, id_list{j});
+            fxtmp = clean_dir_command(fullfile(basefolder, ['*' fx_search{fi} '*']));
 
             if isempty(fxtmp)
                 fprintf('%s, no %s folder\n',id_list{j},fx_search{fi});
             else
-                fxfolder = [basefolder fxtmp(1).name '/'];
+                fxfolder = fullfile(basefolder, fxtmp(1).name);
             end
 
             % Retrieve previously discovered file paths for this combination
@@ -483,10 +483,10 @@ parfor j = 1:length(mrn_list)
                 dicomdoseloc = [];  % no dose for post-treatment scan
             end
 
-            outloc = [basefolder '/nii/'];   % output directory for NIfTI files
+            outloc = fullfile(basefolder, 'nii');   % output directory for NIfTI files
 
             % get the dwi file list (DICOM)
-            dicom_files = dir([dicomloc '*.dcm']);
+            dicom_files = dir(fullfile(dicomloc, '*.dcm'));
             % keep track of dwi issues
             bad_dwi_found = 0;
 
@@ -507,7 +507,7 @@ parfor j = 1:length(mrn_list)
             % --- Convert DWI DICOMs to NIfTI using dcm2niix ---
             % save dwi as nii.gz
             if ~isempty(dicomloc)
-                if ~exist([outloc scanID '.nii.gz'],'file')
+                if ~exist(fullfile(outloc, [scanID '.nii.gz']),'file')
                     % keep track of number of files generated by this
                     % command (make sure exactly 3 are generated:
                     % .nii.gz, .bval, .bvec, plus the dir entry = 4 delta)
@@ -527,19 +527,19 @@ parfor j = 1:length(mrn_list)
             % save the mask as nii.gz (just for consistency)
             % Stvol3d is the 3-D binary mask variable stored in the .mat file
             if ~isempty(struct_file)
-                if ~exist([outloc gtvname '.nii.gz'],'file')
+                if ~exist(fullfile(outloc, [gtvname '.nii.gz']),'file')
                     tmp = load(struct_file);
                     gtv_mask = tmp.Stvol3d;
-                    niftiwrite(rot90(double(gtv_mask),-1),[outloc gtvname],'Compressed',true);
+                    niftiwrite(rot90(double(gtv_mask),-1),fullfile(outloc, gtvname),'Compressed',true);
                 end
             end
 
             % --- Save GTVn (nodal) mask as NIfTI, if present ---
             if ~isempty(struct_file_gtvn)
-                if ~exist([outloc gtvn_name '.nii.gz'],'file')
+                if ~exist(fullfile(outloc, [gtvn_name '.nii.gz']),'file')
                     tmp = load(struct_file_gtvn);
                     gtvn_mask = tmp.Stvol3d;
-                    niftiwrite(rot90(double(gtvn_mask),-1),[outloc gtvn_name],'Compressed',true);
+                    niftiwrite(rot90(double(gtvn_mask),-1),fullfile(outloc, gtvn_name),'Compressed',true);
                 end
             end
 
@@ -547,7 +547,7 @@ parfor j = 1:length(mrn_list)
             % sample RTdose on the DWI geometry, save as nii.gz
             % but first, see if we actually have a dose map to load....
             if ~isempty(dicomdoseloc) && ~isempty(dicomloc)
-                if ~exist([outloc dosename '.nii.gz'],'file')
+                if ~exist(fullfile(outloc, [dosename '.nii.gz']),'file')
                     % extract only b=0 images — these define the DWI spatial
                     % geometry used as the resampling target for the dose grid
                     % extract only b0 images for the dwi sampling
@@ -555,36 +555,36 @@ parfor j = 1:length(mrn_list)
                     b0list = cell(1);
                     b0count = 0;
                     for bi = 1:length(isb0)
-                        data_tmp = dicominfo([dicom_files(bi).folder '/' dicom_files(bi).name], 'UseDictionaryVR', true);
+                        data_tmp = dicominfo(fullfile(dicom_files(bi).folder, dicom_files(bi).name), 'UseDictionaryVR', true);
                         if data_tmp.DiffusionBValue == 0
                             isb0(bi) = 1;
                             b0count = b0count+1;
-                            b0list{b0count,1} = [dicom_files(bi).folder '/' dicom_files(bi).name];
+                            b0list{b0count,1} = fullfile(dicom_files(bi).folder, dicom_files(bi).name);
                         end
                     end
 
-                    rtdose_dicom = dir([dicomdoseloc '*.dcm']);
-                    rtdosefile = [rtdose_dicom.folder '/' rtdose_dicom.name];
+                    rtdose_dicom = dir(fullfile(dicomdoseloc, '*.dcm'));
+                    rtdosefile = fullfile(rtdose_dicom.folder, rtdose_dicom.name);
 
                     % Resample RT dose onto b=0 image grid and write NIfTI
                     dose_sampled = sample_rtdose_on_image(b0list,rtdosefile);
-                    niftiwrite(rot90(dose_sampled,-1),[outloc dosename],'Compressed',true);
+                    niftiwrite(rot90(dose_sampled,-1),fullfile(outloc, dosename),'Compressed',true);
                 end
             end
 
             % --- Load NIfTI DWI volume and extract b-values ---
             % load the data
             havedwi = 0;
-            if exist([outloc scanID '.nii.gz'],'file')
-                dwi_info = niftiinfo([outloc scanID '.nii.gz']);
+            if exist(fullfile(outloc, [scanID '.nii.gz']),'file')
+                dwi_info = niftiinfo(fullfile(outloc, [scanID '.nii.gz']));
                 dwi = rot90(niftiread(dwi_info));            % orient to standard view
                 dwi_dims = dwi_info.PixelDimensions(1:3);  % voxel dimensions in mm (Native NIfTI)
                 dwi_vox_vol = prod(dwi_dims*0.1);    % voxel volume in cc (mm→cm)
-                fprintf('...Loaded %s. ',[outloc scanID '.nii.gz']);
+                fprintf('...Loaded %s. ',fullfile(outloc, [scanID '.nii.gz']));
                 havedwi = 1;
                 % Read b-values from the sidecar .bval file produced by dcm2niix
                 % now extract bvalues
-                bval_file = [outloc scanID '.bval'];
+                bval_file = fullfile(outloc, [scanID '.bval']);
                 if exist(bval_file,'file')
                     fid = fopen(bval_file);
                     tline = fgetl(fid);
@@ -623,7 +623,7 @@ parfor j = 1:length(mrn_list)
             havedenoised = 0;
             if havedwi==1
                 dncnnid = [scanID '_dncnn.nii.gz'];
-                dncnn_file = [basefolder '/dncnn/' dncnnid];
+                dncnn_file = fullfile(basefolder, 'dncnn', dncnnid);
                 if exist(dncnn_file,'file')
                     dncnn_info = niftiinfo(dncnn_file);
                     dwi_dncnn = rot90(niftiread(dncnn_info));
@@ -688,7 +688,7 @@ parfor j = 1:length(mrn_list)
             haveivimnet = 0;
             if havedwi==1
                 ivimid = [scanID '_ivimnet.mat'];
-                ivimnet_file = [basefolder '/ivimnet/' ivimid];
+                ivimnet_file = fullfile(basefolder, 'ivimnet', ivimid);
                 if exist(ivimnet_file,'file')
                     % Loads D_ivimnet, f_ivimnet, Dstar_ivimnet, S0_ivimnet
                     tmp = load(ivimnet_file);
@@ -702,10 +702,10 @@ parfor j = 1:length(mrn_list)
 
             % --- Load GTVp mask and validate spatial dimensions ---
             havegtvp = 0;
-            if exist([outloc gtvname '.nii.gz'],'file')
-                gtvp_info = niftiinfo([outloc gtvname '.nii.gz']);
+            if exist(fullfile(outloc, [gtvname '.nii.gz']),'file')
+                gtvp_info = niftiinfo(fullfile(outloc, [gtvname '.nii.gz']));
                 gtv_mask = rot90(niftiread(gtvp_info));
-                fprintf('...Loaded %s\n',[outloc gtvname '.nii.gz']);
+                fprintf('...Loaded %s\n',fullfile(outloc, [gtvname '.nii.gz']));
                 havegtvp = 1;
 
                 % Ensure GTV mask dimensions match the DWI spatial dims
@@ -719,10 +719,10 @@ parfor j = 1:length(mrn_list)
 
             % --- Load GTVn (nodal) mask and validate dimensions ---
             havegtvn = 0;
-            if exist([outloc gtvn_name '.nii.gz'],'file')
-                gtvn_info = niftiinfo([outloc gtvn_name '.nii.gz']);
+            if exist(fullfile(outloc, [gtvn_name '.nii.gz']),'file')
+                gtvn_info = niftiinfo(fullfile(outloc, [gtvn_name '.nii.gz']));
                 gtvn_mask = rot90(niftiread(gtvn_info));
-                fprintf('... *NODAL* Loaded %s\n',[outloc gtvn_name '.nii.gz']);
+                fprintf('... *NODAL* Loaded %s\n',fullfile(outloc, [gtvn_name '.nii.gz']));
                 havegtvn = 1;
 
                 gtv_size = size(gtvn_mask);
@@ -735,10 +735,10 @@ parfor j = 1:length(mrn_list)
 
             % --- Load resampled RT dose map ---
             havedose = 0;
-            if exist([outloc dosename '.nii.gz'],'file')
-                dose_info = niftiinfo([outloc dosename '.nii.gz']);
+            if exist(fullfile(outloc, [dosename '.nii.gz']),'file')
+                dose_info = niftiinfo(fullfile(outloc, [dosename '.nii.gz']));
                 dose_map = rot90(niftiread(dose_info));
-                fprintf('...Loaded %s\n',[outloc dosename '.nii.gz']);
+                fprintf('...Loaded %s\n',fullfile(outloc, [dosename '.nii.gz']));
                 havedose = 1;
             end
 
@@ -945,7 +945,7 @@ parfor j = 1:length(mrn_list)
                         gtvn_mask_fx1_ref = gtvn_mask;
                     end
                 elseif fi > 1 && ~isempty(b0_fx1_ref) && ~isempty(gtv_mask_fx1_ref)
-                    dir_cache_file = fullfile([dataloc id_list{j} '/nii/'], ...
+                    dir_cache_file = fullfile(dataloc, id_list{j}, 'nii', ...
                         sprintf('dir_field_rpi%d_fx%d.mat', rpi, fi));
                     if exist(dir_cache_file, 'file')
                         tmp_dir = load(dir_cache_file, 'gtv_mask_warped', 'D_forward', 'ref3d');
@@ -1240,7 +1240,7 @@ load(datasave);
 fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
 
-summary_metrics_file = [dataloc 'summary_metrics.mat'];
+summary_metrics_file = fullfile(dataloc, 'summary_metrics.mat');
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     if exist(summary_metrics_file, 'file')
         fprintf('  [CHECKPOINT] Found existing summary_metrics.mat. Loading and skipping metrics computation...\n');
