@@ -40,32 +40,32 @@ fprintf('\n--- SECTION 1: Repeatability Analysis ---\n');
 % (Standard, dnCNN-denoised, IVIMnet).
 
 % --- ADC repeatability (whole-GTV mean) ---
-adc_wCV = squeeze(nanstd(adc_mean_rpt,[],2))./squeeze(nanmean(adc_mean_rpt,2));
+adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan'))./squeeze(mean(adc_mean_rpt,2,'omitnan'));
 adc_wCV(n_rpt<2) = nan;
 
 % --- ADC repeatability (low-ADC subregion mean) ---
-adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,[],2))./squeeze(nanmean(adc_sub_rpt,2));
+adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan'))./squeeze(mean(adc_sub_rpt,2,'omitnan'));
 adc_wCV_sub(n_rpt<2) = nan;
 
 % Print ADC wCV: whole-GTV and subregion, for Standard and dnCNN pipelines
-fprintf('ADC   wCV (whole gtv) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',nanmean(adc_wCV(:,1))*100,char(177),nanstd(adc_wCV(:,1))*100,nanmean(adc_wCV(:,2))*100,char(177),nanstd(adc_wCV(:,2))*100)
-fprintf('ADC   wCV (subregion) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',nanmean(adc_wCV_sub(:,1))*100,char(177),nanstd(adc_wCV_sub(:,1))*100,nanmean(adc_wCV_sub(:,2))*100,char(177),nanstd(adc_wCV_sub(:,2))*100)
+fprintf('ADC   wCV (whole gtv) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',mean(adc_wCV(:,1),'omitnan')*100,char(177),std(adc_wCV(:,1),'omitnan')*100,mean(adc_wCV(:,2),'omitnan')*100,char(177),std(adc_wCV(:,2),'omitnan')*100)
+fprintf('ADC   wCV (subregion) = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%\n',mean(adc_wCV_sub(:,1),'omitnan')*100,char(177),std(adc_wCV_sub(:,1),'omitnan')*100,mean(adc_wCV_sub(:,2),'omitnan')*100,char(177),std(adc_wCV_sub(:,2),'omitnan')*100)
 
 % --- IVIM parameter repeatability (D, f, D*) ---
 % Each has 3 DWI types: Standard, dnCNN, IVIMnet
-d_wCV = squeeze(nanstd(d_mean_rpt,[],2))./squeeze(nanmean(d_mean_rpt,2));
+d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan'))./squeeze(mean(d_mean_rpt,2,'omitnan'));
 d_wCV(repmat(n_rpt,[1,3])<2) = nan;  % Mask patients with <2 repeats
 
-f_wCV = squeeze(nanstd(f_mean_rpt,[],2))./squeeze(nanmean(f_mean_rpt,2));
+f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan'))./squeeze(mean(f_mean_rpt,2,'omitnan'));
 f_wCV(repmat(n_rpt,[1,3])<2) = nan;
 
-dstar_wCV = squeeze(nanstd(dstar_mean_rpt,[],2))./squeeze(nanmean(dstar_mean_rpt,2));
+dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan'))./squeeze(mean(dstar_mean_rpt,2,'omitnan'));
 dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
 
 % Print IVIM wCV for all three processing pipelines (char(177) = ± symbol)
-fprintf('D     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',nanmean(d_wCV(:,1))*100,char(177),nanstd(d_wCV(:,1))*100,nanmean(d_wCV(:,2))*100,char(177),nanstd(d_wCV(:,2))*100,nanmean(d_wCV(:,3))*100,char(177),nanstd(d_wCV(:,3))*100)
-fprintf('f     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',nanmean(f_wCV(:,1))*100,char(177),nanstd(f_wCV(:,1))*100,nanmean(f_wCV(:,2))*100,char(177),nanstd(f_wCV(:,2))*100,nanmean(f_wCV(:,3))*100,char(177),nanstd(f_wCV(:,3))*100)
-fprintf('Dstar wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',nanmean(dstar_wCV(:,1))*100,char(177),nanstd(dstar_wCV(:,1))*100,nanmean(dstar_wCV(:,2))*100,char(177),nanstd(dstar_wCV(:,2))*100,nanmean(dstar_wCV(:,3))*100,char(177),nanstd(dstar_wCV(:,3))*100)
+fprintf('D     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',mean(d_wCV(:,1),'omitnan')*100,char(177),std(d_wCV(:,1),'omitnan')*100,mean(d_wCV(:,2),'omitnan')*100,char(177),std(d_wCV(:,2),'omitnan')*100,mean(d_wCV(:,3),'omitnan')*100,char(177),std(d_wCV(:,3),'omitnan')*100)
+fprintf('f     wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',mean(f_wCV(:,1),'omitnan')*100,char(177),std(f_wCV(:,1),'omitnan')*100,mean(f_wCV(:,2),'omitnan')*100,char(177),std(f_wCV(:,2),'omitnan')*100,mean(f_wCV(:,3),'omitnan')*100,char(177),std(f_wCV(:,3),'omitnan')*100)
+fprintf('Dstar wCV = %2.2f%s%2.2f%%, dnCNN: %2.2f%s%2.2f%%, IVIMnet: %2.2f%s%2.2f%%\n',mean(dstar_wCV(:,1),'omitnan')*100,char(177),std(dstar_wCV(:,1),'omitnan')*100,mean(dstar_wCV(:,2),'omitnan')*100,char(177),std(dstar_wCV(:,2),'omitnan')*100,mean(dstar_wCV(:,3),'omitnan')*100,char(177),std(dstar_wCV(:,3),'omitnan')*100)
 
 %% ========================================================================
 fprintf('\n--- SECTION 2: Load Clinical Outcome Data ---\n');
@@ -110,8 +110,8 @@ total_follow_up_time = days(censor_date - rtenddate);  % Follow-up duration
 
 % Summary statistics for the cohort
 fprintf('LR observed in          %d / %d patients (%2.2f%%)\n',numel(lf(lf==1)),numel(lf(isfinite(lf))),100*numel(lf(lf==1))/numel(lf(isfinite(lf))));
-fprintf('Median follow-up time = %2d days (%d - %d)\n',nanmedian(total_follow_up_time),nanmin(total_follow_up_time),nanmax(total_follow_up_time));
-fprintf('Median time to LF     = %2d days (%d - %d)\n',nanmedian(total_time(lf==1)),nanmin(total_time(lf==1)),nanmax(total_time(lf==1)));
+fprintf('Median follow-up time = %2d days (%d - %d)\n',median(total_follow_up_time,'omitnan'),min(total_follow_up_time,[],'omitnan'),max(total_follow_up_time,[],'omitnan'));
+fprintf('Median time to LF     = %2d days (%d - %d)\n',median(total_time(lf==1),'omitnan'),min(total_time(lf==1),[],'omitnan'),max(total_time(lf==1),[],'omitnan'));
 
 %% ========================================================================
 %  SECTION 2.5: Deep Learning Rigor & Isolation Audit
@@ -347,8 +347,8 @@ for i = 1:4
     
     dat = metrics_abs{i};
     % Calculate population mean and standard error of the mean (SEM)
-    pop_mean = nanmean(dat, 1);
-    pop_se   = nanstd(dat, 0, 1) ./ sqrt(sum(~isnan(dat), 1));
+    pop_mean = mean(dat, 1, 'omitnan');
+    pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
     
     % Plot individual patient trajectories (spaghetti plot)
     plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
@@ -372,8 +372,8 @@ for i = 1:4
     
     dat_pct = metrics_pct{i};
     % Calculate population mean percent change and SEM
-    pop_mean_pct = nanmean(dat_pct, 1);
-    pop_se_pct   = nanstd(dat_pct, 0, 1) ./ sqrt(sum(~isnan(dat_pct), 1));
+    pop_mean_pct = mean(dat_pct, 1, 'omitnan');
+    pop_se_pct   = std(dat_pct, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat_pct), 1));
     
     % Plot individual patient trajectories
     plot(x_vals, dat_pct', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
@@ -712,8 +712,8 @@ for s = 1:length(metric_sets)
                 % Record the variable if it reaches statistical significance
                 if p < 0.05
                     % Calculate group means for context
-                    mean_LC = nanmean(y(g == 0));
-                    mean_LF = nanmean(y(g == 1));
+                    mean_LC = mean(y(g == 0), 'omitnan');
+                    mean_LF = mean(y(g == 1), 'omitnan');
                     
                     % Append to storage arrays
                     sig_metric{end+1, 1} = current_names{m};
@@ -2657,14 +2657,14 @@ sub_vol_pct = (sub_vol_cc ./ total_vol_cc) * 100;
 
 fprintf('\n--- SUB-VOLUME CHARACTERISTICS (Fx2) ---\n');
 fprintf('Resistant Sub-volume Size (%% of GTV):\n');
-fprintf('  Mean: %.1f%%\n', nanmean(sub_vol_pct));
-fprintf('  Range: %.1f%% - %.1f%%\n', nanmin(sub_vol_pct), nanmax(sub_vol_pct));
-fprintf('  Absolute Size: %.1f ± %.1f cc\n', nanmean(sub_vol_cc), nanstd(sub_vol_cc));
+fprintf('  Mean: %.1f%%\n', mean(sub_vol_pct, 'omitnan'));
+fprintf('  Range: %.1f%% - %.1f%%\n', min(sub_vol_pct, [], 'omitnan'), max(sub_vol_pct, [], 'omitnan'));
+fprintf('  Absolute Size: %.1f ± %.1f cc\n', mean(sub_vol_cc, 'omitnan'), std(sub_vol_cc, 'omitnan'));
 
-if nanmean(sub_vol_pct) < 1
+if mean(sub_vol_pct, 'omitnan') < 1
     fprintf('WARNING: Sub-volumes are very small (<1%%). Dose finding may be noise.\n');
 else
-    fprintf('VALIDATION: Sub-volumes are substantial (%.1f%%). Dose finding is physically meaningful.\n', nanmean(sub_vol_pct));
+    fprintf('VALIDATION: Sub-volumes are substantial (%.1f%%). Dose finding is physically meaningful.\n', mean(sub_vol_pct, 'omitnan'));
 end
 
 %% 7. Final "Defense" Analyses: ICC, Dose-Response, Multivariable Cox (Fully Fixed)
