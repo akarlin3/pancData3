@@ -528,18 +528,24 @@ parfor j = 1:length(mrn_list)
             % Stvol3d is the 3-D binary mask variable stored in the .mat file
             if ~isempty(struct_file)
                 if ~exist([outloc gtvname '.nii.gz'],'file')
-                    tmp = load(struct_file);
-                    gtv_mask = tmp.Stvol3d;
-                    niftiwrite(rot90(double(gtv_mask),-1),[outloc gtvname],'Compressed',true);
+                    gtv_mask = safe_load_mask(struct_file, 'Stvol3d');
+                    if ~isempty(gtv_mask)
+                        niftiwrite(rot90(double(gtv_mask),-1),[outloc gtvname],'Compressed',true);
+                    else
+                         fprintf('Warning: Failed to load GTVp mask from %s\n', struct_file);
+                    end
                 end
             end
 
             % --- Save GTVn (nodal) mask as NIfTI, if present ---
             if ~isempty(struct_file_gtvn)
                 if ~exist([outloc gtvn_name '.nii.gz'],'file')
-                    tmp = load(struct_file_gtvn);
-                    gtvn_mask = tmp.Stvol3d;
-                    niftiwrite(rot90(double(gtvn_mask),-1),[outloc gtvn_name],'Compressed',true);
+                    gtvn_mask = safe_load_mask(struct_file_gtvn, 'Stvol3d');
+                    if ~isempty(gtvn_mask)
+                        niftiwrite(rot90(double(gtvn_mask),-1),[outloc gtvn_name],'Compressed',true);
+                    else
+                        fprintf('Warning: Failed to load GTVn mask from %s\n', struct_file_gtvn);
+                    end
                 end
             end
 
