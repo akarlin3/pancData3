@@ -73,8 +73,8 @@ fprintf('\n--- SECTION 2: Load Clinical Outcome Data ---\n');
 %   - Local/regional failure status (binary: 0=LC, 1=LF)
 %   - Failure and censor dates for time-to-event analysis
 %   - RT start/stop dates for computing post-treatment intervals
-clinical_data_sheet = fullfile(dataloc, 'MASTER_pancreas_DWIanalysis.xlsx');
-T = readtable(clinical_data_sheet,'Sheet','Clin List_MR');
+clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
+T = readtable(clinical_data_sheet,'Sheet', config_struct.clinical_sheet_name);
 
 % Pre-allocate outcome arrays matched to the patient list
 lf = nan(length(id_list), 1);
@@ -83,8 +83,12 @@ censor_date = repmat(datetime(NaT), length(id_list), 1);
 rtstartdate = repmat(datetime(NaT), length(id_list), 1);
 rtenddate = repmat(datetime(NaT), length(id_list), 1);
 
+% Optimize performance by pre-processing keys once (O(N) instead of O(N^2))
+pat_normalized = strrep(T.Pat,'_','-');
+id_list_normalized = strrep(id_list,'_','-');
+
 for j = 1:length(id_list)
-    i_find = find(contains(strrep(T.Pat,'_','-'), strrep(id_list{j},'_','-')));
+    i_find = find(contains(pat_normalized, id_list_normalized{j}));
     if ~isempty(i_find)
         i_find = i_find(1);
         lf(j) = T.LocalOrRegionalFailure(i_find);
@@ -250,8 +254,7 @@ m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
 % Defensive padding: ensure longitudinal arrays have nTp columns to prevent 
 % crashes during Post-RT (column 6) analysis when dose was only calculated 
-% for Fractions 1-5. Direct access is faster than eval/assignin and avoids
-% disabling JIT optimizations.
+% for Fractions 1-5.
 if size(m_gtv_vol, 2) < nTp
     m_gtv_vol = [m_gtv_vol, nan(size(m_gtv_vol, 1), nTp - size(m_gtv_vol, 2))];
 end
@@ -678,12 +681,21 @@ fprintf('\n--- SECTION 8: Compile and Export Significant Results ---\n');
 % Re-iterates through all metric sets and timepoints to collect every
 % comparison that reached nominal significance (uncorrected p < 0.05).
 % Stores metric name, timepoint, p-value, and group means for export.
-% Initialize arrays to store significant results
-sig_metric = {};
-sig_fraction = {};
-sig_pval = [];
-sig_mean_LC = [];
-sig_mean_LF = [];
+
+% Pre-calculate upper bound for array size to avoid dynamic growth
+total_checks = 0;
+for s = 1:length(metric_sets)
+    total_checks = total_checks + length(metric_sets{s}) * length(time_labels);
+end
+
+% Pre-allocate storage arrays
+sig_metric = cell(total_checks, 1);
+sig_fraction = cell(total_checks, 1);
+sig_pval = nan(total_checks, 1);
+sig_mean_LC = nan(total_checks, 1);
+sig_mean_LF = nan(total_checks, 1);
+
+sig_count = 0;
 
 % Iterate through the predefined metric sets
 for s = 1:length(metric_sets)
@@ -713,16 +725,26 @@ for s = 1:length(metric_sets)
                     mean_LC = mean(y(g == 0), 'omitnan');
                     mean_LF = mean(y(g == 1), 'omitnan');
                     
-                    % Append to storage arrays
-                    sig_metric{end+1, 1} = current_names{m};
-                    sig_fraction{end+1, 1} = time_labels{tp};
-                    sig_pval(end+1, 1) = p;
-                    sig_mean_LC(end+1, 1) = mean_LC;
-                    sig_mean_LF(end+1, 1) = mean_LF;
+                    % Store in pre-allocated arrays
+                    sig_count = sig_count + 1;
+                    sig_metric{sig_count, 1} = current_names{m};
+                    sig_fraction{sig_count, 1} = time_labels{tp};
+                    sig_pval(sig_count, 1) = p;
+                    sig_mean_LC(sig_count, 1) = mean_LC;
+                    sig_mean_LF(sig_count, 1) = mean_LF;
                 end
             end
         end
     end
+end
+
+% Truncate to actual size
+if sig_count < total_checks
+    sig_metric = sig_metric(1:sig_count, :);
+    sig_fraction = sig_fraction(1:sig_count, :);
+    sig_pval = sig_pval(1:sig_count, :);
+    sig_mean_LC = sig_mean_LC(1:sig_count, :);
+    sig_mean_LF = sig_mean_LF(1:sig_count, :);
 end
 
 % Construct table and export if any significant results were found
@@ -1562,7 +1584,7 @@ for p = 1:2
         
         % Read b-values from text file (space-delimited single line)
         fid = fopen(bval_file);
-        bvals = str2num(fgetl(fid)); 
+        bvals = sscanf(fgetl(fid), '%f')';
         fclose(fid);
         bvals = bvals(:); % Column vector
         

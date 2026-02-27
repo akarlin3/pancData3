@@ -95,8 +95,13 @@ function run_dwi_pipeline(config_path, steps_to_run)
             summary_metrics_file = fullfile(config_struct.dataloc, 'summary_metrics.mat');
 
             if exist(dwi_vectors_file, 'file') && exist(summary_metrics_file, 'file')
-                load(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
-                load(summary_metrics_file, 'summary_metrics');
+                % Load data using structure assignment to avoid unsafe deserialization
+                tmp_vectors = load(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+                data_vectors_gtvp = tmp_vectors.data_vectors_gtvp;
+                data_vectors_gtvn = tmp_vectors.data_vectors_gtvn;
+
+                tmp_metrics = load(summary_metrics_file, 'summary_metrics');
+                summary_metrics = tmp_metrics.summary_metrics;
                 fprintf('      Loaded data from disk.\n');
             else
                 error('Data files not found. Please run "load" step first.');
@@ -164,7 +169,8 @@ function run_dwi_pipeline(config_path, steps_to_run)
              % Load results if visualize is requested
              results_file = fullfile(config_struct.dataloc, 'calculated_results.mat');
              if exist(results_file, 'file')
-                 load(results_file, 'calculated_results');
+                 tmp_results = load(results_file, 'calculated_results');
+                 calculated_results = tmp_results.calculated_results;
                  fprintf('      Loaded calculated_results from disk.\n');
              else
                  fprintf('      Warning: calculated_results.mat not found. Visualizations may fail.\n');
