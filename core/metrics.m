@@ -1557,8 +1557,8 @@ for p = 1:2
         tp = tp_num(t);
         
         % Construct NIfTI file paths for this patient/timepoint
-        basefolder = [dataloc m_id_list{pt_idx} '/'];
-        nii_path = [basefolder '/nii/'];
+        basefolder = fullfile(dataloc, m_id_list{pt_idx});
+        nii_path = fullfile(basefolder, 'nii');
         
         % Set scan and GTV mask filenames based on timepoint
         if tp == 1
@@ -1567,9 +1567,9 @@ for p = 1:2
             scanID = sprintf('fx%d_dwi1', target_fx); gtvname = sprintf('fx%d_gtv1', target_fx);
         end
         
-        dwi_file = [nii_path scanID '.nii.gz'];   % 4D DWI volume
-        bval_file = [nii_path scanID '.bval'];     % b-value text file
-        gtv_file = [nii_path gtvname '.nii.gz'];   % Binary GTV mask
+        dwi_file = fullfile(nii_path, [scanID '.nii.gz']);   % 4D DWI volume
+        bval_file = fullfile(nii_path, [scanID '.bval']);     % b-value text file
+        gtv_file = fullfile(nii_path, [gtvname '.nii.gz']);   % Binary GTV mask
 
         if ~exist(dwi_file, 'file') || ~exist(bval_file, 'file')
             fprintf('  Skipping: Missing files for Pt %d Tp %d\n', pt_idx, tp);
