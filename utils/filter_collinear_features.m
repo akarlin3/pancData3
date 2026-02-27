@@ -45,16 +45,9 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
     n_feats = size(X, 2);
     drop_idx = false(1, n_feats);
     
-    % Pre-compute all C-indices to prevent redundant perfcurve calls
-    % This is an O(N) operation instead of O(N^2)
-    c_indices = 0.5 * ones(1, n_feats);
-    for fi = 1:n_feats
-        valid_idx = ~isnan(X_corr(:, fi)) & ~isnan(y_corr);
-        if sum(valid_idx) > 2
-            [~, ~, ~, auc] = perfcurve(y_corr(valid_idx), X_corr(valid_idx, fi), 1);
-            c_indices(fi) = max(auc, 1 - auc);
-        end
-    end
+    % Initialize C-indices with a sentinel value (-1) to indicate "not calculated"
+    % This avoids computing AUC for features that are never involved in a collision
+    c_indices = -1 * ones(1, n_feats);
     
     % Find highly collinear pairs
     [row_idx, col_idx] = find(abs(tril(R, -1)) > 0.8);
@@ -68,6 +61,14 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
             continue; % One of them is already dropped
         end
         
+        % Calculate AUC lazily if not already done
+        if c_indices(fi) == -1
+            c_indices(fi) = compute_auc(X_corr(:, fi), y_corr);
+        end
+        if c_indices(fj) == -1
+            c_indices(fj) = compute_auc(X_corr(:, fj), y_corr);
+        end
+
         % Drop the feature that has weaker predictive power
         if c_indices(fj) <= c_indices(fi)
             drop_idx(fj) = true;
@@ -76,4 +77,15 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
         end
     end
     keep_idx = find(~drop_idx);
+end
+
+function auc_val = compute_auc(feat_col, y_col)
+    % Helper function to compute AUC
+    valid_idx = ~isnan(feat_col) & ~isnan(y_col);
+    if sum(valid_idx) > 2
+        [~, ~, ~, auc] = perfcurve(y_col(valid_idx), feat_col(valid_idx), 1);
+        auc_val = max(auc, 1 - auc);
+    else
+        auc_val = 0.5;
+    end
 end
