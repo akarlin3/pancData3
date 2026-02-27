@@ -677,12 +677,21 @@ fprintf('\n--- SECTION 8: Compile and Export Significant Results ---\n');
 % Re-iterates through all metric sets and timepoints to collect every
 % comparison that reached nominal significance (uncorrected p < 0.05).
 % Stores metric name, timepoint, p-value, and group means for export.
-% Initialize arrays to store significant results
-sig_metric = {};
-sig_fraction = {};
-sig_pval = [];
-sig_mean_LC = [];
-sig_mean_LF = [];
+
+% Pre-calculate upper bound for array size to avoid dynamic growth
+total_checks = 0;
+for s = 1:length(metric_sets)
+    total_checks = total_checks + length(metric_sets{s}) * length(time_labels);
+end
+
+% Pre-allocate storage arrays
+sig_metric = cell(total_checks, 1);
+sig_fraction = cell(total_checks, 1);
+sig_pval = nan(total_checks, 1);
+sig_mean_LC = nan(total_checks, 1);
+sig_mean_LF = nan(total_checks, 1);
+
+sig_count = 0;
 
 % Iterate through the predefined metric sets
 for s = 1:length(metric_sets)
@@ -712,16 +721,26 @@ for s = 1:length(metric_sets)
                     mean_LC = mean(y(g == 0), 'omitnan');
                     mean_LF = mean(y(g == 1), 'omitnan');
                     
-                    % Append to storage arrays
-                    sig_metric{end+1, 1} = current_names{m};
-                    sig_fraction{end+1, 1} = time_labels{tp};
-                    sig_pval(end+1, 1) = p;
-                    sig_mean_LC(end+1, 1) = mean_LC;
-                    sig_mean_LF(end+1, 1) = mean_LF;
+                    % Store in pre-allocated arrays
+                    sig_count = sig_count + 1;
+                    sig_metric{sig_count, 1} = current_names{m};
+                    sig_fraction{sig_count, 1} = time_labels{tp};
+                    sig_pval(sig_count, 1) = p;
+                    sig_mean_LC(sig_count, 1) = mean_LC;
+                    sig_mean_LF(sig_count, 1) = mean_LF;
                 end
             end
         end
     end
+end
+
+% Truncate to actual size
+if sig_count < total_checks
+    sig_metric = sig_metric(1:sig_count, :);
+    sig_fraction = sig_fraction(1:sig_count, :);
+    sig_pval = sig_pval(1:sig_count, :);
+    sig_mean_LC = sig_mean_LC(1:sig_count, :);
+    sig_mean_LF = sig_mean_LF(1:sig_count, :);
 end
 
 % Construct table and export if any significant results were found
