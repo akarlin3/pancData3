@@ -383,6 +383,12 @@ end
 % Output variables (data_vectors_gtvp/n, summary arrays) are sliced variables,
 % meaning each worker writes to a specific index (j,:,:), preventing race conditions.
 % 'bad_dwi_locations_per_patient' accumulates errors per worker and is flattened later.
+
+% [PERFORMANCE OPTIMIZATION]:
+% Pre-compute normalized strings outside the loop to avoid redundant strrep calls.
+T_Pat_normalized = strrep(T.Pat, '_', '-');
+id_list_normalized = strrep(id_list, '_', '-');
+
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
     
@@ -456,7 +462,7 @@ parfor j = 1:length(mrn_list)
     gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
-    i_pat = find(contains(strrep(T.Pat,'_','-'),strrep(id_list{j},'_','-')));
+    i_pat = find(contains(T_Pat_normalized, id_list_normalized{j}));
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
