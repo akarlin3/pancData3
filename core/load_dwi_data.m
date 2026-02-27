@@ -1041,7 +1041,6 @@ parfor j = 1:length(mrn_list)
 
                 % Store IVIMnet deep-learning fit vectors (pipeline variant 3)
                 if haveivimnet
-%                     mdic = {"D_ivimnet": D_out, "f_ivimnet":f_out, "Dstar_ivimnet":Dstar_out, "S0_ivimnet":S0_out}
                     D_ivimnet = rot90(D_ivimnet);
                     f_ivimnet = rot90(f_ivimnet);
                     Dstar_ivimnet = rot90(Dstar_ivimnet);
@@ -1101,7 +1100,6 @@ parfor j = 1:length(mrn_list)
 
             % Store IVIMnet vectors for GTVn
             if haveivimnet && havegtvn
-                %                     mdic = {"D_ivimnet": D_out, "f_ivimnet":f_out, "Dstar_ivimnet":Dstar_out, "S0_ivimnet":S0_out}
                 D_ivimnet = rot90(D_ivimnet);
                 f_ivimnet = rot90(f_ivimnet);
                 Dstar_ivimnet = rot90(Dstar_ivimnet);
