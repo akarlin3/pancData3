@@ -1557,10 +1557,10 @@ for p = 1:2
         end
 
         % Load NIfTI data; rot90 for radiological display convention
-        dwi_nii = load_untouch_nii(dwi_file);
-        dwi_img = double(rot90(dwi_nii.img)); 
-        gtv_nii = load_untouch_nii(gtv_file);
-        gtv_img = double(rot90(gtv_nii.img));
+        dwi_info = niftiinfo(dwi_file);
+        dwi_img = double(rot90(niftiread(dwi_info))); 
+        gtv_info = niftiinfo(gtv_file);
+        gtv_img = double(rot90(niftiread(gtv_info)));
         
         % Read b-values from text file (space-delimited single line)
         fid = fopen(bval_file);

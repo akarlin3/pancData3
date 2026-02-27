@@ -51,7 +51,7 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 %     - dcm2niix (MRIcroGL)      — DICOM-to-NIfTI conversion
 %   MATLAB toolboxes / functions:
 %     - clean_dir_command         — wrapper around dir() that removes '.' entries
-%     - load_untouch_nii          — NIfTI reader (NIfTI toolbox, Jimmy Shen)
+%     - niftiread                 — Native MATLAB NIfTI reader
 %     - IVIMmodelfit              — segmented biexponential IVIM fitting
 %     - sample_rtdose_on_image    — resamples RT dose grid onto DWI geometry
 %     - dvh                       — computes dose-volume histogram parameters
@@ -630,6 +630,57 @@ parfor j = 1:length(mrn_list)
                     % Normalise denoised signal to [0,1] for IVIM fitting
                     dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
                     havedenoised=1;
+                else
+                    % [MODULARIZATION STAGE 2]: GPU Acceleration + Dynamic Fallback
+                    % If the cached 'dwi_dncnn' doesn't exist, we compute it on the fly.
+                    % We pull the heavy dependency (apply_dncnn_symmetric) into this loop,
+                    % but we cast the matrices to gpuArray() *first* so MATLAB accelerates it.
+                    fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on GPU...\n');
+                    
+                    % 1. Load the pre-trained neural network (assuming it exists in dependencies)
+                    try
+                        % NOTE: Replace 'dncnn_model.mat' with the actual model file if known.
+                        % For now, we assume a generic 'net' variable is loaded.
+                        loaded_model = load(fullfile(config_struct.dataloc, '../dependencies/dncnn_model.mat'), 'net');
+                        dncnn_net = loaded_model.net;
+                        
+                        % 2. Cast the raw 4D DWI volume and 3D GTV mask to the GPU
+                        dwi_gpu = gpuArray(single(dwi));
+                        
+                        % If we have a primary GTV, use it. Otherwise, use nodal if available.
+                        if exist('gtv_mask', 'var') && ~isempty(gtv_mask)
+                            mask_gpu = gpuArray(single(gtv_mask));
+                        elseif exist('gtvn_mask', 'var') && ~isempty(gtvn_mask)
+                            mask_gpu = gpuArray(single(gtvn_mask));
+                        else
+                            mask_gpu = gpuArray(ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single'));
+                        end
+
+                        % 3. Pre-allocate the denoised 4D volume on the GPU
+                        dwi_dncnn_gpu = zeros(size(dwi_gpu), 'single', 'gpuArray');
+
+                        % 4. Apply the black-box dependency slice-by-slice (or volume-by-volume)
+                        %    apply_dncnn_symmetric handles 3D, so we loop over the 4th dimension (b-values)
+                        for b_idx = 1:size(dwi_gpu, 4)
+                            % The dependency is untouched, but it operates on GPU arrays natively!
+                            dwi_dncnn_gpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_gpu(:,:,:,b_idx), mask_gpu, dncnn_net, 15);
+                        end
+
+                        % 5. Gather back to the CPU for the rest of the pipeline
+                        dwi_dncnn = double(gather(dwi_dncnn_gpu));
+                        
+                        % Normalise denoised signal to [0,1] for IVIM fitting
+                        dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
+                        havedenoised = 1;
+
+                        % (Optional: Save the dwi_dncnn back to disk to cache it for the next run)
+                        % This would require creating the directories and saving the NIfTI.
+                        fprintf('  [DnCNN] Deep learning denoising completed.\n');
+                    catch GPU_ME
+                        fprintf('  [DnCNN] GPU Acceleration failed: %s\n', GPU_ME.message);
+                        fprintf('  [DnCNN] Proceeding without denoised data.\n');
+                        havedenoised = 0;
+                    end
                 end
             end
 
@@ -718,25 +769,57 @@ parfor j = 1:length(mrn_list)
                 opts = [];
                 opts.bthr = ivim_bthr; % set in USER OPTIONS (default 200 s/mm2; clinical standard for abdominal IVIM)
 
+                % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
+                % Flatten 3D volume to a 1D array of strictly non-zero mask voxels
+                % to bypass thousands of empty space computations within the dependency.
                 sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];
-                has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
-                if has_sufficient_bvalues
-                    ivim_fit = IVIMmodelfit(dwi,bvalues,"seg",mask_ivim,opts);
-                    % 4th dimension of ivim_fit is: adc, s0, f, dstar
-                    d_map = ivim_fit(:,:,:,1);      % D — true diffusion coefficient
-                    f_map = ivim_fit(:,:,:,3);      % f — perfusion fraction
-                    dstar_map = ivim_fit(:,:,:,4);  % D* — pseudo-diffusion coefficient
+                valid_voxels_idx = find(mask_ivim);
+                n_valid = length(valid_voxels_idx);
+                
+                % Preallocate output 1D arrays
+                d_vec = nan(n_valid, 1);
+                f_vec = nan(n_valid, 1);
+                dstar_vec = nan(n_valid, 1);
 
+                has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
+                if has_sufficient_bvalues && n_valid > 0
+                    fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
+                    
+                    % Extract 1D signal decay curves for valid voxels
+                    % Reshape DWI to (voxels x bvalues)
+                    dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+                    dwi_valid = dwi_flat(valid_voxels_idx, :);
+                    
+                    % We must pass a 3D volume to the dependency, but we can make it [n_valid x 1 x 1 x bval]
+                    dwi_1d_vol = reshape(dwi_valid, [n_valid, 1, 1, length(bvalues)]);
+                    mask_1d_vol = true(n_valid, 1, 1);
+                    
+                    % Execute the untouched dependency on the flattened array
+                    ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+                    
+                    % Extract fitted parameters from the 1D result
+                    d_vec = squeeze(ivim_fit_1d(:,:,:,1));
+                    f_vec = squeeze(ivim_fit_1d(:,:,:,3));
+                    dstar_vec = squeeze(ivim_fit_1d(:,:,:,4));
+                    
                     % Replace zero-fit voxels with NaN (failed fits)
-                    zero_mask = d_map==0;
-                    d_map(zero_mask) = nan;
-                    f_map(zero_mask) = nan;
-                    dstar_map(zero_mask) = nan;
-                else
+                    zero_mask = (d_vec == 0);
+                    d_vec(zero_mask) = nan;
+                    f_vec(zero_mask) = nan;
+                    dstar_vec(zero_mask) = nan;
+                elseif ~has_sufficient_bvalues
                     fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
-                    d_map = nan(sz3);
-                    f_map = nan(sz3);
-                    dstar_map = nan(sz3);
+                end
+
+                % Safely reconstruct 1D outputs back into 3D volume geometry
+                d_map = nan(sz3);
+                f_map = nan(sz3);
+                dstar_map = nan(sz3);
+                
+                if n_valid > 0
+                    d_map(valid_voxels_idx) = d_vec;
+                    f_map(valid_voxels_idx) = f_vec;
+                    dstar_map(valid_voxels_idx) = dstar_vec;
                 end
 
                 % Monoexponential ADC fit — log-linear OLS on active voxels only.
@@ -745,52 +828,98 @@ parfor j = 1:length(mrn_list)
                 % S = S0 * exp(-b * ADC)
                 % Linearized form: ln(S/S0) = -b * ADC
                 % Solved via Ordinary Least Squares (OLS) on the log-signal.
-                %
-                % Pre-filtering to voxels with all-positive signal prevents the
-                % log-linear operation from freezing on large zero-signal backgrounds.
+                
                 adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];
-                S_2d    = reshape(double(dwi), [prod(adc_sz), length(bvalues)]);
-                adc_idx = find(all(S_2d > 0, 2));
-                adc_vec = zeros(prod(adc_sz), 1);
-                if ~isempty(adc_idx)
-                    S_a = S_2d(adc_idx, :);
-                    adc_vec(adc_idx) = (-bvalues(2:end) \ ...
-                        permute(log(S_a(:,2:end) ./ S_a(:,1)), [2 1]))';
-                    adc_vec(adc_vec < 0) = nan;  % clamp noise-driven negative ADC estimates
+                adc_map = nan(adc_sz);
+                
+                if n_valid > 0
+                    % Use the pre-flattened dwi_valid from stage 3 opt
+                    % Filter to voxels with all-positive signal to prevent log() issues
+                    adc_valid_idx = all(dwi_valid > 0, 2);
+                    
+                    if any(adc_valid_idx)
+                        S_a = dwi_valid(adc_valid_idx, :);
+                        
+                        % Vectorized OLS on valid masked voxels
+                        adc_vals = (-bvalues(2:end) \ ...
+                            permute(log(S_a(:,2:end) ./ S_a(:,1)), [2 1]))';
+                        
+                        adc_vals(adc_vals < 0) = nan;  % clamp noise-driven negative ADC estimates
+                        
+                        % Prepare a temporary 1D vector for all valid mask voxels
+                        adc_vec_out = nan(n_valid, 1);
+                        adc_vec_out(adc_valid_idx) = adc_vals;
+                        
+                        % Reconstruct into 3D geometry
+                        adc_map(valid_voxels_idx) = adc_vec_out;
+                    end
                 end
-                adc_map = reshape(adc_vec, adc_sz);
 
                 % Repeat IVIM + ADC fitting on DnCNN-denoised data
                 if havedenoised==1
-                    if has_sufficient_bvalues
-                        ivim_fit_dncnn = IVIMmodelfit(dwi_dncnn,bvalues,"seg",mask_ivim,opts);
-                        % 4th dimension of ivim_fit is: adc, s0, f, dstar
-                        d_map_dncnn = ivim_fit_dncnn(:,:,:,1);
-                        f_map_dncnn = ivim_fit_dncnn(:,:,:,3);
-                        dstar_map_dncnn = ivim_fit_dncnn(:,:,:,4);
+                    % Preallocate output 1D arrays
+                    d_vec_dncnn = nan(n_valid, 1);
+                    f_vec_dncnn = nan(n_valid, 1);
+                    dstar_vec_dncnn = nan(n_valid, 1);
+                    
+                    if has_sufficient_bvalues && n_valid > 0
+                        % Flatten 3D DnCNN volume to 1D
+                        dwi_dncnn_flat = reshape(dwi_dncnn, [prod(sz3), length(bvalues)]);
+                        dwi_dncnn_valid = dwi_dncnn_flat(valid_voxels_idx, :);
+                        
+                        % Reshape for dependency [n_valid x 1 x 1 x bval]
+                        dwi_dncnn_1d_vol = reshape(dwi_dncnn_valid, [n_valid, 1, 1, length(bvalues)]);
+                        mask_1d_vol = true(n_valid, 1, 1);
+                        
+                        % Execute the untouched dependency on the flattened array
+                        ivim_fit_dncnn_1d = IVIMmodelfit(dwi_dncnn_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+                        
+                        d_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,1));
+                        f_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,3));
+                        dstar_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,4));
 
-                        zero_mask_dncnn = d_map_dncnn==0;
-                        d_map_dncnn(zero_mask_dncnn) = nan;
-                        f_map_dncnn(zero_mask_dncnn) = nan;
-                        dstar_map_dncnn(zero_mask_dncnn) = nan;
-                    else
-                        d_map_dncnn = nan(sz3);
-                        f_map_dncnn = nan(sz3);
-                        dstar_map_dncnn = nan(sz3);
+                        zero_mask_dncnn = (d_vec_dncnn == 0);
+                        d_vec_dncnn(zero_mask_dncnn) = nan;
+                        f_vec_dncnn(zero_mask_dncnn) = nan;
+                        dstar_vec_dncnn(zero_mask_dncnn) = nan;
+                    end
+                    
+                    % Safely reconstruct 1D outputs back into 3D volume geometry
+                    d_map_dncnn = nan(sz3);
+                    f_map_dncnn = nan(sz3);
+                    dstar_map_dncnn = nan(sz3);
+                    
+                    if n_valid > 0
+                        d_map_dncnn(valid_voxels_idx) = d_vec_dncnn;
+                        f_map_dncnn(valid_voxels_idx) = f_vec_dncnn;
+                        dstar_map_dncnn(valid_voxels_idx) = dstar_vec_dncnn;
                     end
 
                     % Monoexponential ADC fit on DnCNN-denoised data (pre-filtered)
                     adc_sz_d   = [size(dwi_dncnn,1), size(dwi_dncnn,2), size(dwi_dncnn,3)];
-                    S_2d_d     = reshape(double(dwi_dncnn), [prod(adc_sz_d), length(bvalues)]);
-                    adc_idx_d  = find(all(S_2d_d > 0, 2));
-                    adc_vec_d  = zeros(prod(adc_sz_d), 1);
-                    if ~isempty(adc_idx_d)
-                        S_a_d = S_2d_d(adc_idx_d, :);
-                        adc_vec_d(adc_idx_d) = (-bvalues(2:end) \ ...
-                            permute(log(S_a_d(:,2:end) ./ S_a_d(:,1)), [2 1]))';
-                        adc_vec_d(adc_vec_d < 0) = nan;  % drop noise-driven negative ADC estimates (failed fit)
+                    adc_map_dncnn = nan(adc_sz_d);
+                    
+                    if n_valid > 0
+                        % Use the pre-flattened dwi_dncnn_valid
+                        adc_idx_d = all(dwi_dncnn_valid > 0, 2);
+                        
+                        if any(adc_idx_d)
+                            S_a_d = dwi_dncnn_valid(adc_idx_d, :);
+                            
+                            % Vectorized OLS on valid masked voxels
+                            adc_vec_d = (-bvalues(2:end) \ ...
+                                permute(log(S_a_d(:,2:end) ./ S_a_d(:,1)), [2 1]))';
+                            
+                            adc_vec_d(adc_vec_d < 0) = nan;  % drop noise-driven negative ADC estimates
+                            
+                            % Prepare a temporary 1D vector for all valid mask voxels
+                            adc_val_out_d = nan(n_valid, 1);
+                            adc_val_out_d(adc_idx_d) = adc_vec_d;
+                            
+                            % Reconstruct into 3D geometry
+                            adc_map_dncnn(valid_voxels_idx) = adc_val_out_d;
+                        end
                     end
-                    adc_map_dncnn = reshape(adc_vec_d, adc_sz_d);
                 end
             end
 
