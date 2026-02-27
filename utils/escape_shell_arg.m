@@ -51,7 +51,7 @@ function escaped_arg = escape_shell_arg(arg, style)
     else
         % Unix escaping
         % Wrap in single quotes. Replace ' with '\''
-        escaped_arg = strrep(arg, "'", "'\''");
-        escaped_arg = ['''' escaped_arg ''''];
+        escaped_arg = strrep(arg, '''', '''\''''' );
+        escaped_arg = string(['''' escaped_arg '''']);
     end
 end

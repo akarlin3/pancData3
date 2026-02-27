@@ -2,11 +2,12 @@
 diary(fullfile('saved_figures', 'test_mask_loading_output.txt'));
 diary on;
 
-if isfile('config.json')
-    config_struct = parse_config('config.json');
+config_file = fullfile(fileparts(mfilename('fullpath')), '..', 'config.json');
+if isfile(config_file)
+    config_struct = parse_config(config_file);
     dataloc = config_struct.dataloc;
 else
-    dataloc = [pwd filesep];
+    dataloc = fullfile(fileparts(mfilename('fullpath')), '..', filesep);
 end
 
 load(fullfile(dataloc, 'dwi_vectors.mat'), 'id_list', 'data_vectors_gtvp', 'gtv_locations');

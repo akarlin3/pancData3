@@ -14,6 +14,7 @@ classdef test_modularity < matlab.unittest.TestCase
             testCase.ConfigStruct.dataloc = [testCase.TempDir filesep];
             testCase.ConfigStruct.ivim_bthr = 100;
             testCase.ConfigStruct.skip_to_reload = true;
+            testCase.ConfigStruct.use_checkpoints = true;
             % These are needed by load_dwi_data
             testCase.ConfigStruct.adc_thresh = 0.00115;
             testCase.ConfigStruct.high_adc_thresh = 0.001;
@@ -141,6 +142,7 @@ classdef test_modularity < matlab.unittest.TestCase
              cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'load'}); catch ME, disp(ME.message); end", testCase.ConfigPath);
              T = evalc(cmd_safe);
 
+             fprintf('DEBUG T:\n%s\n', T);
              % Check if summary_metrics.mat exists
              testCase.verifyTrue(exist(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'file') == 2, 'summary_metrics.mat should be created');
         end

@@ -1535,7 +1535,7 @@ for j=1:length(id_list)
             % Only at k==1 (Fx1) where repeat acquisitions exist
             if k==1
                 rp_count = 0;  % count valid repeats for wCV computation
-                for rpi=1:nRpt
+                for rpi=1:size(data_vectors_gtvp, 3)
                     % Select vectors for the appropriate pipeline variant
                     switch dwi_type
                         case 1  % standard
