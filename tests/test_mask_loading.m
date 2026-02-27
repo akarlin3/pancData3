@@ -17,8 +17,12 @@ for j = 1:size(gtv_locations,1)
         gtv_mat = gtv_locations{j,k,1};
         if ~isempty(gtv_mat)
             % Ensure correct file separator for current platform
-            gtv_mat = strrep(gtv_mat, '/', filesep);
-            gtv_mat = strrep(gtv_mat, '\', filesep);
+            path_parts = strsplit(gtv_mat, {'/', '\'});
+            gtv_mat = fullfile(path_parts{:});
+            % Handle potential leading separator (absolute path on Unix) lost by strsplit
+            if isunix && (startsWith(gtv_mat, filesep) == 0) && isempty(path_parts{1})
+                gtv_mat = [filesep gtv_mat];
+            end
 
             if exist(gtv_mat, 'file')
                 load(gtv_mat, 'Stvol3d');
