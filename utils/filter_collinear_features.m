@@ -93,7 +93,21 @@ function auc_val = compute_auc(feat_col, y_col)
     % Helper function to compute AUC
     valid_idx = ~isnan(feat_col) & ~isnan(y_col);
     if sum(valid_idx) > 2
-        [~, ~, ~, auc] = perfcurve(y_col(valid_idx), feat_col(valid_idx), 1);
+        y_valid = y_col(valid_idx);
+        feat_valid = feat_col(valid_idx);
+
+        n1 = sum(y_valid == 1);
+        n0 = sum(y_valid == 0);
+
+        if n1 == 0 || n0 == 0
+            auc_val = 0.5;
+            return;
+        end
+
+        % Fast AUC computation via Mann-Whitney U statistic
+        ranks = tiedrank(feat_valid);
+        auc = (sum(ranks(y_valid == 1)) - n1 * (n1 + 1) / 2) / (n1 * n0);
+
         auc_val = max(auc, 1 - auc);
     else
         auc_val = 0.5;
