@@ -1,6 +1,24 @@
 function summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp)
 % COMPUTE_SUMMARY_METRICS — Computes longitudinal summary metrics from data vectors
 % Part of the load_dwi_data.m refactoring.
+%
+% Inputs:
+%   config_struct     - Configuration struct with thresholds (adc_thresh, etc.)
+%   data_vectors_gtvp - Struct array of voxel-level parameter vectors
+%   id_list           - Cell array of patient folder IDs
+%   mrn_list          - Cell array of patient MRNs
+%   lf                - Array of local failure status
+%   immuno            - Array of immunotherapy status
+%   gtv_locations     - Cell array of GTV path locations
+%   dwi_locations     - Cell array of DWI DICOM path locations
+%   dmean_gtvp        - Array of mean dose inside GTV
+%   d95_gtvp          - Array of D95 dose metric inside GTV
+%   v50gy_gtvp        - Array of V50Gy dose metric inside GTV
+%
+% Outputs:
+%   summary_metrics   - Struct containing computed mean, kurtosis, skewness,
+%                       SD, subsets, histogram features, predictability, etc.
+%
 
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];

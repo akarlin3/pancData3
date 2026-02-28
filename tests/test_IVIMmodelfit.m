@@ -27,7 +27,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             signal = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
             % Reshape to [Ny, Nx, Nz, Nb] -> [1, 1, 1, 8]
-            dwi = repmat(reshape(signal, [1, 1, 1, 8]), [2, 2, 2, 1]);
+            dwi = repmat(reshape(signal_noisy, [1, 1, 1, length(bvals)]), [3, 2, 2, 1]);hape(signal, [1, 1, 1, 8]), [3, 2, 2, 1]);
 
             % Options
             opts.bthr = 200;
@@ -64,7 +64,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             true_f = [0.1, 0.2; 0.3, 0.15];
             true_Dstar = [10e-3, 20e-3; 15e-3, 25e-3];
 
-            dwi = zeros(2, 2, 2, 8);
+            dwi = zeros(3, 2, 2, 8);
             for y = 1:2
                 for x = 1:2
                     D = true_D(y, x);
@@ -137,7 +137,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             signal_noisy = signal_ideal + noise;
             signal_noisy = abs(signal_noisy);
 
-            dwi = repmat(reshape(signal_noisy, [1, 1, 1, length(bvals)]), [2, 2, 2, 1]);
+            dwi = repmat(reshape(signal_noisy, [1, 1, 1, length(bvals)]), [3, 2, 2, 1]);hape(signal_noisy, [1, 1, 1, length(bvals)]), [2, 2, 2, 1]);
 
             opts.bthr = 200;
             opts.dispprog = false;
@@ -168,7 +168,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             S0 = 100; true_D = 1e-3; true_f = 0.2; true_Dstar = 15e-3;
             s_vec = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
-            dwi = zeros(2, 2, 2, 8);
+            dwi = zeros(3, 2, 2, 8);
             for y = 1:2
                 for x = 1:2
                     dwi(y, x, 1, :) = reshape(s_vec, [1, 1, 1, 8]);
@@ -176,7 +176,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             end
 
             % Only fit the first voxel
-            mask = false(2, 2, 1);
+            mask = false(3, 2, 2);
             mask(1, 1) = true;
 
             opts.bthr = 200;

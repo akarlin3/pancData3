@@ -1,5 +1,5 @@
 classdef test_sanity_checks < matlab.unittest.TestCase
-
+    % TEST_SANITY_CHECKS Unit tests for DWI pipeline input validation
     properties
         OriginalPath
         OriginalPwd
@@ -88,7 +88,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         function testHappyPath(testCase)
             [gtvp, gtvn, summary] = testCase.createMockData(2, 3);
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
 
             testCase.verifyTrue(is_valid, 'Happy path should be valid');
             testCase.verifyTrue(contains(msg, 'Passed'), 'Message should indicate success');
@@ -100,7 +100,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Introduce Inf
             gtvp(1,1,1).adc_vector(1) = Inf;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
 
             % Convergence issues are warnings, not failures
             testCase.verifyTrue(is_valid, 'Convergence warnings should not invalidate run');
@@ -113,7 +113,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Make dose vector different length
             gtvp(1,1,1).dose_vector(end+1) = 0.5;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
 
             testCase.verifyFalse(is_valid, 'Alignment mismatch should invalidate run');
             testCase.verifyTrue(contains(msg, 'Failed'), 'Message should indicate failure');
@@ -127,7 +127,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             nVox = numel(gtvp(1,1,1).dose_vector);
             gtvp(1,1,1).dose_vector(1:floor(0.2*nVox)) = NaN;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
 
             testCase.verifyFalse(is_valid, 'Excessive NaN in dose should invalidate run');
             testCase.verifyTrue(contains(msg, 'Failed'), 'Message should indicate failure');

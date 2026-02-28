@@ -1,6 +1,19 @@
 function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(dataloc)
 % DISCOVER_PATIENT_FILES — Locates DWI, GTV, and RT dose files on the network
 % Part of the load_dwi_data.m refactoring.
+%
+% Inputs:
+%   dataloc           - Base directory path where patient data is stored
+%
+% Outputs:
+%   id_list           - Cell array of patient folder names
+%   mrn_list          - Cell array of patient medical record numbers
+%   fx_dates          - Cell matrix of study dates for each fraction
+%   dwi_locations     - Cell matrix of absolute paths to DWI DICOM folders
+%   rtdose_locations  - Cell matrix of absolute paths to RT Dose DICOM folders
+%   gtv_locations     - Cell matrix of absolute paths to primary GTV files
+%   gtvn_locations    - Cell matrix of absolute paths to nodal GTV files
+%
 
 % List all patient folders, excluding any 'template' directories
 patlist = clean_dir_command(dataloc);

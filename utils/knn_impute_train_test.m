@@ -8,9 +8,20 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 % Also prevents temporal data leakage by excluding rows from the same patient 
 % during distance calculation if pat_id_tr/pat_id_te are provided.
 %
-% target_cols (optional): Indices or logical mask of columns to exclude from
-%                         distance computation (e.g., survival outcomes).
+%   Inputs:
+%       X_tr        - [n_train x p] Feature matrix for the training fold.
+%       X_te        - [n_test  x p] Feature matrix for the testing fold.
+%       k           - (Optional) Number of nearest neighbors. Default is 5.
+%       pat_id_tr   - (Optional) Array of patient IDs for training instances.
+%       pat_id_te   - (Optional) Array of patient IDs for testing instances.
+%       target_cols - (Optional) Indices of columns to exclude from distance metric.
+%
+%   Outputs:
+%       X_tr_imp    - [n_train x p] Imputed training feature matrix.
+%       X_te_imp    - [n_test  x p] Imputed testing feature matrix.
+%
     if nargin < 6, target_cols = []; end
+
     if nargin < 3, k = 5; end
     if nargin < 2, X_te = []; end
     if nargin < 4, pat_id_tr = []; end

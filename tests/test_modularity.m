@@ -1,4 +1,5 @@
 classdef test_modularity < matlab.unittest.TestCase
+    % TEST_MODULARITY Unit tests for skipped pipeline steps and modularity
     properties
         TempDir
         ConfigPath
@@ -51,7 +52,7 @@ classdef test_modularity < matlab.unittest.TestCase
                 'd95_gtvp', 1, 'dmean_gtvp', 1, 'lf', 0, 'lf_date', [], 'censor_date', [], 'total_time', [], 'total_follow_up_time', []);
 
             save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
-            save(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'summary_metrics');
+            save(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
             % Run pipeline skipping 'load'
             % We run 'sanity' which should pass with minimal data or fail gracefully.
@@ -80,7 +81,7 @@ classdef test_modularity < matlab.unittest.TestCase
         function testSkipMetrics(testCase)
              % Create dummy files needed for visualize
              calculated_results = struct();
-             save(fullfile(testCase.TempDir, 'calculated_results.mat'), 'calculated_results');
+             save(fullfile(testCase.TempDir, 'calculated_results_Standard.mat'), 'calculated_results');
 
              % Also need dwi_vectors and summary_metrics for visualize arg list
              data_vectors_gtvp = struct('adc_vector', []);
@@ -89,12 +90,12 @@ classdef test_modularity < matlab.unittest.TestCase
                 'adc_mean', 1, 'd_mean', 1, 'f_mean', 1, 'dstar_mean', 1, ...
                 'd95_gtvp', 1, 'dmean_gtvp', 1, 'lf', 0);
              save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
-             save(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'summary_metrics');
+             save(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
              cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'visualize'}); catch, end", testCase.ConfigPath);
              T = evalc(cmd_safe);
 
-             testCase.verifyTrue(contains(T, 'Skipping metrics_baseline'), 'Should skip metrics');
+             testCase.verifyTrue(contains(T, 'Skipping metrics_longitudinal'), 'Should skip metrics');
              testCase.verifyTrue(contains(T, 'Loaded calculated_results from disk'), 'Should load results from disk');
              testCase.verifyTrue(contains(T, 'Visualizing results'), 'Should run visualization');
         end
@@ -144,7 +145,7 @@ classdef test_modularity < matlab.unittest.TestCase
 
              fprintf('DEBUG T:\n%s\n', T);
              % Check if summary_metrics.mat exists
-             testCase.verifyTrue(exist(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'file') == 2, 'summary_metrics.mat should be created');
+             testCase.verifyTrue(exist(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'file') == 2, 'summary_metrics.mat should be created');
         end
     end
 end

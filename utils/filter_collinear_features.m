@@ -4,6 +4,16 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
 %   [keep_idx] = filter_collinear_features(X, y)
 %   [keep_idx] = filter_collinear_features(X, y, frac_vec)
 %
+%   Inputs:
+%       X        - Feature matrix [n_observations x n_features]
+%       y        - Target vector [n_observations x 1] (used to break ties based on predictive power)
+%       frac_vec - (Optional) Time-stratified fraction vector [n_observations x 1] to limit 
+%                  collinearity calculation to the baseline (fraction 1) rows only.
+%
+%   Outputs:
+%       keep_idx - Array of column indices for features that should be retained (not pruned)
+%
+
 %   When two features are highly correlated (|r| > 0.8), the one with the higher 
 %   univariate Wilcoxon rank-sum p-value (less significant) is dropped.
 %

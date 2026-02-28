@@ -1,6 +1,18 @@
 function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, nTp, dtype_label, output_folder)
 % METRICS_LONGITUDINAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 2/5 of the metrics step.
+% Part 2/5 of the metrics step. Visualizes longitudinal evolution of absolute
+% parameters and their relative percent changes.
+%
+% Inputs:
+%   *_abs             - Matrices of absolute values for ADC, D, f, D*
+%   *_pct             - Matrices of percent change values for ADC, D, f, D*
+%   nTp               - Number of timepoints expected
+%   dtype_label       - String label indicating pipeline variant (Standard, etc)
+%   output_folder     - Directory where generated figures will be saved
+%
+% Outputs:
+%   None. Saves generated longitudinal plots to output_folder.
+%
 
 fprintf('  --- SECTION 5: Longitudinal Metric Plotting ---\n');
 

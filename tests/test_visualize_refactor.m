@@ -1,4 +1,5 @@
 classdef test_visualize_refactor < matlab.unittest.TestCase
+    % TEST_VISUALIZE_REFACTOR Unit tests for visualization path construction
     properties
         TempDir
         ConfigStruct

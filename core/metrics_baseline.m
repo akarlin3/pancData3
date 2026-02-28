@@ -1,6 +1,19 @@
 function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % METRICS_BASELINE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 1/5 of the metrics step.
+% Part 1/5 of the metrics step. Compiles baseline measures, cleans outliers,
+% computes relative changes (percent delta), and groups metric sets for later steps.
+%
+% Inputs:
+%   data_vectors_gtvp - Struct array containing primary GTV parameter maps (by iter)
+%   data_vectors_gtvn - Struct array containing nodal GTV parameter maps
+%   summary_metrics   - Pre-computed overall summary values across timepoints
+%   config_struct     - Configuration struct
+%
+% Outputs:
+%   [Multiple Arrays] - Includes logical masks for valid_pts, clean arrays for 
+%                       ADC_abs, D_abs, f_abs, and their delta percent variations,
+%                       as well as organized sets (metric_sets) for downstream analysis.
+%
 
 % Extract parameters
 dataloc = config_struct.dataloc;

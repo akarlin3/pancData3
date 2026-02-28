@@ -1,5 +1,7 @@
 function tests = test_landmark_cindex
+% TEST_LANDMARK_CINDEX Validates immortal time bias prevention logic
     tests = functiontests(localfunctions);
+
 end
 
 function test_landmark_left_truncation(testCase)

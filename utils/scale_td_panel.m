@@ -6,6 +6,17 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
 %   Computes independent mu and sigma for each feature and each temporal week 
 %   strictly from the rows belonging to train_pat_ids, and scales ALL rows 
 %   in X_td_raw using those specific parameters.
+%
+%   Inputs:
+%       X_td_raw      - Raw feature matrix from start-stop Cox counting process
+%       feat_names    - Cell array of strings representing feature names
+%       pat_id_td     - Array of patient IDs corresponding to each row
+%       t_start_td    - Array of start times corresponding to each row
+%       train_pat_ids - Array of patient IDs strictly belonging to the training set
+%
+%   Outputs:
+%       X_td_scaled   - Scaled feature matrix where training set sets the mean/stdev
+%
     
     n_feat = length(feat_names);
     X_td_scaled = X_td_raw;

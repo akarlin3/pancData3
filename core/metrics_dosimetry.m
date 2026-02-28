@@ -1,6 +1,19 @@
 function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = metrics_dosimetry(m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations)
 % METRICS_DOSIMETRY — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 3/5 of the metrics step.
+% Part 3/5 of the metrics step. Computes dose metrics (D95, V50) for resistant sub-volumes.
+%
+% Inputs:
+%   m_id_list         - Cell array of valid patient identifiers
+%   id_list           - Original cell array of all patient identifiers
+%   nTp               - Number of timepoints
+%   config_struct     - Configuration settings (thresholds)
+%   m_data_vectors_gtvp- Struct array containing parametric vectors and dose vectors
+%   gtv_locations     - Cell array showing paths to 3D mask arrays
+%
+% Outputs:
+%   d95_*_sub         - D95 dose (Gy) delivered to the resistant sub-volume defined by *
+%   v50_*_sub         - V50Gy dose coverage (%) delivered to the resistant sub-volume defined by *
+%
 
 fprintf('  --- SECTION 6: Target Coverage (Sub-Volume Dose Metrics) ---\n');
 

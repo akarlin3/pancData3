@@ -1,6 +1,27 @@
 function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time)
 % METRICS_STATS_PREDICTIVE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 4b/5 of the metrics step: Predictive Modeling (Elastic Net & Cox prep)
+% Part 4b/5 of the metrics step: Predictive Modeling (Elastic Net & Cox prep).
+% Performs multivariate feature selection via Elastic Net logistic regression
+% and generates out-of-fold risk scores via nested Leave-One-Out Cross-Validation.
+%
+% Inputs:
+%   valid_pts         - Logical mask of patients mapped to LF/LC groups
+%   lf_group          - Outcome variable arrays (0=LC, 1=LF)
+%   dtype_label       - Used in naming figures
+%   output_folder     - Where output figures should be saved
+%   dataloc           - Directory path containing input data
+%   nTp               - Total count of timepoints
+%   m_*               - Multiple parameter arrays (GTV volumes, Dose, absolute parameters, etc)
+%   d95_*, v50_*      - Sub-volume dose coverage arrays
+%   dl_provenance     - Matrix or struct ensuring training leak prevention in cross-val
+%   x_labels          - Labels for the time component
+%
+% Outputs:
+%   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores
+%   is_high_risk      - Binarised array demarcating patients > median training risk
+%   times_km          - Times used for subsequent Kaplan-Meier models
+%   events_km         - Events matched to times_km
+%
 
 fprintf('  --- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 

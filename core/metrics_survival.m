@@ -1,6 +1,21 @@
 function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 5/5 of the metrics step.
+% Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
+% model with dynamic covariate updating.
+%
+% Inputs:
+%   valid_pts         - Logical mask of patients mapped to LF/LC groups
+%   ADC_abs, D_abs, f_abs, Dstar_abs - Baseline covariate values matrices
+%   m_lf              - Local failure clinical grouping statuses
+%   m_total_time      - Time-to-local-failure (events)
+%   m_total_follow_up_time - Time-to-censoring for event-free subjects
+%   nTp               - Counter of number of timepoints max
+%   fx_label          - Fraction labels used in logging
+%   dtype_label       - DWI type name used in output
+%
+% Outputs:
+%   None. Outputs printed to console (HR and p-value tables).
+%
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
 

@@ -3,8 +3,15 @@ function config_struct = parse_config(json_path)
 % 
 % Usage:
 %   config_struct = parse_config('config.json')
-
+%
+% Inputs:
+%   json_path - Path to the config file (e.g., config.json)
+%
+% Outputs:
+%   config_struct - A struct containing all parsed fields with defaults populated
+%
     if ~isfile(json_path)
+
         error('Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try

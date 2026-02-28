@@ -6,6 +6,16 @@ function parsave_dir_cache(filename, gtv_mask_warped, D_forward, ref3d)
 %
 %   Usage:
 %       parsave_dir_cache(filename, gtv_mask_warped, D_forward, ref3d);
-
+%
+%   Inputs:
+%       filename        - String/char describing absolute path of the output .mat file
+%       gtv_mask_warped - Follow-up scan mask deformed to original coordinate space
+%       D_forward       - Deformation map matrix outputted by demons algorithm
+%       ref3d           - Reference coordinate map specifying the original frame
+%
+%   Outputs:
+%       None
+%
     save(filename, 'gtv_mask_warped', 'D_forward', 'ref3d');
+
 end

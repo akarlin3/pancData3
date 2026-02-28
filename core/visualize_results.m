@@ -2,6 +2,16 @@ function visualize_results(data_vectors_gtvp, summary_metrics, calculated_result
 % VISUALIZE_RESULTS — "Visualizing It" (Generating Plots)
 % Author: Avery Karlin
 %
+% Inputs:
+%   data_vectors_gtvp - Struct array holding primary GTV parameters
+%   summary_metrics   - Struct containing patient ID and metric statistics
+%   calculated_results- Struct containing statistical predictive findings
+%   config_struct     - Configuration struct defining output locations
+%
+% Outputs:
+%   None. Generates and saves figures in the defined directory.
+%
+
 % This function generates three families of visualizations:
 %   1. Parameter Maps overlaid on Anatomy
 %      – ADC maps computed from the Fx1 DWI volume, overlaid on the b=0

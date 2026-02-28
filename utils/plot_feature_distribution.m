@@ -10,6 +10,10 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
 %   metric_name - Character vector or string for the metric name (used in title).
 %   metric_unit - Character vector or string for the metric unit (used in ylabel or xlabel).
 %   plot_type   - 'histogram' or 'boxplot' indicating the type of plot.
+%
+% Outputs:
+%   None. Generates a histogram or boxplot visualization.
+%
 
     % Remove NaN entries for accurate processing
     has_data = ~isnan(vals);

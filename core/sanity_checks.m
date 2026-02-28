@@ -1,7 +1,20 @@
 function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % SANITY_CHECKS — "Understand the Data" (Validation & Sanity Checking)
 % Author: Avery Karlin
-is_valid = true;
+%
+% Inputs:
+%   data_vectors_gtvp - Struct array holding primary GTV parameters
+%   data_vectors_gtvn - Struct array holding nodal GTV parameters
+%   summary_metrics   - Struct containing patient ID and metric statistics
+%   config_struct     - Configuration struct defining paths and thresholds
+%
+% Outputs:
+%   is_valid          - Boolean indicating if the data is safe to visualize/analyze
+%   validation_msg    - Log message explaining issues
+%   data_vectors_gtvp - Primary GTV parameter map (passed through un-modified or corrected)
+%   data_vectors_gtvn - Nodal GTV parameter map (passed through un-modified or corrected)
+%
+
 validation_msg = 'Passed';
 
 id_list = summary_metrics.id_list;

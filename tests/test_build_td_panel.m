@@ -1,5 +1,5 @@
 classdef test_build_td_panel < matlab.unittest.TestCase
-
+    % TEST_BUILD_TD_PANEL Unit tests for the counting-process panel builder
     methods(TestMethodSetup)
         function addPath(testCase)
             % Ensure utils is on the path

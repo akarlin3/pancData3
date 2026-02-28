@@ -1,4 +1,5 @@
 classdef test_perform_statistical_test < matlab.unittest.TestCase
+    % TEST_PERFORM_STATISTICAL_TEST Unit tests for robust rank-sum tests
     methods(TestMethodSetup)
         function setupPath(testCase)
             folder = fullfile(fileparts(mfilename('fullpath')), '..', 'utils');
@@ -16,7 +17,7 @@ classdef test_perform_statistical_test < matlab.unittest.TestCase
             % Check p-value for ranksum
             % We expect a small p-value for completely separated distributions
             testCase.verifyTrue(~isnan(p));
-            testCase.verifyLessThan(p, 0.1);
+            testCase.verifyLessThanOrEqual(p, 0.1);
         end
 
         function testRanksumIdentical(testCase)

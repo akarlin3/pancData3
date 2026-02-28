@@ -1,6 +1,24 @@
 function metrics_stats_comparisons(valid_pts, lf_group, metric_sets, set_names, time_labels, dtype_label, output_folder, dataloc, nTp, ADC_abs, D_abs, f_abs, Dstar_abs)
 % METRICS_STATS_COMPARISONS — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 4a/5 of the metrics step: Comparisons (Rank-sum & Mixed-Effects)
+% Performs univariate hypothesis testing (Wilcoxon Rank-Sum) to compare parameter
+% distributions between Local Control (LC) and Local Failure (LF) groups.
+%
+% Inputs:
+%   valid_pts         - Logical mask of patients with valid survival/failure data
+%   lf_group          - Local failure grouping variable (0 or 1)
+%   metric_sets       - Cell array grouped by measurement type (e.g. Abs, Pct)
+%   set_names         - String descriptors for the grouped metrics
+%   time_labels       - String labels for timepoints (Fx1, Fx2, etc.)
+%   dtype_label       - String indicating DWI pipeline
+%   output_folder     - Output directory for generated figures
+%   dataloc           - Input/output directory for data CSVs
+%   nTp               - Total timepoints
+%   *_abs             - Absolute values used in the GLME models
+%
+% Outputs:
+%   None. Exports statistical tables (CSV) and figures.
+%
 
 fprintf('  --- SECTION 7: Univariate Analysis ---\n');
 
