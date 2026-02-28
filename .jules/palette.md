@@ -1,3 +1,0 @@
-## 2024-05-18 - CLI User Experience Enhancement
-**Learning:** Adding visual cues (like Unicode emojis ⚙️, ✅, ❌, ⚠️) to text-based CLI outputs (like MATLAB `fprintf` statements) significantly improves readability and scannability for the user. It helps quickly distinguish between normal progress, success states, warnings, and failures.
-**Action:** When working on text-based command-line interfaces or script orchestrators, look for opportunities to enhance the output strings with clear, consistent symbols to improve the UX of observing long-running processes.
