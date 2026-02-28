@@ -1228,6 +1228,12 @@ if exist(datasave,'file')
     copyfile(datasave,newfilename);
     fprintf('backed up existing save to %s\n',newfilename);
 end
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
 save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
 fprintf('saved %s\n',datasave);
 
@@ -1242,19 +1248,46 @@ fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
 % Set data path from configuration
 dataloc = config_struct.dataloc;
 
-datasave = fullfile(dataloc, 'dwi_vectors.mat');
-load(datasave);
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+if exist(datasave, 'file')
+    load(datasave);
+else
+    fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
+    if exist(fallback_datasave, 'file')
+        fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+        load(fallback_datasave);
+    else
+        error('Unable to find file or directory ''%s''.', datasave);
+    end
+end
 
 %% ========================================================================
 fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
 
-summary_metrics_file = fullfile(dataloc, 'summary_metrics.mat');
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+summary_metrics_file = fullfile(dataloc, ['summary_metrics' file_prefix '.mat']);
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     if exist(summary_metrics_file, 'file')
-        fprintf('  [CHECKPOINT] Found existing summary_metrics.mat. Loading and skipping metrics computation...\n');
+        fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
         load(summary_metrics_file, 'summary_metrics');
         return;
+    else
+        fallback_metrics_file = fullfile(dataloc, 'summary_metrics.mat');
+        if exist(fallback_metrics_file, 'file')
+            fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
+            load(fallback_metrics_file, 'summary_metrics');
+            return;
+        end
     end
 end
 
@@ -1280,23 +1313,23 @@ nRpt = 6;  % max number of repeat scans at Fx1
 % ADC: last entry: 1 - normal, 2: dncnn + ivim fit
 % --- Pre-allocate sub-volume metric arrays (patient × timepoint × pipeline) ---
 % "sub" = voxels with ADC below adc_thresh (restricted diffusion sub-volume)
-adc_sub_vol_pc = nan(length(id_list),nTp,2);  % sub-volume as fraction of GTV
-adc_sub_vol = nan(length(id_list),nTp,2);     % sub-volume in cc
-adc_sub_mean = nan(length(id_list),nTp,2);
-adc_sub_kurt = nan(length(id_list),nTp,2);
-adc_sub_skew = nan(length(id_list),nTp,2);
+adc_sub_vol_pc = nan(length(id_list),nTp,3);  % sub-volume as fraction of GTV
+adc_sub_vol = nan(length(id_list),nTp,3);     % sub-volume in cc
+adc_sub_mean = nan(length(id_list),nTp,3);
+adc_sub_kurt = nan(length(id_list),nTp,3);
+adc_sub_skew = nan(length(id_list),nTp,3);
 
-high_adc_sub_vol = nan(length(id_list),nTp,2); % volume of voxels above high_adc_thresh
+high_adc_sub_vol = nan(length(id_list),nTp,3); % volume of voxels above high_adc_thresh
 
-ivim_sub_vol = nan(length(id_list),nTp,2); % voxels with D<0.001 AND f<0.1
+ivim_sub_vol = nan(length(id_list),nTp,3); % voxels with D<0.001 AND f<0.1
 
 gtv_vol = nan(length(id_list),nTp);  % total GTV volume in cc
 
 % --- Whole-GTV summary statistics for ADC ---
-adc_mean = nan(length(id_list),nTp,2);
-adc_kurt = nan(length(id_list),nTp,2);
-adc_skew = nan(length(id_list),nTp,2);
-adc_sd = nan(length(id_list),nTp,2);
+adc_mean = nan(length(id_list),nTp,3);
+adc_kurt = nan(length(id_list),nTp,3);
+adc_skew = nan(length(id_list),nTp,3);
+adc_sd = nan(length(id_list),nTp,3);
 
 % IVIM: last entry: 1 - normal, 2: dncnn + ivim fit, 3: ivimnet fit
 % --- Whole-GTV summary statistics for IVIM parameters (D, f, D*) ---
@@ -1333,14 +1366,14 @@ ks_pvals_d = nan(length(id_list),nTp,3);
 % --- Motion corruption flag ---
 % ADC: last entry: 1 - normal, 2: dncnn + ivim fit
 % Fraction of GTV voxels exceeding adc_max — high values suggest motion artefact
-fx_corrupted = nan(length(id_list),nTp,2); % count voxels with adc>3e-3 (indicative of motion corruption)
+fx_corrupted = nan(length(id_list),nTp,3); % count voxels with adc>3e-3 (indicative of motion corruption)
 adc_max = config_struct.adc_max;  % corruption threshold (mm²/s)
 
 % --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
-adc_mean_rpt = nan(length(id_list),nRpt,2);
-adc_sub_rpt = nan(length(id_list),nRpt,2);
+adc_mean_rpt = nan(length(id_list),nRpt,3);
+adc_sub_rpt = nan(length(id_list),nRpt,3);
 
-fx_corrupted_rpt = nan(length(id_list),nRpt,2);
+fx_corrupted_rpt = nan(length(id_list),nRpt,3);
 
 d_mean_rpt = nan(length(id_list),nRpt,3);
 f_mean_rpt = nan(length(id_list),nRpt,3);
@@ -1369,7 +1402,7 @@ n_rpt = nan(length(id_list),1);  % number of valid repeat scans per patient
 for j=1:length(id_list)
     for k=1:nTp
         vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
-        for dwi_type=1:3 % 1- normal, 2-dncnn, 3-ivimnet
+        for dwi_type = config_struct.dwi_types_to_run
 
             % Select the appropriate voxel vectors depending on pipeline
             switch dwi_type

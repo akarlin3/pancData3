@@ -33,7 +33,11 @@ fprintf('======================================================\n');
 dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 
 % Create output directory for saved figures (ignored by .gitignore)
-output_folder = fullfile(pwd, 'saved_figures');
+if isfield(config_struct, 'output_folder')
+    output_folder = config_struct.output_folder;
+else
+    output_folder = fullfile(pwd, 'saved_figures');
+end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 
 % Start diary to log text output
@@ -226,7 +230,7 @@ fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
 % -----------------------------------------------------------------------
 fprintf('\n--- 2. Distributions of Extracted Features ---\n');
 
-for dtype = 1:3
+for dtype = config_struct.dwi_types_to_run
 dtype_label = dwi_type_names{dtype};
 
 % Collect baseline (Fx1) biomarker values for the valid patient subset.

@@ -39,6 +39,16 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'adc_max')
             config_struct.adc_max = 0.003;
         end
+        if isfield(config_struct, 'dwi_type')
+            switch lower(config_struct.dwi_type)
+                case 'standard', config_struct.dwi_types_to_run = 1;
+                case 'dncnn', config_struct.dwi_types_to_run = 2;
+                case 'ivimnet', config_struct.dwi_types_to_run = 3;
+                otherwise, config_struct.dwi_types_to_run = 1:3;
+            end
+        else
+            config_struct.dwi_types_to_run = 1:3;
+        end
 
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME

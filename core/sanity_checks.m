@@ -1,4 +1,4 @@
-function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics)
+function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % SANITY_CHECKS — "Understand the Data" (Validation & Sanity Checking)
 % Author: Avery Karlin
 is_valid = true;
@@ -41,7 +41,11 @@ d95_gtvp = summary_metrics.d95_gtvp;
 %      spatially registered by comparing voxel counts inside the GTV mask.
 
 % Create output directory for saved figures and text logs
-output_folder = fullfile(pwd, 'saved_figures');
+if nargin > 3 && isfield(config_struct, 'output_folder')
+    output_folder = config_struct.output_folder;
+else
+    output_folder = fullfile(pwd, 'saved_figures');
+end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 
 % Write all console output to a diary file so results are reproducible.
@@ -80,13 +84,20 @@ for j = 1:nPat
         end
         s = data_vectors_gtvp(j, k, 1);
 
-        % Bundle the four voxel-level biomarker vectors into a struct
-        % so we can loop over them programmatically.
-        vectors = struct( ...
-            'ADC',   s.adc_vector, ...
-            'D',     s.d_vector,   ...
-            'f',     s.f_vector,   ...
-            'Dstar', s.dstar_vector);
+        % Use configuration target to check the corresponding fields
+        if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
+            dtype_idx = config_struct.dwi_types_to_run;
+        else
+            dtype_idx = 1;
+        end
+        switch dtype_idx
+            case 1
+                vectors = struct('ADC', s.adc_vector, 'D', s.d_vector, 'f', s.f_vector, 'Dstar', s.dstar_vector);
+            case 2
+                vectors = struct('ADC', s.adc_vector_dncnn, 'D', s.d_vector_dncnn, 'f', s.f_vector_dncnn, 'Dstar', s.dstar_vector_dncnn);
+            case 3
+                vectors = struct('ADC', s.adc_vector, 'D', s.d_vector_ivimnet, 'f', s.f_vector_ivimnet, 'Dstar', s.dstar_vector_ivimnet);
+        end
 
         fields = fieldnames(vectors);
         for fi = 1:numel(fields)

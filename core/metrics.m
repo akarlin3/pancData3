@@ -146,7 +146,11 @@ fprintf('\n--- SECTION 3: Pipeline Setup ---\n');
 % Configure DWI processing type labels, create output directory for saved
 % figures, start a diary log, and suppress figure display for batch mode.
 dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
-output_folder = fullfile(pwd, 'saved_figures');
+if isfield(config_struct, 'output_folder')
+    output_folder = config_struct.output_folder;
+else
+    output_folder = fullfile(pwd, 'saved_figures');
+end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 diary_file = fullfile(output_folder, 'metrics_output.txt');
 if exist(diary_file, 'file'), delete(diary_file); end
@@ -192,7 +196,7 @@ fprintf('\n--- SECTION 5: Longitudinal Metric Plotting ---\n');
 %   - Compute absolute values and percent-change from Fx1 for ADC, D, f, D*
 %   - Generate 2x4 spaghetti + population-mean plots:
 %     Top row: absolute values; Bottom row: percent change from baseline
-for dtype = 1:3
+for dtype = config_struct.dwi_types_to_run
 dtype_label = dwi_type_names{dtype};
 fprintf('\n=== Processing DWI Type %d: %s ===\n', dtype, dtype_label);
 
@@ -449,11 +453,30 @@ for j = 1:length(m_id_list)
     % shifts (tumor deformation/migration) and require Deformable Image 
     % Registration (DIR) for validity.
     for k = 1
-        % Extract vectors for standard DWI processing (dwi_type = 1, rpi = 1)
-        adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
-        d_vec   = m_data_vectors_gtvp(j,k,1).d_vector;
-        f_vec   = m_data_vectors_gtvp(j,k,1).f_vector;
-        dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector;
+        % Proceed based on the active pipeline (Default 1 if missing)
+        if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
+            dtype_idx = config_struct.dwi_types_to_run;
+        else
+            dtype_idx = 1;
+        end
+        
+        switch dtype_idx
+            case 1
+                adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
+                d_vec   = m_data_vectors_gtvp(j,k,1).d_vector;
+                f_vec   = m_data_vectors_gtvp(j,k,1).f_vector;
+                dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector;
+            case 2
+                adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector_dncnn;
+                d_vec   = m_data_vectors_gtvp(j,k,1).d_vector_dncnn;
+                f_vec   = m_data_vectors_gtvp(j,k,1).f_vector_dncnn;
+                dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
+            case 3
+                adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
+                d_vec   = m_data_vectors_gtvp(j,k,1).d_vector_ivimnet;
+                f_vec   = m_data_vectors_gtvp(j,k,1).f_vector_ivimnet;
+                dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector_ivimnet;
+        end
         dose_vec  = m_data_vectors_gtvp(j,k,1).dose_vector;
         
         % Proceed only if both dose and DWI data exist for this timepoint

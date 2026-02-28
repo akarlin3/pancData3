@@ -23,7 +23,7 @@ sfprj/
 *cohort*
 
 # Project Specific / PHI Protection
-saved_figures/
+saved_figures*/
 mock_data/
 /data/
 /results/figures/
