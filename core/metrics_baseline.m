@@ -72,16 +72,8 @@ total_time = days(lf_date - rtenddate);
 total_follow_up_time = days(censor_date - rtenddate);  
 
 fprintf('  --- DEEP LEARNING RIGOR AUDIT ---\n');
-dl_provenance = struct();
 manifest_file = fullfile(pwd, 'dl_validation_manifest.mat');
-if exist('dl_provenance_workspace', 'var')
-    dl_provenance = dl_provenance_workspace;
-elseif exist(manifest_file, 'file')
-    load(manifest_file, 'dl_provenance');
-else
-    dl_provenance.dncnn_train_ids = {};
-    dl_provenance.ivimnet_train_ids = {};
-end
+dl_provenance = load_dl_provenance(manifest_file);
 
 dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 if isfield(config_struct, 'output_folder')
