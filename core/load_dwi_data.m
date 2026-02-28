@@ -94,6 +94,21 @@ if ~skip_to_reload
 
 [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(config_struct.dataloc);
 
+if isfield(config_struct, 'patient_ids') && ~isempty(config_struct.patient_ids)
+    keep_idx = find(ismember(mrn_list, config_struct.patient_ids));
+    if ~isempty(keep_idx)
+        id_list = id_list(keep_idx);
+        mrn_list = mrn_list(keep_idx);
+        fx_dates = fx_dates(keep_idx);
+        dwi_locations = dwi_locations(keep_idx, :, :);
+        if ~isempty(rtdose_locations)
+            rtdose_locations = rtdose_locations(keep_idx, :);
+        end
+        gtv_locations = gtv_locations(keep_idx, :, :);
+        gtvn_locations = gtvn_locations(keep_idx, :, :);
+    end
+end
+
 %% ========================================================================
 fprintf('\n--- SECTION 2: DICOM-to-NIFTI Conversion, Model Fitting, & Data Extraction ---\n');
 %  SECTION 2 — DICOM-TO-NIFTI CONVERSION, MODEL FITTING & DATA EXTRACTION

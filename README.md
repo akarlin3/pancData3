@@ -12,6 +12,25 @@ This repository is maintained with the assistance of two AI agents:
 ## Workflows
 - **`/run_data`**: A structured workflow that executes the DWI pipeline sequentially for all DWI types (`Standard`, `dnCNN`, and `IVIMnet`). It iteratively modifies `config.json` and evaluates the master orchestrator, finishing by running the full test suite.
 
+## Running the Pipeline Manually
+
+To run the full pipeline sequentially for all DWI types (`Standard`, `dnCNN`, and `IVIMnet`), open MATLAB, navigate to the repository root, and execute the wrapper script in the Command Window:
+
+```matlab
+execute_all_workflows
+```
+
+To run a single specific phase or test a configuration, you can call the main orchestrator directly:
+
+```matlab
+% 1. Add required paths
+addpath('core', 'utils', 'dependencies');
+
+% 2. Run the pipeline (e.g., only the 'load' step)
+run_dwi_pipeline('config.json', {'load'});
+```
+Alternatively, you can use the `execute_pipeline.m` script which sets up the parallel pool and environment for a single run.
+
 ## Repository Structure & Scripts
 
 ### Root Directory
