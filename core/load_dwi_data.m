@@ -399,7 +399,9 @@ parfor j = 1:length(mrn_list)
 
     fprintf('\n******* MRN: %s\n',mrn);
     
-    bad_dwi_list_j = {};
+    max_dwis_j = size(dwi_locations, 2) * size(dwi_locations, 3);
+    bad_dwi_list_j = cell(1, max_dwis_j);
+    bad_dwi_idx_j = 0;
 
     % Localized output variables for this patient iteration
     pat_data_vectors_gtvp = struct;
@@ -527,7 +529,8 @@ parfor j = 1:length(mrn_list)
                     nfiles_after = length(dir(outloc));
                     if (nfiles_after - nfiles_before) ~=4
                         fprintf('!!!! incorrect number of DWI files generated for %s... need to fix!\n',fx_id);
-                        bad_dwi_list_j{end+1} = dicomloc;
+                        bad_dwi_idx_j = bad_dwi_idx_j + 1;
+                        bad_dwi_list_j{bad_dwi_idx_j} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -619,7 +622,8 @@ parfor j = 1:length(mrn_list)
                     fprintf('bvalue file not found!\n');
                     havedwi = 0;
                     if bad_dwi_found==0
-                        bad_dwi_list_j{end+1} = dicomloc;
+                        bad_dwi_idx_j = bad_dwi_idx_j + 1;
+                        bad_dwi_list_j{bad_dwi_idx_j} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -628,7 +632,8 @@ parfor j = 1:length(mrn_list)
                     fprintf('DWI does not have expected dimensions found: %s skipping\n',mat2str(size(dwi)))
                     havedwi = 0;
                     if bad_dwi_found==0
-                        bad_dwi_list_j{end+1} = dicomloc;
+                        bad_dwi_idx_j = bad_dwi_idx_j + 1;
+                        bad_dwi_list_j{bad_dwi_idx_j} = dicomloc;
                         bad_dwi_found = 1;
                     end
                 end
@@ -1142,6 +1147,7 @@ parfor j = 1:length(mrn_list)
             end
         end
     end
+    bad_dwi_list_j = bad_dwi_list_j(1:bad_dwi_idx_j);
     bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
     
     % Collect output struct for checkpointing
