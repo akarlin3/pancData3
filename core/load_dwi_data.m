@@ -189,93 +189,32 @@ for j=1:length(patlist)
                     if ~contains(patlist(j).name,'two')
                         % find associated GTV (need to avoid using the date in
                         % the filenames to query)
-                        gtv_search = dir(fullfile(fxfolder, ['*GTV*' int2str(dwii) '*.mat']));
-                        single_gtv_search = dir(fullfile(fxfolder, '*GTV*.mat'));
-                        % this can be simpler if only one GTV exists
-                        % If only one GTV mask exists, use it directly
-                        if isscalar(single_gtv_search)
-                            gtv_locations{j,fi,dwii} = fullfile(fxfolder, single_gtv_search.name);
+                        gtv_path = find_gtv_file(fxfolder, '*GTV*', dwii);
+                        if isempty(gtv_path)
+                            fprintf('%s/%s: No GTV%d found\n',patlist(j).name,fx_search{fi},dwii);
                         else
-                            % Multiple GTV masks exist — match by repeat index (dwii)
-                            % using the second underscore-delimited token in the filename
-                            gtv_names = {gtv_search.name};
-                            gtv_search_result = zeros(size(gtv_search));
-                            for gi=1:length(gtv_names)
-                                gtmp = strsplit(gtv_names{gi},'_');
-                                gtmp = gtmp{2};
-                                regex_pattern = regexptranslate('wildcard', ['*GTV*' int2str(dwii)]);
-                                isfound = regexp(gtmp, regex_pattern);
-                                if isfound==1
-                                    gtv_search_result(gi) = 1;
-                                end
-                            end
-                            % a second format was also used for some cases...
-                            % (repeat index as trailing numeric token after last '_')
-                            if sum(gtv_search_result)==0
-                                for gi=1:length(gtv_names)
-                                    gtmp = strsplit(gtv_names{gi},'_');
-                                    gtmp = strrep(gtmp{end},'.mat','');
-                                    if str2double(gtmp)==dwii
-                                        gtv_search_result(gi) = 1;
-                                    end
-                                end
-                            end
-
-                            if sum(gtv_search_result)==0
-                                fprintf('%s/%s: No GTV%d found\n',patlist(j).name,fx_search{fi},dwii);
-                            end
-                            if sum(gtv_search_result)>1
-                                fprintf('%s/%s: Redundant GTV%ds found\n',patlist(j).name,fx_search{fi},dwii);
-                            end
-                            if sum(gtv_search_result)==1
-                                gtv_locations{j,fi,dwii} = fullfile(fxfolder, gtv_search(gtv_search_result==1).name);
-                            end
+                            gtv_locations{j,fi,dwii} = gtv_path;
                         end
                     else
                         % --- Special logic for patients with both GTVp and GTVn ---
                         % Search multiple naming conventions for the primary
                         % pancreatic GTV (GTVp): GTV_MR, GTVp, GTV_panc
                         % special logic for GTVn cases.
-                        gtv_search1 = dir(fullfile(fxfolder, ['*GTV_MR' int2str(dwii) '*.mat']));
-                        gtv_search2 = dir(fullfile(fxfolder, ['*GTVp' int2str(dwii) '*.mat']));
-                        gtv_search3 = dir(fullfile(fxfolder, ['*GTV_panc*' int2str(dwii) '*.mat']));
-                        single_gtv_search1 = dir(fullfile(fxfolder, '*GTV_MR*.mat'));
-                        single_gtv_search2 = dir(fullfile(fxfolder, '*GTVp*.mat'));
-                        single_gtv_search3 = dir(fullfile(fxfolder, '*GTV_panc*.mat'));
-
-                        % Combine results from all naming conventions
-                        gtv_search = cat(1,gtv_search1,gtv_search2,gtv_search3);
-                        single_gtv_search = cat(1,single_gtv_search1,single_gtv_search2,single_gtv_search3);
-
-                        % Search for nodal GTV masks: GTV_LN, GTVn, GTV_node
-                        gtvn_search1 = dir(fullfile(fxfolder, ['*GTV*LN' int2str(dwii) '*.mat']));
-                        gtvn_search2 = dir(fullfile(fxfolder, ['*GTVn' int2str(dwii) '*.mat']));
-                        gtvn_search3 = dir(fullfile(fxfolder, ['*GTV_node*' int2str(dwii) '*.mat']));
-                        single_gtvn_search1 = dir(fullfile(fxfolder, '*GTV*LN*.mat'));
-                        single_gtvn_search2 = dir(fullfile(fxfolder, '*GTVn*.mat'));
-                        single_gtvn_search3 = dir(fullfile(fxfolder, '*GTV_node*.mat'));
-
-                        gtvn_search = cat(1,gtvn_search1,gtvn_search2,gtvn_search3);
-                        single_gtvn_search = cat(1,single_gtvn_search1,single_gtvn_search2,single_gtvn_search3);
-
-                        % Assign GTVp path (prefer unique match; fall back to repeat-indexed)
-                        if isscalar(single_gtv_search)
-                            gtv_locations{j,fi,dwii} = fullfile(fxfolder, single_gtv_search.name);
+                        gtv_patterns = {'*GTV_MR', '*GTVp', '*GTV_panc*'};
+                        gtv_path = find_gtv_file(fxfolder, gtv_patterns, dwii);
+                        if isempty(gtv_path)
+                            % Silent fail or standard logging per original logic
                         else
-                            if isscalar(gtv_search)
-                                gtv_name = gtv_search.name;
-                                gtv_locations{j,fi,dwii} = fullfile(fxfolder, gtv_name);
-                            end
+                            gtv_locations{j,fi,dwii} = gtv_path;
                         end
 
-                        % Assign GTVn path (same logic as GTVp)
-                        if isscalar(single_gtvn_search)
-                            gtvn_locations{j,fi,dwii} = fullfile(fxfolder, single_gtvn_search.name);
+                        % Search for nodal GTV masks: GTV_LN, GTVn, GTV_node
+                        gtvn_patterns = {'*GTV*LN', '*GTVn', '*GTV_node*'};
+                        gtvn_path = find_gtv_file(fxfolder, gtvn_patterns, dwii);
+                        if isempty(gtvn_path)
+                            % Silent fail or standard logging per original logic
                         else
-                            if isscalar(gtvn_search)
-                                gtvn_name = gtvn_search.name;
-                                gtvn_locations{j,fi,dwii} = fullfile(fxfolder, gtvn_name);
-                            end
+                            gtvn_locations{j,fi,dwii} = gtvn_path;
                         end
                     end
 
@@ -1650,3 +1589,75 @@ function parsave_dir_cache(fname, gtv_mask_warped, D_forward, ref3d)
     save(fname, 'gtv_mask_warped', 'D_forward', 'ref3d');
 end
 
+function filepath = find_gtv_file(folder, prefixes, index)
+    filepath = [];
+
+    if ~iscell(prefixes)
+        prefixes = {prefixes};
+    end
+
+    search_results = [];
+    single_search_results = [];
+
+    for i = 1:length(prefixes)
+        prefix = prefixes{i};
+
+        % Construct indexed pattern directly by appending index + '*.mat'
+        % E.g., '*GTV*' -> '*GTV*1*.mat'
+        % E.g., '*GTV_MR' -> '*GTV_MR1*.mat'
+        idx_pattern = [prefix int2str(index) '*.mat'];
+
+        % Construct single pattern by appending '*.mat' and cleaning up double asterisks
+        % E.g., '*GTV*' -> '*GTV**.mat' -> '*GTV*.mat'
+        % E.g., '*GTV_MR' -> '*GTV_MR*.mat'
+        single_pattern = strrep([prefix '*.mat'], '**', '*');
+
+        search_res = dir(fullfile(folder, idx_pattern));
+        single_search_res = dir(fullfile(folder, single_pattern));
+
+        search_results = cat(1, search_results, search_res);
+        single_search_results = cat(1, single_search_results, single_search_res);
+    end
+
+    if isscalar(single_search_results)
+        filepath = fullfile(folder, single_search_results.name);
+    else
+        % We need to search by index
+        if isscalar(search_results)
+            filepath = fullfile(folder, search_results.name);
+        elseif length(search_results) > 1
+            % Multiple results, look for exact index match
+            % Fallback specifically for when standard pattern match yields > 1
+            gtv_search_result = zeros(size(search_results));
+            for gi = 1:length(search_results)
+                % Only apply this specific _ token split if prefix contains '*GTV*' specifically
+                % (This replicates original logic which only did this on '*GTV*')
+                if any(contains(prefixes, '*GTV*'))
+                    gtmp = strsplit(search_results(gi).name, '_');
+                    if length(gtmp) >= 2
+                        gtmp2 = gtmp{2};
+                        % regex_pattern replicates original: ['*GTV*' int2str(dwii)]
+                        regex_pattern = regexptranslate('wildcard', ['*GTV*' int2str(index)]);
+                        if regexp(gtmp2, regex_pattern) == 1
+                            gtv_search_result(gi) = 1;
+                        end
+                    end
+                end
+            end
+
+            if sum(gtv_search_result) == 0
+                for gi = 1:length(search_results)
+                    gtmp = strsplit(search_results(gi).name, '_');
+                    gtmp_end = strrep(gtmp{end}, '.mat', '');
+                    if str2double(gtmp_end) == index
+                        gtv_search_result(gi) = 1;
+                    end
+                end
+            end
+
+            if sum(gtv_search_result) == 1
+                filepath = fullfile(folder, search_results(gtv_search_result == 1).name);
+            end
+        end
+    end
+end
