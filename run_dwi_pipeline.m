@@ -11,14 +11,14 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 %
 % Usage:
 %   run_dwi_pipeline('config.json');
-%   run_dwi_pipeline('config.json', {'load', 'sanity', 'metrics', 'visualize'});
+%   run_dwi_pipeline('config.json', {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'});
 %   run_dwi_pipeline('config.json', {'load'}, 'path/to/my_output_folder');
 %
 % This function sequentially calls the module scripts:
 %   1. load_dwi_data
 %   2. sanity_checks
-%   3. metrics
-%   4. visualize_results
+%   3. visualize_results
+%   4. metrics (baseline, longitudinal, dosimetry, stats, survival)
 % 
 % It explicitly passes data between modules to avoid workspace pollution
 % and includes error handling to halt execution if checks fail.
@@ -50,7 +50,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     if nargin < 2
-        steps_to_run = {'load', 'sanity', 'metrics', 'visualize'};
+        steps_to_run = {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'};
     end
 
     if nargin < 3
@@ -214,48 +214,92 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     % Step 5: Calculate Metrics
-    if ismember('metrics', steps_to_run)
+    baseline_results_file = fullfile(config_struct.dataloc, sprintf('metrics_baseline_results_%s.mat', current_name));
+
+    if ismember('metrics_baseline', steps_to_run)
         try
-            fprintf('[5/5] [%s] Calculating metrics (5 sub-modules)...\n', current_name);
-            
-            % 5.1: Baseline & Data Prep
-            fprintf('      -> [1/5] Running metrics_baseline... ');
+            fprintf('\n[5.1/5] [%s] Running metrics_baseline... ', current_name);
             [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
              m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
              ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
              nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
              metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
+             
+            save(baseline_results_file, 'm_lf', 'm_total_time', 'm_total_follow_up_time', 'm_gtv_vol', 'm_adc_mean', 'm_d_mean', 'm_f_mean', 'm_dstar_mean', ...
+             'm_id_list', 'm_mrn_list', 'm_d95_gtvp', 'm_v50gy_gtvp', 'm_data_vectors_gtvp', 'lf_group', 'valid_pts', ...
+             'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_pct', 'Dstar_pct', ...
+             'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
             fprintf('Done.\n');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics_baseline: %s\n', ME.message);
+            return;
+        end
+    else
+        metrics_steps = {'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'};
+        if any(ismember(metrics_steps, steps_to_run))
+            fprintf('\n[5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
+            if exist(baseline_results_file, 'file')
+                load(baseline_results_file);
+            else
+                fprintf('      Warning: metrics_baseline results not found. Subsequent metrics steps will fail.\n');
+            end
+        end
+    end
 
-            % 5.2: Longitudinal Plotting
-            fprintf('      -> [2/5] Running metrics_longitudinal... ');
+    if ismember('metrics_longitudinal', steps_to_run)
+        try
+            fprintf('[5.2/5] [%s] Running metrics_longitudinal... ', current_name);
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
                                  nTp, dtype_label, config_struct.output_folder);
             fprintf('Done.\n');
-            
-            % 5.3: Target Coverage & Dosimetry
-            fprintf('      -> [3/5] Running metrics_dosimetry... ');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics_longitudinal: %s\n', ME.message);
+        end
+    else
+        fprintf('[5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
+    end
+    
+    dosimetry_results_file = fullfile(config_struct.dataloc, sprintf('metrics_dosimetry_results_%s.mat', current_name));
+    if ismember('metrics_dosimetry', steps_to_run)
+        try
+            fprintf('[5.3/5] [%s] Running metrics_dosimetry... ', current_name);
             [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
                 metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                                   m_data_vectors_gtvp, summary_metrics.gtv_locations);
-            fprintf('Done.\n');
             
-            % 5.4: Statistical Analyses & Elastic Net
-            fprintf('      -> [4/5] Running metrics_stats... ');
+            save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
+            fprintf('Done.\n');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics_dosimetry: %s\n', ME.message);
+        end
+    else
+        if ismember('metrics_stats', steps_to_run)
+            fprintf('[5.3/5] [%s] Skipping metrics_dosimetry. Loading from disk...\n', current_name);
+            if exist(dosimetry_results_file, 'file')
+                load(dosimetry_results_file);
+            else
+                fprintf('      Warning: metrics_dosimetry results not found. metrics_stats may fail.\n');
+                % define defaults just to prevent hard crash occasionally
+                d95_adc_sub=[]; v50_adc_sub=[]; d95_d_sub=[]; v50_d_sub=[]; d95_f_sub=[]; v50_f_sub=[]; d95_dstar_sub=[]; v50_dstar_sub=[];
+            end
+        else
+            fprintf('[5.3/5] [%s] Skipping metrics_dosimetry.\n', current_name);
+        end
+    end
+    
+    if ismember('metrics_stats', steps_to_run)
+        try
+            fprintf('[5.4/5] [%s] Running metrics_stats... ', current_name);
             [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats(valid_pts, lf_group, ...
                 metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 m_gtv_vol, summary_metrics.adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
                 m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, ...
                 d95_dstar_sub, v50_dstar_sub, summary_metrics.id_list, config_struct.dwi_types_to_run, ...
                 dl_provenance, time_labels, m_id_list, m_lf, m_total_time, m_total_follow_up_time);
-            fprintf('Done.\n');
             
-            % 5.5: Survival Analysis (Time-Dependent Cox)
-            fprintf('      -> [5/5] Running metrics_survival... ');
-            metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
-                             m_total_follow_up_time, nTp, 'Survival', dtype_label);
-            fprintf('Done.\n');
-
             % Build a calculated_results struct for any downstream visualize_results steps
             calculated_results = struct();
             calculated_results.risk_scores_all = risk_scores_all;
@@ -268,15 +312,28 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             % Save calculated results
             save(results_file, 'calculated_results');
             fprintf('      Saved calculated_results to %s\n', results_file);
-
-            fprintf('      Metrics Complete.\n');
+            
+            fprintf('Done.\n');
         catch ME
             fprintf('FAILED.\n');
-            fprintf('Error during metrics calculation: %s\n', ME.message);
-            return; % Halt pipeline
+            fprintf('Error during metrics_stats: %s\n', ME.message);
         end
     else
-        fprintf('[5/5] [%s] Skipping Metrics Calculation.\n', current_name);
+        fprintf('[5.4/5] [%s] Skipping metrics_stats.\n', current_name);
+    end
+    
+    if ismember('metrics_survival', steps_to_run)
+        try
+            fprintf('[5.5/5] [%s] Running metrics_survival... ', current_name);
+            metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
+                             m_total_follow_up_time, nTp, 'Survival', dtype_label);
+            fprintf('Done.\n');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics_survival: %s\n', ME.message);
+        end
+    else
+        fprintf('[5.5/5] [%s] Skipping metrics_survival.\n', current_name);
     end
 
     fprintf('=======================================================\n');
