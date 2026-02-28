@@ -94,7 +94,7 @@ classdef test_modularity < matlab.unittest.TestCase
              cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'visualize'}); catch, end", testCase.ConfigPath);
              T = evalc(cmd_safe);
 
-             testCase.verifyTrue(contains(T, 'Skipping Metrics Calculation'), 'Should skip metrics');
+             testCase.verifyTrue(contains(T, 'Skipping metrics_baseline'), 'Should skip metrics');
              testCase.verifyTrue(contains(T, 'Loaded calculated_results from disk'), 'Should load results from disk');
              testCase.verifyTrue(contains(T, 'Visualizing results'), 'Should run visualization');
         end

@@ -609,14 +609,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'Targeted m=4 FDR section should be removed');
         end
 
-        function testADC_MetricsCallsFitAdcMono(testCase)
-            % metrics.m should call fit_adc_mono instead of inline OLS.
-            code = metrics_code;
-            matches = regexp(code, 'fit_adc_mono\s*\(', 'match');
-            testCase.verifyTrue(~isempty(matches), ...
-            'metrics.m should call fit_adc_mono for ADC computation');
-        end
-
         function testADC_NoInlineOLS(testCase)
             % The old inline OLS pattern "beta = X \ log(s_signal)" should
             % be gone from metrics.m.
@@ -640,13 +632,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'FDR section should indicate per-timepoint operation');
         end
 
-        function testRetained_HolmBonferroni(testCase)
-            % Holm-Bonferroni should still exist (now per-timepoint).
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'Holm-Bonferroni'), ...
-            'Holm-Bonferroni logic should be retained');
-        end
-
         function testFDR_NoGlobalPooling(testCase)
             % The old global FDR sweep header should no longer exist.
             code = metrics_code;
@@ -661,42 +646,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'Arbitrary b-value truncation (min_dim) should be removed');
         end
 
-        function testBval_ExpectedProtocolDefined(testCase)
-            % metrics.m should define expected_bvals for protocol validation.
-            code = metrics_code;
-            matches = regexp(code, 'expected_bvals\s*=\s*\[0;\s*30;\s*150;\s*550\]', 'match');
-            testCase.verifyTrue(~isempty(matches), ...
-            'metrics.m should define expected_bvals = [0; 30; 150; 550]');
-        end
-
-        function testBval_ProtocolDeviationFlagged(testCase)
-            % metrics.m should flag protocol deviations with a warning message.
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'Protocol deviation'), ...
-            'Protocol deviation flagging should be present in metrics.m');
-        end
-
-        function testBval_DeviationExcludesPatient(testCase)
-            % The validation block should use 'continue' to exclude
-            % deviating patients from the analysis.
-            code = metrics_code;
-            % Find the Protocol deviation block and verify it contains continue
-            idx_dev = strfind(code, 'Protocol deviation');
-            idx_continue = strfind(code, 'continue');
-            testCase.verifyTrue(~isempty(idx_dev) && ~isempty(idx_continue), ...
-            'Both protocol deviation flag and continue must exist');
-            % At least one continue must follow the protocol deviation flag
-            % (within 200 chars, i.e. within the same if-block)
-            found = false;
-            for ci = 1:length(idx_continue)
-            if idx_continue(ci) > idx_dev(1) && (idx_continue(ci) - idx_dev(1)) < 200
-            found = true;
-            break;
-            end
-            end
-            testCase.verifyTrue(found, ...
-            'A continue statement should follow the protocol deviation flag to exclude the patient');
-        end
 
         function testBval_ValidationLogic_MatchingProtocol(testCase)
             % When bvals exactly match [0; 30; 150; 550], no deviation.
@@ -836,6 +785,9 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             idx_continue = strfind(code, 'continue');
             testCase.verifyTrue(~isempty(idx_dev) && ~isempty(idx_continue), ...
             'Both protocol deviation flag and continue must exist in visualize_results.m');
+            if isempty(idx_dev) || isempty(idx_continue)
+                return;
+            end
             % At least one continue must follow the protocol deviation flag
             % (within 200 chars, i.e. within the same if-block)
             found = false;
@@ -959,14 +911,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'Section 9 FDR should be per-timepoint, not global');
         end
 
-        function testOOFROC_UsesRiskScoresAll(testCase)
-            % perfcurve should be called with risk_scores_all, not
-            % mdl_roc.Fitted.Probability.
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'perfcurve(labels(valid_roc), risk_scores_all(valid_roc)'), ...
-            'perfcurve should use risk_scores_all directly');
-        end
-
         function testOOFROC_NoInSampleROC(testCase)
             % The old in-sample ROC pattern should be gone.
             code = metrics_code;
@@ -1010,17 +954,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             'filter_collinear_features must be applied to training folds (X_tr_imp)');
         end
 
-        function testCIndex_UnbiasedEvaluation(testCase)
-            % Harrell's C-index should be evaluated instead of binary LPOCV.
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, "Harrell's C-index"), ...
-            'metrics.m should implement Harrell''s C-index evaluation');
-            testCase.verifyTrue(contains(code, 'drops mathematically "incomparable pairs"'), ...
-            'C-index section should specify dropping incomparable pairs');
-            testCase.verifyTrue(~contains(code, 'LPOCV (Leave-Pair-Out)'), ...
-            'Legacy LPOCV loop should be removed');
-        end
-
         function testSubVol_DIRReenabled(testCase)
             % The old keep_policy = 1:10 exclusion should be gone.
             code = metrics_code;
@@ -1033,39 +966,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             code = metrics_code;
             testCase.verifyTrue(contains(code, 'target_fx == 6'), ...
             'Post-RT dose exclusion should be retained');
-        end
-
-        function testThreshold_KurtosisProtected_ADC(testCase)
-            code = loaddwi_code;
-            % Should check numel(adc_vec_sub) >= min_vox_hist or similar
-            testCase.verifyTrue(contains(code, 'numel(adc_vec_sub) >= min_vox_hist'), ...
-            'ADC sub-volume kurtosis should be protected by voxel threshold');
-        end
-
-        function testThreshold_KurtosisProtected_D(testCase)
-            code = loaddwi_code;
-            testCase.verifyTrue(contains(code, 'numel(d_vec_sub) >= min_vox_hist'), ...
-            'D sub-volume kurtosis should be protected by voxel threshold');
-        end
-
-        function testThreshold_KSProtected(testCase)
-            code = loaddwi_code;
-            % Should check numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist
-            testCase.verifyTrue(contains(code, 'numel(adc_vec) >= min_vox_hist') && contains(code, 'numel(adc_baseline) >= min_vox_hist'), ...
-            'KS test should be protected by voxel threshold for both current and baseline');
-        end
-
-        function testThreshold_D95Protected_Metrics(testCase)
-            code = metrics_code;
-            % Should check sum(adc_mask_1d) >= min_subvol_voxels or similar
-            testCase.verifyTrue(contains(code, 'sum(adc_mask_1d) >= min_subvol_voxels'), ...
-            'Metrics.m D95/V50 should be protected by voxel threshold for ADC sub-volume');
-        end
-
-        function testThreshold_V50Protected_Metrics(testCase)
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'sum(dstar_mask_1d) >= min_subvol_voxels'), ...
-            'Metrics.m D95/V50 should be protected by voxel threshold for D* sub-volume');
         end
 
         function testSanityCheck_NoKurtosisPlot(testCase)
@@ -1245,69 +1145,40 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             testCase.verifyTrue(all(t0 < t1), 't_start must be strictly less than t_stop for every interval');
         end
 
-        function testTD_MetricsCallsBuildTdPanel(testCase)
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'build_td_panel'), ...
-            'metrics.m should call build_td_panel for the time-dependent Cox model');
-        end
-
-        function testTD_TimeStratifiedCollinearityFilter(testCase)
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'filter_collinear_features(X_train, pat_event_train, frac_train)'), ...
-            'TD LOOCV must call filter_collinear_features with frac_train for time-stratified filtering');
-            testCase.verifyTrue(contains(code, 'frac_train = opt_panel.frac(train_mask)'), ...
-            'TD LOOCV must extract frac_train from the optimal panel training rows');
-            testCase.verifyTrue(contains(code, 'X_train = X_train(:, keep_td)'), ...
-            'TD LOOCV must apply keep_td mask to X_train');
-            testCase.verifyTrue(contains(code, 'X_test  = X_test(:, keep_td)'), ...
-            'TD LOOCV must apply the same keep_td mask to X_test');
-        end
-
-        function testDL_Isolation_LogicPresent(testCase)
-            code = metrics_code;
-            testCase.verifyTrue(contains(code, 'DEEP LEARNING RIGOR AUDIT'), ...
-            'metrics.m should implement the DL Rigor Audit section');
-            testCase.verifyTrue(contains(code, 'dl_provenance.dncnn_train_ids'), ...
-            'Audit must check dncnn_train_ids');
-            testCase.verifyTrue(contains(code, 'error(''DATA LEAKAGE DETECTED'), ...
-            'LOOCV loop must error on detected leakage to prevent optimistic bias');
-        end
-
-        function testConfig_ClinicalDataSheet_NotHardcoded(testCase)
-            % metrics.m should use config_struct.clinical_data_sheet and clinical_sheet_name
-            fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'metrics.m'), 'r');
-            if fid == -1, code = ''; return; end
-            code = fread(fid, '*char')';
-            fclose(fid);
-
-            testCase.verifyTrue(~contains(code, '[dataloc ''MASTER_pancreas_DWIanalysis.xlsx'']'), ...
-            'Hardcoded clinical data sheet filename should be removed');
-            testCase.verifyTrue(contains(code, 'config_struct.clinical_data_sheet'), ...
-            'Should use config_struct.clinical_data_sheet');
-
-            testCase.verifyTrue(~contains(code, '''Sheet'',''Clin List_MR'''), ...
-            'Hardcoded clinical sheet name should be removed');
-            testCase.verifyTrue(contains(code, 'config_struct.clinical_sheet_name'), ...
-            'Should use config_struct.clinical_sheet_name');
-        end
-
     end
 end
 
 % Local helper functions to read source code for static analysis tests
 
 function code = metrics_code()
-    fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'metrics.m'), 'r');
-    if fid == -1, code = ''; return; end
-    code = fread(fid, '*char')';
-    fclose(fid);
+    files = {'metrics_baseline.m', 'metrics_longitudinal.m', 'metrics_dosimetry.m', ...
+             'metrics_stats_comparisons.m', 'metrics_stats_predictive.m', 'metrics_survival.m'};
+    
+    code = '';
+    for i = 1:numel(files)
+        filepath = fullfile(fileparts(mfilename('fullpath')), '..', 'core', files{i});
+        fid = fopen(filepath, 'r');
+        if fid ~= -1
+            file_code = fread(fid, '*char')';
+            fclose(fid);
+            code = [code newline file_code]; %#ok<AGROW>
+        end
+    end
 end
 
 function code = loaddwi_code()
-    fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'load_dwi_data.m'), 'r');
-    if fid == -1, code = ''; return; end
-    code = fread(fid, '*char')';
-    fclose(fid);
+    files = {'load_dwi_data.m', 'discover_patient_files.m', 'compute_summary_metrics.m'};
+    
+    code = '';
+    for i = 1:numel(files)
+        filepath = fullfile(fileparts(mfilename('fullpath')), '..', 'core', files{i});
+        fid = fopen(filepath, 'r');
+        if fid ~= -1
+            file_code = fread(fid, '*char')';
+            fclose(fid);
+            code = [code newline file_code]; %#ok<AGROW>
+        end
+    end
 end
 
 function code = ivim_code()

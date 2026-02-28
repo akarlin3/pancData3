@@ -1,7 +1,8 @@
 classdef test_perform_statistical_test < matlab.unittest.TestCase
     methods(TestMethodSetup)
         function setupPath(testCase)
-            testCase.applyFixture(matlab.unittest.fixtures.PathFixture('utils'));
+            folder = fullfile(fileparts(mfilename('fullpath')), '..', 'utils');
+            testCase.applyFixture(matlab.unittest.fixtures.PathFixture(folder));
         end
     end
 

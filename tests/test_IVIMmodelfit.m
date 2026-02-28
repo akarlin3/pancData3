@@ -27,14 +27,14 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             signal = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
             % Reshape to [Ny, Nx, Nz, Nb] -> [1, 1, 1, 8]
-            dwi = reshape(signal, [1, 1, 1, 8]);
+            dwi = repmat(reshape(signal, [1, 1, 1, 8]), [2, 2, 2, 1]);
 
             % Options
             opts.bthr = 200;
             opts.dispprog = false;
 
             % Run fit
-            maps = IVIMmodelfit(dwi, bvals, 'seg', [], opts);
+            maps = IVIMmodelfit(dwi, bvals, 'seg', true(size(dwi,1), size(dwi,2), size(dwi,3)), opts);
 
             % maps is 4D: [Ny, Nx, Nz, nPars]
             % pars = {'D','S0','f','Dstar'}
@@ -64,7 +64,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             true_f = [0.1, 0.2; 0.3, 0.15];
             true_Dstar = [10e-3, 20e-3; 15e-3, 25e-3];
 
-            dwi = zeros(2, 2, 1, 8);
+            dwi = zeros(2, 2, 2, 8);
             for y = 1:2
                 for x = 1:2
                     D = true_D(y, x);
@@ -78,7 +78,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             % Run fit
             opts.bthr = 200;
             opts.dispprog = false;
-            maps = IVIMmodelfit(dwi, bvals, 'seg', [], opts);
+            maps = IVIMmodelfit(dwi, bvals, 'seg', true(size(dwi,1), size(dwi,2), size(dwi,3)), opts);
 
             fitted_D = maps(:,:,1,1);
             fitted_S0 = maps(:,:,1,2);
@@ -114,7 +114,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
 
             opts.bthr = 200;
             opts.dispprog = false;
-            maps = IVIMmodelfit(dwi, bvals, 'seg', [], opts);
+            maps = IVIMmodelfit(dwi, bvals, 'seg', true(size(dwi,1), size(dwi,2), size(dwi,3)), opts);
 
             expectedSize = [Ny, Nx, Nz, 4];
             testCase.verifyEqual(size(maps), expectedSize, ...
@@ -137,11 +137,11 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             signal_noisy = signal_ideal + noise;
             signal_noisy = abs(signal_noisy);
 
-            dwi = reshape(signal_noisy, [1, 1, 1, length(bvals)]);
+            dwi = repmat(reshape(signal_noisy, [1, 1, 1, length(bvals)]), [2, 2, 2, 1]);
 
             opts.bthr = 200;
             opts.dispprog = false;
-            maps = IVIMmodelfit(dwi, bvals, 'seg', [], opts);
+            maps = IVIMmodelfit(dwi, bvals, 'seg', true(size(dwi,1), size(dwi,2), size(dwi,3)), opts);
 
             fitted_D = maps(1, 1, 1, 1);
             fitted_S0 = maps(1, 1, 1, 2);
@@ -168,7 +168,7 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             S0 = 100; true_D = 1e-3; true_f = 0.2; true_Dstar = 15e-3;
             s_vec = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
-            dwi = zeros(2, 2, 1, 8);
+            dwi = zeros(2, 2, 2, 8);
             for y = 1:2
                 for x = 1:2
                     dwi(y, x, 1, :) = reshape(s_vec, [1, 1, 1, 8]);
