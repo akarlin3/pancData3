@@ -97,7 +97,7 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
         % the mask boundary to scale with the local deformation Jacobian.
         ref3d = imref3d(size(b0_moving));
         mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
-            'Interp', 'linear', 'OutputView', ref3d, 'FillValues', 0);
+            'Interp', 'linear', 'FillValues', 0);
     catch ME
         warning('apply_dir_mask_propagation:imregdemonsFailed', '%s', ME.message);
         return;

@@ -3,20 +3,7 @@ description: Runs the DWI Workflow sequentially for all DWI types
 ---
 
 1. Verify that `config.json` exists in the workspace root.
-2. Run tests using the `mcp_matlab-mcp_run_matlab_file` tool on `c:\Users\karlina1\Desktop\pancData3\run_all_tests.m`.
-3. Update `config.json` to set `"dwi_type": "Standard"` and `"skip_to_reload": false`.
-4. Use the `mcp_matlab-mcp_evaluate_matlab_code` tool to run each step of the pipeline individually:
-   - `project_path`: `c:\Users\karlina1\Desktop\pancData3`
-   - `code`: `run_dwi_pipeline('config.json', {'load'})` % includes: discover_patient_files, load_dwi_data (extraction), compute_summary_metrics
-   - `code`: `run_dwi_pipeline('config.json', {'sanity'})`
-   - `code`: `run_dwi_pipeline('config.json', {'visualize'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_baseline'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_longitudinal'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_dosimetry'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_stats_comparisons'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_stats_predictive'})`
-   - `code`: `run_dwi_pipeline('config.json', {'metrics_survival'})`
-5. Update `config.json` to set `"skip_to_reload": true` and `"dwi_type": "dnCNN"`.
-6. Use the `mcp_matlab-mcp_evaluate_matlab_code` tool to run each step of the pipeline individually again (load, sanity, visualize, metrics_baseline, metrics_longitudinal, metrics_dosimetry, metrics_stats_comparisons, metrics_stats_predictive, metrics_survival).
-7. Update `config.json` to set `"dwi_type": "IVIMnet"`.
-8. Use the `mcp_matlab-mcp_evaluate_matlab_code` tool to run each step of the pipeline individually again (load, sanity, visualize, metrics_baseline, metrics_longitudinal, metrics_dosimetry, metrics_stats_comparisons, metrics_stats_predictive, metrics_survival).
+2. Run tests using the `mcp_matlab-mcp_run_matlab_test_file` tool on `c:\Users\karlina1\Desktop\pancData3\tests\test_dwi_pipeline.m` to ensure the codebase is stable.
+// turbo
+3. Execute the full sequential pipeline orchestration using a background batch command in the terminal to avoid worker sync and timeout issues. Use the `run_command` tool with `CommandLine`: `matlab -batch "execute_all_workflows"`, and `Cwd`: `c:\Users\karlina1\Desktop\pancData3`. Set `SafeToAutoRun` to true, and `WaitMsBeforeAsync` to 5000.
+4. Wait for the background command to finish using the `command_status` tool. Once done, verify the generated summary metric MAT files and output figures.

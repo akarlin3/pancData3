@@ -176,7 +176,13 @@ end
 
 % [PERFORMANCE OPTIMIZATION]:
 % Pre-compute normalized strings outside the loop to avoid redundant strrep calls.
-T_Pat_normalized = strrep(T.Pat, '_', '-');
+% Ensure T.Pat is a cellstr before passing to strrep
+if iscategorical(T.Pat)
+    T_Pat_cell = cellstr(T.Pat);
+else
+    T_Pat_cell = T.Pat;
+end
+T_Pat_normalized = strrep(T_Pat_cell, '_', '-');
 id_list_normalized = strrep(id_list, '_', '-');
 
 parfor j = 1:length(mrn_list)
@@ -600,17 +606,25 @@ parfor j = 1:length(mrn_list)
                     dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
                     dwi_valid = dwi_flat(valid_voxels_idx, :);
                     
-                    % We must pass a 3D volume to the dependency, but we can make it [n_valid x 1 x 1 x bval]
-                    dwi_1d_vol = reshape(dwi_valid, [n_valid, 1, 1, length(bvalues)]);
-                    mask_1d_vol = true(n_valid, 1, 1);
+                    % [MODULARIZATION STAGE 3]: Masked 1D Flattening
+                    % Pad to even number of elements to ensure 3rd dimension > 1 
+                    % so MATLAB doesn't drop it in size() checks inside dependency.
+                    pad_len = mod(2 - mod(n_valid, 2), 2);
+                    dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
+                    n_padded = n_valid + pad_len;
+                    
+                    % We must pass a 3D volume to the dependency, [N, 1, 2, bval]
+                    dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
+                    mask_1d_vol = true(n_padded/2, 1, 2);
                     
                     % Execute the untouched dependency on the flattened array
                     ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
                     
-                    % Extract fitted parameters from the 1D result
-                    d_vec = squeeze(ivim_fit_1d(:,:,:,1));
-                    f_vec = squeeze(ivim_fit_1d(:,:,:,3));
-                    dstar_vec = squeeze(ivim_fit_1d(:,:,:,4));
+                    % Restructure output back to strictly 1D and snip padding
+                    ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
+                    d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
+                    f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
+                    dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
                     
                     % Replace zero-fit voxels with NaN (failed fits)
                     zero_mask = (d_vec == 0);
@@ -677,16 +691,22 @@ parfor j = 1:length(mrn_list)
                         dwi_dncnn_flat = reshape(dwi_dncnn, [prod(sz3), length(bvalues)]);
                         dwi_dncnn_valid = dwi_dncnn_flat(valid_voxels_idx, :);
                         
-                        % Reshape for dependency [n_valid x 1 x 1 x bval]
-                        dwi_dncnn_1d_vol = reshape(dwi_dncnn_valid, [n_valid, 1, 1, length(bvalues)]);
-                        mask_1d_vol = true(n_valid, 1, 1);
+                        % Pad to even number of elements to ensure 3rd dimension > 1
+                        pad_len = mod(2 - mod(n_valid, 2), 2);
+                        dwi_dncnn_padded = [dwi_dncnn_valid; zeros(pad_len, length(bvalues))];
+                        n_padded = n_valid + pad_len;
+                        
+                        % Reshape for dependency [N, 1, 2, bval]
+                        dwi_dncnn_1d_vol = reshape(dwi_dncnn_padded, [n_padded/2, 1, 2, length(bvalues)]);
+                        mask_dncnn_1d_vol = true(n_padded/2, 1, 2);
                         
                         % Execute the untouched dependency on the flattened array
-                        ivim_fit_dncnn_1d = IVIMmodelfit(dwi_dncnn_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+                        ivim_fit_dncnn_1d = IVIMmodelfit(dwi_dncnn_1d_vol, bvalues, "seg", mask_dncnn_1d_vol, opts);
                         
-                        d_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,1));
-                        f_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,3));
-                        dstar_vec_dncnn = squeeze(ivim_fit_dncnn_1d(:,:,:,4));
+                        ivim_out_dncnn_flat = reshape(ivim_fit_dncnn_1d, [n_padded, 4]);
+                        d_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 1));
+                        f_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 3));
+                        dstar_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 4));
 
                         zero_mask_dncnn = (d_vec_dncnn == 0);
                         d_vec_dncnn(zero_mask_dncnn) = nan;
@@ -798,13 +818,13 @@ parfor j = 1:length(mrn_list)
             if havedenoised && fi > 1 && ~isempty(D_forward_cur) && ~isempty(b0_fx1_ref)
                 ref3d_bl = imref3d(size(b0_fx1_ref));
                 d_map_dncnn     = imwarp(d_map_dncnn,     -D_forward_cur, 'Interp', 'linear', ...
-                    'OutputView', ref3d_bl, 'FillValues', nan);
+                    'FillValues', nan);
                 f_map_dncnn     = imwarp(f_map_dncnn,     -D_forward_cur, 'Interp', 'linear', ...
-                    'OutputView', ref3d_bl, 'FillValues', nan);
+                    'FillValues', nan);
                 dstar_map_dncnn = imwarp(dstar_map_dncnn, -D_forward_cur, 'Interp', 'linear', ...
-                    'OutputView', ref3d_bl, 'FillValues', nan);
+                    'FillValues', nan);
                 adc_map_dncnn   = imwarp(adc_map_dncnn,   -D_forward_cur, 'Interp', 'linear', ...
-                    'OutputView', ref3d_bl, 'FillValues', nan);
+                    'FillValues', nan);
                 fprintf('  [DnCNN] Warped native-space parameter maps to baseline geometry.\n');
             end
 
@@ -865,7 +885,6 @@ parfor j = 1:length(mrn_list)
 
             if havedose && havegtvp
                 pat_dmean_gtvp(1,fi) = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
-                dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 % DVH uses the strictly rigid dose against the DIR-warped daily GTV tissue mask
                 % so that dose correctly reflects the true static beam delivered to deformed anatomy.
                 [dvhparams, dvh_values] = dvh(dose_map_dvh, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
@@ -925,7 +944,6 @@ parfor j = 1:length(mrn_list)
             if havedose && havegtvn
                 dose_map_dvh_n = dose_map;  % rigidly aligned dose
                 pat_dmean_gtvn(1,fi) = nanmean(dose_map_dvh_n(gtvn_mask==1));
-                dwi_dims = dwi_dat.hdr.dime.pixdim(2:4);
                 [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
                 pat_d95_gtvn(1,fi) = dvhparams.("D95% (Gy)");
                 pat_v50gy_gtvn(1,fi) = dvhparams.("V50Gy (%)");

@@ -4,6 +4,7 @@ classdef test_modularity < matlab.unittest.TestCase
         TempDir
         ConfigPath
         ConfigStruct
+        RepoRoot
     end
 
     methods(TestMethodSetup)
@@ -32,7 +33,9 @@ classdef test_modularity < matlab.unittest.TestCase
             fclose(fid);
 
             % Add repo root to path so run_dwi_pipeline is found
-            addpath(pwd);
+            % `pwd` might be inside `tests/`, so use fileparts
+            [testCase.RepoRoot, ~, ~] = fileparts(pwd);
+            addpath(testCase.RepoRoot);
         end
     end
 
@@ -74,7 +77,7 @@ classdef test_modularity < matlab.unittest.TestCase
             end
 
             % Re-run capturing output by wrapping in try-catch block inside evalc string
-            cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'sanity'}); catch, end", testCase.ConfigPath);
+            cmd_safe = sprintf("addpath('%s'); try, clear global MASTER_OUTPUT_FOLDER; run_dwi_pipeline('%s', {'sanity'}, '%s'); diary off; catch, diary off; end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
             T = evalc(cmd_safe);
 
             testCase.verifyTrue(contains(T, 'Skipping Load Step'), 'Should skip load step');
@@ -96,7 +99,7 @@ classdef test_modularity < matlab.unittest.TestCase
              save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
              save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
-             cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'visualize'}); catch, end", testCase.ConfigPath);
+             cmd_safe = sprintf("addpath('%s'); try, clear global MASTER_OUTPUT_FOLDER; run_dwi_pipeline('%s', {'visualize'}, '%s'); diary off; catch, diary off; end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
              T = evalc(cmd_safe);
 
              testCase.verifyTrue(contains(T, 'Skipping metrics_longitudinal'), 'Should skip metrics');
@@ -144,11 +147,11 @@ classdef test_modularity < matlab.unittest.TestCase
 
              save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
 
-             cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'load'}); catch ME, disp(ME.message); end", testCase.ConfigPath);
+             cmd_safe = sprintf("addpath('%s'); try, clear global MASTER_OUTPUT_FOLDER; run_dwi_pipeline('%s', {'load'}, '%s'); diary off; catch ME, diary off; disp(ME.message); end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
              T = evalc(cmd_safe);
 
              fprintf('DEBUG T:\n%s\n', T);
-             % Check if summary_metrics.mat exists in the isolated folder
+             % Check if summary_metrics_Standard.mat exists in the isolated folder
              type_dir = fullfile(testCase.TempDir, 'Standard');
              testCase.verifyTrue(exist(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'file') == 2, 'summary_metrics_Standard.mat should be created');
         end

@@ -132,7 +132,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
         catch ME
-            fprintf('❌ FAILED.\n');
+            if ~isempty(ME.stack)
+                stack_line = ME.stack(1).line;
+                stack_file = ME.stack(1).name;
+                fprintf('❌ FAILED at %s:%d.\n', stack_file, stack_line);
+            else
+                fprintf('❌ FAILED.\n');
+            end
             fprintf('❌ Error during data loading: %s\n', ME.message);
             return; % Halt pipeline
         end

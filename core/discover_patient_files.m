@@ -26,6 +26,12 @@ for j=1:length(patlist)
     strtmp = strsplit(strrep(strrep(patlist(j).name,'P',''),'_','-'),'-');
     id_num(j) = str2double(strtmp{1});
 end
+
+% Filter out non-patient folders (which evaluate to NaN)
+valid_idx = ~isnan(id_num);
+patlist = patlist(valid_idx);
+id_num = id_num(valid_idx);
+
 [~,id_sort] = sort(id_num,'ascend');
 patlist = patlist(id_sort);
 
