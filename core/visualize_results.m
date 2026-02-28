@@ -251,24 +251,7 @@ for mi = 1:4
     subplot(1, 4, mi);
     vals = metric_data{mi};
 
-    % Split values by clinical outcome
-    vals_lc = vals(lf_group == 0);   % Local Control patients
-    vals_lf = vals(lf_group == 1);   % Local Failure patients
-
-    % Create 15 equally-spaced bins spanning the combined value range
-    edges = linspace(min(vals, [], 'omitnan'), max(vals, [], 'omitnan'), 16);
-
-    % Overlay semi-transparent histograms for each outcome group
-    histogram(vals_lc, edges, 'FaceColor', [0.2 0.4 0.8], 'FaceAlpha', 0.6, ...
-        'EdgeColor', 'none', 'DisplayName', 'Local Control'); hold on;
-    histogram(vals_lf, edges, 'FaceColor', [0.8 0.2 0.2], 'FaceAlpha', 0.6, ...
-        'EdgeColor', 'none', 'DisplayName', 'Local Failure');
-    hold off;
-
-    xlabel(metric_units{mi}); ylabel('Count');
-    title(metric_names{mi}, 'FontSize', 11, 'FontWeight', 'bold');
-    legend('Location', 'best', 'FontSize', 8);
-    grid on;
+    plot_feature_distribution(vals, lf_group, metric_names{mi}, metric_units{mi}, 'histogram');
 end
 sgtitle(['Baseline Feature Distributions by Outcome (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
@@ -290,21 +273,7 @@ for mi = 1:4
     subplot(1, 4, mi);
     vals = metric_data{mi};
 
-    % Remove NaN entries so boxplot renders correctly
-    has_data = ~isnan(vals);
-    boxplot(vals(has_data), lf_group(has_data), 'Labels', {'LC (0)', 'LF (1)'});
-
-    ylabel(metric_units{mi});
-    title(metric_names{mi}, 'FontSize', 11, 'FontWeight', 'bold');
-    grid on;
-
-    % Annotate with a one-way ANOVA p-value comparing LC vs LF
-    if sum(has_data) > 2 && numel(unique(lf_group(has_data))) > 1
-        p = anova1(vals(has_data), lf_group(has_data), 'off');
-        yl = ylim;
-        text(1.5, yl(2)*0.95, sprintf('p = %.3f', p), ...
-            'HorizontalAlignment', 'center', 'FontSize', 10);
-    end
+    plot_feature_distribution(vals, lf_group, metric_names{mi}, metric_units{mi}, 'boxplot');
 end
 sgtitle(['Baseline Feature Box Plots by Outcome (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
