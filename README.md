@@ -2,16 +2,26 @@
 
 Analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) data, including IVIM model fitting, ADC computation, spatial Deep Learning denoising, and correlation with RT dose maps.
 
+## Agent Collaboration & Safety Rules
+This repository is maintained with the assistance of two AI agents:
+- **Antigravity (Local)**: Handles core physics modeling, MRI calibration logic, and specialized scripts. 
+- **Jules (Background)**: Delegated for background tasks including unit testing, documentation, and code styling.
+> [!CAUTION]
+> **Safety Rule**: Never send patient data or sensitive CSVs to the Jules cloud. Only logic and code structures are permitted. Do not modify files in the `dependencies/` folder.
+
+## Workflows
+- **`/run_data`**: A structured workflow that executes the DWI pipeline sequentially for all DWI types (`Standard`, `dnCNN`, and `IVIMnet`). It iteratively modifies `config.json` and evaluates the master orchestrator, finishing by running the full test suite.
+
 ## Repository Structure & Scripts
 
 ### Root Directory
-- **`run_dwi_pipeline.m`**: The main orchestrator of the pipeline. It handles environment setup (adding paths, checking toolboxes), loads configurations, and subsequently calls modular processing steps.
-- **`run_all_tests.m`**: The master test runner for the MATLAB DWI pipeline. It automatically discovers and executes all class-based and function-based tests located in the `tests/` directory, outputting a formatted coverage report and asserting success for CI/CD environments.
-- **`config.json`** & **`config.example.json`**: Configuration files used by the pipeline to customize parameters such as data paths, feature selection criteria, and temporal groupings without modifying source code.
+- **`run_dwi_pipeline.m`**: The main orchestrator of the pipeline. It handles environment setup, loads configurations, and calls modular processing steps. Supports sequential processing of multiple DWI types based on `config.json` configuration.
+- **`run_all_tests.m`**: The master test runner for the MATLAB DWI pipeline. Discovers and executes all tests in the `tests/` directory and outputs a coverage report.
+- **`config.json`** & **`config.example.json`**: Configuration files used to customize parameters (data paths, `dwi_type` selection, temporal groupings) without modifying source code.
 
 ### `core/`
 Contains the primary logic blocks for the DWI analysis:
-- **`load_dwi_data.m`**: Loads DICOM DWI data, applies Deep Learning denoising, fits ADC and IVIM models, extracts dose metrics, and builds the baseline clinical features.
+- **`load_dwi_data.m`**: Loads DICOM DWI data, applies Deep Learning denoising, fits models, extracts dose metrics, and builds baseline clinical features. Includes a robust **Checkpointing** mechanism and `parfor` loop to safely process large cohorts iteratively and recover from interruptions.
 - **`sanity_checks.m`**: Validates data by checking convergence (identifying `NaN`, `Inf`, or negative outputs), summarizing missingness, outlining outliers, and confirming spatial alignment between Dose and DWI maps.
 - **`metrics.m`**: The main statistical engine. It evaluates repeatability, builds longitudinal data, handles temporal grouping, applies stabilized IPCW techniques for survival analysis, performs feature selection, and evaluates Competing Risks models (Cause-Specific Hazards) or Logistic Regression.
 - **`visualize_results.m`**: Generates visual outputs, including parameter maps overlaid on anatomical MRI, feature distributions by outcome, and longitudinal trajectories.
