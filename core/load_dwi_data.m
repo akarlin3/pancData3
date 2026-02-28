@@ -459,14 +459,553 @@ parfor j = 1:length(mrn_list)
     end
 
     % Per-patient DIR reference: populated at Fx1, reused at Fx2+
-    b0_fx1_ref        = [];   % b=0 volume at baseline fraction
-    gtv_mask_fx1_ref  = [];   % GTVp mask at baseline fraction
-    gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
+    % Moved b0_fx1_ref to function
+    % Moved gtv_mask_fx1_ref to function
+    % Moved gtvn_mask_fx1_ref to function
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
     i_pat = find(contains(T_Pat_normalized, id_list_normalized{j}));
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
+
+    % --- Process all fractions and repeat acquisitions for this patient ---
+    [pat_data_vectors_gtvp, pat_data_vectors_gtvn, pat_dmean_gtvp, ...
+     pat_dmean_gtvn, pat_d95_gtvp, pat_d95_gtvn, pat_v50gy_gtvp, ...
+     pat_v50gy_gtvn, pat_adc_mean, pat_adc_kurtosis, pat_d_mean, ...
+     pat_d_kurtosis, pat_d_mean_dncnn, pat_d_mean_ivimnet, ...
+     bad_dwi_list_j, bad_dwi_idx_j] = process_patient_fraction( ...
+     j, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations, ...
+     id_list, mrn_list, dataloc, fx_search, dcm2nii_call, config_struct, ...
+     pat_immuno, pat_lf, ivim_bthr, ...
+     pat_data_vectors_gtvp, pat_data_vectors_gtvn, pat_dmean_gtvp, ...
+     pat_dmean_gtvn, pat_d95_gtvp, pat_d95_gtvn, pat_v50gy_gtvp, ...
+     pat_v50gy_gtvn, pat_adc_mean, pat_adc_kurtosis, pat_d_mean, ...
+     pat_d_kurtosis, pat_d_mean_dncnn, pat_d_mean_ivimnet, ...
+     bad_dwi_list_j, bad_dwi_idx_j);
+    end
+    bad_dwi_list_j = bad_dwi_list_j(1:bad_dwi_idx_j);
+    bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
+
+    % Collect output struct for checkpointing
+    pat_data_out = struct();
+    pat_data_out.data_vectors_gtvp = pat_data_vectors_gtvp;
+    pat_data_out.data_vectors_gtvn = pat_data_vectors_gtvn;
+    pat_data_out.dmean_gtvp = pat_dmean_gtvp;
+    pat_data_out.dmean_gtvn = pat_dmean_gtvn;
+    pat_data_out.d95_gtvp = pat_d95_gtvp;
+    pat_data_out.d95_gtvn = pat_d95_gtvn;
+    pat_data_out.v50gy_gtvp = pat_v50gy_gtvp;
+    pat_data_out.v50gy_gtvn = pat_v50gy_gtvn;
+    pat_data_out.adc_mean = pat_adc_mean;
+    pat_data_out.adc_kurtosis = pat_adc_kurtosis;
+    pat_data_out.d_mean = pat_d_mean;
+    pat_data_out.d_kurtosis = pat_d_kurtosis;
+    pat_data_out.d_mean_dncnn = pat_d_mean_dncnn;
+    pat_data_out.d_mean_ivimnet = pat_d_mean_ivimnet;
+    pat_data_out.lf = pat_lf;
+    pat_data_out.immuno = pat_immuno;
+    pat_data_out.bad_dwi_list = bad_dwi_list_j;
+
+    % Save checkpoint
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    parsave_checkpoint(checkpoint_file, pat_data_out);
+
+    fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
+end
+
+% Reconstruct global arrays from checkpoints
+for j = 1:length(mrn_list)
+    mrn = mrn_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+
+    if exist(checkpoint_file, 'file')
+        % Load checkpoint
+        loaded_data = load(checkpoint_file);
+
+        % Assign back to global arrays
+        % Struct arrays
+        data_vectors_gtvp(j,:,:) = loaded_data.data_vectors_gtvp;
+        data_vectors_gtvn(j,:,:) = loaded_data.data_vectors_gtvn;
+
+        % Scalar/Vector arrays (patient x fraction)
+        dmean_gtvp(j,:) = loaded_data.dmean_gtvp;
+        dmean_gtvn(j,:) = loaded_data.dmean_gtvn;
+        d95_gtvp(j,:) = loaded_data.d95_gtvp;
+        d95_gtvn(j,:) = loaded_data.d95_gtvn;
+        v50gy_gtvp(j,:) = loaded_data.v50gy_gtvp;
+        v50gy_gtvn(j,:) = loaded_data.v50gy_gtvn;
+
+        % Summary metrics (patient x fraction x repeat)
+        adc_mean(j,:,:) = loaded_data.adc_mean;
+        if isfield(loaded_data, 'adc_kurtosis')
+            adc_kurtosis(j,:,:) = loaded_data.adc_kurtosis;
+        end
+        d_mean(j,:,:) = loaded_data.d_mean;
+        if isfield(loaded_data, 'd_kurtosis')
+            d_kurtosis(j,:,:) = loaded_data.d_kurtosis;
+        end
+        d_mean_dncnn(j,:,:) = loaded_data.d_mean_dncnn;
+        d_mean_ivimnet(j,:,:) = loaded_data.d_mean_ivimnet;
+
+        % Clinical data and tracking
+        lf(j) = loaded_data.lf;
+        immuno(j) = loaded_data.immuno;
+        bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
+    else
+        fprintf('Warning: No checkpoint found for patient %d (MRN %s) during reconstruction.\n', j, mrn);
+    end
+end
+
+% Flatten bad_dwi_locations
+bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
+bad_dwi_count = length(bad_dwi_locations);
+
+%% ========================================================================
+fprintf('\n--- SECTION 3: Save Results ---\n');
+%  SECTION 3 — SAVE RESULTS
+%  [CHECKPOINT]: Saves the output of the computationally intensive Section 2.
+%  This .mat file serves as the input for Section 4, allowing the pipeline
+%  to resume from here in future runs.
+
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
+% Create a date-stamped backup before overwriting
+if exist(datasave,'file')
+    dt = datetime('now');
+    dateString = char(dt, 'yyyy_MMM_dd');
+    newfilename = cat(2,dataloc, 'dwi_vectors_', dateString, '.mat');
+    copyfile(datasave,newfilename);
+    fprintf('backed up existing save to %s\n',newfilename);
+end
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
+fprintf('saved %s\n',datasave);
+
+end % if ~skip_to_reload
+
+%% ========================================================================
+fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
+%  SECTION 4 — RELOAD SAVED DATA
+%  [ENTRY POINT]: If skip_to_reload=true, execution begins here.
+%  Loads the pre-processed 'dwi_vectors.mat' containing voxel-level data.
+
+% Set data path from configuration
+dataloc = config_struct.dataloc;
+
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+if exist(datasave, 'file')
+    load(datasave);
+else
+    fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
+    if exist(fallback_datasave, 'file')
+        fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+        load(fallback_datasave);
+    else
+        error('Unable to find file or directory ''%s''.', datasave);
+    end
+end
+
+%% ========================================================================
+fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
+%  SECTION 5 — LONGITUDINAL SUMMARY METRICS
+
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+summary_metrics_file = fullfile(dataloc, ['summary_metrics' file_prefix '.mat']);
+if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+    if exist(summary_metrics_file, 'file')
+        fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
+        load(summary_metrics_file, 'summary_metrics');
+        return;
+    else
+        fallback_metrics_file = fullfile(dataloc, 'summary_metrics.mat');
+        if exist(fallback_metrics_file, 'file')
+            fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
+            load(fallback_metrics_file, 'summary_metrics');
+            return;
+        end
+    end
+end
+
+% ADC threshold for identifying "restricted diffusion" sub-volume
+% (1.15×10⁻³ mm²/s, per Muraoka et al. 2013)
+adc_thresh = config_struct.adc_thresh; % https://pubmed.ncbi.nlm.nih.gov/23545001/
+
+% Secondary ADC threshold for identifying "high ADC" sub-volume
+high_adc_thresh = config_struct.high_adc_thresh;
+
+% IVIM thresholds for sub-volume identification
+d_thresh = config_struct.d_thresh;
+f_thresh = config_struct.f_thresh;
+
+% Minimum voxel threshold for higher-order histogram metrics
+% (kurtosis, skewness, KS test). Returns NaN for smaller volumes to
+% prevent unstable estimates.
+min_vox_hist = config_struct.min_vox_hist;
+
+nTp = 6;   % number of timepoints (Fx1–Fx5 + post)
+nRpt = 6;  % max number of repeat scans at Fx1
+
+% ADC: last entry: 1 - normal, 2: dncnn + ivim fit
+% --- Pre-allocate sub-volume metric arrays (patient × timepoint × pipeline) ---
+% "sub" = voxels with ADC below adc_thresh (restricted diffusion sub-volume)
+adc_sub_vol_pc = nan(length(id_list),nTp,3);  % sub-volume as fraction of GTV
+adc_sub_vol = nan(length(id_list),nTp,3);     % sub-volume in cc
+adc_sub_mean = nan(length(id_list),nTp,3);
+adc_sub_kurt = nan(length(id_list),nTp,3);
+adc_sub_skew = nan(length(id_list),nTp,3);
+
+high_adc_sub_vol = nan(length(id_list),nTp,3); % volume of voxels above high_adc_thresh
+
+ivim_sub_vol = nan(length(id_list),nTp,3); % voxels with D<0.001 AND f<0.1
+
+gtv_vol = nan(length(id_list),nTp);  % total GTV volume in cc
+
+% --- Whole-GTV summary statistics for ADC ---
+adc_mean = nan(length(id_list),nTp,3);
+adc_kurt = nan(length(id_list),nTp,3);
+adc_skew = nan(length(id_list),nTp,3);
+adc_sd = nan(length(id_list),nTp,3);
+
+% IVIM: last entry: 1 - normal, 2: dncnn + ivim fit, 3: ivimnet fit
+% --- Whole-GTV summary statistics for IVIM parameters (D, f, D*) ---
+d_mean = nan(length(id_list),nTp,3);
+d_kurt = nan(length(id_list),nTp,3);
+d_skew = nan(length(id_list),nTp,3);
+d_sd = nan(length(id_list),nTp,3);
+
+% D sub-volume statistics (restricted sub-volume only)
+d_sub_mean = nan(length(id_list),nTp,3);
+d_sub_kurt = nan(length(id_list),nTp,3);
+d_sub_skew = nan(length(id_list),nTp,3);
+
+% Perfusion fraction (f) summary statistics
+f_mean = nan(length(id_list),nTp,3);
+f_kurt = nan(length(id_list),nTp,3);
+f_skew = nan(length(id_list),nTp,3);
+
+% Pseudo-diffusion coefficient (D*) summary statistics
+dstar_mean = nan(length(id_list),nTp,3);
+dstar_kurt = nan(length(id_list),nTp,3);
+dstar_skew = nan(length(id_list),nTp,3);
+
+% --- Histogram and KS-test arrays for longitudinal distribution comparison ---
+bin_edges = 0:0.5e-4:3e-3; % to compute histograms and histogram distances
+adc_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);  % normalised ADC histograms
+d_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);    % normalised D histograms
+ks_stats_adc = nan(length(id_list),nTp,3);  % KS statistic: ADC at timepoint k vs baseline
+ks_pvals_adc = nan(length(id_list),nTp,3);
+ks_stats_d = nan(length(id_list),nTp,3);    % KS statistic: D at timepoint k vs baseline
+ks_pvals_d = nan(length(id_list),nTp,3);
+
+
+% --- Motion corruption flag ---
+% ADC: last entry: 1 - normal, 2: dncnn + ivim fit
+% Fraction of GTV voxels exceeding adc_max — high values suggest motion artefact
+fx_corrupted = nan(length(id_list),nTp,3); % count voxels with adc>3e-3 (indicative of motion corruption)
+adc_max = config_struct.adc_max;  % corruption threshold (mm²/s)
+
+% --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
+adc_mean_rpt = nan(length(id_list),nRpt,3);
+adc_sub_rpt = nan(length(id_list),nRpt,3);
+
+fx_corrupted_rpt = nan(length(id_list),nRpt,3);
+
+d_mean_rpt = nan(length(id_list),nRpt,3);
+f_mean_rpt = nan(length(id_list),nRpt,3);
+dstar_mean_rpt = nan(length(id_list),nRpt,3);
+
+% --- Pooled voxel vectors across all patients (for population-level analysis) ---
+adc_vec_all = [];
+d_vec_all = [];
+f_vec_all = [];
+fx_vec_all = [];     % fraction index for each pooled voxel
+
+% Pooled vectors stratified by local failure (lf) vs complete response (cr)
+adc_vec_lf = [];
+d_vec_lf= [];
+f_vec_lf = [];
+fx_vec_lf = [];
+
+adc_vec_cr = [];
+d_vec_cr = [];
+f_vec_cr = [];
+fx_vec_cr = [];
+
+n_rpt = nan(length(id_list),1);  % number of valid repeat scans per patient
+
+% --- Main analysis loop: patient × timepoint × DWI pipeline ---
+for j=1:length(id_list)
+    for k=1:nTp
+        vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
+        for dwi_type = config_struct.dwi_types_to_run
+
+            % Select the appropriate voxel vectors depending on pipeline
+            switch dwi_type
+                case 1  % Standard (raw DWI)
+                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
+                    d_vec = data_vectors_gtvp(j,k,1).d_vector;
+                    f_vec = data_vectors_gtvp(j,k,1).f_vector;
+                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
+
+                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;  % Fx1 as baseline
+                    d_baseline = data_vectors_gtvp(j,1,1).d_vector;
+                case 2  % DnCNN-denoised + conventional IVIM fit
+                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector_dncnn;
+                    d_vec = data_vectors_gtvp(j,k,1).d_vector_dncnn;
+                    f_vec = data_vectors_gtvp(j,k,1).f_vector_dncnn;
+                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
+
+                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
+                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_dncnn;
+                case 3  % IVIMnet deep-learning IVIM fit (ADC uses standard pipeline)
+                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
+                    d_vec = data_vectors_gtvp(j,k,1).d_vector_ivimnet;
+                    f_vec = data_vectors_gtvp(j,k,1).f_vector_ivimnet;
+                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_ivimnet;
+
+                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
+                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
+            end
+
+            % --- Compute ADC summary metrics for this patient/timepoint ---
+            if ~isempty(adc_vec)
+%                 adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
+                gtv_vol(j,k) = numel(adc_vec)*vox_vol;   % GTV volume (cc)
+                adc_mean(j,k,dwi_type) = nanmean(adc_vec);
+                if numel(adc_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
+                    % Retained for archival completeness; do not use in primary feature pool.
+                    adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
+                    adc_skew(j,k,dwi_type) = skewness(adc_vec);
+                end
+                adc_sd(j,k,dwi_type) = nanstd(adc_vec);
+
+                % Sub-volume: voxels with restricted diffusion (ADC < threshold)
+                adc_vec_sub = adc_vec(adc_vec<adc_thresh);
+                adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
+                % adc_vec_sub(adc_vec_sub>adc_thresh) = nan;
+
+                adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
+                adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
+                adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
+                if numel(adc_vec_sub) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                    adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
+                    adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
+                end
+
+                % Normalised histogram (replace zeros with eps for log-safety)
+                % store histograms
+                [c1, ~] = histcounts(adc_vec, bin_edges);
+                p1 = c1 / numel(adc_vec); p1(p1==0)=eps;
+                adc_histograms(j,k,:,dwi_type) = p1;
+                % Two-sample KS test: current timepoint vs baseline (Fx1)
+                % compare difference from baseline (if available)
+                if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist
+                    [~,p,ks2stat] = kstest2(adc_vec,adc_baseline);
+                    ks_stats_adc(j,k,dwi_type) = ks2stat;
+                    ks_pvals_adc(j,k,dwi_type) = p;
+                end
+
+                high_adc_sub_vol(j,k,dwi_type) = numel(adc_vec_high_sub)*vox_vol;
+
+                % Corruption metric: fraction of GTV voxels above adc_max
+                fx_corrupted(j,k,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+
+                % Pool standard-pipeline voxels across all patients/timepoints
+                if dwi_type==1
+                    adc_vec_all = cat(1,adc_vec_all,adc_vec);
+                end
+            end
+
+            % --- Compute IVIM summary metrics (D, f, D*) ---
+            if ~isempty(d_vec)
+                %                 d_vec = data_vectors_gtvp(j,k,1).d_vector;
+                %                 f_vec = data_vectors_gtvp(j,k,1).f_vector;
+                f_vec(f_vec==0) = nan;  % zero perfusion fraction = failed fit
+                %                 dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
+
+                % Pool voxels for population-level analysis (standard pipeline only)
+                if dwi_type==1
+                    d_vec_all = cat(1,d_vec_all,d_vec);
+                    f_vec_all = cat(1,f_vec_all,f_vec);
+                    fx_vec_all = cat(1,fx_vec_all,ones(size(f_vec))*k);
+
+                    % Stratify pooled voxels by clinical outcome
+                    if lf(j)==1  % local failure
+                        adc_vec_lf = cat(1,adc_vec_lf,adc_vec);
+                        d_vec_lf = cat(1,d_vec_lf,d_vec);
+                        f_vec_lf = cat(1,f_vec_lf,f_vec);
+                        fx_vec_lf = cat(1,fx_vec_lf,ones(size(f_vec))*k);
+                    else         % complete response / no local failure
+                        adc_vec_cr = cat(1,adc_vec_cr,adc_vec);
+                        d_vec_cr = cat(1,d_vec_cr,d_vec);
+                        f_vec_cr = cat(1,f_vec_cr,f_vec);
+                        fx_vec_cr = cat(1,fx_vec_cr,ones(size(f_vec))*k);
+                    end
+                end
+
+                % Joint D–f sub-volume: voxels with low D AND low f
+                % come up with a 2D metric for identifying subvolumes
+                ivim_vec_sub = d_vec(d_vec<d_thresh & f_vec<f_thresh);
+                ivim_sub_vol(j,k,dwi_type) = numel(ivim_vec_sub)*vox_vol;
+
+                % D sub-volume restricted to ADC-thresholded voxels
+                d_vec_sub = d_vec(adc_vec<adc_thresh);
+
+                % Whole-GTV D (true diffusion) statistics
+                d_mean(j,k,dwi_type) = nanmean(d_vec);
+                if numel(d_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                    d_kurt(j,k,dwi_type) = kurtosis(d_vec);
+                    d_skew(j,k,dwi_type) = skewness(d_vec);
+                end
+                d_sd(j,k,dwi_type) = nanstd(d_vec);
+
+                % Normalised D histogram
+                [c1, ~] = histcounts(d_vec, bin_edges);
+                p1 = c1 / numel(d_vec); p1(p1==0)=eps;
+                d_histograms(j,k,:,dwi_type) = p1;
+                % Two-sample KS test: D distribution vs baseline (Fx1)
+                % compare difference from baseline (if available)
+                if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist
+                    [~,p,ks2stat] = kstest2(d_vec,d_baseline);
+                    ks_stats_d(j,k,dwi_type) = ks2stat;
+                    ks_pvals_d(j,k,dwi_type) = p;
+                end
+
+                % D sub-volume statistics (restricted region only)
+                d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
+                if numel(d_vec_sub) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                    d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
+                    d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
+                end
+
+                % Perfusion fraction (f) statistics
+                f_mean(j,k,dwi_type) = nanmean(f_vec);
+                if numel(f_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                    f_kurt(j,k,dwi_type) = kurtosis(f_vec);
+                    f_skew(j,k,dwi_type) = skewness(f_vec);
+                end
+
+                % Pseudo-diffusion coefficient (D*) statistics
+                dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
+                if numel(dstar_vec) >= min_vox_hist
+                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
+                    dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
+                    dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
+                end
+            end
+
+            % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
+            % Only at k==1 (Fx1) where repeat acquisitions exist
+            if k==1
+                rp_count = 0;  % count valid repeats for wCV computation
+                for rpi=1:size(data_vectors_gtvp, 3)
+                    % Select vectors for the appropriate pipeline variant
+                    switch dwi_type
+                        case 1  % standard
+                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector;
+                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector;
+                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector;
+                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector;
+                        case 2  % DnCNN
+                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector_dncnn;
+                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_dncnn;
+                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
+                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
+                        case 3  % IVIMnet (no ADC variant; uses standard ADC)
+                            adc_vec = [];
+                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
+                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
+                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
+                    end
+
+                    % Store per-repeat mean ADC and corruption metric
+                    if ~isempty(adc_vec)
+                        rp_count = rp_count+1;
+                        adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
+                        fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+
+                        adc_vec_sub = adc_vec(adc_vec<adc_thresh);
+                        adc_sub_rpt(j,rpi,dwi_type) = nanmean(adc_vec_sub);
+                    end
+
+                    % Store per-repeat mean IVIM parameters
+                    if ~isempty(d_vec)
+                        d_mean_rpt(j,rpi,dwi_type) = nanmean(d_vec);
+                        f_mean_rpt(j,rpi,dwi_type) = nanmean(f_vec);
+                        dstar_mean_rpt(j,rpi,dwi_type) = nanmean(dstar_vec);
+                    end
+                end
+                % Record number of valid repeats (standard pipeline only)
+                if dwi_type==1
+                    n_rpt(j) = rp_count;
+                end
+            end
+        end
+    end
+end
+summary_metrics = struct('adc_mean', adc_mean, 'adc_kurt', adc_kurt, 'adc_skew', adc_skew, 'adc_sd', adc_sd, 'd_mean', d_mean, 'f_mean', f_mean, 'dstar_mean', dstar_mean, ...
+    'ivim_sub_vol', ivim_sub_vol, ...
+    'adc_sub_vol', adc_sub_vol, 'adc_sub_vol_pc', adc_sub_vol_pc, 'high_adc_sub_vol', high_adc_sub_vol, 'd_kurt', d_kurt, 'd_skew', d_skew, 'd_sd', d_sd, ...
+    'f_kurt', f_kurt, 'f_skew', f_skew, 'dstar_kurt', dstar_kurt, 'dstar_skew', dstar_skew, 'd_sub_mean', d_sub_mean, 'd_sub_kurt', d_sub_kurt, ...
+    'd_sub_skew', d_sub_skew, 'adc_histograms', adc_histograms, 'd_histograms', d_histograms, 'ks_stats_adc', ks_stats_adc, 'ks_pvals_adc', ks_pvals_adc, ...
+    'ks_stats_d', ks_stats_d, 'ks_pvals_d', ks_pvals_d, 'fx_corrupted', fx_corrupted, 'gtv_vol', gtv_vol, ...
+    'id_list', {id_list}, 'mrn_list', {mrn_list}, 'd95_gtvp', d95_gtvp, 'v50gy_gtvp', v50gy_gtvp, 'lf', lf, 'immuno', immuno, ...
+    'adc_mean_rpt', adc_mean_rpt, 'adc_sub_rpt', adc_sub_rpt, 'd_mean_rpt', d_mean_rpt, 'f_mean_rpt', f_mean_rpt, 'dstar_mean_rpt', dstar_mean_rpt, ...
+    'n_rpt', n_rpt, 'dmean_gtvp', dmean_gtvp, 'gtv_locations', {gtv_locations}, 'dwi_locations', {dwi_locations});
+
+if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+    fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
+    save(summary_metrics_file, 'summary_metrics');
+end
+
+end
+
+function parsave_checkpoint(fname, data)
+    save(fname, '-struct', 'data');
+end
+
+function parsave_dir_cache(fname, gtv_mask_warped, D_forward, ref3d)
+    save(fname, 'gtv_mask_warped', 'D_forward', 'ref3d');
+end
+
+
+
+function [pat_data_vectors_gtvp, pat_data_vectors_gtvn, pat_dmean_gtvp, ...
+          pat_dmean_gtvn, pat_d95_gtvp, pat_d95_gtvn, pat_v50gy_gtvp, ...
+          pat_v50gy_gtvn, pat_adc_mean, pat_adc_kurtosis, pat_d_mean, ...
+          pat_d_kurtosis, pat_d_mean_dncnn, pat_d_mean_ivimnet, ...
+          bad_dwi_list_j, bad_dwi_idx_j] = process_patient_fraction( ...
+          j, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations, ...
+          id_list, mrn_list, dataloc, fx_search, dcm2nii_call, config_struct, ...
+          pat_immuno, pat_lf, ivim_bthr, ...
+          pat_data_vectors_gtvp, pat_data_vectors_gtvn, pat_dmean_gtvp, ...
+          pat_dmean_gtvn, pat_d95_gtvp, pat_d95_gtvn, pat_v50gy_gtvp, ...
+          pat_v50gy_gtvn, pat_adc_mean, pat_adc_kurtosis, pat_d_mean, ...
+          pat_d_kurtosis, pat_d_mean_dncnn, pat_d_mean_ivimnet, ...
+          bad_dwi_list_j, bad_dwi_idx_j)
+
+    % Per-patient DIR reference: populated at Fx1, reused at Fx2+
+    b0_fx1_ref        = [];   % b=0 volume at baseline fraction
+    gtv_mask_fx1_ref  = [];   % GTVp mask at baseline fraction
+    gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
@@ -1146,507 +1685,4 @@ parfor j = 1:length(mrn_list)
                 pat_data_vectors_gtvn(fi,rpi).v50gy = dvhparams.("V50Gy (%)");
             end
         end
-    end
-    bad_dwi_list_j = bad_dwi_list_j(1:bad_dwi_idx_j);
-    bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
-    
-    % Collect output struct for checkpointing
-    pat_data_out = struct();
-    pat_data_out.data_vectors_gtvp = pat_data_vectors_gtvp;
-    pat_data_out.data_vectors_gtvn = pat_data_vectors_gtvn;
-    pat_data_out.dmean_gtvp = pat_dmean_gtvp;
-    pat_data_out.dmean_gtvn = pat_dmean_gtvn;
-    pat_data_out.d95_gtvp = pat_d95_gtvp;
-    pat_data_out.d95_gtvn = pat_d95_gtvn;
-    pat_data_out.v50gy_gtvp = pat_v50gy_gtvp;
-    pat_data_out.v50gy_gtvn = pat_v50gy_gtvn;
-    pat_data_out.adc_mean = pat_adc_mean;
-    pat_data_out.adc_kurtosis = pat_adc_kurtosis;
-    pat_data_out.d_mean = pat_d_mean;
-    pat_data_out.d_kurtosis = pat_d_kurtosis;
-    pat_data_out.d_mean_dncnn = pat_d_mean_dncnn;
-    pat_data_out.d_mean_ivimnet = pat_d_mean_ivimnet;
-    pat_data_out.lf = pat_lf;
-    pat_data_out.immuno = pat_immuno;
-    pat_data_out.bad_dwi_list = bad_dwi_list_j;
-    
-    % Save checkpoint
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
-    parsave_checkpoint(checkpoint_file, pat_data_out);
-    
-    fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
 end
-
-% Reconstruct global arrays from checkpoints
-for j = 1:length(mrn_list)
-    mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
-    
-    if exist(checkpoint_file, 'file')
-        % Load checkpoint
-        loaded_data = load(checkpoint_file);
-        
-        % Assign back to global arrays
-        % Struct arrays
-        data_vectors_gtvp(j,:,:) = loaded_data.data_vectors_gtvp;
-        data_vectors_gtvn(j,:,:) = loaded_data.data_vectors_gtvn;
-        
-        % Scalar/Vector arrays (patient x fraction)
-        dmean_gtvp(j,:) = loaded_data.dmean_gtvp;
-        dmean_gtvn(j,:) = loaded_data.dmean_gtvn;
-        d95_gtvp(j,:) = loaded_data.d95_gtvp;
-        d95_gtvn(j,:) = loaded_data.d95_gtvn;
-        v50gy_gtvp(j,:) = loaded_data.v50gy_gtvp;
-        v50gy_gtvn(j,:) = loaded_data.v50gy_gtvn;
-        
-        % Summary metrics (patient x fraction x repeat)
-        adc_mean(j,:,:) = loaded_data.adc_mean;
-        if isfield(loaded_data, 'adc_kurtosis')
-            adc_kurtosis(j,:,:) = loaded_data.adc_kurtosis;
-        end
-        d_mean(j,:,:) = loaded_data.d_mean;
-        if isfield(loaded_data, 'd_kurtosis')
-            d_kurtosis(j,:,:) = loaded_data.d_kurtosis;
-        end
-        d_mean_dncnn(j,:,:) = loaded_data.d_mean_dncnn;
-        d_mean_ivimnet(j,:,:) = loaded_data.d_mean_ivimnet;
-        
-        % Clinical data and tracking
-        lf(j) = loaded_data.lf;
-        immuno(j) = loaded_data.immuno;
-        bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
-    else
-        fprintf('Warning: No checkpoint found for patient %d (MRN %s) during reconstruction.\n', j, mrn);
-    end
-end
-
-% Flatten bad_dwi_locations
-bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
-bad_dwi_count = length(bad_dwi_locations);
-
-%% ========================================================================
-fprintf('\n--- SECTION 3: Save Results ---\n');
-%  SECTION 3 — SAVE RESULTS
-%  [CHECKPOINT]: Saves the output of the computationally intensive Section 2.
-%  This .mat file serves as the input for Section 4, allowing the pipeline
-%  to resume from here in future runs.
-
-datasave = fullfile(dataloc, 'dwi_vectors.mat');
-% Create a date-stamped backup before overwriting
-if exist(datasave,'file')
-    dt = datetime('now');
-    dateString = char(dt, 'yyyy_MMM_dd');
-    newfilename = cat(2,dataloc, 'dwi_vectors_', dateString, '.mat');
-    copyfile(datasave,newfilename);
-    fprintf('backed up existing save to %s\n',newfilename);
-end
-if isfield(config_struct, 'dwi_type_name')
-    file_prefix = ['_' config_struct.dwi_type_name];
-else
-    file_prefix = '';
-end
-datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
-save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
-fprintf('saved %s\n',datasave);
-
-end % if ~skip_to_reload
-
-%% ========================================================================
-fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
-%  SECTION 4 — RELOAD SAVED DATA
-%  [ENTRY POINT]: If skip_to_reload=true, execution begins here.
-%  Loads the pre-processed 'dwi_vectors.mat' containing voxel-level data.
-
-% Set data path from configuration
-dataloc = config_struct.dataloc;
-
-if isfield(config_struct, 'dwi_type_name')
-    file_prefix = ['_' config_struct.dwi_type_name];
-else
-    file_prefix = '';
-end
-datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
-if exist(datasave, 'file')
-    load(datasave);
-else
-    fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
-    if exist(fallback_datasave, 'file')
-        fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
-        load(fallback_datasave);
-    else
-        error('Unable to find file or directory ''%s''.', datasave);
-    end
-end
-
-%% ========================================================================
-fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
-%  SECTION 5 — LONGITUDINAL SUMMARY METRICS
-
-if isfield(config_struct, 'dwi_type_name')
-    file_prefix = ['_' config_struct.dwi_type_name];
-else
-    file_prefix = '';
-end
-summary_metrics_file = fullfile(dataloc, ['summary_metrics' file_prefix '.mat']);
-if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
-    if exist(summary_metrics_file, 'file')
-        fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
-        load(summary_metrics_file, 'summary_metrics');
-        return;
-    else
-        fallback_metrics_file = fullfile(dataloc, 'summary_metrics.mat');
-        if exist(fallback_metrics_file, 'file')
-            fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
-            load(fallback_metrics_file, 'summary_metrics');
-            return;
-        end
-    end
-end
-
-% ADC threshold for identifying "restricted diffusion" sub-volume
-% (1.15×10⁻³ mm²/s, per Muraoka et al. 2013)
-adc_thresh = config_struct.adc_thresh; % https://pubmed.ncbi.nlm.nih.gov/23545001/
-
-% Secondary ADC threshold for identifying "high ADC" sub-volume
-high_adc_thresh = config_struct.high_adc_thresh;
-
-% IVIM thresholds for sub-volume identification
-d_thresh = config_struct.d_thresh;
-f_thresh = config_struct.f_thresh;
-
-% Minimum voxel threshold for higher-order histogram metrics
-% (kurtosis, skewness, KS test). Returns NaN for smaller volumes to
-% prevent unstable estimates.
-min_vox_hist = config_struct.min_vox_hist;
-
-nTp = 6;   % number of timepoints (Fx1–Fx5 + post)
-nRpt = 6;  % max number of repeat scans at Fx1
-
-% ADC: last entry: 1 - normal, 2: dncnn + ivim fit
-% --- Pre-allocate sub-volume metric arrays (patient × timepoint × pipeline) ---
-% "sub" = voxels with ADC below adc_thresh (restricted diffusion sub-volume)
-adc_sub_vol_pc = nan(length(id_list),nTp,3);  % sub-volume as fraction of GTV
-adc_sub_vol = nan(length(id_list),nTp,3);     % sub-volume in cc
-adc_sub_mean = nan(length(id_list),nTp,3);
-adc_sub_kurt = nan(length(id_list),nTp,3);
-adc_sub_skew = nan(length(id_list),nTp,3);
-
-high_adc_sub_vol = nan(length(id_list),nTp,3); % volume of voxels above high_adc_thresh
-
-ivim_sub_vol = nan(length(id_list),nTp,3); % voxels with D<0.001 AND f<0.1
-
-gtv_vol = nan(length(id_list),nTp);  % total GTV volume in cc
-
-% --- Whole-GTV summary statistics for ADC ---
-adc_mean = nan(length(id_list),nTp,3);
-adc_kurt = nan(length(id_list),nTp,3);
-adc_skew = nan(length(id_list),nTp,3);
-adc_sd = nan(length(id_list),nTp,3);
-
-% IVIM: last entry: 1 - normal, 2: dncnn + ivim fit, 3: ivimnet fit
-% --- Whole-GTV summary statistics for IVIM parameters (D, f, D*) ---
-d_mean = nan(length(id_list),nTp,3);
-d_kurt = nan(length(id_list),nTp,3);
-d_skew = nan(length(id_list),nTp,3);
-d_sd = nan(length(id_list),nTp,3);
-
-% D sub-volume statistics (restricted sub-volume only)
-d_sub_mean = nan(length(id_list),nTp,3);
-d_sub_kurt = nan(length(id_list),nTp,3);
-d_sub_skew = nan(length(id_list),nTp,3);
-
-% Perfusion fraction (f) summary statistics
-f_mean = nan(length(id_list),nTp,3);
-f_kurt = nan(length(id_list),nTp,3);
-f_skew = nan(length(id_list),nTp,3);
-
-% Pseudo-diffusion coefficient (D*) summary statistics
-dstar_mean = nan(length(id_list),nTp,3);
-dstar_kurt = nan(length(id_list),nTp,3);
-dstar_skew = nan(length(id_list),nTp,3);
-
-% --- Histogram and KS-test arrays for longitudinal distribution comparison ---
-bin_edges = 0:0.5e-4:3e-3; % to compute histograms and histogram distances
-adc_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);  % normalised ADC histograms
-d_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);    % normalised D histograms
-ks_stats_adc = nan(length(id_list),nTp,3);  % KS statistic: ADC at timepoint k vs baseline
-ks_pvals_adc = nan(length(id_list),nTp,3);
-ks_stats_d = nan(length(id_list),nTp,3);    % KS statistic: D at timepoint k vs baseline
-ks_pvals_d = nan(length(id_list),nTp,3);
-
-
-% --- Motion corruption flag ---
-% ADC: last entry: 1 - normal, 2: dncnn + ivim fit
-% Fraction of GTV voxels exceeding adc_max — high values suggest motion artefact
-fx_corrupted = nan(length(id_list),nTp,3); % count voxels with adc>3e-3 (indicative of motion corruption)
-adc_max = config_struct.adc_max;  % corruption threshold (mm²/s)
-
-% --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
-adc_mean_rpt = nan(length(id_list),nRpt,3);
-adc_sub_rpt = nan(length(id_list),nRpt,3);
-
-fx_corrupted_rpt = nan(length(id_list),nRpt,3);
-
-d_mean_rpt = nan(length(id_list),nRpt,3);
-f_mean_rpt = nan(length(id_list),nRpt,3);
-dstar_mean_rpt = nan(length(id_list),nRpt,3);
-
-% --- Pooled voxel vectors across all patients (for population-level analysis) ---
-adc_vec_all = [];
-d_vec_all = [];
-f_vec_all = [];
-fx_vec_all = [];     % fraction index for each pooled voxel
-
-% Pooled vectors stratified by local failure (lf) vs complete response (cr)
-adc_vec_lf = [];
-d_vec_lf= [];
-f_vec_lf = [];
-fx_vec_lf = [];
-
-adc_vec_cr = [];
-d_vec_cr = [];
-f_vec_cr = [];
-fx_vec_cr = [];
-
-n_rpt = nan(length(id_list),1);  % number of valid repeat scans per patient
-
-% --- Main analysis loop: patient × timepoint × DWI pipeline ---
-for j=1:length(id_list)
-    for k=1:nTp
-        vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
-        for dwi_type = config_struct.dwi_types_to_run
-
-            % Select the appropriate voxel vectors depending on pipeline
-            switch dwi_type
-                case 1  % Standard (raw DWI)
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;  % Fx1 as baseline
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector;
-                case 2  % DnCNN-denoised + conventional IVIM fit
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector_dncnn;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector_dncnn;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector_dncnn;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_dncnn;
-                case 3  % IVIMnet deep-learning IVIM fit (ADC uses standard pipeline)
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector_ivimnet;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector_ivimnet;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_ivimnet;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
-            end
-
-            % --- Compute ADC summary metrics for this patient/timepoint ---
-            if ~isempty(adc_vec)
-%                 adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
-                gtv_vol(j,k) = numel(adc_vec)*vox_vol;   % GTV volume (cc)
-                adc_mean(j,k,dwi_type) = nanmean(adc_vec);
-                if numel(adc_vec) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-                    % Retained for archival completeness; do not use in primary feature pool.
-                    adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
-                    adc_skew(j,k,dwi_type) = skewness(adc_vec);
-                end
-                adc_sd(j,k,dwi_type) = nanstd(adc_vec);
-                
-                % Sub-volume: voxels with restricted diffusion (ADC < threshold)
-                adc_vec_sub = adc_vec(adc_vec<adc_thresh);
-                adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
-                % adc_vec_sub(adc_vec_sub>adc_thresh) = nan;
-
-                adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
-                adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
-                adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
-                if numel(adc_vec_sub) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                    adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
-                    adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
-                end
-
-                % Normalised histogram (replace zeros with eps for log-safety)
-                % store histograms
-                [c1, ~] = histcounts(adc_vec, bin_edges);
-                p1 = c1 / numel(adc_vec); p1(p1==0)=eps;
-                adc_histograms(j,k,:,dwi_type) = p1;
-                % Two-sample KS test: current timepoint vs baseline (Fx1)
-                % compare difference from baseline (if available)
-                if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist
-                    [~,p,ks2stat] = kstest2(adc_vec,adc_baseline);
-                    ks_stats_adc(j,k,dwi_type) = ks2stat;
-                    ks_pvals_adc(j,k,dwi_type) = p;
-                end
-
-                high_adc_sub_vol(j,k,dwi_type) = numel(adc_vec_high_sub)*vox_vol;
-
-                % Corruption metric: fraction of GTV voxels above adc_max
-                fx_corrupted(j,k,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
-
-                % Pool standard-pipeline voxels across all patients/timepoints
-                if dwi_type==1
-                    adc_vec_all = cat(1,adc_vec_all,adc_vec);
-                end
-            end
-
-            % --- Compute IVIM summary metrics (D, f, D*) ---
-            if ~isempty(d_vec)
-                %                 d_vec = data_vectors_gtvp(j,k,1).d_vector;
-                %                 f_vec = data_vectors_gtvp(j,k,1).f_vector;
-                f_vec(f_vec==0) = nan;  % zero perfusion fraction = failed fit
-                %                 dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
-
-                % Pool voxels for population-level analysis (standard pipeline only)
-                if dwi_type==1
-                    d_vec_all = cat(1,d_vec_all,d_vec);
-                    f_vec_all = cat(1,f_vec_all,f_vec);
-                    fx_vec_all = cat(1,fx_vec_all,ones(size(f_vec))*k);
-
-                    % Stratify pooled voxels by clinical outcome
-                    if lf(j)==1  % local failure
-                        adc_vec_lf = cat(1,adc_vec_lf,adc_vec);
-                        d_vec_lf = cat(1,d_vec_lf,d_vec);
-                        f_vec_lf = cat(1,f_vec_lf,f_vec);
-                        fx_vec_lf = cat(1,fx_vec_lf,ones(size(f_vec))*k);
-                    else         % complete response / no local failure
-                        adc_vec_cr = cat(1,adc_vec_cr,adc_vec);
-                        d_vec_cr = cat(1,d_vec_cr,d_vec);
-                        f_vec_cr = cat(1,f_vec_cr,f_vec);
-                        fx_vec_cr = cat(1,fx_vec_cr,ones(size(f_vec))*k);
-                    end
-                end
-
-                % Joint D–f sub-volume: voxels with low D AND low f
-                % come up with a 2D metric for identifying subvolumes
-                ivim_vec_sub = d_vec(d_vec<d_thresh & f_vec<f_thresh);
-                ivim_sub_vol(j,k,dwi_type) = numel(ivim_vec_sub)*vox_vol;
-
-                % D sub-volume restricted to ADC-thresholded voxels
-                d_vec_sub = d_vec(adc_vec<adc_thresh);
-
-                % Whole-GTV D (true diffusion) statistics
-                d_mean(j,k,dwi_type) = nanmean(d_vec);
-                if numel(d_vec) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                    d_kurt(j,k,dwi_type) = kurtosis(d_vec);
-                    d_skew(j,k,dwi_type) = skewness(d_vec);
-                end
-                d_sd(j,k,dwi_type) = nanstd(d_vec);
-
-                % Normalised D histogram
-                [c1, ~] = histcounts(d_vec, bin_edges);
-                p1 = c1 / numel(d_vec); p1(p1==0)=eps;
-                d_histograms(j,k,:,dwi_type) = p1;
-                % Two-sample KS test: D distribution vs baseline (Fx1)
-                % compare difference from baseline (if available)
-                if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist
-                    [~,p,ks2stat] = kstest2(d_vec,d_baseline);
-                    ks_stats_d(j,k,dwi_type) = ks2stat;
-                    ks_pvals_d(j,k,dwi_type) = p;
-                end
-
-                % D sub-volume statistics (restricted region only)
-                d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
-                if numel(d_vec_sub) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                    d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
-                    d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
-                end
-
-                % Perfusion fraction (f) statistics
-                f_mean(j,k,dwi_type) = nanmean(f_vec);
-                if numel(f_vec) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                    f_kurt(j,k,dwi_type) = kurtosis(f_vec);
-                    f_skew(j,k,dwi_type) = skewness(f_vec);
-                end
-
-                % Pseudo-diffusion coefficient (D*) statistics
-                dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
-                if numel(dstar_vec) >= min_vox_hist
-                    % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-                    dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
-                    dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
-                end
-            end
-
-            % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
-            % Only at k==1 (Fx1) where repeat acquisitions exist
-            if k==1
-                rp_count = 0;  % count valid repeats for wCV computation
-                for rpi=1:size(data_vectors_gtvp, 3)
-                    % Select vectors for the appropriate pipeline variant
-                    switch dwi_type
-                        case 1  % standard
-                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector;
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector;
-                        case 2  % DnCNN
-                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector_dncnn;
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_dncnn;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
-                        case 3  % IVIMnet (no ADC variant; uses standard ADC)
-                            adc_vec = [];
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
-                    end
-
-                    % Store per-repeat mean ADC and corruption metric
-                    if ~isempty(adc_vec)
-                        rp_count = rp_count+1;
-                        adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
-                        fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
-
-                        adc_vec_sub = adc_vec(adc_vec<adc_thresh);
-                        adc_sub_rpt(j,rpi,dwi_type) = nanmean(adc_vec_sub);
-                    end
-
-                    % Store per-repeat mean IVIM parameters
-                    if ~isempty(d_vec)
-                        d_mean_rpt(j,rpi,dwi_type) = nanmean(d_vec);
-                        f_mean_rpt(j,rpi,dwi_type) = nanmean(f_vec);
-                        dstar_mean_rpt(j,rpi,dwi_type) = nanmean(dstar_vec);
-                    end
-                end
-                % Record number of valid repeats (standard pipeline only)
-                if dwi_type==1
-                    n_rpt(j) = rp_count;
-                end
-            end
-        end
-    end
-end
-summary_metrics = struct('adc_mean', adc_mean, 'adc_kurt', adc_kurt, 'adc_skew', adc_skew, 'adc_sd', adc_sd, 'd_mean', d_mean, 'f_mean', f_mean, 'dstar_mean', dstar_mean, ...
-    'ivim_sub_vol', ivim_sub_vol, ...
-    'adc_sub_vol', adc_sub_vol, 'adc_sub_vol_pc', adc_sub_vol_pc, 'high_adc_sub_vol', high_adc_sub_vol, 'd_kurt', d_kurt, 'd_skew', d_skew, 'd_sd', d_sd, ...
-    'f_kurt', f_kurt, 'f_skew', f_skew, 'dstar_kurt', dstar_kurt, 'dstar_skew', dstar_skew, 'd_sub_mean', d_sub_mean, 'd_sub_kurt', d_sub_kurt, ...
-    'd_sub_skew', d_sub_skew, 'adc_histograms', adc_histograms, 'd_histograms', d_histograms, 'ks_stats_adc', ks_stats_adc, 'ks_pvals_adc', ks_pvals_adc, ...
-    'ks_stats_d', ks_stats_d, 'ks_pvals_d', ks_pvals_d, 'fx_corrupted', fx_corrupted, 'gtv_vol', gtv_vol, ...
-    'id_list', {id_list}, 'mrn_list', {mrn_list}, 'd95_gtvp', d95_gtvp, 'v50gy_gtvp', v50gy_gtvp, 'lf', lf, 'immuno', immuno, ...
-    'adc_mean_rpt', adc_mean_rpt, 'adc_sub_rpt', adc_sub_rpt, 'd_mean_rpt', d_mean_rpt, 'f_mean_rpt', f_mean_rpt, 'dstar_mean_rpt', dstar_mean_rpt, ...
-    'n_rpt', n_rpt, 'dmean_gtvp', dmean_gtvp, 'gtv_locations', {gtv_locations}, 'dwi_locations', {dwi_locations});
-
-if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
-    fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
-    save(summary_metrics_file, 'summary_metrics');
-end
-
-end
-
-function parsave_checkpoint(fname, data)
-    save(fname, '-struct', 'data');
-end
-
-function parsave_dir_cache(fname, gtv_mask_warped, D_forward, ref3d)
-    save(fname, 'gtv_mask_warped', 'D_forward', 'ref3d');
-end
-
