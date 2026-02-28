@@ -19,60 +19,22 @@ for i = 1:4
     % -------------------------------------------------------------------
     % TOP ROW: Absolute Mean Values
     % -------------------------------------------------------------------
-    subplot(2, 4, i);
-    hold on;
-    
-    dat = metrics_abs{i};
-    % Calculate population mean and standard error of the mean (SEM)
-    pop_mean = mean(dat, 1, 'omitnan');
-    pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
-    
-    % Plot individual patient trajectories (spaghetti plot)
-    plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
-    
-    % Plot population average with error bars
-    errorbar(x_vals, pop_mean, pop_se, '-k', 'LineWidth', 2, ...
-        'Marker', 'o', 'MarkerFaceColor', 'k');
-    
-    % Formatting
-    set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
-    title(['Mean ', metric_names{i}], 'FontSize', 12, 'FontWeight', 'bold');
-    ylabel(metric_units{i});
-    xlim([0.5, nTp+0.5]);
-    grid on; box on;
+    title_str = ['Mean ', metric_names{i}];
+    plot_metric_subplot(i, metrics_abs{i}, x_vals, x_labels, nTp, 'k', 'o', ...
+        title_str, metric_units{i}, false);
     
     % -------------------------------------------------------------------
     % BOTTOM ROW: Percent Change from Fx1
     % -------------------------------------------------------------------
-    subplot(2, 4, i+4);
-    hold on;
-    
-    dat_pct = metrics_pct{i};
-    % Calculate population mean percent change and SEM
-    pop_mean_pct = mean(dat_pct, 1, 'omitnan');
-    pop_se_pct   = std(dat_pct, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat_pct), 1));
-    
-    % Plot individual patient trajectories
-    plot(x_vals, dat_pct', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
-    
-    % Plot population average with error bars
-    errorbar(x_vals, pop_mean_pct, pop_se_pct, '-r', 'LineWidth', 2, ...
-        'Marker', 's', 'MarkerFaceColor', 'r');
-    
-    % Add a baseline reference line at 0% change
-    yline(0, 'k--', 'LineWidth', 1.5);
-    
-    % Formatting
-    set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
     if strcmp(metric_names{i}, 'f')
-        title(['\Delta ', metric_names{i}, ' (abs)'], 'FontSize', 12, 'FontWeight', 'bold');
-        ylabel('Absolute Change');
+        title_str_pct = ['\Delta ', metric_names{i}, ' (abs)'];
+        ylabel_pct = 'Absolute Change';
     else
-        title(['\Delta ', metric_names{i}, ' (%)'], 'FontSize', 12, 'FontWeight', 'bold');
-        ylabel('% Change from Fx1');
+        title_str_pct = ['\Delta ', metric_names{i}, ' (%)'];
+        ylabel_pct = '% Change from Fx1';
     end
-    xlim([0.5, nTp+0.5]);
-    grid on; box on;
+    plot_metric_subplot(i+4, metrics_pct{i}, x_vals, x_labels, nTp, 'r', 's', ...
+        title_str_pct, ylabel_pct, true);
 end
 
 sgtitle(['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
@@ -85,5 +47,48 @@ for k = 1:numel(allAx)
 end
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
+
+end
+
+function plot_metric_subplot(idx, dat, x_vals, x_labels, nTp, color_spec, marker_style, title_str, y_label, add_zero_line)
+% PLOT_METRIC_SUBPLOT — Helper to generate standardized longitudinal subplot
+%
+% Inputs:
+%   idx           - Subplot index (1 to 8)
+%   dat           - Data matrix (patients x timepoints)
+%   x_vals        - X-axis values
+%   x_labels      - X-axis tick labels
+%   nTp           - Number of timepoints
+%   color_spec    - Color specification string (e.g., 'k', 'r')
+%   marker_style  - Marker string (e.g., 'o', 's')
+%   title_str     - Subplot title string
+%   y_label       - Y-axis label string
+%   add_zero_line - Boolean indicating whether to add a dashed y=0 line
+
+subplot(2, 4, idx);
+hold on;
+
+% Calculate population mean and standard error of the mean (SEM)
+pop_mean = mean(dat, 1, 'omitnan');
+pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+
+% Plot individual patient trajectories (spaghetti plot)
+plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
+
+% Plot population average with error bars
+errorbar(x_vals, pop_mean, pop_se, ['-' color_spec], 'LineWidth', 2, ...
+    'Marker', marker_style, 'MarkerFaceColor', color_spec);
+
+if add_zero_line
+    % Add a baseline reference line at 0% change
+    yline(0, 'k--', 'LineWidth', 1.5);
+end
+
+% Formatting
+set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
+title(title_str, 'FontSize', 12, 'FontWeight', 'bold');
+ylabel(y_label);
+xlim([0.5, nTp+0.5]);
+grid on; box on;
 
 end
