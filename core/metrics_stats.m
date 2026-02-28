@@ -48,9 +48,9 @@ for s = 1:length(metric_sets)
             y = y_raw(has_data);
             g = lf_group(has_data);
             
-            unique_groups = unique(g);
-            if length(unique_groups) > 1 && length(y) > 2
-                p = ranksum(y(g==0), y(g==1));
+            p = perform_statistical_test(y, g, 'ranksum');
+
+            if ~isnan(p)
                 p_val_store(s).p_vals(m, tp) = p;
 
                 boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
@@ -567,7 +567,7 @@ for target_fx = 2:nTp
         boxplot(vol_pct, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['% Change in GTV Volume (' fx_label ')']);
         title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
-        p_vol = ranksum(vol_pct(lf_group==0), vol_pct(lf_group==1));
+        p_vol = perform_statistical_test(vol_pct, lf_group, 'ranksum');
         
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
@@ -586,7 +586,7 @@ for target_fx = 2:nTp
         boxplot(sd_delta, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['\Delta ADC SD (' fx_label ') [mm\u00b2/s]']);
         title('Heterogeneity: ADC SD Change', 'FontSize', 12, 'FontWeight', 'bold');
-        p_sd = ranksum(sd_delta(lf_group==0), sd_delta(lf_group==1));
+        p_sd = perform_statistical_test(sd_delta, lf_group, 'ranksum');
         
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
