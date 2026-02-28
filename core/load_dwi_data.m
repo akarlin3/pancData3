@@ -651,11 +651,11 @@ parfor j = 1:length(mrn_list)
                     dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
                     havedenoised=1;
                 else
-                    % [MODULARIZATION STAGE 2]: GPU Acceleration + Dynamic Fallback
+                    % [MODULARIZATION STAGE 2]: CPU Acceleration + Dynamic Fallback
                     % If the cached 'dwi_dncnn' doesn't exist, we compute it on the fly.
                     % We pull the heavy dependency (apply_dncnn_symmetric) into this loop,
-                    % but we cast the matrices to gpuArray() *first* so MATLAB accelerates it.
-                    fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on GPU...\n');
+                    % but we cast the matrices to single() *first* so MATLAB accelerates it.
+                    fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on CPU...\n');
                     
                     % 1. Load the pre-trained neural network (assuming it exists in dependencies)
                     try
@@ -664,30 +664,30 @@ parfor j = 1:length(mrn_list)
                         loaded_model = load(fullfile(config_struct.dataloc, '../dependencies/dncnn_model.mat'), 'net');
                         dncnn_net = loaded_model.net;
                         
-                        % 2. Cast the raw 4D DWI volume and 3D GTV mask to the GPU
-                        dwi_gpu = gpuArray(single(dwi));
+                        % 2. Cast the raw 4D DWI volume and 3D GTV mask
+                        dwi_cpu = single(dwi);
                         
                         % If we have a primary GTV, use it. Otherwise, use nodal if available.
                         if exist('gtv_mask', 'var') && ~isempty(gtv_mask)
-                            mask_gpu = gpuArray(single(gtv_mask));
+                            mask_cpu = single(gtv_mask);
                         elseif exist('gtvn_mask', 'var') && ~isempty(gtvn_mask)
-                            mask_gpu = gpuArray(single(gtvn_mask));
+                            mask_cpu = single(gtvn_mask);
                         else
-                            mask_gpu = gpuArray(ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single'));
+                            mask_cpu = ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single');
                         end
 
-                        % 3. Pre-allocate the denoised 4D volume on the GPU
-                        dwi_dncnn_gpu = zeros(size(dwi_gpu), 'single', 'gpuArray');
+                        % 3. Pre-allocate the denoised 4D volume
+                        dwi_dncnn_cpu = zeros(size(dwi_cpu), 'single');
 
                         % 4. Apply the black-box dependency slice-by-slice (or volume-by-volume)
                         %    apply_dncnn_symmetric handles 3D, so we loop over the 4th dimension (b-values)
-                        for b_idx = 1:size(dwi_gpu, 4)
-                            % The dependency is untouched, but it operates on GPU arrays natively!
-                            dwi_dncnn_gpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_gpu(:,:,:,b_idx), mask_gpu, dncnn_net, 15);
+                        for b_idx = 1:size(dwi_cpu, 4)
+                            % The dependency is untouched, but it operates on CPU arrays natively!
+                            dwi_dncnn_cpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_cpu(:,:,:,b_idx), mask_cpu, dncnn_net, 15);
                         end
 
-                        % 5. Gather back to the CPU for the rest of the pipeline
-                        dwi_dncnn = double(gather(dwi_dncnn_gpu));
+                        % 5. Format back to double for the rest of the pipeline
+                        dwi_dncnn = double(dwi_dncnn_cpu);
                         
                         % Normalise denoised signal to [0,1] for IVIM fitting
                         dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
@@ -696,8 +696,8 @@ parfor j = 1:length(mrn_list)
                         % (Optional: Save the dwi_dncnn back to disk to cache it for the next run)
                         % This would require creating the directories and saving the NIfTI.
                         fprintf('  [DnCNN] Deep learning denoising completed.\n');
-                    catch GPU_ME
-                        fprintf('  [DnCNN] GPU Acceleration failed: %s\n', GPU_ME.message);
+                    catch CPU_ME
+                        fprintf('  [DnCNN] CPU Computation failed: %s\n', CPU_ME.message);
                         fprintf('  [DnCNN] Proceeding without denoised data.\n');
                         havedenoised = 0;
                     end
