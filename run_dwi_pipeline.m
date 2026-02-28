@@ -4,21 +4,20 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 % [ORCHESTRATOR PATTERN]:
 % This function acts as the central controller for the DWI analysis workflow.
 % Instead of monolithic scripts, the pipeline is broken down into modular steps
-% (Load -> Sanity -> Metrics -> Visualize). The orchestrator manages:
+% (Load -> Sanity -> Visualize -> Metrics). The orchestrator manages:
 %   1. Data Flow: Passing outputs from one module as inputs to the next.
 %   2. Error Handling: Catching exceptions and halting execution gracefully.
 %   3. Environment: Setting up paths and verifying dependencies dynamically.
-%
 % Usage:
 %   run_dwi_pipeline('config.json');
-%   run_dwi_pipeline('config.json', {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'});
+%   run_dwi_pipeline('config.json', {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'});
 %   run_dwi_pipeline('config.json', {'load'}, 'path/to/my_output_folder');
 %
 % This function sequentially calls the module scripts:
 %   1. load_dwi_data
 %   2. sanity_checks
 %   3. visualize_results
-%   4. metrics (baseline, longitudinal, dosimetry, stats, survival)
+%   4. metrics (baseline, longitudinal, dosimetry, stats_comparisons, stats_predictive, survival)
 % 
 % It explicitly passes data between modules to avoid workspace pollution
 % and includes error handling to halt execution if checks fail.
@@ -50,7 +49,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     if nargin < 2
-        steps_to_run = {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'};
+        steps_to_run = {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
     end
 
     if nargin < 3
@@ -236,7 +235,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             return;
         end
     else
-        metrics_steps = {'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats', 'metrics_survival'};
+        metrics_steps = {'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
         if any(ismember(metrics_steps, steps_to_run))
             fprintf('\n[5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             if exist(baseline_results_file, 'file')
@@ -276,7 +275,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('Error during metrics_dosimetry: %s\n', ME.message);
         end
     else
-        if ismember('metrics_stats', steps_to_run)
+        if any(ismember({'metrics_stats_comparisons', 'metrics_stats_predictive'}, steps_to_run))
             fprintf('[5.3/5] [%s] Skipping metrics_dosimetry. Loading from disk...\n', current_name);
             if exist(dosimetry_results_file, 'file')
                 load(dosimetry_results_file);
@@ -290,16 +289,36 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     
-    if ismember('metrics_stats', steps_to_run)
+    predictive_results_file = fullfile(config_struct.dataloc, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
+    
+    if ismember('metrics_stats_comparisons', steps_to_run)
         try
-            fprintf('[5.4/5] [%s] Running metrics_stats... ', current_name);
-            [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats(valid_pts, lf_group, ...
+            fprintf('[5.4a/5] [%s] Running metrics_stats_comparisons... ', current_name);
+            metrics_stats_comparisons(valid_pts, lf_group, ...
                 metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
+                ADC_abs, D_abs, f_abs, Dstar_abs);
+            
+            fprintf('Done.\n');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics_stats_comparisons: %s\n', ME.message);
+        end
+    else
+        fprintf('[5.4a/5] [%s] Skipping metrics_stats_comparisons.\n', current_name);
+    end
+
+    if ismember('metrics_stats_predictive', steps_to_run)
+        try
+            fprintf('[5.4b/5] [%s] Running metrics_stats_predictive... ', current_name);
+            [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, ...
+                dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 m_gtv_vol, summary_metrics.adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
                 m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, ...
                 d95_dstar_sub, v50_dstar_sub, summary_metrics.id_list, config_struct.dwi_types_to_run, ...
-                dl_provenance, time_labels, m_id_list, m_lf, m_total_time, m_total_follow_up_time);
+                dl_provenance, time_labels, m_lf, m_total_time, m_total_follow_up_time);
             
+            save(predictive_results_file, 'risk_scores_all', 'is_high_risk', 'times_km', 'events_km');
+
             % Build a calculated_results struct for any downstream visualize_results steps
             calculated_results = struct();
             calculated_results.risk_scores_all = risk_scores_all;
@@ -316,10 +335,19 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('Done.\n');
         catch ME
             fprintf('FAILED.\n');
-            fprintf('Error during metrics_stats: %s\n', ME.message);
+            fprintf('Error during metrics_stats_predictive: %s\n', ME.message);
         end
     else
-        fprintf('[5.4/5] [%s] Skipping metrics_stats.\n', current_name);
+        if ismember('metrics_survival', steps_to_run)
+            fprintf('[5.4b/5] [%s] Skipping metrics_stats_predictive. Loading from disk...\n', current_name);
+            if exist(predictive_results_file, 'file')
+                load(predictive_results_file);
+            else
+                fprintf('      Warning: metrics_stats_predictive results not found. metrics_survival will fail.\n');
+            end
+        else
+            fprintf('[5.4b/5] [%s] Skipping metrics_stats_predictive.\n', current_name);
+        end
     end
     
     if ismember('metrics_survival', steps_to_run)
