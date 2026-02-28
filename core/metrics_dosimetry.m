@@ -52,6 +52,7 @@ for j = 1:length(m_id_list)
         if ~isempty(dose_vec) && ~isempty(adc_vec)
             gtv_mat = gtv_locations{j_orig, k, 1};
             has_3d = false;
+            gtv_mask_3d = [];
             if ~isempty(gtv_mat)
                 path_parts = strsplit(gtv_mat, {'/', '\'});
                 gtv_mat = fullfile(path_parts{:});
@@ -68,65 +69,10 @@ for j = 1:length(m_id_list)
                 end
             end
             
-            se = strel('sphere', 1);
-            min_cc_voxels = 10;
-            min_subvol_voxels = 100;
-            
-            adc_mask_1d = adc_vec < adc_thresh;
-            if has_3d
-                vol_3d = false(size(gtv_mask_3d));
-                vol_3d(gtv_mask_3d == 1) = adc_mask_1d;
-                vol_3d = imclose(imopen(vol_3d, se), se);
-                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
-                adc_mask_1d = vol_3d(gtv_mask_3d == 1);
-            end
-            dose_adc_sub = dose_vec(adc_mask_1d);
-            if ~isempty(dose_adc_sub) && sum(adc_mask_1d) >= min_subvol_voxels
-                d95_adc_sub(j,k) = prctile(dose_adc_sub, 5); 
-                v50_adc_sub(j,k) = sum(dose_adc_sub >= 50) / length(dose_adc_sub) * 100;
-            end
-            
-            d_mask_1d = d_vec < d_thresh;
-            if has_3d
-                vol_3d = false(size(gtv_mask_3d));
-                vol_3d(gtv_mask_3d == 1) = d_mask_1d;
-                vol_3d = imclose(imopen(vol_3d, se), se);
-                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
-                d_mask_1d = vol_3d(gtv_mask_3d == 1);
-            end
-            dose_d_sub = dose_vec(d_mask_1d);
-            if ~isempty(dose_d_sub) && sum(d_mask_1d) >= min_subvol_voxels
-                d95_d_sub(j,k) = prctile(dose_d_sub, 5);
-                v50_d_sub(j,k) = sum(dose_d_sub >= 50) / length(dose_d_sub) * 100;
-            end
-            
-            f_mask_1d = f_vec < f_thresh;
-            if has_3d
-                vol_3d = false(size(gtv_mask_3d));
-                vol_3d(gtv_mask_3d == 1) = f_mask_1d;
-                vol_3d = imclose(imopen(vol_3d, se), se);
-                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
-                f_mask_1d = vol_3d(gtv_mask_3d == 1);
-            end
-            dose_f_sub = dose_vec(f_mask_1d);
-            if ~isempty(dose_f_sub) && sum(f_mask_1d) >= min_subvol_voxels
-                d95_f_sub(j,k) = prctile(dose_f_sub, 5);
-                v50_f_sub(j,k) = sum(dose_f_sub >= 50) / length(dose_f_sub) * 100;
-            end
-            
-            dstar_mask_1d = dstar_vec < dstar_thresh;
-            if has_3d
-                vol_3d = false(size(gtv_mask_3d));
-                vol_3d(gtv_mask_3d == 1) = dstar_mask_1d;
-                vol_3d = imclose(imopen(vol_3d, se), se);
-                vol_3d = bwareaopen(vol_3d, min_cc_voxels);
-                dstar_mask_1d = vol_3d(gtv_mask_3d == 1);
-            end
-            dose_dstar_sub = dose_vec(dstar_mask_1d);
-            if ~isempty(dose_dstar_sub) && sum(dstar_mask_1d) >= min_subvol_voxels
-                d95_dstar_sub(j,k) = prctile(dose_dstar_sub, 5);
-                v50_dstar_sub(j,k) = sum(dose_dstar_sub >= 50) / length(dose_dstar_sub) * 100;
-            end
+            [d95_adc_sub(j,k), v50_adc_sub(j,k)] = calculate_subvolume_metrics(adc_vec, adc_thresh, dose_vec, has_3d, gtv_mask_3d);
+            [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
+            [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
+            [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
             
         end
     end
