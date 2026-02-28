@@ -188,40 +188,21 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         validated_data_gtvn = data_vectors_gtvn;
     end
 
-    % Step 4: Calculate Metrics
-    if ismember('metrics', steps_to_run)
-        try
-            fprintf('[4/5] [%s] Calculating metrics... ', current_name);
-            calculated_results = metrics(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
-
-            % Save calculated results
-            save(results_file, 'calculated_results');
-            fprintf('      Saved calculated_results to %s\n', results_file);
-
-            fprintf('Done.\n');
-        catch ME
-            fprintf('FAILED.\n');
-            fprintf('Error during metrics calculation: %s\n', ME.message);
-            return; % Halt pipeline
-        end
-    else
-        fprintf('[4/5] [%s] Skipping Metrics Calculation.\n', current_name);
-        if ismember('visualize', steps_to_run)
-             if exist(results_file, 'file')
-                 tmp_results = load(results_file, 'calculated_results');
-                 calculated_results = tmp_results.calculated_results;
-                 fprintf('      Loaded calculated_results from disk.\n');
-             else
-                 fprintf('      Warning: calculated_results file not found. Visualizations may fail.\n');
-                 calculated_results = struct(); % Empty struct fallback
-             end
-        end
-    end
-
-    % Step 5: Visualize Results
+    % Step 4: Visualize Results
     if ismember('visualize', steps_to_run)
         try
-            fprintf('\n[5/5] [%s] Visualizing results...\n', current_name);
+            fprintf('\n[4/5] [%s] Visualizing results...\n', current_name);
+            % Load existing results if visualize is run independently
+            if ~exist('calculated_results', 'var')
+                if exist(results_file, 'file')
+                    tmp_results = load(results_file, 'calculated_results');
+                    calculated_results = tmp_results.calculated_results;
+                    fprintf('      Loaded calculated_results from disk for visualization.\n');
+                else
+                    fprintf('      Warning: calculated_results file not found. Visualizations may be incomplete.\n');
+                    calculated_results = struct(); % Empty struct fallback
+                end
+            end
             visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
             fprintf('      Done: Visualizations generated.\n');
         catch ME
@@ -229,7 +210,73 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('Error generating visualizations: %s\n', ME.message);
         end
     else
-        fprintf('[5/5] [%s] Skipping Visualization.\n', current_name);
+        fprintf('[4/5] [%s] Skipping Visualization.\n', current_name);
+    end
+
+    % Step 5: Calculate Metrics
+    if ismember('metrics', steps_to_run)
+        try
+            fprintf('[5/5] [%s] Calculating metrics (5 sub-modules)...\n', current_name);
+            
+            % 5.1: Baseline & Data Prep
+            fprintf('      -> [1/5] Running metrics_baseline... ');
+            [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
+             m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
+             ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
+             nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
+             metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
+            fprintf('Done.\n');
+
+            % 5.2: Longitudinal Plotting
+            fprintf('      -> [2/5] Running metrics_longitudinal... ');
+            metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
+                                 nTp, dtype_label, config_struct.output_folder);
+            fprintf('Done.\n');
+            
+            % 5.3: Target Coverage & Dosimetry
+            fprintf('      -> [3/5] Running metrics_dosimetry... ');
+            [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
+                metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
+                                  m_data_vectors_gtvp, summary_metrics.gtv_locations);
+            fprintf('Done.\n');
+            
+            % 5.4: Statistical Analyses & Elastic Net
+            fprintf('      -> [4/5] Running metrics_stats... ');
+            [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats(valid_pts, lf_group, ...
+                metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
+                m_gtv_vol, summary_metrics.adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
+                m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, ...
+                d95_dstar_sub, v50_dstar_sub, summary_metrics.id_list, config_struct.dwi_types_to_run, ...
+                dl_provenance, time_labels, m_id_list, m_lf, m_total_time, m_total_follow_up_time);
+            fprintf('Done.\n');
+            
+            % 5.5: Survival Analysis (Time-Dependent Cox)
+            fprintf('      -> [5/5] Running metrics_survival... ');
+            metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
+                             m_total_follow_up_time, nTp, 'Survival', dtype_label);
+            fprintf('Done.\n');
+
+            % Build a calculated_results struct for any downstream visualize_results steps
+            calculated_results = struct();
+            calculated_results.risk_scores_all = risk_scores_all;
+            calculated_results.is_high_risk = is_high_risk;
+            calculated_results.times_km = times_km;
+            calculated_results.events_km = events_km;
+            calculated_results.m_lf = m_lf;
+            calculated_results.m_id_list = m_id_list;
+
+            % Save calculated results
+            save(results_file, 'calculated_results');
+            fprintf('      Saved calculated_results to %s\n', results_file);
+
+            fprintf('      Metrics Complete.\n');
+        catch ME
+            fprintf('FAILED.\n');
+            fprintf('Error during metrics calculation: %s\n', ME.message);
+            return; % Halt pipeline
+        end
+    else
+        fprintf('[5/5] [%s] Skipping Metrics Calculation.\n', current_name);
     end
 
     fprintf('=======================================================\n');
