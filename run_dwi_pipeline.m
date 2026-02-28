@@ -117,8 +117,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     % Set isolated file names
     dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
-    summary_metrics_file = fullfile(config_struct.dataloc, sprintf('summary_metrics_%s.mat', current_name));
-    results_file = fullfile(config_struct.dataloc, sprintf('calculated_results_%s.mat', current_name));
+    summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
+    results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
     % Step 2: Load DWI Data
     if ismember('load', steps_to_run)
@@ -176,6 +176,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 error('Sanity checks failed: %s', validation_msg);
             end
             fprintf('Passed.\n');
+            
+            sanity_results_file = fullfile(config_struct.output_folder, sprintf('sanity_checks_results_%s.txt', current_name));
+            fid = fopen(sanity_results_file, 'w');
+            fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
+            fclose(fid);
+            fprintf('      Saved sanity check results to %s\n', sanity_results_file);
         catch ME
             fprintf('FAILED.\n');
             fprintf('Pipeline halted due to sanity check failure: %s\n', ME.message);
@@ -203,7 +209,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 end
             end
             visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
-            fprintf('      Done: Visualizations generated.\n');
+            visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
+            fid = fopen(visualize_results_file, 'w');
+            fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
+            fclose(fid);
+            fprintf('      Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
         catch ME
             fprintf('FAILED (Non-Fatal).\n');
             fprintf('Error generating visualizations: %s\n', ME.message);
@@ -213,7 +223,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     % Step 5: Calculate Metrics
-    baseline_results_file = fullfile(config_struct.dataloc, sprintf('metrics_baseline_results_%s.mat', current_name));
+    baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
 
     if ismember('metrics_baseline', steps_to_run)
         try
@@ -251,6 +261,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('[5.2/5] [%s] Running metrics_longitudinal... ', current_name);
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
                                  nTp, dtype_label, config_struct.output_folder);
+            longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
+            fid = fopen(longitudinal_results_file, 'w');
+            fprintf(fid, 'Longitudinal metrics generated successfully.\n');
+            fclose(fid);
+            fprintf('      Saved longitudinal results log to %s\n', longitudinal_results_file);
             fprintf('Done.\n');
         catch ME
             fprintf('FAILED.\n');
@@ -260,7 +275,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('[5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
     end
     
-    dosimetry_results_file = fullfile(config_struct.dataloc, sprintf('metrics_dosimetry_results_%s.mat', current_name));
+    dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
         try
             fprintf('[5.3/5] [%s] Running metrics_dosimetry... ', current_name);
@@ -289,7 +304,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     
-    predictive_results_file = fullfile(config_struct.dataloc, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
+    predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
     
     if ismember('metrics_stats_comparisons', steps_to_run)
         try
@@ -298,6 +313,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 ADC_abs, D_abs, f_abs, Dstar_abs);
             
+            comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
+            fid = fopen(comparisons_results_file, 'w');
+            fprintf(fid, 'Stats Comparisons generated successfully.\n');
+            fclose(fid);
+            fprintf('      Saved comparisons results log to %s\n', comparisons_results_file);
             fprintf('Done.\n');
         catch ME
             fprintf('FAILED.\n');
@@ -355,6 +375,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('[5.5/5] [%s] Running metrics_survival... ', current_name);
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
                              m_total_follow_up_time, nTp, 'Survival', dtype_label);
+            
+            survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
+            fid = fopen(survival_results_file, 'w');
+            fprintf(fid, 'Survival metrics generated successfully.\n');
+            fclose(fid);
+            fprintf('      Saved survival results log to %s\n', survival_results_file);
             fprintf('Done.\n');
         catch ME
             fprintf('FAILED.\n');

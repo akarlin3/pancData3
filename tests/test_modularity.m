@@ -51,8 +51,11 @@ classdef test_modularity < matlab.unittest.TestCase
                 'adc_mean', 1, 'd_mean', 1, 'f_mean', 1, 'dstar_mean', 1, ...
                 'd95_gtvp', 1, 'dmean_gtvp', 1, 'lf', 0, 'lf_date', [], 'censor_date', [], 'total_time', [], 'total_follow_up_time', []);
 
+            type_dir = fullfile(testCase.TempDir, 'Standard');
+            mkdir(type_dir);
             save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
-            save(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'summary_metrics');
+            save(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'summary_metrics');
+            save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
             % Run pipeline skipping 'load'
             % We run 'sanity' which should pass with minimal data or fail gracefully.
@@ -79,9 +82,10 @@ classdef test_modularity < matlab.unittest.TestCase
         end
 
         function testSkipMetrics(testCase)
-             % Create dummy files needed for visualize
+             type_dir = fullfile(testCase.TempDir, 'Standard');
+             if ~exist(type_dir, 'dir'), mkdir(type_dir); end
              calculated_results = struct();
-             save(fullfile(testCase.TempDir, 'calculated_results_Standard.mat'), 'calculated_results');
+             save(fullfile(type_dir, 'calculated_results_Standard.mat'), 'calculated_results');
 
              % Also need dwi_vectors and summary_metrics for visualize arg list
              data_vectors_gtvp = struct('adc_vector', []);
@@ -90,7 +94,7 @@ classdef test_modularity < matlab.unittest.TestCase
                 'adc_mean', 1, 'd_mean', 1, 'f_mean', 1, 'dstar_mean', 1, ...
                 'd95_gtvp', 1, 'dmean_gtvp', 1, 'lf', 0);
              save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
-             save(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'summary_metrics');
+             save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
              cmd_safe = sprintf("try, run_dwi_pipeline('%s', {'visualize'}); catch, end", testCase.ConfigPath);
              T = evalc(cmd_safe);
@@ -144,8 +148,9 @@ classdef test_modularity < matlab.unittest.TestCase
              T = evalc(cmd_safe);
 
              fprintf('DEBUG T:\n%s\n', T);
-             % Check if summary_metrics.mat exists
-             testCase.verifyTrue(exist(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), 'file') == 2, 'summary_metrics.mat should be created');
+             % Check if summary_metrics.mat exists in the isolated folder
+             type_dir = fullfile(testCase.TempDir, 'Standard');
+             testCase.verifyTrue(exist(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'file') == 2, 'summary_metrics_Standard.mat should be created');
         end
     end
 end
