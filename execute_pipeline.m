@@ -8,7 +8,7 @@ p = gcp('nocreate');
 if ~isempty(p)
     delete(p);
 end
-p = parpool('Processes', 2);
+p = parpool('Processes', 2, 'IdleTimeout', Inf);
 addAttachedFiles(p, {fullfile(repo_root, 'core', 'load_dwi_data.m')});
 pctRunOnAll addpath('C:\Users\karlina1\Desktop\pancData3\core');
 pctRunOnAll addpath('C:\Users\karlina1\Desktop\pancData3\utils');

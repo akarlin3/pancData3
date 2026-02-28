@@ -399,7 +399,7 @@ for target_fx = 2:nTp
         sd_delta = sd_fxN - sd_fx1;
         
         boxplot(sd_delta, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
-        ylabel(['\Delta ADC SD (' fx_label ') [mm\u00b2/s]']);
+        ylabel(['\Delta ADC SD (' fx_label ') [mm^2/s]']);
         title('Heterogeneity: ADC SD Change', 'FontSize', 12, 'FontWeight', 'bold');
         p_sd = perform_statistical_test(sd_delta, lf_group, 'ranksum');
         

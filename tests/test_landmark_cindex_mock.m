@@ -89,7 +89,7 @@ for p_idx = 1:n_vp
         y_train_surv = survival(T_start_train, T_stop_train, E_train, 'EventValues', [1, 2]);
         
         % Fit Fine-Gray subdistribution hazard model for the event of interest (1)
-        mdl_loo = fitcox(X_train, y_train_surv, 'EventOfInterest', 1, 'Ties', 'breslow');
+        mdl_loo = fitcox(X_train, y_train_surv, 'EventOfInterest', 1, 'TieBreakMethod', 'breslow');
         b_loo = mdl_loo.Coefficients.Estimate;
     catch
         try

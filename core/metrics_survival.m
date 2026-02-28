@@ -70,7 +70,7 @@ try
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
     
-    mdl_td = fitcox(X_td_global, T_td, 'Censoring', is_censored, 'Ties', 'breslow');
+    mdl_td = fitcox(X_td_global, T_td, 'Censoring', is_censored, 'TieBreakMethod', 'breslow');
     
     b_td        = mdl_td.Coefficients.Beta;
     logl_td     = mdl_td.LogLikelihood;
