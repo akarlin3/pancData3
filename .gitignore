@@ -40,6 +40,7 @@ Thumbs.db
 # IDEs and Editors
 .vscode/
 .idea/
+.jules/
 *.swp
 *~
 .env
