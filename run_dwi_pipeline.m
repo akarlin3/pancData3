@@ -1,4 +1,4 @@
-function run_dwi_pipeline(config_path, steps_to_run)
+function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 % RUN_DWI_PIPELINE Master orchestrator function for the DWI analysis pipeline
 %
 % [ORCHESTRATOR PATTERN]:
@@ -12,6 +12,7 @@ function run_dwi_pipeline(config_path, steps_to_run)
 % Usage:
 %   run_dwi_pipeline('config.json');
 %   run_dwi_pipeline('config.json', {'load', 'sanity', 'metrics', 'visualize'});
+%   run_dwi_pipeline('config.json', {'load'}, 'path/to/my_output_folder');
 %
 % This function sequentially calls the module scripts:
 %   1. load_dwi_data
@@ -52,6 +53,10 @@ function run_dwi_pipeline(config_path, steps_to_run)
         steps_to_run = {'load', 'sanity', 'metrics', 'visualize'};
     end
 
+    if nargin < 3
+        master_output_folder = '';
+    end
+
     fprintf('=======================================================\n');
     fprintf('Starting Master DWI Pipeline Orchestrator\n');
     fprintf('=======================================================\n');
@@ -60,13 +65,31 @@ function run_dwi_pipeline(config_path, steps_to_run)
     try
         fprintf('[1/5] Parsing configuration from %s... ', config_path);
         config_struct = parse_config(config_path);
+        fprintf('Done.\n');
         
-        % Generate timestamp and create output folder
-        timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-        master_output_folder = fullfile(pwd, sprintf('saved_figures_%s', timestamp_str));
-        if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
+        % --- Master Output Folder Logic ---
+        global MASTER_OUTPUT_FOLDER;
+        
+        if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
+            % First run in this MATLAB session without a specific folder
+            timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
+            master_output_folder = fullfile(pwd, sprintf('saved_figures_%s', timestamp_str));
+            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
+            MASTER_OUTPUT_FOLDER = master_output_folder;
+            fprintf('      Created NEW master output folder: %s\n', master_output_folder);
+            fprintf('      (To start a new session folder, run: clear global MASTER_OUTPUT_FOLDER)\n');
+        elseif isempty(master_output_folder) && ~isempty(MASTER_OUTPUT_FOLDER)
+            % Subsequent run in the same session
+            master_output_folder = MASTER_OUTPUT_FOLDER;
+            fprintf('      Reusing EXISTING master output folder: %s\n', master_output_folder);
+        else
+            % User explicitly provided a folder
+            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
+            MASTER_OUTPUT_FOLDER = master_output_folder;
+            fprintf('      Using explicitly provided master output folder: %s\n', master_output_folder);
+        end
+        
         config_struct.master_output_folder = master_output_folder;
-        fprintf('Done. Outputs will be saved to %s\n', master_output_folder);
     catch ME
         fprintf('FAILED.\n');
         fprintf('Error parsing configuration: %s\n', ME.message);
@@ -117,14 +140,23 @@ function run_dwi_pipeline(config_path, steps_to_run)
     else
         fprintf('[2/5] [%s] Skipping Load Step. Loading from disk...\n', current_name);
         try
-            if exist(dwi_vectors_file, 'file') && exist(summary_metrics_file, 'file')
-                tmp_vectors = load(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+            if exist(dwi_vectors_file, 'file')
+                target_dwi_file = dwi_vectors_file;
+            elseif exist(fallback_dwi_vectors_file, 'file')
+                target_dwi_file = fallback_dwi_vectors_file;
+            else
+                target_dwi_file = '';
+            end
+            
+            if ~isempty(target_dwi_file) && exist(summary_metrics_file, 'file')
+                tmp_vectors = load(target_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
                 data_vectors_gtvp = tmp_vectors.data_vectors_gtvp;
                 data_vectors_gtvn = tmp_vectors.data_vectors_gtvn;
 
                 tmp_metrics = load(summary_metrics_file, 'summary_metrics');
                 summary_metrics = tmp_metrics.summary_metrics;
-                fprintf('      Loaded data from disk.\n');
+                fprintf('      Loaded data from disk (%s).\n', target_dwi_file);
             else
                 error('Data files not found. Please run "load" step first.');
             end
