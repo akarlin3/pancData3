@@ -1059,6 +1059,9 @@ function [d_map, f_map, dstar_map] = fit_ivim_model(dwi_data, bvalues, mask, opt
         d_map(valid_voxels_idx) = d_vec;
         f_map(valid_voxels_idx) = f_vec;
         dstar_map(valid_voxels_idx) = dstar_vec;
+    end
+end
+
 function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
     % LOAD_MASK Helper function to load a NIfTI mask and validate dimensions
     have_mask = 0;
