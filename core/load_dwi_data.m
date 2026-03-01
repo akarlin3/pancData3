@@ -1005,6 +1005,58 @@ function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
     end
 end
 
+
+function [d_map, f_map, dstar_map] = fit_ivim_model(dwi_data, bvalues, mask, opts)
+    % Helper function to fit segmented IVIM model to valid voxels within a mask
+    sz3 = [size(dwi_data,1), size(dwi_data,2), size(dwi_data,3)];
+    valid_voxels_idx = find(mask);
+    n_valid = length(valid_voxels_idx);
+
+    % Preallocate output 1D arrays
+    d_vec = nan(n_valid, 1);
+    f_vec = nan(n_valid, 1);
+    dstar_vec = nan(n_valid, 1);
+
+    has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
+    if has_sufficient_bvalues && n_valid > 0
+        % Extract 1D signal decay curves for valid voxels
+        dwi_flat = reshape(dwi_data, [prod(sz3), length(bvalues)]);
+        dwi_valid = dwi_flat(valid_voxels_idx, :);
+
+        % Pad to even number of elements
+        pad_len = mod(2 - mod(n_valid, 2), 2);
+        dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
+        n_padded = n_valid + pad_len;
+
+        % Reshape for dependency [N, 1, 2, bval]
+        dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
+        mask_1d_vol = true(n_padded/2, 1, 2);
+
+        % Execute the untouched dependency on the flattened array
+        ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+
+        % Restructure output back to strictly 1D and snip padding
+        ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
+        d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
+        f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
+        dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
+
+        % Replace zero-fit voxels with NaN
+        zero_mask = (d_vec == 0);
+        d_vec(zero_mask) = nan;
+        f_vec(zero_mask) = nan;
+        dstar_vec(zero_mask) = nan;
+    end
+
+    % Safely reconstruct 1D outputs back into 3D volume geometry
+    d_map = nan(sz3);
+    f_map = nan(sz3);
+    dstar_map = nan(sz3);
+
+    if n_valid > 0
+        d_map(valid_voxels_idx) = d_vec;
+        f_map(valid_voxels_idx) = f_vec;
+        dstar_map(valid_voxels_idx) = dstar_vec;
 function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
     % LOAD_MASK Helper function to load a NIfTI mask and validate dimensions
     have_mask = 0;
