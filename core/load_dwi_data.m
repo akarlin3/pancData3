@@ -606,59 +606,18 @@ parfor j = 1:length(mrn_list)
                 sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];
                 valid_voxels_idx = find(mask_ivim);
                 n_valid = length(valid_voxels_idx);
-                
-                % Preallocate output 1D arrays
-                d_vec = nan(n_valid, 1);
-                f_vec = nan(n_valid, 1);
-                dstar_vec = nan(n_valid, 1);
 
                 has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
                 if has_sufficient_bvalues && n_valid > 0
                     fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
-                    
-                    % Extract 1D signal decay curves for valid voxels
-                    % Reshape DWI to (voxels x bvalues)
-                    dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-                    dwi_valid = dwi_flat(valid_voxels_idx, :);
-                    
-                    % [MODULARIZATION STAGE 3]: Masked 1D Flattening
-                    % Pad to even number of elements to ensure 3rd dimension > 1 
-                    % so MATLAB doesn't drop it in size() checks inside dependency.
-                    pad_len = mod(2 - mod(n_valid, 2), 2);
-                    dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
-                    n_padded = n_valid + pad_len;
-                    
-                    % We must pass a 3D volume to the dependency, [N, 1, 2, bval]
-                    dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
-                    mask_1d_vol = true(n_padded/2, 1, 2);
-                    
-                    % Execute the untouched dependency on the flattened array
-                    ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
-                    
-                    % Restructure output back to strictly 1D and snip padding
-                    ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
-                    d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
-                    f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
-                    dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
-                    
-                    % Replace zero-fit voxels with NaN (failed fits)
-                    zero_mask = (d_vec == 0);
-                    d_vec(zero_mask) = nan;
-                    f_vec(zero_mask) = nan;
-                    dstar_vec(zero_mask) = nan;
-                elseif ~has_sufficient_bvalues
-                    fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
-                end
-
-                % Safely reconstruct 1D outputs back into 3D volume geometry
-                d_map = nan(sz3);
-                f_map = nan(sz3);
-                dstar_map = nan(sz3);
-                
-                if n_valid > 0
-                    d_map(valid_voxels_idx) = d_vec;
-                    f_map(valid_voxels_idx) = f_vec;
-                    dstar_map(valid_voxels_idx) = dstar_vec;
+                    [d_map, f_map, dstar_map] = fit_ivim_model(dwi, bvalues, mask_ivim, opts);
+                else
+                    if ~has_sufficient_bvalues
+                        fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
+                    end
+                    d_map = nan(sz3);
+                    f_map = nan(sz3);
+                    dstar_map = nan(sz3);
                 end
 
                 % Monoexponential ADC fit — log-linear OLS on active voxels only.
@@ -672,8 +631,9 @@ parfor j = 1:length(mrn_list)
                 adc_map = nan(adc_sz);
                 
                 if n_valid > 0
-                    % Use the pre-flattened dwi_valid from stage 3 opt
                     % Filter to voxels with all-positive signal to prevent log() issues
+                    dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+                    dwi_valid = dwi_flat(valid_voxels_idx, :);
                     adc_valid_idx = all(dwi_valid > 0, 2);
                     
                     if any(adc_valid_idx)
@@ -696,48 +656,12 @@ parfor j = 1:length(mrn_list)
 
                 % Repeat IVIM + ADC fitting on DnCNN-denoised data
                 if havedenoised==1
-                    % Preallocate output 1D arrays
-                    d_vec_dncnn = nan(n_valid, 1);
-                    f_vec_dncnn = nan(n_valid, 1);
-                    dstar_vec_dncnn = nan(n_valid, 1);
-                    
                     if has_sufficient_bvalues && n_valid > 0
-                        % Flatten 3D DnCNN volume to 1D
-                        dwi_dncnn_flat = reshape(dwi_dncnn, [prod(sz3), length(bvalues)]);
-                        dwi_dncnn_valid = dwi_dncnn_flat(valid_voxels_idx, :);
-                        
-                        % Pad to even number of elements to ensure 3rd dimension > 1
-                        pad_len = mod(2 - mod(n_valid, 2), 2);
-                        dwi_dncnn_padded = [dwi_dncnn_valid; zeros(pad_len, length(bvalues))];
-                        n_padded = n_valid + pad_len;
-                        
-                        % Reshape for dependency [N, 1, 2, bval]
-                        dwi_dncnn_1d_vol = reshape(dwi_dncnn_padded, [n_padded/2, 1, 2, length(bvalues)]);
-                        mask_dncnn_1d_vol = true(n_padded/2, 1, 2);
-                        
-                        % Execute the untouched dependency on the flattened array
-                        ivim_fit_dncnn_1d = IVIMmodelfit(dwi_dncnn_1d_vol, bvalues, "seg", mask_dncnn_1d_vol, opts);
-                        
-                        ivim_out_dncnn_flat = reshape(ivim_fit_dncnn_1d, [n_padded, 4]);
-                        d_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 1));
-                        f_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 3));
-                        dstar_vec_dncnn = squeeze(ivim_out_dncnn_flat(1:n_valid, 4));
-
-                        zero_mask_dncnn = (d_vec_dncnn == 0);
-                        d_vec_dncnn(zero_mask_dncnn) = nan;
-                        f_vec_dncnn(zero_mask_dncnn) = nan;
-                        dstar_vec_dncnn(zero_mask_dncnn) = nan;
-                    end
-                    
-                    % Safely reconstruct 1D outputs back into 3D volume geometry
-                    d_map_dncnn = nan(sz3);
-                    f_map_dncnn = nan(sz3);
-                    dstar_map_dncnn = nan(sz3);
-                    
-                    if n_valid > 0
-                        d_map_dncnn(valid_voxels_idx) = d_vec_dncnn;
-                        f_map_dncnn(valid_voxels_idx) = f_vec_dncnn;
-                        dstar_map_dncnn(valid_voxels_idx) = dstar_vec_dncnn;
+                        [d_map_dncnn, f_map_dncnn, dstar_map_dncnn] = fit_ivim_model(dwi_dncnn, bvalues, mask_ivim, opts);
+                    else
+                        d_map_dncnn = nan(sz3);
+                        f_map_dncnn = nan(sz3);
+                        dstar_map_dncnn = nan(sz3);
                     end
 
                     % Monoexponential ADC fit on DnCNN-denoised data (pre-filtered)
@@ -745,7 +669,8 @@ parfor j = 1:length(mrn_list)
                     adc_map_dncnn = nan(adc_sz_d);
                     
                     if n_valid > 0
-                        % Use the pre-flattened dwi_dncnn_valid
+                        dwi_dncnn_flat = reshape(dwi_dncnn, [prod(sz3), length(bvalues)]);
+                        dwi_dncnn_valid = dwi_dncnn_flat(valid_voxels_idx, :);
                         adc_idx_d = all(dwi_dncnn_valid > 0, 2);
                         
                         if any(adc_idx_d)
@@ -1195,5 +1120,60 @@ function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
         fprintf('%s/%s: Redundant GTV%ds found\n', pat_name, fx_name, index);
     elseif sum(gtv_search_result) == 1
         filepath = fullfile(folder, gtv_search(gtv_search_result == 1).name);
+    end
+end
+
+
+function [d_map, f_map, dstar_map] = fit_ivim_model(dwi_data, bvalues, mask, opts)
+    % Helper function to fit segmented IVIM model to valid voxels within a mask
+    sz3 = [size(dwi_data,1), size(dwi_data,2), size(dwi_data,3)];
+    valid_voxels_idx = find(mask);
+    n_valid = length(valid_voxels_idx);
+
+    % Preallocate output 1D arrays
+    d_vec = nan(n_valid, 1);
+    f_vec = nan(n_valid, 1);
+    dstar_vec = nan(n_valid, 1);
+
+    has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
+    if has_sufficient_bvalues && n_valid > 0
+        % Extract 1D signal decay curves for valid voxels
+        dwi_flat = reshape(dwi_data, [prod(sz3), length(bvalues)]);
+        dwi_valid = dwi_flat(valid_voxels_idx, :);
+
+        % Pad to even number of elements
+        pad_len = mod(2 - mod(n_valid, 2), 2);
+        dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
+        n_padded = n_valid + pad_len;
+
+        % Reshape for dependency [N, 1, 2, bval]
+        dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
+        mask_1d_vol = true(n_padded/2, 1, 2);
+
+        % Execute the untouched dependency on the flattened array
+        ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+
+        % Restructure output back to strictly 1D and snip padding
+        ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
+        d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
+        f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
+        dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
+
+        % Replace zero-fit voxels with NaN
+        zero_mask = (d_vec == 0);
+        d_vec(zero_mask) = nan;
+        f_vec(zero_mask) = nan;
+        dstar_vec(zero_mask) = nan;
+    end
+
+    % Safely reconstruct 1D outputs back into 3D volume geometry
+    d_map = nan(sz3);
+    f_map = nan(sz3);
+    dstar_map = nan(sz3);
+
+    if n_valid > 0
+        d_map(valid_voxels_idx) = d_vec;
+        f_map(valid_voxels_idx) = f_vec;
+        dstar_map(valid_voxels_idx) = dstar_vec;
     end
 end
