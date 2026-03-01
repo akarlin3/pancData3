@@ -55,10 +55,15 @@ gtvn_locations = cell(length(patlist),6,6); % a few cases have a nodal gtv as we
 % --- Main discovery loop: iterate over patients × fractions ---
 for j=1:length(patlist)
     basefolder = fullfile(dataloc, patlist(j).name);
+    basefolder_contents = clean_dir_command(basefolder);
     have_mrn = 0;    % flag: MRN already extracted for this patient
+
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
-        fxtmp = clean_dir_command(fullfile(basefolder, ['*' fx_search{fi} '*']));
+
+        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp = basefolder_contents(fxtmp_idx);
+
         if isempty(fxtmp)
             fprintf('%s, no %s folder\n',patlist(j).name,fx_search{fi});
         else

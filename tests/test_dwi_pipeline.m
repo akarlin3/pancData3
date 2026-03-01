@@ -62,8 +62,198 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
         end
     end
 
+    methods(Access = private)
+        function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = generateValidMockData(testCase)
+            % Helper function to generate mock data structures that pass sanity_checks
+            % and have sufficient dimensionality for downstream metrics
+
+            nPat = 3;
+            nTp = 4; % Need at least 2 timepoints for longitudinal, say Fx1, Fx2, Fx3, Post
+            nDwiType = 3; % Standard, DnCNN, IVIMnet
+
+            % 1. Create Data Vectors
+            data_vectors_gtvp = struct();
+            data_vectors_gtvn = struct();
+
+            % Generate dummy voxel data
+            nvox = 50;
+            base_adc = 0.001;
+            base_d = 0.0008;
+            base_f = 0.15;
+            base_dstar = 0.05;
+            base_dose = 2.0;
+
+            for j = 1:nPat
+                for k = 1:nTp
+                    for d_type = 1:nDwiType
+                        for rpi = 1:1 % Just 1 repeat
+                            % Add some noise, keep values physical
+                            v_adc = abs(base_adc + 1e-4 * randn(nvox, 1));
+                            v_d = abs(base_d + 1e-4 * randn(nvox, 1));
+                            v_f = abs(base_f + 0.02 * randn(nvox, 1));
+                            v_dstar = abs(base_dstar + 0.01 * randn(nvox, 1));
+                            v_dose = abs(base_dose * k + 0.5 * randn(nvox, 1));
+
+                            % Make sure no exact zeros
+                            v_adc(v_adc == 0) = 1e-5;
+                            v_d(v_d == 0) = 1e-5;
+
+                            s_p = struct();
+                            s_p.adc_vector = v_adc;
+                            s_p.d_vector = v_d;
+                            s_p.f_vector = v_f;
+                            s_p.dstar_vector = v_dstar;
+                            s_p.adc_vector_dncnn = v_adc;
+                            s_p.d_vector_dncnn = v_d;
+                            s_p.f_vector_dncnn = v_f;
+                            s_p.dstar_vector_dncnn = v_dstar;
+                            s_p.d_vector_ivimnet = v_d;
+                            s_p.f_vector_ivimnet = v_f;
+                            s_p.dstar_vector_ivimnet = v_dstar;
+                            s_p.dose_vector = v_dose;
+
+                            s_p.ID = sprintf('P%02d', j);
+                            s_p.MRN = sprintf('M%02d', j);
+                            s_p.LF = mod(j, 2); % Alternating LF
+                            s_p.Immuno = mod(j+1, 2);
+                            s_p.Fraction = k;
+                            s_p.Repeatability_index = rpi;
+                            s_p.vox_vol = 0.02;
+                            s_p.dvh = rand(100,2);
+                            s_p.d95 = base_dose * k * 0.9;
+                            s_p.v50gy = 10;
+
+                            data_vectors_gtvp(j, k, rpi) = s_p;
+
+                            % Same for GTVn
+                            s_n = s_p;
+                            s_n.adc_vector = v_adc * 1.1;
+                            data_vectors_gtvn(j, k, rpi) = s_n;
+                        end
+                    end
+                end
+            end
+
+            % 2. Create Summary Metrics
+            summary_metrics = struct();
+            summary_metrics.id_list = arrayfun(@(x) sprintf('P%02d', x), 1:nPat, 'UniformOutput', false);
+            summary_metrics.mrn_list = arrayfun(@(x) sprintf('M%02d', x), 1:nPat, 'UniformOutput', false);
+
+            summary_metrics.adc_mean = base_adc + 1e-4 * randn(nPat, nTp, nDwiType);
+            summary_metrics.d_mean = base_d + 1e-4 * randn(nPat, nTp, nDwiType);
+            summary_metrics.f_mean = base_f + 0.02 * randn(nPat, nTp, nDwiType);
+            summary_metrics.dstar_mean = base_dstar + 0.01 * randn(nPat, nTp, nDwiType);
+
+            summary_metrics.d95_gtvp = base_dose * repmat(1:nTp, nPat, 1) * 0.9;
+            summary_metrics.d95_gtvn = base_dose * repmat(1:nTp, nPat, 1) * 0.8;
+            summary_metrics.v50gy_gtvp = 10 + rand(nPat, nTp);
+            summary_metrics.v50gy_gtvn = 5 + rand(nPat, nTp);
+
+            summary_metrics.gtv_locations = cell(nPat, nTp, 1);
+            summary_metrics.adc_sd = 1e-4 * rand(nPat, nTp, nDwiType);
+
+            % Make sure all metrics are positive to pass sanity checks
+            summary_metrics.adc_mean = abs(summary_metrics.adc_mean) + 1e-5;
+            summary_metrics.d_mean = abs(summary_metrics.d_mean) + 1e-5;
+            summary_metrics.f_mean = abs(summary_metrics.f_mean) + 1e-5;
+            summary_metrics.dstar_mean = abs(summary_metrics.dstar_mean) + 1e-5;
+        end
+    end
+
     methods(Test)
         
+        function testRunDwiPipelineEndToEnd(testCase)
+            % Create mock data
+            [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = testCase.generateValidMockData();
+
+            % Create mock config.json
+            config_file = fullfile(testCase.MockDataDir, 'config.json');
+
+            % Setup configuration struct to be written as json
+            cfg = struct();
+            cfg.dataloc = testCase.MockDataDir;
+            cfg.dcm2nii_call = 'dummy';
+            cfg.clinical_data_sheet = 'dummy.xlsx';
+            cfg.skip_to_reload = true;
+            cfg.dwi_type = 'Standard';
+
+            % Write json
+            fid = fopen(config_file, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            % Create mock dwi_vectors_Standard.mat and summary_metrics_Standard.mat
+            % in the locations expected by run_dwi_pipeline
+
+            % The pipeline uses output_folder for summary_metrics
+            output_folder = fullfile(testCase.MockDataDir, 'Standard');
+            if ~exist(output_folder, 'dir')
+                mkdir(output_folder);
+            end
+
+            % Save dummy data vectors to dataloc
+            dwi_vectors_file = fullfile(testCase.MockDataDir, 'dwi_vectors_Standard.mat');
+            save(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+
+            % Save summary metrics to output_folder
+            summary_metrics_file = fullfile(output_folder, 'summary_metrics_Standard.mat');
+            save(summary_metrics_file, 'summary_metrics');
+
+            % Also save the legacy format just in case
+            legacy_dwi_file = fullfile(testCase.MockDataDir, 'dwi_vectors.mat');
+            save(legacy_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+
+            % Define steps to run, skipping 'load' since we mocked the files directly
+            steps_to_run = {'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
+
+            % Keep original directory
+            orig_dir = pwd;
+
+            % Try to run the pipeline
+            try
+                % The function might use global variable MASTER_OUTPUT_FOLDER
+                clear global MASTER_OUTPUT_FOLDER;
+                % Change into MockDataDir since some functions might rely on pwd
+                cd(testCase.MockDataDir);
+                % Call the master orchestrator function
+                run_dwi_pipeline('config.json', steps_to_run, testCase.MockDataDir);
+                passed = true;
+                cd(orig_dir);
+            catch ME
+                cd(orig_dir);
+                disp(ME.getReport());
+                passed = false;
+            end
+
+            % Assert pipeline ran successfully
+            testCase.verifyTrue(passed, 'run_dwi_pipeline failed to execute end-to-end with mock data.');
+
+            % Verify expected outputs were generated
+            sanity_results = fullfile(output_folder, 'sanity_checks_results_Standard.txt');
+            testCase.verifyTrue(exist(sanity_results, 'file') == 2, 'Sanity check results file not found.');
+
+            visualize_results = fullfile(output_folder, 'visualize_results_state_Standard.txt');
+            testCase.verifyTrue(exist(visualize_results, 'file') == 2, 'Visualize results file not found.');
+
+            baseline_results = fullfile(output_folder, 'metrics_baseline_results_Standard.mat');
+            testCase.verifyTrue(exist(baseline_results, 'file') == 2, 'Baseline results file not found.');
+
+            longitudinal_results = fullfile(output_folder, 'metrics_longitudinal_results_Standard.txt');
+            testCase.verifyTrue(exist(longitudinal_results, 'file') == 2, 'Longitudinal results file not found.');
+
+            dosimetry_results = fullfile(output_folder, 'metrics_dosimetry_results_Standard.mat');
+            testCase.verifyTrue(exist(dosimetry_results, 'file') == 2, 'Dosimetry results file not found.');
+
+            comparisons_results = fullfile(output_folder, 'metrics_stats_comparisons_results_Standard.txt');
+            testCase.verifyTrue(exist(comparisons_results, 'file') == 2, 'Comparisons results file not found.');
+
+            predictive_results = fullfile(output_folder, 'metrics_stats_predictive_results_Standard.mat');
+            testCase.verifyTrue(exist(predictive_results, 'file') == 2, 'Predictive results file not found.');
+
+            survival_results = fullfile(output_folder, 'metrics_survival_results_Standard.txt');
+            testCase.verifyTrue(exist(survival_results, 'file') == 2, 'Survival results file not found.');
+        end
+
         function testMockNiftiPipelineOutputs(testCase)
             % -----------------------------------------------------------------
             % BOILERPLATE MOCK 3D NIFTI ARRAY TEST
