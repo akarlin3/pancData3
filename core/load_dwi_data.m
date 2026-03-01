@@ -897,12 +897,14 @@ else
 end
 datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
 if exist(datasave, 'file')
-    load(datasave);
+    tmp_data = load(datasave);
+    data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
 else
     fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
     if exist(fallback_datasave, 'file')
         fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
-        load(fallback_datasave);
+        tmp_data = load(fallback_datasave);
+        data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
     else
         error('Unable to find file or directory ''%s''.', datasave);
     end

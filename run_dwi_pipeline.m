@@ -228,7 +228,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if any(ismember(metrics_steps, steps_to_run))
             fprintf('\n⏭️ [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             if exist(baseline_results_file, 'file')
-                load(baseline_results_file);
+                tmp_base = load(baseline_results_file);
+                m_lf = tmp_base.m_lf; m_total_time = tmp_base.m_total_time; m_total_follow_up_time = tmp_base.m_total_follow_up_time; m_gtv_vol = tmp_base.m_gtv_vol; m_adc_mean = tmp_base.m_adc_mean; m_d_mean = tmp_base.m_d_mean; m_f_mean = tmp_base.m_f_mean; m_dstar_mean = tmp_base.m_dstar_mean;
+                m_id_list = tmp_base.m_id_list; m_mrn_list = tmp_base.m_mrn_list; m_d95_gtvp = tmp_base.m_d95_gtvp; m_v50gy_gtvp = tmp_base.m_v50gy_gtvp; m_data_vectors_gtvp = tmp_base.m_data_vectors_gtvp; lf_group = tmp_base.lf_group; valid_pts = tmp_base.valid_pts;
+                ADC_abs = tmp_base.ADC_abs; D_abs = tmp_base.D_abs; f_abs = tmp_base.f_abs; Dstar_abs = tmp_base.Dstar_abs; ADC_pct = tmp_base.ADC_pct; D_pct = tmp_base.D_pct; f_pct = tmp_base.f_pct; Dstar_pct = tmp_base.Dstar_pct;
+                nTp = tmp_base.nTp; metric_sets = tmp_base.metric_sets; set_names = tmp_base.set_names; time_labels = tmp_base.time_labels; dtype_label = tmp_base.dtype_label; dl_provenance = tmp_base.dl_provenance;
             else
                 fprintf('      ⚠️ Warning: metrics_baseline results not found. Subsequent metrics steps will fail.\n');
             end
@@ -272,7 +276,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if any(ismember({'metrics_stats_comparisons', 'metrics_stats_predictive'}, steps_to_run))
             fprintf('⏭️ [5.3/5] [%s] Skipping metrics_dosimetry. Loading from disk...\n', current_name);
             if exist(dosimetry_results_file, 'file')
-                load(dosimetry_results_file);
+                tmp_dosimetry = load(dosimetry_results_file);
+                d95_adc_sub = tmp_dosimetry.d95_adc_sub; v50_adc_sub = tmp_dosimetry.v50_adc_sub; d95_d_sub = tmp_dosimetry.d95_d_sub; v50_d_sub = tmp_dosimetry.v50_d_sub; d95_f_sub = tmp_dosimetry.d95_f_sub; v50_f_sub = tmp_dosimetry.v50_f_sub; d95_dstar_sub = tmp_dosimetry.d95_dstar_sub; v50_dstar_sub = tmp_dosimetry.v50_dstar_sub;
             else
                 fprintf('      ⚠️ Warning: metrics_dosimetry results not found. metrics_stats may fail.\n');
                 % define defaults just to prevent hard crash occasionally
@@ -340,7 +345,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if ismember('metrics_survival', steps_to_run)
             fprintf('⏭️ [5.4b/5] [%s] Skipping metrics_stats_predictive. Loading from disk...\n', current_name);
             if exist(predictive_results_file, 'file')
-                load(predictive_results_file);
+                tmp_pred = load(predictive_results_file);
+                risk_scores_all = tmp_pred.risk_scores_all; is_high_risk = tmp_pred.is_high_risk; times_km = tmp_pred.times_km; events_km = tmp_pred.events_km;
             else
                 fprintf('      ⚠️ Warning: metrics_stats_predictive results not found. metrics_survival will fail.\n');
             end
