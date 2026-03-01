@@ -202,6 +202,7 @@ id_list_normalized = strrep(id_list, '_', '-');
 
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
+    patient_id = id_list{j};
 
     if patient_completed(j)
         fprintf('Skipping patient %d/%d (Patient ID %s) - already processed.\n', j, length(mrn_list), patient_id);
@@ -681,7 +682,7 @@ parfor j = 1:length(mrn_list)
                 % space; use the native mask directly.
                 if havedenoised
                     dncnn_mask_p = gtv_mask;
-                    if fi > 1 && ~isempty(gtv_mask_fx1_ref)
+                    if fi > 1 && ~isempty(gtv_mask_fx1_ref) && ~isempty(D_forward_cur)
                         dncnn_mask_p = gtv_mask_fx1_ref;
                     end
                     pat_d_mean_dncnn(1,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
@@ -740,7 +741,7 @@ parfor j = 1:length(mrn_list)
             % extract within the baseline GTVn mask for spatial consistency.
             if havedenoised && havegtvn
                 dncnn_mask_n = gtvn_mask;
-                if fi > 1 && ~isempty(gtvn_mask_fx1_ref)
+                if fi > 1 && ~isempty(gtvn_mask_fx1_ref) && ~isempty(D_forward_cur)
                     dncnn_mask_n = gtvn_mask_fx1_ref;
                 end
                 pat_data_vectors_gtvn(fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_n==1);
@@ -810,7 +811,8 @@ end
 % Reconstruct global arrays from checkpoints
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
 
     if exist(checkpoint_file, 'file')
         % Load checkpoint
