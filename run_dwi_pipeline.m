@@ -62,9 +62,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     % Step 1: Parse configuration
     try
-        fprintf('⚙️ [1/5] Parsing configuration from %s... ', config_path);
+        fprintf('⚙️ [1/5] Parsing configuration from %s...\n', config_path);
         config_struct = parse_config(config_path);
-        fprintf('✅ Done.\n');
+        fprintf('      ✅ Done.\n');
         
         % --- Master Output Folder Logic ---
         global MASTER_OUTPUT_FOLDER;
@@ -175,19 +175,19 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % Step 3: Sanity Checks
     if ismember('sanity', steps_to_run)
         try
-            fprintf('⚙️ [3/5] [%s] Running sanity checks... ', current_name);
+            fprintf('⚙️ [3/5] [%s] Running sanity checks...\n', current_name);
             [is_valid, validation_msg, validated_data_gtvp, validated_data_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct);
 
             if ~is_valid
                 error('Sanity checks failed: %s', validation_msg);
             end
-            fprintf('Passed.\n');
+            fprintf('      ✅ Passed.\n');
             
             sanity_results_file = fullfile(config_struct.output_folder, sprintf('sanity_checks_results_%s.txt', current_name));
             fid = fopen(sanity_results_file, 'w');
             fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
             fclose(fid);
-            fprintf('      Saved sanity check results to %s\n', sanity_results_file);
+            fprintf('      💾 Saved sanity check results to %s\n', sanity_results_file);
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Pipeline halted due to sanity check failure: %s\n', ME.message);
@@ -206,7 +206,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     if ismember('metrics_baseline', steps_to_run)
         try
-            fprintf('\n⚙️ [5.1/5] [%s] Running metrics_baseline... ', current_name);
+            fprintf('\n⚙️ [5.1/5] [%s] Running metrics_baseline...\n', current_name);
             [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
              m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
              ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
@@ -217,7 +217,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
              'm_id_list', 'm_mrn_list', 'm_d95_gtvp', 'm_v50gy_gtvp', 'm_data_vectors_gtvp', 'lf_group', 'valid_pts', ...
              'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_pct', 'Dstar_pct', ...
              'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
-            fprintf('✅ Done.\n');
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_baseline: %s\n', ME.message);
@@ -241,15 +241,15 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     if ismember('metrics_longitudinal', steps_to_run)
         try
-            fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal... ', current_name);
+            fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
                                  nTp, dtype_label, config_struct.output_folder);
             longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
             fid = fopen(longitudinal_results_file, 'w');
             fprintf(fid, 'Longitudinal metrics generated successfully.\n');
             fclose(fid);
-            fprintf('      Saved longitudinal results log to %s\n', longitudinal_results_file);
-            fprintf('Done.\n');
+            fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_longitudinal: %s\n', ME.message);
@@ -261,13 +261,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
         try
-            fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry... ', current_name);
+            fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry...\n', current_name);
             [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
                 metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                                   m_data_vectors_gtvp, summary_metrics.gtv_locations);
             
             save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
-            fprintf('✅ Done.\n');
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_dosimetry: %s\n', ME.message);
@@ -295,7 +295,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     
     if ismember('metrics_stats_comparisons', steps_to_run)
         try
-            fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons... ', current_name);
+            fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
             metrics_stats_comparisons(valid_pts, lf_group, ...
                 metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 ADC_abs, D_abs, f_abs, Dstar_abs);
@@ -304,8 +304,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fid = fopen(comparisons_results_file, 'w');
             fprintf(fid, 'Stats Comparisons generated successfully.\n');
             fclose(fid);
-            fprintf('      Saved comparisons results log to %s\n', comparisons_results_file);
-            fprintf('Done.\n');
+            fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_stats_comparisons: %s\n', ME.message);
@@ -316,7 +316,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     if ismember('metrics_stats_predictive', steps_to_run)
         try
-            fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive... ', current_name);
+            fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive...\n', current_name);
             [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, ...
                 dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 m_gtv_vol, summary_metrics.adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
@@ -339,7 +339,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             save(results_file, 'calculated_results');
             fprintf('      💾 Saved calculated_results to %s\n', results_file);
             
-            fprintf('✅ Done.\n');
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_stats_predictive: %s\n', ME.message);
@@ -378,7 +378,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fid = fopen(visualize_results_file, 'w');
             fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
             fclose(fid);
-            fprintf('      Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
+            fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error generating visualizations: %s\n', ME.message);
@@ -389,7 +389,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     
     if ismember('metrics_survival', steps_to_run)
         try
-            fprintf('⚙️ [5.5/5] [%s] Running metrics_survival... ', current_name);
+            fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
                              m_total_follow_up_time, nTp, 'Survival', dtype_label);
             
@@ -397,8 +397,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fid = fopen(survival_results_file, 'w');
             fprintf(fid, 'Survival metrics generated successfully.\n');
             fclose(fid);
-            fprintf('      Saved survival results log to %s\n', survival_results_file);
-            fprintf('Done.\n');
+            fprintf('      💾 Saved survival results log to %s\n', survival_results_file);
+            fprintf('      ✅ Done.\n');
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_survival: %s\n', ME.message);
