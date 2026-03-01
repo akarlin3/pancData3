@@ -531,38 +531,15 @@ parfor j = 1:length(mrn_list)
                 end
             end
 
-            % --- Load GTVp mask and validate spatial dimensions ---
-            havegtvp = 0;
-            if exist(fullfile(outloc, [gtvname '.nii.gz']),'file')
-                gtvp_info = niftiinfo(fullfile(outloc, [gtvname '.nii.gz']));
-                gtv_mask = rot90(niftiread(gtvp_info));
-                fprintf('...Loaded %s\n',fullfile(outloc, [gtvname '.nii.gz']));
-                havegtvp = 1;
+            dwi_size = size(dwi);
 
-                % Ensure GTV mask dimensions match the DWI spatial dims
-                gtv_size = size(gtv_mask);
-                dwi_size = size(dwi);
-                if sum(gtv_size ~= dwi_size(1:3))>0
-                    havegtvp = 0;
-                    fprintf('size mismatch. excluding gtvp\n');
-                end
-            end
+            % --- Load GTVp mask and validate spatial dimensions ---
+            gtvp_filepath = fullfile(outloc, [gtvname '.nii.gz']);
+            [havegtvp, gtv_mask] = load_mask(gtvp_filepath, dwi_size, '', 'gtvp');
 
             % --- Load GTVn (nodal) mask and validate dimensions ---
-            havegtvn = 0;
-            if exist(fullfile(outloc, [gtvn_name '.nii.gz']),'file')
-                gtvn_info = niftiinfo(fullfile(outloc, [gtvn_name '.nii.gz']));
-                gtvn_mask = rot90(niftiread(gtvn_info));
-                fprintf('... *NODAL* Loaded %s\n',fullfile(outloc, [gtvn_name '.nii.gz']));
-                havegtvn = 1;
-
-                gtv_size = size(gtvn_mask);
-                dwi_size = size(dwi);
-                if sum(gtv_size ~= dwi_size(1:3))>0
-                    havegtvn = 0;
-                    fprintf('size mismatch. excluding gtvn\n');
-                end
-            end
+            gtvn_filepath = fullfile(outloc, [gtvn_name '.nii.gz']);
+            [havegtvn, gtvn_mask] = load_mask(gtvn_filepath, dwi_size, '*NODAL* ', 'gtvn');
 
             % --- Load resampled RT dose map ---
             havedose = 0;
@@ -1195,5 +1172,25 @@ function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
         fprintf('%s/%s: Redundant GTV%ds found\n', pat_name, fx_name, index);
     elseif sum(gtv_search_result) == 1
         filepath = fullfile(folder, gtv_search(gtv_search_result == 1).name);
+    end
+end
+
+function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
+    % LOAD_MASK Helper function to load a NIfTI mask and validate dimensions
+    have_mask = 0;
+    mask_data = [];
+
+    if exist(filepath, 'file')
+        info = niftiinfo(filepath);
+        mask_data = rot90(niftiread(info));
+        fprintf('...%sLoaded %s\n', message_prefix, filepath);
+        have_mask = 1;
+
+        mask_size = size(mask_data);
+        if sum(mask_size ~= dwi_size(1:3)) > 0
+            have_mask = 0;
+            mask_data = [];
+            fprintf('size mismatch. excluding %s\n', mask_name);
+        end
     end
 end
