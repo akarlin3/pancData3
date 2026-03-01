@@ -279,12 +279,16 @@ parfor j = 1:length(mrn_list)
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
+    basefolder = fullfile(dataloc, id_list{j});
+    basefolder_contents = clean_dir_command(basefolder);
+
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
-        for rpi = 1:size(dwi_locations,3)
+        % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
+        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp = basefolder_contents(fxtmp_idx);
 
-            basefolder = fullfile(dataloc, id_list{j});
-            fxtmp = clean_dir_command(fullfile(basefolder, ['*' fx_search{fi} '*']));
+        for rpi = 1:size(dwi_locations,3)
 
             if isempty(fxtmp)
                 fprintf('%s, no %s folder\n',id_list{j},fx_search{fi});
