@@ -51,7 +51,7 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
         y_corr = y;
     end
 
-    R = corrcoef(X_corr);
+    R = corrcoef(X_corr, 'Rows', 'pairwise');
     n_feats = size(X, 2);
     drop_idx = false(1, n_feats);
     
