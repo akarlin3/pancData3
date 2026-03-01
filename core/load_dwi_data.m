@@ -127,7 +127,6 @@ T = readtable(clinical_data_sheet,'Sheet','Clin List');
 
 % load dwi data locations (optionally reload from a previous run)
 data_file = fullfile(dataloc, 'adc_vectors.mat');
-%load(data_file,'dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','mrn_list','id_list','fx_dates');
 
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 
