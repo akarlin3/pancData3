@@ -98,7 +98,7 @@ for j = 1:nPat
         s = data_vectors_gtvp(j, k, 1);
 
         % Use configuration target to check the corresponding fields
-        if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
+        if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
             dtype_idx = config_struct.dwi_types_to_run;
         else
             dtype_idx = 1;

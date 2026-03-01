@@ -36,7 +36,11 @@ for s = 1:length(metric_sets)
     current_names = set_names{s};
     
     fig = figure('Name', [figure_titles{s} ' — ' dtype_label], 'Position', [50, 50, 1600, 1000]);
-    sgtitle([figure_titles{s} ' (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
+    if exist('OCTAVE_VERSION', 'builtin')
+        % sgtitle not supported in Octave
+    else
+        sgtitle([figure_titles{s} ' (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
+    end
     
     num_rows = length(current_metrics);
     max_cols = 0;
@@ -95,10 +99,15 @@ for s = 1:length(metric_sets)
         end
     end
     subplot_scale = 0.92;
-    allAx = findall(fig, 'Type', 'Axes');
-    for k = 1:numel(allAx)
-        pos = allAx(k).Position;
-        allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+    if exist('OCTAVE_VERSION', 'builtin')
+        % findall with 'Type' 'Axes' works differently in Octave and returns handles that might not have Position
+        % skip subplot scaling in mock
+    else
+        allAx = findall(fig, 'Type', 'Axes');
+        for k = 1:numel(allAx)
+            pos = allAx(k).Position;
+            allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+        end
     end
     saveas(gcf, fullfile(output_folder, sprintf('Metric_Set_%d_%s.png', s, dtype_label)));
     close(gcf);

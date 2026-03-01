@@ -81,15 +81,26 @@ subplot(2, 4, idx);
 hold on;
 
 % Calculate population mean and standard error of the mean (SEM)
-pop_mean = mean(dat, 1, 'omitnan');
-pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+if exist('OCTAVE_VERSION', 'builtin')
+    pop_mean = nanmean(dat, 1);
+    pop_se   = nanstd(dat, 0, 1) ./ sqrt(sum(~isnan(dat), 1));
+else
+    pop_mean = mean(dat, 1, 'omitnan');
+    pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+end
 
 % Plot individual patient trajectories (spaghetti plot)
 plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
 
 % Plot population average with error bars
-errorbar(x_vals, pop_mean, pop_se, ['-' color_spec], 'LineWidth', 2, ...
-    'Marker', marker_style, 'MarkerFaceColor', color_spec);
+if exist('OCTAVE_VERSION', 'builtin')
+    % Octave's errorbar doesn't support the line spec string correctly with the Marker property
+    % the same way MATLAB does in this specific overload, so we simplify for the mock
+    errorbar(x_vals, pop_mean, pop_se);
+else
+    errorbar(x_vals, pop_mean, pop_se, ['-' color_spec], 'LineWidth', 2, ...
+        'Marker', marker_style, 'MarkerFaceColor', color_spec);
+end
 
 if add_zero_line
     % Add a baseline reference line at 0% change

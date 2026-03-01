@@ -33,14 +33,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % 2) Programmatically check for required toolboxes
     % The pipeline relies on specific toolboxes (Stats, Image).
     % Verification prevents obscure runtime errors deep within the code.
-    if ~license('test', 'Statistics_Toolbox')
-        error('InitializationError:MissingToolbox', ...
-            'The "Statistics and Machine Learning Toolbox" is required but not installed or licensed.');
-    end
-    
-    if ~license('test', 'Image_Toolbox')
-        error('InitializationError:MissingToolbox', ...
-            'The "Image Processing Toolbox" is required but not installed or licensed.');
+    if ~exist('OCTAVE_VERSION', 'builtin')
+        if ~license('test', 'Statistics_Toolbox')
+            error('InitializationError:MissingToolbox', ...
+                'The "Statistics and Machine Learning Toolbox" is required but not installed or licensed.');
+        end
+
+        if ~license('test', 'Image_Toolbox')
+            error('InitializationError:MissingToolbox', ...
+                'The "Image Processing Toolbox" is required but not installed or licensed.');
+        end
     end
     % ----------------------------
 
