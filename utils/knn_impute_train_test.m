@@ -76,8 +76,10 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             Y_coords = search_space(ref_idx, valid_feat);
             X_coord = query_pt(valid_feat);
             
-            % KDTree distance calculation (O(N log N))
-            [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+            % Vectorized distance calculation
+            dist_sq = sum((Y_coords - X_coord).^2, 2);
+            [~, sort_idx] = sort(dist_sq);
+            neighbor_indices_local = sort_idx(1:min(k, length(ref_idx)));
             
             % Map back to absolute indices
             neighbors = ref_idx(neighbor_indices_local);
@@ -127,7 +129,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 Y_coords = search_space(ref_idx, valid_feat);
                 X_coord = query_pt(valid_feat);
                 
-                [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+                dist_sq = sum((Y_coords - X_coord).^2, 2);
+                [~, sort_idx] = sort(dist_sq);
+                neighbor_indices_local = sort_idx(1:min(k, length(ref_idx)));
                 neighbors = ref_idx(neighbor_indices_local);
                 
                 for m = find(missing_idx)
