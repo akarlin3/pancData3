@@ -127,7 +127,6 @@ T = readtable(clinical_data_sheet,'Sheet','Clin List');
 
 % load dwi data locations (optionally reload from a previous run)
 data_file = fullfile(dataloc, 'adc_vectors.mat');
-%load(data_file,'dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','mrn_list','id_list','fx_dates');
 
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 
@@ -175,7 +174,8 @@ end
 patient_completed = false(size(mrn_list));
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
     if exist(checkpoint_file, 'file')
         patient_completed(j) = true;
     end
@@ -204,7 +204,7 @@ parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
 
     if patient_completed(j)
-        fprintf('Skipping patient %d/%d (MRN %s) - already processed.\n', j, length(mrn_list), mrn);
+        fprintf('Skipping patient %d/%d (Patient ID %s) - already processed.\n', j, length(mrn_list), patient_id);
         continue;
     end
 
@@ -279,12 +279,16 @@ parfor j = 1:length(mrn_list)
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
+    basefolder = fullfile(dataloc, id_list{j});
+    basefolder_contents = clean_dir_command(basefolder);
+
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
-        for rpi = 1:size(dwi_locations,3)
+        % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
+        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp = basefolder_contents(fxtmp_idx);
 
-            basefolder = fullfile(dataloc, id_list{j});
-            fxtmp = clean_dir_command(fullfile(basefolder, ['*' fx_search{fi} '*']));
+        for rpi = 1:size(dwi_locations,3)
 
             if isempty(fxtmp)
                 fprintf('%s, no %s folder\n',id_list{j},fx_search{fi});
@@ -518,38 +522,15 @@ parfor j = 1:length(mrn_list)
                 end
             end
 
-            % --- Load GTVp mask and validate spatial dimensions ---
-            havegtvp = 0;
-            if exist(fullfile(outloc, [gtvname '.nii.gz']),'file')
-                gtvp_info = niftiinfo(fullfile(outloc, [gtvname '.nii.gz']));
-                gtv_mask = rot90(niftiread(gtvp_info));
-                fprintf('...Loaded %s\n',fullfile(outloc, [gtvname '.nii.gz']));
-                havegtvp = 1;
+            dwi_size = size(dwi);
 
-                % Ensure GTV mask dimensions match the DWI spatial dims
-                gtv_size = size(gtv_mask);
-                dwi_size = size(dwi);
-                if sum(gtv_size ~= dwi_size(1:3))>0
-                    havegtvp = 0;
-                    fprintf('size mismatch. excluding gtvp\n');
-                end
-            end
+            % --- Load GTVp mask and validate spatial dimensions ---
+            gtvp_filepath = fullfile(outloc, [gtvname '.nii.gz']);
+            [havegtvp, gtv_mask] = load_mask(gtvp_filepath, dwi_size, '', 'gtvp');
 
             % --- Load GTVn (nodal) mask and validate dimensions ---
-            havegtvn = 0;
-            if exist(fullfile(outloc, [gtvn_name '.nii.gz']),'file')
-                gtvn_info = niftiinfo(fullfile(outloc, [gtvn_name '.nii.gz']));
-                gtvn_mask = rot90(niftiread(gtvn_info));
-                fprintf('... *NODAL* Loaded %s\n',fullfile(outloc, [gtvn_name '.nii.gz']));
-                havegtvn = 1;
-
-                gtv_size = size(gtvn_mask);
-                dwi_size = size(dwi);
-                if sum(gtv_size ~= dwi_size(1:3))>0
-                    havegtvn = 0;
-                    fprintf('size mismatch. excluding gtvn\n');
-                end
-            end
+            gtvn_filepath = fullfile(outloc, [gtvn_name '.nii.gz']);
+            [havegtvn, gtvn_mask] = load_mask(gtvn_filepath, dwi_size, '*NODAL* ', 'gtvn');
 
             % --- Load resampled RT dose map ---
             havedose = 0;
@@ -820,7 +801,7 @@ parfor j = 1:length(mrn_list)
     pat_data_out.bad_dwi_list = bad_dwi_list_j;
 
     % Save checkpoint
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
     parsave_checkpoint(checkpoint_file, pat_data_out);
 
     fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
@@ -865,7 +846,7 @@ for j = 1:length(mrn_list)
         immuno(j) = loaded_data.immuno;
         bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
     else
-        fprintf('Warning: No checkpoint found for patient %d (MRN %s) during reconstruction.\n', j, mrn);
+        fprintf('Warning: No checkpoint found for patient %d (Patient ID %s) during reconstruction.\n', j, patient_id);
     end
 end
 
@@ -1021,5 +1002,25 @@ function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
         fprintf('%s/%s: Redundant GTV%ds found\n', pat_name, fx_name, index);
     elseif sum(gtv_search_result) == 1
         filepath = fullfile(folder, gtv_search(gtv_search_result == 1).name);
+    end
+end
+
+function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
+    % LOAD_MASK Helper function to load a NIfTI mask and validate dimensions
+    have_mask = 0;
+    mask_data = [];
+
+    if exist(filepath, 'file')
+        info = niftiinfo(filepath);
+        mask_data = rot90(niftiread(info));
+        fprintf('...%sLoaded %s\n', message_prefix, filepath);
+        have_mask = 1;
+
+        mask_size = size(mask_data);
+        if sum(mask_size ~= dwi_size(1:3)) > 0
+            have_mask = 0;
+            mask_data = [];
+            fprintf('size mismatch. excluding %s\n', mask_name);
+        end
     end
 end
