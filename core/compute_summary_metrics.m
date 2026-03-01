@@ -29,13 +29,15 @@ summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_p
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     if exist(summary_metrics_file, 'file')
         fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
-        load(summary_metrics_file, 'summary_metrics');
+        tmp_metrics = load(summary_metrics_file, 'summary_metrics');
+        summary_metrics = tmp_metrics.summary_metrics;
         return;
     else
         fallback_metrics_file = fullfile(config_struct.dataloc, 'summary_metrics.mat');
         if exist(fallback_metrics_file, 'file')
             fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
-            load(fallback_metrics_file, 'summary_metrics');
+            tmp_metrics = load(fallback_metrics_file, 'summary_metrics');
+            summary_metrics = tmp_metrics.summary_metrics;
             return;
         end
     end
