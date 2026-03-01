@@ -107,29 +107,13 @@ for j=1:length(patlist)
                     end
 
                     % --- Locate GTV mask .mat files for this DWI repeat ---
-                    % use special logic for the 3 cases with nodal gtvs
-                    % ('two' in name indicates patient has both GTVp and GTVn)
-                    if ~contains(patlist(j).name,'two')
-                        % find associated GTV (need to avoid using the date in the filenames to query)
-                        gtv_path = discover_gtv_file(fxfolder, '*GTV*', dwii);
-                        if ~isempty(gtv_path)
-                            gtv_locations{j,fi,dwii} = gtv_path;
-                        end
-                    else
-                        % --- Special logic for patients with both GTVp and GTVn ---
-                        % Search multiple naming conventions for the primary pancreatic GTV (GTVp)
-                        gtvp_patterns = {'*GTV_MR', '*GTVp', '*GTV_panc*'};
-                        gtvp_path = discover_gtv_file(fxfolder, gtvp_patterns, dwii);
-                        if ~isempty(gtvp_path)
-                            gtv_locations{j,fi,dwii} = gtvp_path;
-                        end
+                    [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, patlist(j).name);
 
-                        % Search for nodal GTV masks: GTV_LN, GTVn, GTV_node
-                        gtvn_patterns = {'*GTV*LN', '*GTVn', '*GTV_node*'};
-                        gtvn_path = discover_gtv_file(fxfolder, gtvn_patterns, dwii);
-                        if ~isempty(gtvn_path)
-                            gtvn_locations{j,fi,dwii} = gtvn_path;
-                        end
+                    if ~isempty(gtvp_path)
+                        gtv_locations{j,fi,dwii} = gtvp_path;
+                    end
+                    if ~isempty(gtvn_path)
+                        gtvn_locations{j,fi,dwii} = gtvn_path;
                     end
                 end
 
@@ -155,26 +139,4 @@ for j=1:length(patlist)
         end
     end
 end
-end
-
-function filepath = discover_gtv_file(folder, patterns, index)
-    if ischar(patterns) || isstring(patterns)
-        patterns = {char(patterns)};
-    end
-    filepath = '';
-    gtv_search = [];
-    single_gtv_search = [];
-    for p = 1:length(patterns)
-        pat = patterns{p};
-        gtv_search = cat(1, gtv_search, dir(fullfile(folder, [pat int2str(index) '*.mat'])));
-        single_gtv_search = cat(1, single_gtv_search, dir(fullfile(folder, [pat '.mat'])));
-    end
-    if isempty(gtv_search)
-        % fallback: sometimes only 1 mask exists for all repeats
-        if ~isempty(single_gtv_search)
-            filepath = fullfile(single_gtv_search(1).folder, single_gtv_search(1).name);
-        end
-    else
-        filepath = fullfile(gtv_search(1).folder, gtv_search(1).name);
-    end
 end
