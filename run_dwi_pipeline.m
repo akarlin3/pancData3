@@ -199,34 +199,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         validated_data_gtvn = data_vectors_gtvn;
     end
 
-    % Step 4: Visualize Results
-    if ismember('visualize', steps_to_run)
-        try
-            fprintf('\n⚙️ [4/5] [%s] Visualizing results...\n', current_name);
-            % Load existing results if visualize is run independently
-            if ~exist('calculated_results', 'var')
-                if exist(results_file, 'file')
-                    tmp_results = load(results_file, 'calculated_results');
-                    calculated_results = tmp_results.calculated_results;
-                    fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
-                else
-                    fprintf('      ⚠️ Warning: calculated_results file not found. Visualizations may be incomplete.\n');
-                    calculated_results = struct(); % Empty struct fallback
-                end
-            end
-            visualize_results(data_vectors_gtvp, summary_metrics, calculated_results, config_struct);
-            visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
-            fid = fopen(visualize_results_file, 'w');
-            fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
-            fclose(fid);
-            fprintf('      Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
-        catch ME
-            fprintf('⚠️ FAILED (Non-Fatal).\n');
-            fprintf('⚠️ Error generating visualizations: %s\n', ME.message);
-        end
-    else
-        fprintf('⏭️ [4/5] [%s] Skipping Visualization.\n', current_name);
-    end
+
 
     % Step 5: Calculate Metrics
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
@@ -374,6 +347,35 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         else
             fprintf('⏭️ [5.4b/5] [%s] Skipping metrics_stats_predictive.\n', current_name);
         end
+    end
+
+    % Moved Step: Visualize Results (MUST run after calculated_results is prepared)
+    if ismember('visualize', steps_to_run)
+        try
+            fprintf('\n⚙️ [5.4c/5] [%s] Visualizing results...\n', current_name);
+            % Load existing results if visualize is run independently
+            if ~exist('calculated_results', 'var')
+                if exist(results_file, 'file')
+                    tmp_results = load(results_file, 'calculated_results');
+                    calculated_results = tmp_results.calculated_results;
+                    fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
+                else
+                    fprintf('      ⚠️ Warning: calculated_results file not found. Visualizations may be incomplete.\n');
+                    calculated_results = struct(); % Empty struct fallback
+                end
+            end
+            visualize_results(validated_data_gtvp, summary_metrics, calculated_results, config_struct);
+            visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
+            fid = fopen(visualize_results_file, 'w');
+            fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
+            fclose(fid);
+            fprintf('      Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
+        catch ME
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error generating visualizations: %s\n', ME.message);
+        end
+    else
+        fprintf('⏭️ [5.4c/5] [%s] Skipping Visualization.\n', current_name);
     end
     
     if ismember('metrics_survival', steps_to_run)
