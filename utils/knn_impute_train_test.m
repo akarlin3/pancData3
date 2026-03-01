@@ -43,31 +43,37 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
         search_space(:, target_cols) = nan; % mask out target columns from distance metric
     end
     
+    % Pre-compute validity mask for vectorized operations
+    valid_mask = ~isnan(search_space);
+
     for i = 1:n_tr
         missing_idx = isnan(X_tr(i, :));
         if any(missing_idx)
             % Extract the precise query point, masking valid features
             query_pt = search_space(i, :);
-            valid_feat = ~isnan(query_pt);
+            valid_feat = valid_mask(i, :);
             
             % We cannot search if the query has no valid features left
             if sum(valid_feat) == 0
                 continue;
             end
             
-            % Build temporary KD-tree strictly on mutually observed features for this query
-            % Note: Incomplete data requires querying against subsets where this query's valid
-            % features are non-NaN in the reference set.
-            ref_idx = find(~any(isnan(search_space(:, valid_feat)), 2));
+            % Vectorized finding of valid reference indices
+            % A row is valid if it doesn't have any NaNs in the valid_feat columns
+            % This means valid_mask(:, valid_feat) must be all true.
+            % sum(valid_mask(:, valid_feat), 2) == sum(valid_feat)
+            num_valid = sum(valid_feat);
+            is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
             
-            % Remove self and same-patient from reference index pool
+            % Apply self/patient exclusions
             if ~isempty(pat_id_tr)
-                is_same_patient = (pat_id_tr(ref_idx) == pat_id_tr(i));
-                ref_idx(is_same_patient) = [];
+                is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
             else
-                ref_idx(ref_idx == i) = []; % just remove self
+                is_valid_ref(i) = false; % remove self
             end
             
+            ref_idx = find(is_valid_ref);
+
             if isempty(ref_idx)
                 continue;
             end
@@ -76,8 +82,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             Y_coords = search_space(ref_idx, valid_feat);
             X_coord = query_pt(valid_feat);
             
-            % KDTree distance calculation (O(N log N))
-            [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+            % Calculate Euclidean distances manually to avoid overhead
+            % distance calculation overhead in loops
+            dists = sum((Y_coords - X_coord).^2, 2);
+            [~, sort_idx] = sort(dists);
+            num_neighbors = min(k, length(ref_idx));
+            neighbor_indices_local = sort_idx(1:num_neighbors);
             
             % Map back to absolute indices
             neighbors = ref_idx(neighbor_indices_local);
@@ -113,13 +123,15 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     continue;
                 end
                 
-                ref_idx = find(~any(isnan(search_space(:, valid_feat)), 2));
+                num_valid = sum(valid_feat);
+                is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
                 
                 if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-                    is_same_patient = (pat_id_tr(ref_idx) == pat_id_te(i));
-                    ref_idx(is_same_patient) = [];
+                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
                 end
                 
+                ref_idx = find(is_valid_ref);
+
                 if isempty(ref_idx)
                     continue;
                 end
@@ -127,7 +139,11 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 Y_coords = search_space(ref_idx, valid_feat);
                 X_coord = query_pt(valid_feat);
                 
-                [neighbor_indices_local, ~] = knnsearch(Y_coords, X_coord, 'K', min(k, length(ref_idx)), 'NSMethod', 'kdtree');
+                dists = sum((Y_coords - X_coord).^2, 2);
+                [~, sort_idx] = sort(dists);
+                num_neighbors = min(k, length(ref_idx));
+                neighbor_indices_local = sort_idx(1:num_neighbors);
+
                 neighbors = ref_idx(neighbor_indices_local);
                 
                 for m = find(missing_idx)

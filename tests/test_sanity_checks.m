@@ -58,7 +58,11 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
             % Create an empty struct with fields first to ensure correct array creation
             s = struct('adc_vector', [], 'd_vector', [], 'f_vector', [], ...
-                       'dstar_vector', [], 'dose_vector', []);
+                       'dstar_vector', [], 'dose_vector', [], ...
+                       'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
+                       'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                       'adc_vector_ivimnet', [], 'd_vector_ivimnet', [], ...
+                       'f_vector_ivimnet', [], 'dstar_vector_ivimnet', []);
             gtvp = repmat(s, nPat, nTp, 1);
             gtvn = repmat(s, nPat, nTp, 1);
 
@@ -73,12 +77,32 @@ classdef test_sanity_checks < matlab.unittest.TestCase
                     gtvp(j,k,1).dstar_vector = rand(nVox, 1);
                     gtvp(j,k,1).dose_vector = rand(nVox, 1);
 
+                    gtvp(j,k,1).adc_vector_dncnn = rand(nVox, 1);
+                    gtvp(j,k,1).d_vector_dncnn = rand(nVox, 1);
+                    gtvp(j,k,1).f_vector_dncnn = rand(nVox, 1);
+                    gtvp(j,k,1).dstar_vector_dncnn = rand(nVox, 1);
+
+                    gtvp(j,k,1).adc_vector_ivimnet = rand(nVox, 1);
+                    gtvp(j,k,1).d_vector_ivimnet = rand(nVox, 1);
+                    gtvp(j,k,1).f_vector_ivimnet = rand(nVox, 1);
+                    gtvp(j,k,1).dstar_vector_ivimnet = rand(nVox, 1);
+
                     % Fill GTVn (structure is same, data can be different)
                     gtvn(j,k,1).adc_vector = rand(nVox, 1);
                     gtvn(j,k,1).d_vector = rand(nVox, 1);
                     gtvn(j,k,1).f_vector = rand(nVox, 1);
                     gtvn(j,k,1).dstar_vector = rand(nVox, 1);
                     gtvn(j,k,1).dose_vector = rand(nVox, 1);
+
+                    gtvn(j,k,1).adc_vector_dncnn = rand(nVox, 1);
+                    gtvn(j,k,1).d_vector_dncnn = rand(nVox, 1);
+                    gtvn(j,k,1).f_vector_dncnn = rand(nVox, 1);
+                    gtvn(j,k,1).dstar_vector_dncnn = rand(nVox, 1);
+
+                    gtvn(j,k,1).adc_vector_ivimnet = rand(nVox, 1);
+                    gtvn(j,k,1).d_vector_ivimnet = rand(nVox, 1);
+                    gtvn(j,k,1).f_vector_ivimnet = rand(nVox, 1);
+                    gtvn(j,k,1).dstar_vector_ivimnet = rand(nVox, 1);
                 end
             end
         end
@@ -131,6 +155,78 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
             testCase.verifyFalse(is_valid, 'Excessive NaN in dose should invalidate run');
             testCase.verifyTrue(contains(msg, 'Failed'), 'Message should indicate failure');
+        end
+
+        function testOutlierDetection(testCase)
+            [gtvp, gtvn, summary] = testCase.createMockData(5, 1);
+
+            % Set values to calculate IQR
+            summary.adc_mean(1:4,1,1) = [1.0, 1.1, 1.0, 1.1]; % IQR is 0.1, median is 1.05
+
+            % Introduce extreme outlier (3 * IQR = 0.3, so anything outside [0.75, 1.35] is an outlier)
+            summary.adc_mean(5,1,1) = 5.0;
+
+            % Capture console output since outliers are just printed to diary/console
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+
+            % Outliers should not invalidate the run, but they should be reported
+            testCase.verifyTrue(is_valid, 'Outliers should not invalidate run');
+            % Outlier warning is written to diary/console. We can test that the function completes successfully.
+        end
+
+        function testMissingness(testCase)
+            [gtvp, gtvn, summary] = testCase.createMockData(2, 2);
+
+            % Introduce missing data (NaN)
+            summary.adc_mean(1,1,1) = NaN;
+            summary.d95_gtvp(1,2) = NaN;
+
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+
+            % Missing data should just be summarized
+            testCase.verifyTrue(is_valid, 'Missingness should not invalidate run');
+        end
+
+        function testDefaultOutputFolder(testCase)
+            [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
+
+            % Call with only 3 arguments, fallback to default output_folder
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
+
+            % Should pass and complete
+            testCase.verifyTrue(is_valid, 'Fallback defaults should not invalidate run');
+
+            % Cleanup the created default directory
+            default_dir = fullfile(pwd, 'saved_figures');
+            if exist(default_dir, 'dir')
+                rmdir(default_dir, 's');
+            end
+        end
+
+        function testDnCNNDtype(testCase)
+            [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
+
+            % Introduce a negative value in DnCNN vector
+            gtvp(1,1,1).d_vector_dncnn(1) = -1.0;
+
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 2, 'dwi_type_name', 'DnCNN'));
+
+            % Should trigger convergence warning but not invalidate run
+            testCase.verifyTrue(is_valid, 'DnCNN convergence warnings should not invalidate run');
+            testCase.verifyTrue(contains(msg, 'convergence warnings'), 'Message should indicate convergence warning for DnCNN');
+        end
+
+        function testIvimNetDtype(testCase)
+            [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
+
+            % Introduce NaN in IvimNET vector
+            gtvp(1,1,1).f_vector_ivimnet(1) = NaN;
+
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 3, 'dwi_type_name', 'IVIM-NET'));
+
+            % Should trigger convergence warning but not invalidate run
+            testCase.verifyTrue(is_valid, 'IvimNET convergence warnings should not invalidate run');
+            testCase.verifyTrue(contains(msg, 'convergence warnings'), 'Message should indicate convergence warning for IvimNET');
         end
     end
 end

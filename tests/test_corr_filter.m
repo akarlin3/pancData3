@@ -118,6 +118,29 @@ function test_corr_filter()
     end
     fprintf('TIME-STRATIFIED TEST: PASSED\n');
     
+    % --- NaN HANDLING VERIFICATION ---
+    % Test: If input matrix contains NaNs, corrcoef returns NaNs unless
+    % 'Rows', 'pairwise' is used.
+    fprintf('\n--- Verifying NaN HANDLING ---\n');
+
+    X_nan = X;
+    % Introduce some NaNs randomly into the data
+    X_nan(5, 1) = NaN;
+    X_nan(10, 2) = NaN;
+
+    % Before the fix, corrcoef(X_nan) would return NaNs. The function should
+    % safely compute correlations using pairwise deletion and still drop F2.
+    keep_idx_nan = filter_collinear_features(X_nan, y);
+
+    if ~any(keep_idx_nan == 2) && any(keep_idx_nan == 1)
+        fprintf('SUCCESS: Function successfully handled NaNs and dropped weaker feature.\n');
+    else
+        diary off;
+        set(0, 'DefaultFigureVisible', old_vis);
+        error('FAILURE: NaN handling failed. Function did not drop feature as expected.');
+    end
+    fprintf('NaN HANDLING TEST: PASSED\n');
+
     % Cleanup
     set(0, 'DefaultFigureVisible', old_vis);
     diary off;
