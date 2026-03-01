@@ -175,7 +175,8 @@ end
 patient_completed = false(size(mrn_list));
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
     if exist(checkpoint_file, 'file')
         patient_completed(j) = true;
     end
@@ -202,13 +203,14 @@ id_list_normalized = strrep(id_list, '_', '-');
 
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
+    patient_id = id_list{j};
     
     if patient_completed(j)
-        fprintf('Skipping patient %d/%d (MRN %s) - already processed.\n', j, length(mrn_list), mrn);
+        fprintf('Skipping patient %d/%d (Patient ID %s) - already processed.\n', j, length(mrn_list), patient_id);
         continue;
     end
 
-    fprintf('\n******* MRN: %s\n',mrn);
+    fprintf('\n******* Patient ID: %s\n',patient_id);
     
     max_dwis_j = size(dwi_locations, 2) * size(dwi_locations, 3);
     bad_dwi_list_j = cell(1, max_dwis_j);
@@ -994,16 +996,17 @@ parfor j = 1:length(mrn_list)
     pat_data_out.bad_dwi_list = bad_dwi_list_j;
     
     % Save checkpoint
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
     parsave_checkpoint(checkpoint_file, pat_data_out);
     
-    fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
+    fprintf('Finished processing patient %d/%d (Patient ID: %s)\n', j, length(mrn_list), patient_id);
 end
 
 % Reconstruct global arrays from checkpoints
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
     
     if exist(checkpoint_file, 'file')
         % Load checkpoint
@@ -1039,7 +1042,7 @@ for j = 1:length(mrn_list)
         immuno(j) = loaded_data.immuno;
         bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
     else
-        fprintf('Warning: No checkpoint found for patient %d (MRN %s) during reconstruction.\n', j, mrn);
+        fprintf('Warning: No checkpoint found for patient %d (Patient ID %s) during reconstruction.\n', j, patient_id);
     end
 end
 
