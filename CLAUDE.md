@@ -146,7 +146,7 @@ run_all_tests
 |---|---|---|
 | `tests/` | Full functional and integration tests | Yes |
 | `tests/benchmarks/` | Performance benchmarks | Yes |
-| `tests/diagnostics/` | Manual spot-check scripts | Yes |
+| `tests/diagnostics/` | Diagnostic spot-check tests | Yes |
 
 ### Key test files
 
