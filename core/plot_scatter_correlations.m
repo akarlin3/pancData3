@@ -48,9 +48,9 @@ for di = 1:numel(diff_metrics)
 
         % Plot LC (blue) and LF (red) points with black edge
         scatter(x_vals(clean & lf_group_col==0), y_vals(clean & lf_group_col==0), ...
-            50, 'b', 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LC'); hold on;
+            50, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LC'); hold on;
         scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
-            50, 'r', 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
+            50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
         % Overlay a first-order (linear) polynomial fit
         p_fit = polyfit(x_vals(clean), y_vals(clean), 1);
