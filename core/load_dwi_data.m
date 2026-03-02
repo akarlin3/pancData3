@@ -981,7 +981,8 @@ else
             error('Unable to find file or directory ''%s''.', datasave);
         end
     end
-
+end
+    
 if exist('OCTAVE_VERSION', 'builtin') && ~exist('id_list', 'var')
     warning('id_list not loaded from save file. This may occur during mock tests. Proceeding with dummy data.');
     id_list = {}; mrn_list = {}; lf = []; immuno = {}; gtv_locations = []; dwi_locations = []; dmean_gtvp = []; d95_gtvp = []; v50gy_gtvp = []; data_vectors_gtvp = [];
