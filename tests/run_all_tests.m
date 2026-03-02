@@ -4,8 +4,9 @@
 % Outputs test results and asserts success for CI pipeline compatibility.
 
 % Define repository root and critical directories
-repoRoot = fileparts(mfilename('fullpath'));
-testsDir = fullfile(repoRoot, 'tests');
+% This file lives in tests/, so repo root is one level up
+testsDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(testsDir);
 coreDir = fullfile(repoRoot, 'core');
 utilsDir = fullfile(repoRoot, 'utils');
 

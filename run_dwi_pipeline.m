@@ -38,7 +38,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     if isempty(tests_passed_this_session) || ~tests_passed_this_session
         try
             fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
-            run(fullfile(pipeline_dir, 'run_all_tests.m'));
+            run(fullfile(pipeline_dir, 'tests', 'run_all_tests.m'));
             tests_passed_this_session = true;
             fprintf('      ✅ Test suite passed. Proceeding with pipeline.\n');
         catch ME

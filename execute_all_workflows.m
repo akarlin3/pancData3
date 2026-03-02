@@ -22,7 +22,7 @@ clear global MASTER_OUTPUT_FOLDER;
 % --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
 disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
 try
-    run_all_tests;
+    run(fullfile(repo_root, 'tests', 'run_all_tests.m'));
     disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
 catch ME
     fprintf('❌ Test failure: %s\n', ME.message);

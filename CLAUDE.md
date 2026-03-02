@@ -21,10 +21,11 @@ This file provides essential context for AI assistants (Claude, Jules, Antigravi
 
 ## Multi-Agent Collaboration Model
 
-This repository uses a two-agent architecture:
+This repository uses a three-agent architecture:
 
 | Agent | Role | Scope |
 |---|---|---|
+| **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
 | **Jules** (cloud/background) | Unit testing, documentation, code styling | Cloud — never receives patient data |
 
@@ -45,12 +46,12 @@ This repository uses a two-agent architecture:
 pancData3/
 ├── run_dwi_pipeline.m          # Master orchestrator — main entry point
 ├── execute_all_workflows.m     # Runs all 3 DWI types sequentially
-├── run_all_tests.m             # MATLAB unittest test runner
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
-├── core/                       # Primary pipeline modules (16 files)
-├── utils/                      # Helper utilities (16 files)
-├── tests/                      # Full test suite (31 files)
+├── core/                       # Primary pipeline modules (17 files)
+├── utils/                      # Helper utilities (25 files + @table/)
+├── tests/                      # Full test suite (47 files)
+│   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (not run by CI)
 │   └── diagnostics/            # Manual spot-check scripts (not run by CI)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
@@ -131,7 +132,7 @@ The structured `/run_data` workflow in `.agents/workflows/run_data.md` does:
 ## Running Tests
 
 ```matlab
-run_all_tests
+run('tests/run_all_tests.m')
 ```
 
 - Uses MATLAB's built-in `unittest` framework
@@ -295,7 +296,7 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
 ### Do
 - Read and understand existing code before suggesting changes.
-- Run `run_all_tests` after any non-trivial modification to `core/` or `utils/`.
+- Run `run('tests/run_all_tests.m')` after any non-trivial modification to `core/` or `utils/`.
 - Use `safe_load_mask` and `escape_shell_arg` when handling file I/O.
 - Follow the orchestrator pattern — keep pipeline steps modular and independently callable.
 - Preserve checkpointing logic in `load_dwi_data.m`; it is critical for large cohort recovery.

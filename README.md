@@ -3,11 +3,12 @@
 Analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) data, including IVIM model fitting, ADC computation, spatial Deep Learning denoising, and correlation with RT dose maps.
 
 ## Agent Collaboration & Safety Rules
-This repository is maintained with the assistance of two AI agents:
-- **Antigravity (Local)**: Handles core physics modeling, MRI calibration logic, and specialized scripts. 
-- **Jules (Background)**: Delegated for background tasks including unit testing, documentation, and code styling.
+This repository is maintained with the assistance of three AI agents:
+- **Claude Code (Interactive)**: Primary development agent for feature implementation, pipeline enhancements, debugging, and code review. Runs locally with full repository access.
+- **Antigravity (Local)**: Handles core physics modeling, MRI calibration logic, and specialized scripts. Runs locally with access to patient data.
+- **Jules (Background)**: Delegated for background tasks including unit testing, documentation, and code styling. Cloud-based — never receives patient data.
 > [!CAUTION]
-> **Safety Rule**: Never send patient data or sensitive CSVs to the Jules cloud. Only logic and code structures are permitted. Do not modify files in the `dependencies/` folder.
+> **Safety Rule**: Never send patient data or sensitive CSVs to any cloud agent. Only logic and code structures are permitted for cloud-based agents. Do not modify files in the `dependencies/` folder.
 
 ## Workflows
 - **`/run_data`**: A structured workflow that executes the DWI pipeline sequentially for all DWI types (`Standard`, `dnCNN`, and `IVIMnet`). It iteratively modifies `config.json` and evaluates the master orchestrator, finishing by running the full test suite.
@@ -35,8 +36,6 @@ run_dwi_pipeline('config.json', {'load'});
 ### Root Directory
 - **`run_dwi_pipeline.m`**: The main orchestrator of the pipeline. It handles environment setup, loads configurations, and calls modular processing steps. Supports sequential processing of multiple DWI types based on `config.json` configuration.
 - **`execute_all_workflows.m`**: Wrapper that sets up a parallel pool (max 2 workers) and runs all three DWI types (`Standard`, `dnCNN`, `IVIMnet`) sequentially, modifying `config.json` between runs and skipping reload after the first.
-- **`run_all_tests.m`**: The master test runner for the MATLAB DWI pipeline. Discovers and executes all tests in the `tests/` directory and outputs a coverage report.
-- **`test_octave.m`**: Compatibility test script for GNU Octave.
 - **`config.json`** & **`config.example.json`**: Configuration files used to customize parameters (data paths, `dwi_type` selection, temporal groupings) without modifying source code.
 
 ### `core/`
@@ -60,7 +59,9 @@ Contains the primary logic blocks for the DWI analysis (17 files):
 - **`plot_scatter_correlations.m`**: Correlation scatter plots between dose and diffusion metrics.
 
 ### `utils/`
-Helper scripts for specific data processing and modeling tasks (17 files):
+Helper scripts for specific data processing and modeling tasks (25 files + `@table/` class):
+
+#### Core Utilities
 - **`parse_config.m`**: Parses `config.json` into MATLAB structs.
 - **`build_td_panel.m`**: Structures patients' longitudinal data into time-dependent panels.
 - **`scale_td_panel.m`**: Handles timepoint-specific feature scaling across varying fractions.
@@ -79,8 +80,24 @@ Helper scripts for specific data processing and modeling tasks (17 files):
 - **`init_scan_structs.m`**: Creates pre-populated empty GTVp and GTVn struct arrays with a consistent field ordering to prevent struct concatenation errors in `parfor` loops.
 - **`plot_feature_distribution.m`**: Renders histogram or boxplot visualizations of a feature split by clinical outcome (Local Control vs. Local Failure), with one-way ANOVA p-value annotation for boxplots.
 
+#### Octave Compatibility Shims
+These provide MATLAB-equivalent functions for GNU Octave environments:
+- **`categorical.m`**: Minimal `categorical` replacement for Octave.
+- **`contains.m`**: String `contains` function for Octave.
+- **`cvpartition.m`**: Cross-validation partition object for Octave.
+- **`fitglme.m`**: Generalized linear mixed-effects model stub for Octave.
+- **`nanmean.m`**: NaN-safe mean for Octave (built-in on MATLAB).
+- **`nanstd.m`**: NaN-safe standard deviation for Octave (built-in on MATLAB).
+- **`sgtitle.m`**: Super-title for figure tilings in Octave.
+- **`yline.m`**: Horizontal reference line for Octave.
+- **`@table/`**: Lightweight `table` class for Octave (`table.m`, `display.m`, `subsref.m`, `subsasgn.m`).
+
 ### `tests/`
-Contains an extensive suite of MATLAB tests (45 files) simulating scenarios and asserting correctness of statistical models and data transformations:
+Contains the test suite, test runner, and test infrastructure (47 files):
+- **`run_all_tests.m`**: The master test runner. Discovers and executes all tests in this directory and outputs a coverage report.
+- **`test_octave.m`**: Compatibility test script for GNU Octave.
+
+Test cases simulating scenarios and asserting correctness of statistical models and data transformations:
 - **`test_dwi_pipeline.m`**: Comprehensive tests covering imputation bounds, leakage, IPCW weighting, competing risks analysis, and feature space matching.
 - **`test_statistical_methods.m`**: Pure algorithmic tests for statistical and numerical routines including BH/Holm corrections, correlation filtering, LOOCV, FDR, imputation, and time-dependent panel construction.
 - **`test_source_code_standards.m`**: Static code analysis tests verifying source-code patterns, naming conventions, and architectural invariants without executing pipeline logic.
