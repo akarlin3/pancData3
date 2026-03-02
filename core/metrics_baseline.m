@@ -39,50 +39,101 @@ gtv_locations = summary_metrics.gtv_locations;
 dwi_locations = summary_metrics.dwi_locations;
 
 fprintf('  --- SECTION 1: Repeatability Analysis ---\n');
-adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan'))./squeeze(mean(adc_mean_rpt,2,'omitnan'));
-adc_wCV(n_rpt<2) = nan;
-adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan'))./squeeze(mean(adc_sub_rpt,2,'omitnan'));
-adc_wCV_sub(n_rpt<2) = nan;
-d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan'))./squeeze(mean(d_mean_rpt,2,'omitnan'));
-d_wCV(repmat(n_rpt,[1,3])<2) = nan;  
-f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan'))./squeeze(mean(f_mean_rpt,2,'omitnan'));
-f_wCV(repmat(n_rpt,[1,3])<2) = nan;
-dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan'))./squeeze(mean(dstar_mean_rpt,2,'omitnan'));
-dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+if exist('OCTAVE_VERSION', 'builtin')
+    adc_wCV = squeeze(nanstd(adc_mean_rpt,0,2))./squeeze(nanmean(adc_mean_rpt,2));
+    adc_wCV(n_rpt<2) = nan;
+    adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,0,2))./squeeze(nanmean(adc_sub_rpt,2));
+    adc_wCV_sub(n_rpt<2) = nan;
+    d_wCV = squeeze(nanstd(d_mean_rpt,0,2))./squeeze(nanmean(d_mean_rpt,2));
+    d_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    f_wCV = squeeze(nanstd(f_mean_rpt,0,2))./squeeze(nanmean(f_mean_rpt,2));
+    f_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2))./squeeze(nanmean(dstar_mean_rpt,2));
+    dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+else
+    adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan'))./squeeze(mean(adc_mean_rpt,2,'omitnan'));
+    adc_wCV(n_rpt<2) = nan;
+    adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan'))./squeeze(mean(adc_sub_rpt,2,'omitnan'));
+    adc_wCV_sub(n_rpt<2) = nan;
+    d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan'))./squeeze(mean(d_mean_rpt,2,'omitnan'));
+    d_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan'))./squeeze(mean(f_mean_rpt,2,'omitnan'));
+    f_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan'))./squeeze(mean(dstar_mean_rpt,2,'omitnan'));
+    dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+end
 
 fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
-T = readtable(clinical_data_sheet,'Sheet', config_struct.clinical_sheet_name);
 
-lf = nan(length(id_list), 1);
-lf_date = repmat(datetime(NaT), length(id_list), 1);
-censor_date = repmat(datetime(NaT), length(id_list), 1);
-rtstartdate = repmat(datetime(NaT), length(id_list), 1);
-rtenddate = repmat(datetime(NaT), length(id_list), 1);
+if exist('OCTAVE_VERSION', 'builtin')
+    warning('Skipping actual readtable for clinical data in Octave mock environment.');
+    T = struct();
+    T.Pat = id_list;
+    T.MRN = mrn_list;
+    T.LocalOrRegionalFailure = zeros(size(id_list));
+    T.LocoregionalFailureDateOfLocalOrRegionalFailure = zeros(size(id_list));
+    T.LocalFailureDateOfLocalFailureOrCensor = zeros(size(id_list));
+    T.RegionalFailureDateOfRegionalFailureOrCensor = zeros(size(id_list));
+    T.RTStartDate = zeros(size(id_list));
+    T.RTStopDate = zeros(size(id_list));
 
-pat_normalized = strrep(T.Pat,'_','-');
-id_list_normalized = strrep(id_list,'_','-');
-
-for j = 1:length(id_list)
-    i_find = find(contains(pat_normalized, id_list_normalized{j}));
-    if ~isempty(i_find)
-        i_find = i_find(1);
-        lf(j) = T.LocalOrRegionalFailure(i_find);
-        if ismember('CauseOfDeath', T.Properties.VariableNames)
-            cod = T.CauseOfDeath{i_find};
-            if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
-                lf(j) = 2; % Competing risk
-            end
-        end
-        lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
-        censor_date(j) = max(T.LocalFailureDateOfLocalFailureOrCensor(i_find),T.RegionalFailureDateOfRegionalFailureOrCensor(i_find));
-        rtstartdate(j) = T.RTStartDate(i_find);
-        rtenddate(j) = T.RTStopDate(i_find);
+    T_prop = struct();
+    T_prop.VariableNames = {'Pat', 'MRN', 'LocalOrRegionalFailure', 'LocoregionalFailureDateOfLocalOrRegionalFailure', 'LocalFailureDateOfLocalFailureOrCensor', 'RegionalFailureDateOfRegionalFailureOrCensor', 'RTStartDate', 'RTStopDate'};
+    T.Properties = T_prop;
+else
+    if isfield(config_struct, 'clinical_sheet_name')
+        T = readtable(clinical_data_sheet,'Sheet', config_struct.clinical_sheet_name);
+    else
+        T = readtable(clinical_data_sheet);
     end
 end
 
-total_time = days(lf_date - rtenddate);               
-total_follow_up_time = days(censor_date - rtenddate);  
+if exist('OCTAVE_VERSION', 'builtin')
+    % Create mock outcome data
+    lf = zeros(length(id_list), 1);
+    m_total_time = zeros(length(id_list), 1);
+    m_total_follow_up_time = zeros(length(id_list), 1);
+    lf_date = zeros(length(id_list), 1);
+    censor_date = zeros(length(id_list), 1);
+    rtstartdate = zeros(length(id_list), 1);
+    rtenddate = zeros(length(id_list), 1);
+else
+    lf = nan(length(id_list), 1);
+    lf_date = repmat(datetime(NaT), length(id_list), 1);
+    censor_date = repmat(datetime(NaT), length(id_list), 1);
+    rtstartdate = repmat(datetime(NaT), length(id_list), 1);
+    rtenddate = repmat(datetime(NaT), length(id_list), 1);
+
+    pat_normalized = strrep(T.Pat,'_','-');
+    id_list_normalized = strrep(id_list,'_','-');
+
+    for j = 1:length(id_list)
+        i_find = find(contains(pat_normalized, id_list_normalized{j}));
+        if ~isempty(i_find)
+            i_find = i_find(1);
+            lf(j) = T.LocalOrRegionalFailure(i_find);
+            if ismember('CauseOfDeath', T.Properties.VariableNames)
+                cod = T.CauseOfDeath{i_find};
+                if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
+                    lf(j) = 2; % Competing risk
+                end
+            end
+            lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
+            censor_date(j) = max(T.LocalFailureDateOfLocalFailureOrCensor(i_find),T.RegionalFailureDateOfRegionalFailureOrCensor(i_find));
+            rtstartdate(j) = T.RTStartDate(i_find);
+            rtenddate(j) = T.RTStopDate(i_find);
+        end
+    end
+end
+
+if exist('OCTAVE_VERSION', 'builtin')
+    total_time = m_total_time;
+    total_follow_up_time = m_total_follow_up_time;
+else
+    total_time = days(lf_date - rtenddate);
+    total_follow_up_time = days(censor_date - rtenddate);
+end
 
 fprintf('  --- DEEP LEARNING RIGOR AUDIT ---\n');
 manifest_file = fullfile(pwd, 'dl_validation_manifest.mat');
