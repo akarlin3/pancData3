@@ -83,21 +83,20 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             X_coord = query_pt(valid_feat);
             
             % Calculate Euclidean distances manually to avoid overhead
-            % distance calculation overhead in loops
             dists = sum((Y_coords - X_coord).^2, 2);
             [~, sort_idx] = sort(dists);
-            num_neighbors = min(k, length(ref_idx));
-            neighbor_indices_local = sort_idx(1:num_neighbors);
-            
-            % Map back to absolute indices
-            neighbors = ref_idx(neighbor_indices_local);
-            
+
+            % For each missing column, filter to refs with valid data
+            % in that column BEFORE selecting top k neighbors
             for m = find(missing_idx)
-                vals = X_tr(neighbors, m);
-                vals = vals(~isnan(vals));
-                if ~isempty(vals)
-                    X_tr_imp(i, m) = mean(vals);
+                has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
+                valid_sorted = sort_idx(has_target);
+                num_neighbors = min(k, length(valid_sorted));
+                if num_neighbors == 0
+                    continue;
                 end
+                neighbors = ref_idx(valid_sorted(1:num_neighbors));
+                X_tr_imp(i, m) = mean(X_tr(neighbors, m));
             end
         end
     end
@@ -141,17 +140,18 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 
                 dists = sum((Y_coords - X_coord).^2, 2);
                 [~, sort_idx] = sort(dists);
-                num_neighbors = min(k, length(ref_idx));
-                neighbor_indices_local = sort_idx(1:num_neighbors);
 
-                neighbors = ref_idx(neighbor_indices_local);
-                
+                % For each missing column, filter to refs with valid data
+                % in that column BEFORE selecting top k neighbors
                 for m = find(missing_idx)
-                    vals = X_tr(neighbors, m);
-                    vals = vals(~isnan(vals));
-                    if ~isempty(vals)
-                        X_te_imp(i, m) = mean(vals);
+                    has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
+                    valid_sorted = sort_idx(has_target);
+                    num_neighbors = min(k, length(valid_sorted));
+                    if num_neighbors == 0
+                        continue;
                     end
+                    neighbors = ref_idx(valid_sorted(1:num_neighbors));
+                    X_te_imp(i, m) = mean(X_tr(neighbors, m));
                 end
             end
         end
