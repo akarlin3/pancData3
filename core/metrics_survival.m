@@ -118,6 +118,8 @@ warning('on', 'stats:coxphfit:IterationLimit');
 % ---- Likelihood-ratio test vs. null model (no covariates) -----------
 try
     is_censored_null = (event_td == 0);
+    w_temp_null = warning('off', 'stats:coxphfit:ConstantTerm');
+    cleanupObj = onCleanup(@() warning(w_temp_null));
     [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
         'Censoring', is_censored_null, 'Ties', 'breslow', ...
         'Options', statset('MaxIter', 100));
