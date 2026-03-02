@@ -65,10 +65,11 @@ for target_fx = 2:nTp
     
     if iscell(X_lasso_all)
         vars = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_pct', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
+        vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
         fp = fopen('debug_concat_error.txt', 'a');
         fprintf(fp, '\n--- X_lasso_all is a cell array at fx_label=%s ---\n', fx_label);
         for i_v = 1:length(vars)
-            tmp_v = eval(vars{i_v});
+            tmp_v = vars_vals{i_v};
             fprintf(fp, '%s -> Size: %s, Class: %s\n', vars{i_v}, mat2str(size(tmp_v)), class(tmp_v));
         end
         fclose(fp);
@@ -442,7 +443,7 @@ for target_fx = 2:nTp
             yline(0, 'k-');
             yline(cor_est, 'k--', 'CoR (+7.8%)');
             yline(-cor_est, 'k--', 'CoR (-7.8%)');
-        elseif ~sig_is_abs(vi) && contains(sig_units{vi}, '%')
+        elseif ~sig_is_abs(vi) && ~isempty(strfind(sig_units{vi}, '%'))
             yline(0, 'k-', 'Alpha', 0.3);
         end
         

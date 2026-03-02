@@ -57,22 +57,17 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
             else
                 % Extract training values for this specific week.
                 % To prevent row-weighted bias, extract the first occurrence per patient.
-                train_pats_in_week = unique(pat_id_td(train_week_mask));
-                unique_vals = zeros(length(train_pats_in_week), 1);
+                % Find the first index of each unique patient ID in this week's training subset
+                [~, unique_idx] = unique(pat_id_td(train_week_mask), 'first');
                 
-                valid_cnt = 0;
-                for p_idx = 1:length(train_pats_in_week)
-                    pid = train_pats_in_week(p_idx);
-                    % First row for this patient at this week
-                    idx = find(train_week_mask & (pat_id_td == pid), 1, 'first');
-                    val = X_td_raw(idx, fi);
-                    if ~isnan(val)
-                        valid_cnt = valid_cnt + 1;
-                        unique_vals(valid_cnt) = val;
-                    end
-                end
+                % Get the actual row indices in X_td_raw
+                train_week_indices = find(train_week_mask);
+                first_occurrence_indices = train_week_indices(unique_idx);
                 
-                unique_vals = unique_vals(1:valid_cnt);
+                % Extract the values and remove NaNs
+                vals = X_td_raw(first_occurrence_indices, fi);
+                unique_vals = vals(~isnan(vals));
+                valid_cnt = length(unique_vals);
                 
                 if valid_cnt > 1
                     mu_col = mean(unique_vals);

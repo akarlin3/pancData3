@@ -28,6 +28,14 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             testCase.ConfigStruct.ivim_bthr = 100;
             testCase.ConfigStruct.dcm2nii_call = 'dummy';
             testCase.ConfigStruct.clinical_data_sheet = 'mock.xlsx';
+            testCase.ConfigStruct.adc_thresh = 0.00115;
+            testCase.ConfigStruct.high_adc_thresh = 0.001;
+            testCase.ConfigStruct.d_thresh = 0.001;
+            testCase.ConfigStruct.f_thresh = 0.1;
+            testCase.ConfigStruct.adc_max = 0.003;
+            testCase.ConfigStruct.min_vox_hist = 100;
+            testCase.ConfigStruct.dwi_types_to_run = 1:3;
+            testCase.ConfigStruct.use_checkpoints = false;
 
             % Add core and utils to path so we can call load_dwi_data
             testCase.OriginalPath = path;
@@ -54,9 +62,9 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             % needed by compute_summary_metrics
 
             % We need to mock the variables saved at the end of Section 3
-            data_vectors_gtvp = struct('adc_vector', [], 'ID', 'P01', 'MRN', 'MRN01', ...
-                'LF', 0, 'Immuno', 0, 'Fraction', 1, 'Repeatability_index', 1, 'vox_vol', 1);
-            data_vectors_gtvn = struct('adc_vector', [], 'ID', 'P01', 'MRN', 'MRN01');
+            data_vectors_gtvp = repmat(struct('adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], 'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], 'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], 'ID', 'P01', 'MRN', 'MRN01', ...
+                'LF', 0, 'Immuno', 0, 'Fraction', 1, 'Repeatability_index', 1, 'vox_vol', 1), [1, 6, 6]);
+            data_vectors_gtvn = repmat(struct('adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], 'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], 'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], 'ID', 'P01', 'MRN', 'MRN01'), [1, 6, 6]);
 
             lf = 0;
             immuno = 0;
