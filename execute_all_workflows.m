@@ -31,7 +31,7 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
 
 % --- 2. RUN STANDARD PIPELINE ---
 disp('====== STARTING STANDARD PIPELINE ======');
-config_struct.parse_types = {'Standard'};
+config_struct.dwi_type = 'Standard';
 config_struct.skip_to_reload = false;
 json_str = jsonencode(config_struct);
 fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
@@ -39,7 +39,7 @@ run_dwi_pipeline('config.json', steps);
 
 % --- 3. RUN dnCNN PIPELINE ---
 disp('====== STARTING dnCNN PIPELINE ======');
-config_struct.parse_types = {'dnCNN'};
+config_struct.dwi_type = 'dnCNN';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
 fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
@@ -47,7 +47,7 @@ run_dwi_pipeline('config.json', steps);
 
 % --- 4. RUN IVIMnet PIPELINE ---
 disp('====== STARTING IVIMnet PIPELINE ======');
-config_struct.parse_types = {'IVIMnet'};
+config_struct.dwi_type = 'IVIMnet';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
 fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);

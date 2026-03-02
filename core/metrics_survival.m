@@ -70,15 +70,19 @@ try
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
     
+    % Suppress trivial warnings like Constant Term, but KEEP error triggers for Firth fallback
+    w_temp = warning('off', 'all');
+    warning('error', 'stats:coxphfit:FitWarning');
+    warning('error', 'stats:coxphfit:IterationLimit');
     mdl_td = fitcox(X_td_global, T_td, 'Censoring', is_censored, 'TieBreakMethod', 'breslow');
-    
+    warning(w_temp);
     b_td        = mdl_td.Coefficients.Beta;
     logl_td     = mdl_td.LogLikelihood;
     stats_td.se = mdl_td.Coefficients.SE;
     stats_td.p  = mdl_td.Coefficients.pValue;
     
     % Extract scaled Schoenfeld residuals for PH check
-    stats_td.sschres = residuals(mdl_td, 'Schoenfeld');
+    stats_td.sschres = mdl_td.Residuals.ScaledSchoenfeld;
 catch ME_td
     if contains(ME_td.identifier, 'FitWarning') || ...
        contains(ME_td.identifier, 'IterationLimit') || ...

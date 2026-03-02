@@ -188,9 +188,14 @@ end
 fprintf('  --- SECTION 9: FDR Correction ---\n');
 if ~isempty(sig_pval)
     fprintf('\n----- PER-TIMEPOINT FDR (Benjamini-Hochberg, Q < 0.05) -----\n');
+
+    max_metrics = sum(cellfun(@length, metric_sets));
+
     for tp = 1:length(time_labels)
-        tp_pvals  = [];
-        tp_labels = {};
+        tp_pvals  = nan(max_metrics, 1);
+        tp_labels = cell(max_metrics, 1);
+        tp_count = 0;
+
         for s = 1:length(metric_sets)
             current_metrics = metric_sets{s};
             current_names = set_names{s};
@@ -202,13 +207,17 @@ if ~isempty(sig_pval)
                 end
 
                 if ~isnan(p)
-                    tp_pvals(end+1, 1)  = p;
-                    tp_labels{end+1, 1} = current_names{mi};
+                    tp_count = tp_count + 1;
+                    tp_pvals(tp_count, 1)  = p;
+                    tp_labels{tp_count, 1} = current_names{mi};
                 end
             end
         end
         
-        if isempty(tp_pvals), continue; end
+        if tp_count == 0, continue; end
+
+        tp_pvals = tp_pvals(1:tp_count);
+        tp_labels = tp_labels(1:tp_count);
         
         n_tp = length(tp_pvals);
         [p_sort, sort_id] = sort(tp_pvals);

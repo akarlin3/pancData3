@@ -259,6 +259,7 @@ end
 
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
+    patient_id = id_list{j};
 
     if patient_completed(j)
         fprintf('Skipping patient %d/%d (Patient ID %s) - already processed.\n', j, length(mrn_list), patient_id);
@@ -738,7 +739,7 @@ parfor j = 1:length(mrn_list)
                 % space; use the native mask directly.
                 if havedenoised
                     dncnn_mask_p = gtv_mask;
-                    if fi > 1 && ~isempty(gtv_mask_fx1_ref)
+                    if fi > 1 && ~isempty(gtv_mask_fx1_ref) && ~isempty(D_forward_cur)
                         dncnn_mask_p = gtv_mask_fx1_ref;
                     end
                     pat_d_mean_dncnn(1,fi,rpi) = nanmean(d_map_dncnn(dncnn_mask_p==1));
@@ -797,7 +798,7 @@ parfor j = 1:length(mrn_list)
             % extract within the baseline GTVn mask for spatial consistency.
             if havedenoised && havegtvn
                 dncnn_mask_n = gtvn_mask;
-                if fi > 1 && ~isempty(gtvn_mask_fx1_ref)
+                if fi > 1 && ~isempty(gtvn_mask_fx1_ref) && ~isempty(D_forward_cur)
                     dncnn_mask_n = gtvn_mask_fx1_ref;
                 end
                 pat_data_vectors_gtvn(fi,rpi).d_vector_dncnn    = d_map_dncnn(dncnn_mask_n==1);
@@ -867,7 +868,8 @@ end
 % Reconstruct global arrays from checkpoints
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
-    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, mrn));
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
 
     if exist(checkpoint_file, 'file')
         % Load checkpoint
@@ -946,8 +948,24 @@ else
     % Set data path from configuration
     dataloc = config_struct.dataloc;
 
-    if isfield(config_struct, 'dwi_type_name')
-        file_prefix = ['_' config_struct.dwi_type_name];
+% Set data path from configuration
+dataloc = config_struct.dataloc;
+
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+if exist(datasave, 'file')
+    tmp_data = load(datasave);
+    data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
+else
+    fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
+    if exist(fallback_datasave, 'file')
+        fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+        tmp_data = load(fallback_datasave);
+        data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
     else
         file_prefix = '';
     end
@@ -1120,7 +1138,7 @@ function [d_map, f_map, dstar_map] = fit_ivim_model(dwi_data, bvalues, mask, opt
         f_map(valid_voxels_idx) = f_vec;
         dstar_map(valid_voxels_idx) = dstar_vec;
     end
-end % function fit_ivim_model
+end
 
 function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
     % LOAD_MASK Helper function to load a NIfTI mask and validate dimensions

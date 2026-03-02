@@ -22,6 +22,10 @@ d_thresh     = config_struct.d_thresh;
 f_thresh     = config_struct.f_thresh;      
 dstar_thresh = config_struct.dstar_thresh;  
 
+if iscell(nTp)
+    nTp = nTp{1};
+end
+
 d95_adc_sub = nan(length(m_id_list), nTp);
 v50_adc_sub = nan(length(m_id_list), nTp);
 
@@ -74,9 +78,9 @@ for j = 1:length(m_id_list)
                 end
 
                 if exist(gtv_mat, 'file')
-                    tmp = load(gtv_mat, 'Stvol3d');
-                    gtv_mask_3d = tmp.Stvol3d;
-                    if sum(gtv_mask_3d(:) == 1) == length(adc_vec)
+                    % SECURITY: Use safe_load_mask to prevent unsafe deserialization of untrusted .mat files
+                    gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                    if ~isempty(gtv_mask_3d) && sum(gtv_mask_3d(:) == 1) == length(adc_vec)
                         has_3d = true;
                     end
                 end
