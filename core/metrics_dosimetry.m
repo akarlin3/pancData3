@@ -76,7 +76,7 @@ for j = 1:length(m_id_list)
             if ~isempty(gtv_mat)
                 path_parts = strsplit(gtv_mat, {'/', '\'});
                 gtv_mat = fullfile(path_parts{:});
-                if isunix && (startsWith(gtv_mat, filesep) == 0) && isempty(path_parts{1})
+                if isunix && ~startsWith(gtv_mat, filesep) && isempty(path_parts{1})
                     gtv_mat = [filesep gtv_mat];
                 end
 

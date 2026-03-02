@@ -79,6 +79,7 @@ try
     stats_td.se = stats_td_raw.se;
     stats_td.p  = stats_td_raw.p;
 catch ME_td
+    if exist('w_temp', 'var'), warning(w_temp); end
     if ~isempty(strfind(ME_td.identifier, 'FitWarning')) || ...
        ~isempty(strfind(ME_td.identifier, 'IterationLimit')) || ...
        ~isempty(strfind(lower(ME_td.message), 'perfect'))
@@ -255,8 +256,8 @@ function X_scaled = scale_td_panel(X_td, feat_names, pat_id, t_start, train_pids
         base_vals = X_td(is_train_base, fi);
         
         if isempty(base_vals)
-            mu  = nanmean(X_td(ismember(pat_id, train_pids), fi));
-            sig = nanstd(X_td(ismember(pat_id, train_pids), fi));
+            mu  = mean(X_td(ismember(pat_id, train_pids), fi), 'omitnan');
+            sig = std(X_td(ismember(pat_id, train_pids), fi), 0, 'omitnan');
         else
             mu  = mean(base_vals);
             sig = std(base_vals);

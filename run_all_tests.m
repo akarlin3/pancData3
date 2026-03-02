@@ -43,7 +43,7 @@ if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
     % Create a coverage plugin for the specific folders
     % For CI, producing Cobertura or just a console report is best.
     % In modern MATLAB (R2017b+), we can use:
-    coveragePlugin = CodeCoveragePlugin.forFolder(foldersToCover);
+    coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
     runner.addPlugin(coveragePlugin);
     disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
 else
