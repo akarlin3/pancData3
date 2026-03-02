@@ -22,7 +22,6 @@ adc_sd = summary_metrics.adc_sd;
 d_mean = summary_metrics.d_mean;
 f_mean = summary_metrics.f_mean;
 dstar_mean = summary_metrics.dstar_mean;
-ivim_sub_vol = summary_metrics.ivim_sub_vol;
 adc_mean_rpt = summary_metrics.adc_mean_rpt;
 adc_sub_rpt = summary_metrics.adc_sub_rpt;
 d_mean_rpt = summary_metrics.d_mean_rpt;

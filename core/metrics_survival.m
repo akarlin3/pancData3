@@ -62,15 +62,14 @@ X_td_global = X_td_global_def;
 % coxphfit accepts a two-column [t_start t_stop] matrix for start-stop data.
 warning('error', 'stats:coxphfit:FitWarning');
 warning('error', 'stats:coxphfit:IterationLimit');
-is_firth_td = false;
 try
     % Treat competing risks (2) as right-censored (0) for Cause-Specific Hazard.
     event_td_csh = event_td;
     event_td_csh(event_td_csh == 2) = 0;
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
-    
-    % Suppress trivial warnings like Constant Term, but KEEP error triggers for Firth fallback
+
+    % Suppress trivial warnings like Constant Term, but KEEP error triggers for convergence failures
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
@@ -79,27 +78,18 @@ try
     stats_td.se = stats_td_raw.se;
     stats_td.p  = stats_td_raw.p;
 catch ME_td
+    if exist('w_temp', 'var'), warning(w_temp); end
     if ~isempty(strfind(ME_td.identifier, 'FitWarning')) || ...
        ~isempty(strfind(ME_td.identifier, 'IterationLimit')) || ...
        ~isempty(strfind(lower(ME_td.message), 'perfect'))
-        % Firth penalised logistic fallback: use last observed covariate per patient
-        n_vp = sum(valid_pts);
-        td_last_X = nan(n_vp, td_n_feat);
-        for ii = 1:n_vp
-            rows_ii = (pat_id_td == ii);
-            if any(rows_ii)
-                td_last_X(ii, :) = X_td_global(find(rows_ii, 1, 'last'), :);
-            end
-        end
-        valid_firth_td = ~any(isnan(td_last_X), 2) & ~isnan(td_lf);
-        mdl_firth_td = fitglm(td_last_X(valid_firth_td,:), td_lf(valid_firth_td), ...
-            'Distribution', 'binomial', 'LikelihoodPenalty', 'jeffreys-prior', ...
-            'Options', statset('MaxIter', 10000));
-        b_td           = mdl_firth_td.Coefficients.Estimate(2:end);
-        stats_td.se    = mdl_firth_td.Coefficients.SE(2:end);
-        stats_td.p     = mdl_firth_td.Coefficients.pValue(2:end);
-        logl_td        = mdl_firth_td.LogLikelihood;
-        is_firth_td    = true;
+        % Cox model failed to converge (e.g., perfect separation).
+        % Set outputs to NaN rather than falling back to a different model
+        % to avoid mixing Hazard Ratios with Odds Ratios.
+        fprintf('  ⚠️  Cox model did not converge: %s\n', ME_td.message);
+        b_td        = nan(td_n_feat, 1);
+        stats_td.se = nan(td_n_feat, 1);
+        stats_td.p  = nan(td_n_feat, 1);
+        logl_td     = NaN;
     else
         warning('on', 'stats:coxphfit:FitWarning');
         warning('on', 'stats:coxphfit:IterationLimit');
@@ -124,13 +114,7 @@ catch
 end
 
 % ---- Print results table -------------------------------------------
-if is_firth_td
-    fprintf('  [Fallback to Firth logistic due to separation]\n');
-    hr_label = 'OR ';
-else
-    hr_label = 'HR ';
-end
-fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', hr_label, 'CI_lo', 'CI_hi', 'p');
+fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'HR ', 'CI_lo', 'CI_hi', 'p');
 fprintf('  %s\n', repmat('-', 1, 52));
 for fi = 1:td_n_feat
     hr_i  = exp(b_td(fi));
@@ -255,8 +239,8 @@ function X_scaled = scale_td_panel(X_td, feat_names, pat_id, t_start, train_pids
         base_vals = X_td(is_train_base, fi);
         
         if isempty(base_vals)
-            mu  = nanmean(X_td(ismember(pat_id, train_pids), fi));
-            sig = nanstd(X_td(ismember(pat_id, train_pids), fi));
+            mu  = mean(X_td(ismember(pat_id, train_pids), fi), 'omitnan');
+            sig = std(X_td(ismember(pat_id, train_pids), fi), 0, 'omitnan');
         else
             mu  = mean(base_vals);
             sig = std(base_vals);

@@ -110,7 +110,7 @@ for j = 1:nPat
         fig_height = max(300, n_rows_cur_fig * 150);
         figure('Name', sprintf('ADC Maps on Anatomy (%d)', fig_num), ...
                'Position', [50, 50, 1400, fig_height]);
-        colormap(jet);
+        colormap(turbo);
     end
 
     % --- Column 1: b=0 anatomy with GTV contour (red) ---

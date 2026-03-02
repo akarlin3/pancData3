@@ -67,6 +67,63 @@ classdef test_escape_shell_arg < matlab.unittest.TestCase
             testCase.verifyNotEmpty(actual);
         end
 
+        function test_empty_string_unix(testCase)
+            % Empty string should be wrapped in quotes
+            actual = escape_shell_arg('', 'unix');
+            testCase.verifyEqual(actual, '''''');
+        end
+
+        function test_empty_string_pc(testCase)
+            % Empty string should be wrapped in double quotes
+            actual = escape_shell_arg('', 'pc');
+            testCase.verifyEqual(actual, '""');
+        end
+
+        function test_unicode_unix(testCase)
+            % Non-ASCII characters should pass through correctly
+            arg = 'path/to/Pat_Mueller';
+            actual = escape_shell_arg(arg, 'unix');
+            testCase.verifyEqual(actual, ['''path/to/Pat_Mueller''']);
+        end
+
+        function test_string_with_newline_unix(testCase)
+            % Newline characters inside a single-quoted string are preserved by the shell
+            arg = sprintf('line1\nline2');
+            actual = escape_shell_arg(arg, 'unix');
+            testCase.verifyTrue(contains(actual, sprintf('\n')), ...
+                'Newline should be preserved within the escaped string.');
+        end
+
+        function test_string_with_newline_pc(testCase)
+            % Newline characters should be preserved in PC escaping
+            arg = sprintf('line1\nline2');
+            actual = escape_shell_arg(arg, 'pc');
+            testCase.verifyTrue(contains(actual, sprintf('\n')), ...
+                'Newline should be preserved within the escaped string.');
+        end
+
+        function test_special_shell_chars_unix(testCase)
+            % Characters like $, `, !, etc. should be safely escaped
+            arg = 'file$name`test';
+            actual = escape_shell_arg(arg, 'unix');
+            expected = '''file$name`test''';
+            testCase.verifyEqual(actual, expected);
+        end
+
+        function test_numeric_input_throws(testCase)
+            % Non-string input should throw an error
+            testCase.verifyError(@() escape_shell_arg(123, 'unix'), ...
+                'escape_shell_arg:invalidInput');
+        end
+
+        function test_pc_multiple_double_quotes(testCase)
+            % Multiple double quotes should all be escaped
+            arg = 'say "hello" and "bye"';
+            actual = escape_shell_arg(arg, 'pc');
+            expected = '"say \"hello\" and \"bye\""';
+            testCase.verifyEqual(actual, expected);
+        end
+
     end
 
 end

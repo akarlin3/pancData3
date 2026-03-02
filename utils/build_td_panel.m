@@ -55,13 +55,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
-    % --- Collect Global Event Times for Exact Risk Set Splitting ---
-    % Since Cox Partial Likelihood is only evaluated at failure times, splitting
-    % at these times provides mathematically exact continuous evaluation.
-    global_event_times = unique(total_time_vec(lf_vec == 1));
-    global_event_times(isnan(global_event_times)) = [];
-    global_event_times = sort(global_event_times);
-
     % --- Vectorized Generation of General Intervals ---
     % Preallocate arrays safely overestimating bounds
     max_rows = n_pts * nTp;

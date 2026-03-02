@@ -352,22 +352,17 @@ for j=1:length(id_list)
 
                     if ~isempty(adc_vec)
                         rp_count = rp_count+1;
-                        if isempty(adc_vec)
-                            adc_mean_rpt(j,rpi,dwi_type) = NaN;
-                            fx_corrupted_rpt(j,rpi,dwi_type) = NaN;
-                        else
-                            if exist('OCTAVE_VERSION', 'builtin')
-                                tmp = adc_vec(~isnan(adc_vec));
-                                if isempty(tmp)
-                                    adc_mean_rpt(j,rpi,dwi_type) = NaN;
-                                else
-                                    adc_mean_rpt(j,rpi,dwi_type) = mean(tmp);
-                                end
+                        if exist('OCTAVE_VERSION', 'builtin')
+                            tmp = adc_vec(~isnan(adc_vec));
+                            if isempty(tmp)
+                                adc_mean_rpt(j,rpi,dwi_type) = NaN;
                             else
-                                adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
+                                adc_mean_rpt(j,rpi,dwi_type) = mean(tmp);
                             end
-                            fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+                        else
+                            adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
                         end
+                        fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
                         adc_vec_sub = adc_vec(adc_vec<adc_thresh);
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;

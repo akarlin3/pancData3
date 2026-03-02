@@ -30,6 +30,27 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     addpath(fullfile(pipeline_dir, 'utils'));
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
+    % 1.5) Run test suite before pipeline execution (once per session)
+    % Uses a persistent variable so tests only run on the first call,
+    % avoiding redundant re-runs when execute_all_workflows calls this
+    % function multiple times.
+    persistent tests_passed_this_session;
+    if isempty(tests_passed_this_session) || ~tests_passed_this_session
+        try
+            fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
+            run(fullfile(pipeline_dir, 'run_all_tests.m'));
+            tests_passed_this_session = true;
+            fprintf('      ✅ Test suite passed. Proceeding with pipeline.\n');
+        catch ME
+            tests_passed_this_session = false;
+            fprintf('❌ Test suite failed: %s\n', ME.message);
+            error('PipelineAborted:TestFailure', ...
+                'Pipeline aborted because the test suite did not pass.');
+        end
+    else
+        fprintf('⏭️ [Pre-flight] Test suite already passed this session. Skipping.\n');
+    end
+
     % 2) Programmatically check for required toolboxes
     % The pipeline relies on specific toolboxes (Stats, Image).
     % Verification prevents obscure runtime errors deep within the code.

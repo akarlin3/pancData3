@@ -72,5 +72,85 @@ classdef test_parse_config < matlab.unittest.TestCase
             % Verify other defaults are still assigned
             testCase.verifyEqual(config.f_thresh, 0.1);
         end
+
+        function testNonExistentFileThrowsError(testCase)
+            % parse_config should error when the file does not exist
+            testCase.verifyError(@() parse_config('/nonexistent/path/config.json'), ...
+                'MATLAB:error');
+        end
+
+        function testMalformedJsonThrowsError(testCase)
+            % parse_config should error on invalid JSON syntax
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '{"dataloc": "/tmp", BROKEN}');
+            fclose(fid);
+
+            testCase.verifyError(@() parse_config(testCase.TempConfigFile), ...
+                'MATLAB:error');
+        end
+
+        function testEmptyFileThrowsError(testCase)
+            % A zero-byte config file should trigger an error
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fclose(fid);
+
+            testCase.verifyError(@() parse_config(testCase.TempConfigFile), ...
+                'MATLAB:error');
+        end
+
+        function testDwiTypeStandard(testCase)
+            % dwi_type "Standard" should map to dwi_types_to_run = 1
+            cfg = struct('dataloc', '/tmp', 'dwi_type', 'Standard');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyEqual(config.dwi_types_to_run, 1);
+        end
+
+        function testDwiTypeDnCNN(testCase)
+            % dwi_type "dnCNN" should map to dwi_types_to_run = 2
+            cfg = struct('dataloc', '/tmp', 'dwi_type', 'dnCNN');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyEqual(config.dwi_types_to_run, 2);
+        end
+
+        function testDwiTypeIVIMnet(testCase)
+            % dwi_type "IVIMnet" should map to dwi_types_to_run = 3
+            cfg = struct('dataloc', '/tmp', 'dwi_type', 'IVIMnet');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyEqual(config.dwi_types_to_run, 3);
+        end
+
+        function testInvalidDwiTypeDefaultsToAll(testCase)
+            % An unrecognized dwi_type should default to running all types [1:3]
+            cfg = struct('dataloc', '/tmp', 'dwi_type', 'InvalidType');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyEqual(config.dwi_types_to_run, 1:3);
+        end
+
+        function testMissingDwiTypeDefaultsToAll(testCase)
+            % When dwi_type field is absent, dwi_types_to_run should be [1:3]
+            cfg = struct('dataloc', '/tmp');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyEqual(config.dwi_types_to_run, 1:3);
+        end
     end
 end

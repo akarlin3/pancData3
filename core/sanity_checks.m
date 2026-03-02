@@ -174,11 +174,11 @@ fprintf('  %-12s  %s\n', 'Metric', strjoin(fx_labels,'   '));
 
 % Evaluate missingness for each of the four summary biomarker arrays
 % (using Standard DWI, dtype index = 1).
-summary_metrics = {adc_mean(:,:,1), d_mean(:,:,1), f_mean(:,:,1), dstar_mean(:,:,1)};
-summary_names   = {'ADC_mean', 'D_mean', 'f_mean', 'Dstar_mean'};
+summary_arrs  = {adc_mean(:,:,1), d_mean(:,:,1), f_mean(:,:,1), dstar_mean(:,:,1)};
+summary_names = {'ADC_mean', 'D_mean', 'f_mean', 'Dstar_mean'};
 
-for mi = 1:numel(summary_metrics)
-    dat = summary_metrics{mi};
+for mi = 1:numel(summary_arrs)
+    dat = summary_arrs{mi};
     nCols = min(size(dat, 2), numel(fx_labels));
     counts = sum(isnan(dat(:, 1:nCols)), 1);
     parts = cell(1, nCols);
@@ -204,8 +204,8 @@ end
 fprintf('\n  2b. Outlier detection (>3 IQR from cohort median):\n');
 
 outlier_count = 0;
-for mi = 1:numel(summary_metrics)
-    dat = summary_metrics{mi};
+for mi = 1:numel(summary_arrs)
+    dat = summary_arrs{mi};
     nCols = min(size(dat, 2), numel(fx_labels));
     for k = 1:nCols
         col = dat(:, k);

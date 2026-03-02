@@ -43,24 +43,31 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 
     % --- Input validation ---
     if isempty(b0_fixed) || isempty(b0_moving) || isempty(gtv_mask_fixed)
-        warning('apply_dir_mask_propagation: One or more inputs are empty. Skipping.');
+        warning('apply_dir_mask_propagation:emptyInput', ...
+            'One or more inputs are empty. Skipping.');
         return;
     end
 
     if ~isequal(size(b0_fixed), size(b0_moving))
-        warning('apply_dir_mask_propagation: b0_fixed (%s) and b0_moving (%s) have different sizes. Cannot register.', ...
+        warning('apply_dir_mask_propagation:sizeMismatch', ...
+            'b0_fixed (%s) and b0_moving (%s) have different sizes. Cannot register.', ...
             mat2str(size(b0_fixed)), mat2str(size(b0_moving)));
         return;
     end
 
     if ~isequal(size(b0_fixed), size(gtv_mask_fixed))
-        warning('apply_dir_mask_propagation: b0_fixed and gtv_mask_fixed have different sizes. Cannot apply mask.');
+        warning('apply_dir_mask_propagation:sizeMismatch', ...
+            'b0_fixed and gtv_mask_fixed have different sizes. Cannot apply mask.');
         return;
     end
 
-    % --- Normalise images to [0, 1] for numerically stable Demons ---
-    fixed_norm = mat2gray(double(b0_fixed));
-    moving_norm = mat2gray(double(b0_moving));
+    % --- Robust percentile-based normalisation to [0, 1] ---
+    % mat2gray uses global min/max, which is highly vulnerable to contrast
+    % compression from isolated bright artifacts in DWI data. Instead we
+    % clip to the [1st, 99th] percentile of non-zero voxels and linearly
+    % rescale, preserving tissue contrast for imregdemons.
+    fixed_norm = robust_percentile_norm(double(b0_fixed));
+    moving_norm = robust_percentile_norm(double(b0_moving));
 
     % --- Symmetric Diffeomorphic Registration (Halfway-Space / Midpoint) ---
     % Replaces standard additive demons with a symmetric approach (e.g., Log-Domain / SyN).
@@ -106,4 +113,30 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 
     % Threshold and return as logical
     gtv_mask_warped = logical(mask_warped_float >= 0.5);
+end
+
+function img_norm = robust_percentile_norm(img)
+% robust_percentile_norm  Normalise a 3-D image to [0, 1] using the 1st and
+%   99th percentiles of non-zero voxels. This avoids contrast compression
+%   caused by isolated bright artifacts that would dominate a simple
+%   min/max (mat2gray) rescaling.
+
+    nz = img(img ~= 0);
+    if isempty(nz)
+        img_norm = zeros(size(img));
+        return;
+    end
+
+    p = prctile(nz, [1 99]);
+    lo = p(1);
+    hi = p(2);
+
+    if hi <= lo
+        % Degenerate case: all non-zero voxels have the same value.
+        img_norm = zeros(size(img));
+        return;
+    end
+
+    img_norm = (img - lo) / (hi - lo);
+    img_norm = max(min(img_norm, 1), 0);  % clip to [0, 1]
 end

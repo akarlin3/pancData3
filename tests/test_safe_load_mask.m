@@ -124,5 +124,43 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
                  'Should return empty if file does not exist.');
         end
 
+        function testCorruptedMatFile(testCase)
+            % A truncated/corrupted .mat file should not crash;
+            % safe_load_mask should return empty gracefully.
+            filename = fullfile(testCase.TempDir, 'corrupted.mat');
+            fid = fopen(filename, 'w');
+            fwrite(fid, 'NOT_A_VALID_MAT_FILE_HEADER');
+            fclose(fid);
+
+            loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            testCase.verifyEmpty(loaded_mask, ...
+                'Should return empty for corrupted .mat file.');
+        end
+
+        function testMultiVariableMatFile(testCase)
+            % .mat file with multiple variables should correctly load
+            % only the requested one.
+            filename = fullfile(testCase.TempDir, 'multi_var.mat');
+            OtherVar = rand(3, 3);
+            Stvol3d = rand(5, 5, 5);
+            AnotherVar = 'hello';
+            save(filename, 'OtherVar', 'Stvol3d', 'AnotherVar');
+
+            loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            testCase.verifyEqual(loaded_mask, Stvol3d, ...
+                'Should load the correct variable from multi-variable .mat file.');
+        end
+
+        function testValidIntegerMask(testCase)
+            % Integer types (uint8, int16, etc.) should be accepted
+            filename = fullfile(testCase.TempDir, 'valid_uint8.mat');
+            Stvol3d = uint8(randi([0 1], 5, 5, 5));
+            save(filename, 'Stvol3d');
+
+            loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            testCase.verifyEqual(loaded_mask, Stvol3d, ...
+                'Should successfully load uint8 mask.');
+        end
+
     end
 end
