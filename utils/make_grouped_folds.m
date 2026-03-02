@@ -18,15 +18,12 @@ function fold_id = make_grouped_folds(id_list_cell, y, n_folds)
 %   ------
 %   fold_id - (n_rows x 1) integer column vector, values in 1..k.
 
-unique_ids = unique(id_list_cell);
+[unique_ids, ~, ic] = unique(id_list_cell);
 n_unique   = numel(unique_ids);
 
 % Derive patient-level event status. A patient is an "event" if ANY of
 % their longitudinal rows contains an event (max(y) > 0).
-pt_y = zeros(n_unique, 1);
-for i = 1:n_unique
-    pt_y(i) = double(any(y(strcmp(id_list_cell, unique_ids{i})) > 0));
-end
+pt_y = accumarray(ic, y, [n_unique, 1], @(x) double(any(x > 0)));
 
 % Safety check: don't request more folds than we have unique patients
 k = min(n_folds, n_unique);
@@ -55,9 +52,10 @@ else
     end
 end
 
-fold_id = zeros(numel(id_list_cell), 1);
+pt_fold = zeros(n_unique, 1);
 for f = 1:k
     pt_idx = find(test(cvp, f));
-    fold_id(ismember(id_list_cell, unique_ids(pt_idx))) = f;
+    pt_fold(pt_idx) = f;
 end
+fold_id = pt_fold(ic);
 end
