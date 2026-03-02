@@ -1049,14 +1049,18 @@ function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
     gtv_names = {gtv_search.name};
     gtv_search_result = zeros(size(gtv_search));
 
+    % Precompute regex patterns to avoid redundant compilation inside loops
+    compiled_patterns = cell(1, length(patterns));
+    for p = 1:length(patterns)
+        compiled_patterns{p} = regexptranslate('wildcard', [patterns{p} int2str(index)]);
+    end
+
     for gi = 1:length(gtv_names)
         gtmp = strsplit(gtv_names{gi}, '_');
         if length(gtmp) >= 2
             gtmp_tok = gtmp{2};
             for p = 1:length(patterns)
-                pat = patterns{p};
-                regex_pattern = regexptranslate('wildcard', [pat int2str(index)]);
-                isfound = regexp(gtmp_tok, regex_pattern);
+                isfound = regexp(gtmp_tok, compiled_patterns{p});
                 if ~isempty(isfound) && isfound(1) == 1
                     gtv_search_result(gi) = 1;
                     break;
