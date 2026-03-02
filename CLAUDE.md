@@ -288,6 +288,7 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Branch naming follows: `claude/<description>-<session-id>` for Claude branches, `jules-<description>` for Jules branches.
 - PRs from Jules must be reviewed before merging.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
+- After completing a task, create a pull request using `gh pr create`.
 
 ---
 
