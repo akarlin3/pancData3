@@ -333,7 +333,11 @@ parfor j = 1:length(mrn_list)
     gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
-    i_pat = find(contains(T_Pat_normalized, id_list_normalized{j}));
+    if exist('OCTAVE_VERSION', 'builtin')
+        i_pat = find(~cellfun(@isempty, strfind(T_Pat_normalized, id_list_normalized{j})));
+    else
+        i_pat = find(contains(T_Pat_normalized, id_list_normalized{j}));
+    end
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
@@ -343,7 +347,7 @@ parfor j = 1:length(mrn_list)
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
-        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)
