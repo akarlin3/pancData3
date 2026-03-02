@@ -98,45 +98,53 @@ for j = 1:nPat
         s = data_vectors_gtvp(j, k, 1);
 
         % Use configuration target to check the corresponding fields
-        if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
-            dtype_idx = config_struct.dwi_types_to_run;
+        if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
+            dtype_list = config_struct.dwi_types_to_run;
         else
-            dtype_idx = 1;
-        end
-        switch dtype_idx
-            case 1
-                vectors = struct('ADC', s.adc_vector, 'D', s.d_vector, 'f', s.f_vector, 'Dstar', s.dstar_vector);
-            case 2
-                vectors = struct('ADC', s.adc_vector_dncnn, 'D', s.d_vector_dncnn, 'f', s.f_vector_dncnn, 'Dstar', s.dstar_vector_dncnn);
-            case 3
-                vectors = struct('ADC', s.adc_vector, 'D', s.d_vector_ivimnet, 'f', s.f_vector_ivimnet, 'Dstar', s.dstar_vector_ivimnet);
+            dtype_list = 1;
         end
 
-        fields = fieldnames(vectors);
-        for fi = 1:numel(fields)
-            v = vectors.(fields{fi});
-            if isempty(v), continue; end   % no data at this timepoint
+        for dtype_idx = dtype_list(:)'
+            switch dtype_idx
+                case 1
+                    vectors = struct('ADC', s.adc_vector, 'D', s.d_vector, 'f', s.f_vector, 'Dstar', s.dstar_vector);
+                    dtype_name = '';
+                case 2
+                    vectors = struct('ADC', s.adc_vector_dncnn, 'D', s.d_vector_dncnn, 'f', s.f_vector_dncnn, 'Dstar', s.dstar_vector_dncnn);
+                    dtype_name = ' (DnCNN)';
+                case 3
+                    vectors = struct('ADC', s.adc_vector, 'D', s.d_vector_ivimnet, 'f', s.f_vector_ivimnet, 'Dstar', s.dstar_vector_ivimnet);
+                    dtype_name = ' (IVIM-NET)';
+                otherwise
+                    continue;
+            end
 
-            % Count non-physical voxel values
-            n_inf    = sum(isinf(v));
-            n_nan    = sum(isnan(v));
-            n_neg    = sum(v < 0);
-            n_total  = numel(v);
+            fields = fieldnames(vectors);
+            for fi = 1:numel(fields)
+                v = vectors.(fields{fi});
+                if isempty(v), continue; end   % no data at this timepoint
 
-            if n_inf > 0 || n_nan > 0 || n_neg > 0
-                fprintf('  Patient %s  %s  %s : ', ...
-                    id_list{j}, fx_labels{min(k,numel(fx_labels))}, fields{fi});
-                if n_inf > 0
-                    fprintf('Inf=%d/%d (%.1f%%)  ', n_inf, n_total, 100*n_inf/n_total);
+                % Count non-physical voxel values
+                n_inf    = sum(isinf(v));
+                n_nan    = sum(isnan(v));
+                n_neg    = sum(v < 0);
+                n_total  = numel(v);
+
+                if n_inf > 0 || n_nan > 0 || n_neg > 0
+                    fprintf('  Patient %s  %s  %s%s : ', ...
+                        id_list{j}, fx_labels{min(k,numel(fx_labels))}, fields{fi}, dtype_name);
+                    if n_inf > 0
+                        fprintf('Inf=%d/%d (%.1f%%)  ', n_inf, n_total, 100*n_inf/n_total);
+                    end
+                    if n_nan > 0
+                        fprintf('NaN=%d/%d (%.1f%%)  ', n_nan, n_total, 100*n_nan/n_total);
+                    end
+                    if n_neg > 0
+                        fprintf('Neg=%d/%d (%.1f%%)  ', n_neg, n_total, 100*n_neg/n_total);
+                    end
+                    fprintf('\n');
+                    conv_issues = conv_issues + 1;
                 end
-                if n_nan > 0
-                    fprintf('NaN=%d/%d (%.1f%%)  ', n_nan, n_total, 100*n_nan/n_total);
-                end
-                if n_neg > 0
-                    fprintf('Neg=%d/%d (%.1f%%)  ', n_neg, n_total, 100*n_neg/n_total);
-                end
-                fprintf('\n');
-                conv_issues = conv_issues + 1;
             end
         end
     end
