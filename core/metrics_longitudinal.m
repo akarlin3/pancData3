@@ -49,13 +49,21 @@ for i = 1:4
         title_str_pct, ylabel_pct, true);
 end
 
-sgtitle(['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
+if exist('OCTAVE_VERSION', 'builtin')
+    % Fallback for sgtitle in Octave
+    axes('Position',[0 0 1 1],'Xlim',[0 1],'Ylim',[0 1],'Box','off','Visible','off','Units','normalized', 'clipping' , 'off');
+    text(0.5, 0.98, ['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'HorizontalAlignment', 'center', 'FontSize', 16, 'FontWeight', 'bold');
+else
+    sgtitle(['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
+end
 % Shift subplot axes down to create visual separation between super-title and subplot titles
 subplot_scale = 0.92;
 allAx = findall(gcf, 'Type', 'Axes');
-for k = 1:numel(allAx)
-    pos = allAx(k).Position;
-    allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+if ~exist('OCTAVE_VERSION', 'builtin')
+    for k = 1:numel(allAx)
+        pos = allAx(k).Position;
+        allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+    end
 end
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
@@ -82,8 +90,17 @@ hold on;
 
 % Calculate population mean and standard error of the mean (SEM)
 if exist('OCTAVE_VERSION', 'builtin')
-    pop_mean = nanmean(dat, 1);
-    pop_se   = nanstd(dat, 0, 1) ./ sqrt(sum(~isnan(dat), 1));
+    valid_mask = ~isnan(dat);
+    N = sum(valid_mask, 1);
+    dat_zero = dat;
+    dat_zero(~valid_mask) = 0;
+    pop_mean = sum(dat_zero, 1) ./ N;
+
+    devs = dat - repmat(pop_mean, size(dat, 1), 1);
+    devs_sq = devs.^2;
+    devs_sq(~valid_mask) = 0;
+    pop_std = sqrt(sum(devs_sq, 1) ./ max(1, N - 1));
+    pop_se = pop_std ./ sqrt(N);
 else
     pop_mean = mean(dat, 1, 'omitnan');
     pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
@@ -104,7 +121,13 @@ end
 
 if add_zero_line
     % Add a baseline reference line at 0% change
-    yline(0, 'k--', 'LineWidth', 1.5);
+    if exist('OCTAVE_VERSION', 'builtin')
+        % Fallback for yline in Octave
+        xl = xlim;
+        plot(xl, [0 0], 'k--', 'LineWidth', 1.5);
+    else
+        yline(0, 'k--', 'LineWidth', 1.5);
+    end
 end
 
 % Formatting
