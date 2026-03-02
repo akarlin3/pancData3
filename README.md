@@ -88,7 +88,24 @@ Contains an extensive suite of MATLAB tests simulating scenarios and asserting c
 - **`test_visualize_refactor.m`**: Regression tests ensuring visualization refactoring preserves prior output behavior.
 - **`test_modularity.m`**: Checks that pipeline modules can be called independently without side effects.
 - **`test_normalization_logic.m`**, **`test_landmark_cindex.m`**, **`test_landmark_cindex_mock.m`**: Specialized unit tests for normalization, concordance index computation, and mock-based landmark validation.
-- **`benchmark_filter_collinear.m`**, **`benchmark_metrics_opt.m`**: Performance benchmarks for collinearity filtering and metrics optimization.
+
+#### `tests/benchmarks/`
+Performance benchmarks comparing algorithm implementations. Not executed by `run_all_tests.m`.
+- **`benchmark_filter_collinear.m`**: Benchmarks collinearity filtering speed.
+- **`benchmark_metrics_opt.m`**: Benchmarks metric computation optimizations.
+- **`benchmark_make_grouped_folds.m`**: Benchmarks patient-stratified fold generation.
+- **`benchmark_scale_td.m`**: Benchmarks temporal panel scaling (original vs. optimized).
+- **`test_opt.m`**: Compares patient-level outcome aggregation strategies (loop vs. `accumarray`).
+- **`test_opt2.m`**: Compares fold-assignment optimization approaches.
+- **`test_perf.m`**: Benchmarks GTV file search pattern matching.
+
+#### `tests/diagnostics/`
+Lightweight scratch scripts for manual, interactive spot-checking during development. Not executed by `run_all_tests.m`.
+- **`run_manual_test.m`**: Manually exercises `compute_summary_metrics` with inline mock data.
+- **`run_test_local.m`**: Quick local harness that calls `test_compute_summary_metrics` directly.
+- **`test_accumarray.m`**: Spot-check of MATLAB's `accumarray` for patient-level aggregation.
+- **`test_make_grouped_folds.m`**: Minimal sanity check for `make_grouped_folds`.
+- **`test_vis_script.m`**: Smoke runner for `visualize_results` without the full test framework.
 
 ### Dependencies
 - MATLAB R2021a or later (with Image Processing Toolbox and Statistics and Machine Learning Toolbox).

@@ -1,5 +1,5 @@
-addpath('core');
-addpath('tests');
+addpath('../../core');
+addpath('..');
 testCase = test_compute_summary_metrics();
 testCase.createMockInputs();
 testCase.testBasicCalculation();

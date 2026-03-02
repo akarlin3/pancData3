@@ -1,4 +1,4 @@
-addpath('utils');
+addpath('../../utils');
 id_list_cell = {'A'; 'A'; 'B'; 'C'; 'C'; 'D'};
 y = [1; 0; 0; 1; 1; 0];
 n_folds = 2;

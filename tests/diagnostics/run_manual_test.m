@@ -1,5 +1,5 @@
 pkg load statistics;
-addpath('core');
+addpath('../../core');
 
 % Emulate test_compute_summary_metrics
 ConfigStruct = struct('dataloc', pwd, 'adc_thresh', 1.15e-3, ...

@@ -23,8 +23,8 @@ SummaryMetrics.dmean_gtvp = 50 * ones(1,1);
 CalculatedResults = struct();
 DataVectors = struct('adc_vector', {ones(10,1)});
 
-addpath(fullfile(pwd, 'core'));
-addpath(fullfile(pwd, 'utils'));
-addpath(fullfile(pwd, 'dependencies'));
+addpath('../../core');
+addpath('../../utils');
+addpath('../../dependencies');
 
 visualize_results(DataVectors, SummaryMetrics, CalculatedResults, ConfigStruct);
