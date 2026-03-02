@@ -25,7 +25,14 @@ function benchmark_scale_td()
     end
     toc;
 
-    disp('Warming up Optimized...');
+    disp('Warming up Current...');
+    tic;
+    for iter = 1:5
+        run_current(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features);
+    end
+    toc;
+
+    disp('Warming up New Optimized...');
     tic;
     for iter = 1:5
         run_optimized(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features);
@@ -41,7 +48,14 @@ function benchmark_scale_td()
     end
     t_orig = toc;
 
-    disp('Running Optimized...');
+    disp('Running Current...');
+    tic;
+    for iter = 1:num_runs
+        run_current(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features);
+    end
+    t_curr = toc;
+
+    disp('Running New Optimized...');
     tic;
     for iter = 1:num_runs
         run_optimized(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features);
@@ -49,8 +63,9 @@ function benchmark_scale_td()
     t_opt = toc;
 
     fprintf('Original: %f seconds\n', t_orig);
-    fprintf('Optimized: %f seconds\n', t_opt);
-    fprintf('Speedup: %fx\n', t_orig / t_opt);
+    fprintf('Current: %f seconds\n', t_curr);
+    fprintf('New Optimized: %f seconds\n', t_opt);
+    fprintf('Speedup (New vs Current): %fx\n', t_curr / t_opt);
 
 end
 
@@ -88,7 +103,7 @@ function run_original(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_tr
     end
 end
 
-function run_optimized(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features)
+function run_current(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features)
     X_td_scaled = X_td_raw;
     for fi = 1:num_features
         for fn = 1:length(unique_weeks)
@@ -105,6 +120,42 @@ function run_optimized(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_t
             % Get the actual indices in the main arrays corresponding to these subset indices
             train_week_indices = find(train_week_mask);
             first_occurrence_indices = train_week_indices(unique_idx);
+
+            % Extract the values using these indices
+            vals = X_td_raw(first_occurrence_indices, fi);
+            unique_vals = vals(~isnan(vals));
+            valid_cnt = length(unique_vals);
+
+            if valid_cnt > 1
+                mu_col = mean(unique_vals);
+                sd_col = std(unique_vals);
+            else
+                mu_col = 0; sd_col = 1;
+            end
+        end
+    end
+end
+
+function run_optimized(X_td_raw, pat_id_td, temporal_week_td, unique_weeks, is_train_row, num_features)
+    X_td_scaled = X_td_raw;
+    n_weeks = length(unique_weeks);
+    week_masks_cell = cell(n_weeks, 1);
+    first_occ_indices_cell = cell(n_weeks, 1);
+
+    for fn = 1:n_weeks
+        week_val = unique_weeks(fn);
+        week_mask = (temporal_week_td == week_val);
+        train_week_mask = week_mask & is_train_row;
+        week_masks_cell{fn} = week_mask;
+
+        [~, unique_idx] = unique(pat_id_td(train_week_mask), 'first');
+        train_week_indices = find(train_week_mask);
+        first_occ_indices_cell{fn} = train_week_indices(unique_idx);
+    end
+
+    for fi = 1:num_features
+        for fn = 1:n_weeks
+            first_occurrence_indices = first_occ_indices_cell{fn};
 
             % Extract the values using these indices
             vals = X_td_raw(first_occurrence_indices, fi);
