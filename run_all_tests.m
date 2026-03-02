@@ -13,6 +13,7 @@ utilsDir = fullfile(repoRoot, 'utils');
 addpath(coreDir);
 addpath(utilsDir);
 addpath(repoRoot);
+addpath(genpath(testsDir));
 
 disp('===================================================');
 disp('   MATLAB CI Test Runner: Initializing Suite       ');

@@ -246,29 +246,41 @@ end
 
 % Let's also run the GLME Mixed-effects model from the end of the script
 fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
-long_PatientID = [];
-long_Timepoint = [];
-long_ADC = [];
-long_D = [];
-long_f = [];
-long_Dstar = [];
-long_LF = [];
-
 patient_indices = find(valid_pts);
+max_obs = length(patient_indices) * nTp;
+
+long_PatientID = nan(max_obs, 1);
+long_Timepoint = nan(max_obs, 1);
+long_ADC = nan(max_obs, 1);
+long_D = nan(max_obs, 1);
+long_f = nan(max_obs, 1);
+long_Dstar = nan(max_obs, 1);
+long_LF = nan(max_obs, 1);
+
+obs_idx = 0;
 for i = 1:length(patient_indices)
     p_idx = patient_indices(i);
     for t = 1:nTp
         if ~isnan(ADC_abs(p_idx, t)) || ~isnan(D_abs(p_idx, t)) || ~isnan(f_abs(p_idx, t)) || ~isnan(Dstar_abs(p_idx, t))
-            long_PatientID = [long_PatientID; i]; 
-            long_Timepoint = [long_Timepoint; t];
-            long_ADC = [long_ADC; ADC_abs(p_idx, t)];
-            long_D = [long_D; D_abs(p_idx, t)];
-            long_f = [long_f; f_abs(p_idx, t)];
-            long_Dstar = [long_Dstar; Dstar_abs(p_idx, t)];
-            long_LF = [long_LF; lf_group(i)];
+            obs_idx = obs_idx + 1;
+            long_PatientID(obs_idx) = i;
+            long_Timepoint(obs_idx) = t;
+            long_ADC(obs_idx) = ADC_abs(p_idx, t);
+            long_D(obs_idx) = D_abs(p_idx, t);
+            long_f(obs_idx) = f_abs(p_idx, t);
+            long_Dstar(obs_idx) = Dstar_abs(p_idx, t);
+            long_LF(obs_idx) = lf_group(i);
         end
     end
 end
+
+long_PatientID = long_PatientID(1:obs_idx);
+long_Timepoint = long_Timepoint(1:obs_idx);
+long_ADC = long_ADC(1:obs_idx);
+long_D = long_D(1:obs_idx);
+long_f = long_f(1:obs_idx);
+long_Dstar = long_Dstar(1:obs_idx);
+long_LF = long_LF(1:obs_idx);
 
 glme_table = table(categorical(long_PatientID), long_Timepoint, ...
     long_ADC, long_D, long_f, long_Dstar, long_LF, ...

@@ -135,7 +135,7 @@ run_all_tests
 ```
 
 - Uses MATLAB's built-in `unittest` framework
-- Auto-discovers all test files in `tests/`
+- Auto-discovers all test files in `tests/` (including subfolders)
 - Generates code coverage report for `core/` and `utils/`
 - Compatible with MATLAB R2017b+
 - Returns non-zero exit code on failure (CI-safe)
