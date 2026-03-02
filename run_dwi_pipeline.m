@@ -28,6 +28,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     pipeline_dir = fileparts(mfilename('fullpath'));
     addpath(fullfile(pipeline_dir, 'core'));
     addpath(fullfile(pipeline_dir, 'utils'));
+    if exist('OCTAVE_VERSION', 'builtin')
+        addpath(fullfile(pipeline_dir, 'utils', 'octave_compat'));
+    end
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     % 1.5) Run test suite before pipeline execution (once per session)
@@ -35,7 +38,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % avoiding redundant re-runs when execute_all_workflows calls this
     % function multiple times.
     persistent tests_passed_this_session;
-    if isempty(tests_passed_this_session) || ~tests_passed_this_session
+    skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
+    if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
         try
             fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
             run(fullfile(pipeline_dir, 'tests', 'run_all_tests.m'));

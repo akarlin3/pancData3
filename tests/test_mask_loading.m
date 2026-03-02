@@ -1,4 +1,5 @@
 % Test 3D mask loading
+if ~exist('saved_figures', 'dir'), mkdir('saved_figures'); end
 diary(fullfile('saved_figures', 'test_mask_loading_output.txt'));
 diary on;
 

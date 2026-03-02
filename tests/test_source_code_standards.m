@@ -242,28 +242,28 @@ classdef test_source_code_standards < matlab.unittest.TestCase
         end
 
         function testVis_ExpectedProtocolDefined(testCase)
-            % visualize_results.m should define expected_bvals for protocol validation.
-            code = vis_code;
+            % plot_parameter_maps.m should define expected_bvals for protocol validation.
+            code = param_maps_code;
             matches = regexp(code, 'expected_bvals\s*=\s*\[0;\s*30;\s*150;\s*550\]', 'match');
             testCase.verifyTrue(~isempty(matches), ...
-            'visualize_results.m should define expected_bvals = [0; 30; 150; 550]');
+            'plot_parameter_maps.m should define expected_bvals = [0; 30; 150; 550]');
         end
 
         function testVis_ProtocolDeviationFlagged(testCase)
-            % visualize_results.m should flag protocol deviations with a warning message.
-            code = vis_code;
+            % plot_parameter_maps.m should flag protocol deviations with a warning message.
+            code = param_maps_code;
             testCase.verifyTrue(contains(code, 'Protocol deviation'), ...
-            'Protocol deviation flagging should be present in visualize_results.m');
+            'Protocol deviation flagging should be present in plot_parameter_maps.m');
         end
 
         function testVis_DeviationExcludesPatient(testCase)
             % The validation block should use 'continue' to exclude
             % deviating patients from the comparative mapping.
-            code = vis_code;
+            code = param_maps_code;
             idx_dev = strfind(code, 'Protocol deviation');
             idx_continue = strfind(code, 'continue');
             testCase.verifyTrue(~isempty(idx_dev) && ~isempty(idx_continue), ...
-            'Both protocol deviation flag and continue must exist in visualize_results.m');
+            'Both protocol deviation flag and continue must exist in plot_parameter_maps.m');
             if isempty(idx_dev) || isempty(idx_continue)
                 return;
             end
@@ -461,6 +461,13 @@ end
 
 function code = vis_code()
     fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'visualize_results.m'), 'r');
+    if fid == -1, code = ''; return; end
+    code = fread(fid, '*char')';
+    fclose(fid);
+end
+
+function code = param_maps_code()
+    fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'plot_parameter_maps.m'), 'r');
     if fid == -1, code = ''; return; end
     code = fread(fid, '*char')';
     fclose(fid);

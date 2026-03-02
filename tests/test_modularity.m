@@ -12,6 +12,11 @@ classdef test_modularity < matlab.unittest.TestCase
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
+            % Skip the pre-flight test suite when run_dwi_pipeline is
+            % called from within an already-running test suite (avoids
+            % nested coverage report conflicts).
+            setenv('SKIP_PIPELINE_PREFLIGHT', '1');
+
             testCase.ConfigStruct = struct();
             testCase.ConfigStruct.dataloc = [testCase.TempDir filesep];
             testCase.ConfigStruct.ivim_bthr = 100;
@@ -42,6 +47,7 @@ classdef test_modularity < matlab.unittest.TestCase
     methods(TestMethodTeardown)
         function teardown(testCase)
             rmdir(testCase.TempDir, 's');
+            setenv('SKIP_PIPELINE_PREFLIGHT', '');
         end
     end
 

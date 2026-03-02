@@ -12,7 +12,7 @@ function config_struct = parse_config(json_path)
 %
     if ~isfile(json_path)
 
-        error('Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
+        error('parse_config:fileNotFound', 'Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
         raw_json = fileread(json_path);
@@ -59,6 +59,6 @@ function config_struct = parse_config(json_path)
 
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        error('Failed to parse JSON configuration file: %s', ME.message);
+        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
     end
 end

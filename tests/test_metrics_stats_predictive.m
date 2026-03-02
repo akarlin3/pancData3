@@ -188,7 +188,7 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
             args = testCase.buildMinimalArgs(n, nTp, 2);
 
             % Inject the first patient into the DnCNN training set
-            id_list_pos = 28;   % position of id_list in args
+            id_list_pos = 27;   % position of id_list in args
             dl_prov_pos = 29;   % position of dl_provenance
             leaky_id = args{id_list_pos}{1};
             args{dl_prov_pos} = struct('dncnn_train_ids', {{leaky_id}});
@@ -215,7 +215,7 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
             nTp = 2;
             args = testCase.buildMinimalArgs(n, nTp, 3);
 
-            id_list_pos = 28;
+            id_list_pos = 27;
             dl_prov_pos = 29;
             leaky_id = args{id_list_pos}{2};   % second patient
             args{dl_prov_pos} = struct('ivimnet_train_ids', {{leaky_id}});

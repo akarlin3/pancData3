@@ -76,7 +76,7 @@ classdef test_parse_config < matlab.unittest.TestCase
         function testNonExistentFileThrowsError(testCase)
             % parse_config should error when the file does not exist
             testCase.verifyError(@() parse_config('/nonexistent/path/config.json'), ...
-                'MATLAB:error');
+                'parse_config:fileNotFound');
         end
 
         function testMalformedJsonThrowsError(testCase)
@@ -86,7 +86,7 @@ classdef test_parse_config < matlab.unittest.TestCase
             fclose(fid);
 
             testCase.verifyError(@() parse_config(testCase.TempConfigFile), ...
-                'MATLAB:error');
+                'parse_config:invalidJSON');
         end
 
         function testEmptyFileThrowsError(testCase)
@@ -95,7 +95,7 @@ classdef test_parse_config < matlab.unittest.TestCase
             fclose(fid);
 
             testCase.verifyError(@() parse_config(testCase.TempConfigFile), ...
-                'MATLAB:error');
+                'parse_config:invalidJSON');
         end
 
         function testDwiTypeStandard(testCase)

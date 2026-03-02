@@ -133,6 +133,8 @@ classdef test_plot_scatter_correlations < matlab.unittest.TestCase
 
             % Exclude the first 4 patients
             vp = [false(4, 1); true(6, 1)];
+            % Pre-subset lf_group to match valid_pts (as visualize_results does)
+            lfg = lfg(vp);
 
             plot_scatter_correlations(lbl, dmean, d95, adc, d, f, vp, lfg, dt, out);
 

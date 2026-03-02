@@ -13,6 +13,9 @@ utilsDir = fullfile(repoRoot, 'utils');
 % Ensure directories are on the MATLAB path
 addpath(coreDir);
 addpath(utilsDir);
+if exist('OCTAVE_VERSION', 'builtin')
+    addpath(fullfile(utilsDir, 'octave_compat'));
+end
 addpath(repoRoot);
 addpath(genpath(testsDir));
 
