@@ -80,7 +80,7 @@ Helper scripts for specific data processing and modeling tasks (17 files):
 - **`plot_feature_distribution.m`**: Renders histogram or boxplot visualizations of a feature split by clinical outcome (Local Control vs. Local Failure), with one-way ANOVA p-value annotation for boxplots.
 
 ### `tests/`
-Contains an extensive suite of MATLAB tests (44 files) simulating scenarios and asserting correctness of statistical models and data transformations:
+Contains an extensive suite of MATLAB tests (45 files) simulating scenarios and asserting correctness of statistical models and data transformations:
 - **`test_dwi_pipeline.m`**: Comprehensive tests covering imputation bounds, leakage, IPCW weighting, competing risks analysis, and feature space matching.
 - **`test_statistical_methods.m`**: Pure algorithmic tests for statistical and numerical routines including BH/Holm corrections, correlation filtering, LOOCV, FDR, imputation, and time-dependent panel construction.
 - **`test_source_code_standards.m`**: Static code analysis tests verifying source-code patterns, naming conventions, and architectural invariants without executing pipeline logic.
@@ -147,5 +147,8 @@ Lightweight scratch scripts for manual, interactive spot-checking during develop
 - MATLAB R2021a or later (with Image Processing Toolbox and Statistics and Machine Learning Toolbox).
 - MRIcroGL’s `dcm2niix` executable or equivalent added to the system path for DICOM-to-NIFTI conversion.
 - Script implementations for Intravoxel Incoherent Motion (IVIM) fitting (`IVIMmodelfit.m`, `IVIM_seg.m`, `IVIM_bayes.m`) and mono-exponential ADC (`fit_adc_mono.m`).
-- Deep learning architectures appropriately configured for inference (e.g., `dncnn_model.mat`).
+- **`apply_dncnn_symmetric.m`**: DnCNN deep learning denoising applied to MRI images within a GTV bounding box.
+- **`clean_dir_command.m`**: Wraps MATLAB’s `dir()` to filter out `.`, `..`, and non-folder entries.
+- **`halfSampleMode.m`**: Computes the half-sample mode (robust location estimator) for each row of a matrix.
+- **`im2Y.m`**: Transforms a 3D/4D functional image array into a 2D data matrix, optionally masked to a region of interest.
 - Functions for DVH processing (`dvh.m`, `sample_rtdose_on_image.m`).
