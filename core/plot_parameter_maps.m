@@ -131,9 +131,11 @@ for j = 1:nPat
 
     % --- Column 3: ADC overlaid on anatomy (inside GTV only) ---
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 3);
-    % Normalise b=0 image to [0,1] so it serves as a greyscale underlay
-    b0_norm = mat2gray(b0_slice);
-    imshow(b0_norm, []); hold on;
+    % Normalise b=0 image to [0,1] and make it an RGB TrueColor image
+    % so that the figure's colormap does not apply to it
+    b0_norm = (b0_slice - min(b0_slice(:))) ./ (max(b0_slice(:)) - min(b0_slice(:)));
+    b0_rgb = cat(3, b0_norm, b0_norm, b0_norm);
+    imagesc(b0_rgb); axis image; axis off; hold on;
     % Mask ADC outside the GTV to NaN so only tumour voxels are coloured
     adc_overlay = adc_slice;
     adc_overlay(gtv_slice < 0.5) = NaN;
