@@ -11,9 +11,10 @@ classdef test_plot_feature_distributions < matlab.unittest.TestCase
             mkdir(testCase.TempDir);
 
             % Add core/utils to path
-            addpath(fullfile(pwd, 'core'));
-            addpath(fullfile(pwd, 'utils'));
-            addpath(fullfile(pwd, 'dependencies'));
+            baseDir = fileparts(fileparts(mfilename('fullpath')));
+            addpath(fullfile(baseDir, 'core'));
+            addpath(fullfile(baseDir, 'utils'));
+            addpath(fullfile(baseDir, 'dependencies'));
 
             % Ensure no figures are visible during testing to prevent popups
             set(0, 'DefaultFigureVisible', 'off');

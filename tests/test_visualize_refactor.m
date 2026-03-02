@@ -46,9 +46,10 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             testCase.DataVectors = struct('adc_vector', {ones(10,1)});
 
             % Add core/utils to path
-            addpath(fullfile(pwd, 'core'));
-            addpath(fullfile(pwd, 'utils'));
-            addpath(fullfile(pwd, 'dependencies'));
+            baseDir = fileparts(fileparts(mfilename('fullpath')));
+            addpath(fullfile(baseDir, 'core'));
+            addpath(fullfile(baseDir, 'utils'));
+            addpath(fullfile(baseDir, 'dependencies'));
         end
     end
 

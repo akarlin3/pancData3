@@ -1,4 +1,5 @@
-addpath('core', 'utils');
+baseDir = fileparts(fileparts(which(mfilename)));
+addpath(fullfile(baseDir, 'core'), fullfile(baseDir, 'utils'));
 config_struct.dataloc = tempdir;
 config_struct.dwi_type_name = 'Standard';
 config_struct.skip_to_reload = true;
