@@ -54,12 +54,20 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         grid on;
 
     elseif strcmpi(plot_type, 'boxplot')
-        boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
-
+        if sum(has_data) > 1
+            boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+        else
+            % Just plot a single point if only 1 patient
+            plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+            xlim([0.5, 2.5]);
+            xticks([1, 2]);
+            xticklabels({'LC (0)', 'LF (1)'});
+        end
+        
         ylabel(metric_unit);
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
-
+        
         % Annotate with a one-way ANOVA p-value comparing LC vs LF
         if sum(has_data) > 2 && numel(unique(lf_clean)) > 1
             p = anova1(vals_clean, lf_clean, 'off');
