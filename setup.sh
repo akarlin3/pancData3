@@ -6,7 +6,7 @@ if [ -f "$MATLAB_CACHE_DIR/bin/matlab" ]; then
 else
     echo "Installing MATLAB..."
     mkdir -p $MATLAB_CACHE_DIR
-    wget -q https://www.mathworks.com/mpm/get/linux -O mpm
+    wget -q https://www.mathworks.com/mpm/glnxa64/mpm -O mpm
     chmod +x mpm
     sudo ./mpm install --release=R2025a --destination=/opt/matlab --products MATLAB
     rm mpm
