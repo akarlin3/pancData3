@@ -157,7 +157,6 @@ d_mean_dncnn = nan(size(dwi_locations));   % DnCNN-denoised IVIM fit
 d_mean_ivimnet = nan(size(dwi_locations)); % IVIMnet deep-learning fit
 
 d_kurtosis = nan(size(dwi_locations));
-d_skewness = nan(size(dwi_locations));
 
 % DVH parameters within GTVp and GTVn (patient × fraction)
 % Sized to 6 columns to accommodate on-treatment fractions + Post-RT scan
@@ -495,9 +494,6 @@ else
     % Set data path from configuration
     dataloc = config_struct.dataloc;
 
-% Set data path from configuration
-dataloc = config_struct.dataloc;
-
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
 else
@@ -536,7 +532,7 @@ end
     
 if exist('OCTAVE_VERSION', 'builtin') && ~exist('id_list', 'var')
     warning('id_list not loaded from save file. This may occur during mock tests. Proceeding with dummy data.');
-    id_list = {}; mrn_list = {}; lf = []; immuno = {}; gtv_locations = []; dwi_locations = []; dmean_gtvp = []; d95_gtvp = []; v50gy_gtvp = []; data_vectors_gtvp = [];
+    id_list = {}; mrn_list = {}; lf = []; immuno = {}; gtv_locations = []; dwi_locations = []; dmean_gtvp = []; d95_gtvp = []; v50gy_gtvp = []; data_vectors_gtvp = []; data_vectors_gtvn = [];
 end
 end % if ~skip_to_reload
 
@@ -554,149 +550,6 @@ end
 
 function parsave_dir_cache(fname, gtv_mask_warped, D_forward, ref3d)
     save(fname, 'gtv_mask_warped', 'D_forward', 'ref3d');
-end
-
-
-function filepath = find_gtv_file(folder, patterns, index, pat_name, fx_name)
-    % FIND_GTV_FILE Helper function to locate GTV mask files
-    %   Handles multiple naming conventions and repeat indices
-
-    if ischar(patterns) || isstring(patterns)
-        patterns = {char(patterns)};
-    end
-
-    filepath = '';
-    gtv_search = [];
-    single_gtv_search = [];
-
-    % Search for all possible patterns
-    for p = 1:length(patterns)
-        pat = patterns{p};
-        % Specific repeat index search
-        gtv_search = cat(1, gtv_search, dir(fullfile(folder, [pat int2str(index) '*.mat'])));
-        % General search (no index)
-        single_gtv_search = cat(1, single_gtv_search, dir(fullfile(folder, [pat '*.mat'])));
-    end
-
-    % If exactly one general GTV mask exists, use it directly
-    if isscalar(single_gtv_search)
-        filepath = fullfile(folder, single_gtv_search.name);
-        return;
-    end
-
-    if isempty(gtv_search)
-        fprintf('%s/%s: No GTV%d found\n', pat_name, fx_name, index);
-        return;
-    end
-
-    % If exactly one specific index mask exists, use it directly
-    if isscalar(gtv_search)
-        filepath = fullfile(folder, gtv_search.name);
-        return;
-    end
-
-    % If multiple specific GTV masks exist, try to match by repeat index (index)
-    % using the second underscore-delimited token in the filename
-    gtv_names = {gtv_search.name};
-    gtv_search_result = zeros(size(gtv_search));
-
-    % [PERFORMANCE OPTIMIZATION]
-    % Precompute regex patterns outside the inner loop to avoid redundant regex compilation
-    precomputed_regex_patterns = cell(1, length(patterns));
-    for p = 1:length(patterns)
-        pat = patterns{p};
-        precomputed_regex_patterns{p} = regexptranslate('wildcard', [pat int2str(index)]);
-    end
-
-    for gi = 1:length(gtv_names)
-        gtmp = strsplit(gtv_names{gi}, '_');
-        if length(gtmp) >= 2
-            gtmp_tok = gtmp{2};
-            for p = 1:length(patterns)
-                regex_pattern = precomputed_regex_patterns{p};
-                isfound = regexp(gtmp_tok, regex_pattern);
-                if ~isempty(isfound) && isfound(1) == 1
-                    gtv_search_result(gi) = 1;
-                    break;
-                end
-            end
-        end
-    end
-
-    % Fallback: a second format was also used for some cases...
-    % (repeat index as trailing numeric token after last '_')
-    if sum(gtv_search_result) == 0
-        for gi = 1:length(gtv_names)
-            gtmp = strsplit(gtv_names{gi}, '_');
-            gtmp_end = strrep(gtmp{end}, '.mat', '');
-            if str2double(gtmp_end) == index
-                gtv_search_result(gi) = 1;
-            end
-        end
-    end
-
-    if sum(gtv_search_result) == 0
-        fprintf('%s/%s: No GTV%d found\n', pat_name, fx_name, index);
-    elseif sum(gtv_search_result) > 1
-        fprintf('%s/%s: Redundant GTV%ds found\n', pat_name, fx_name, index);
-    elseif sum(gtv_search_result) == 1
-        filepath = fullfile(folder, gtv_search(gtv_search_result == 1).name);
-    end
-end
-
-
-function [d_map, f_map, dstar_map] = fit_ivim_model(dwi_data, bvalues, mask, opts)
-    % Helper function to fit segmented IVIM model to valid voxels within a mask
-    sz3 = [size(dwi_data,1), size(dwi_data,2), size(dwi_data,3)];
-    valid_voxels_idx = find(mask);
-    n_valid = length(valid_voxels_idx);
-
-    % Preallocate output 1D arrays
-    d_vec = nan(n_valid, 1);
-    f_vec = nan(n_valid, 1);
-    dstar_vec = nan(n_valid, 1);
-
-    has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
-    if has_sufficient_bvalues && n_valid > 0
-        % Extract 1D signal decay curves for valid voxels
-        dwi_flat = reshape(dwi_data, [prod(sz3), length(bvalues)]);
-        dwi_valid = dwi_flat(valid_voxels_idx, :);
-
-        % Pad to even number of elements
-        pad_len = mod(2 - mod(n_valid, 2), 2);
-        dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
-        n_padded = n_valid + pad_len;
-
-        % Reshape for dependency [N, 1, 2, bval]
-        dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
-        mask_1d_vol = true(n_padded/2, 1, 2);
-
-        % Execute the untouched dependency on the flattened array
-        ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
-
-        % Restructure output back to strictly 1D and snip padding
-        ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
-        d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
-        f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
-        dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
-
-        % Replace zero-fit voxels with NaN
-        zero_mask = (d_vec == 0);
-        d_vec(zero_mask) = nan;
-        f_vec(zero_mask) = nan;
-        dstar_vec(zero_mask) = nan;
-    end
-
-    % Safely reconstruct 1D outputs back into 3D volume geometry
-    d_map = nan(sz3);
-    f_map = nan(sz3);
-    dstar_map = nan(sz3);
-
-    if n_valid > 0
-        d_map(valid_voxels_idx) = d_vec;
-        f_map(valid_voxels_idx) = f_vec;
-        dstar_map(valid_voxels_idx) = dstar_vec;
-    end
 end
 
 function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, mask_name)
