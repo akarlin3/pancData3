@@ -43,18 +43,21 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 
     % --- Input validation ---
     if isempty(b0_fixed) || isempty(b0_moving) || isempty(gtv_mask_fixed)
-        warning('apply_dir_mask_propagation: One or more inputs are empty. Skipping.');
+        warning('apply_dir_mask_propagation:emptyInput', ...
+            'One or more inputs are empty. Skipping.');
         return;
     end
 
     if ~isequal(size(b0_fixed), size(b0_moving))
-        warning('apply_dir_mask_propagation: b0_fixed (%s) and b0_moving (%s) have different sizes. Cannot register.', ...
+        warning('apply_dir_mask_propagation:sizeMismatch', ...
+            'b0_fixed (%s) and b0_moving (%s) have different sizes. Cannot register.', ...
             mat2str(size(b0_fixed)), mat2str(size(b0_moving)));
         return;
     end
 
     if ~isequal(size(b0_fixed), size(gtv_mask_fixed))
-        warning('apply_dir_mask_propagation: b0_fixed and gtv_mask_fixed have different sizes. Cannot apply mask.');
+        warning('apply_dir_mask_propagation:sizeMismatch', ...
+            'b0_fixed and gtv_mask_fixed have different sizes. Cannot apply mask.');
         return;
     end
 
