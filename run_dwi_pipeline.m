@@ -18,7 +18,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 %   2. sanity_checks
 %   3. visualize_results
 %   4. metrics (baseline, longitudinal, dosimetry, stats_comparisons, stats_predictive, survival)
-% 
+%
 % It explicitly passes data between modules to avoid workspace pollution
 % and includes error handling to halt execution if checks fail.
     % --- Initialization Block ---
@@ -58,6 +58,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         master_output_folder = '';
     end
 
+    log_fid = -1; % Error log file handle (opened after output folder is determined)
+
     fprintf('=======================================================\n');
     fprintf('🚀 Starting Master DWI Pipeline Orchestrator\n');
     fprintf('=======================================================\n');
@@ -67,10 +69,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('⚙️ [1/5] Parsing configuration from %s...\n', config_path);
         config_struct = parse_config(config_path);
         fprintf('      ✅ Done.\n');
-        
+
         % --- Master Output Folder Logic ---
         global MASTER_OUTPUT_FOLDER;
-        
+
         if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
             % First run in this MATLAB session without a specific folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
@@ -89,11 +91,17 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Using explicitly provided master output folder: %s\n', master_output_folder);
         end
-        
+
         config_struct.master_output_folder = master_output_folder;
     catch ME
         fprintf('❌ FAILED.\n');
         fprintf('❌ Error parsing configuration: %s\n', ME.message);
+        fb_fid = fopen(fullfile(pwd, 'error.log'), 'a');
+        if fb_fid > 0
+            fprintf(fb_fid, '[%s] [ERROR] Error parsing configuration: %s\n', ...
+                datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+            fclose(fb_fid);
+        end
         return; % Halt pipeline
     end
 
@@ -103,19 +111,30 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         current_dtype = current_dtype(1);
         config_struct.dwi_types_to_run = current_dtype;
     end
-    
+
     dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
     current_name = dwi_type_names{current_dtype};
-    
+
     fprintf('\n=======================================================\n');
     fprintf('🎯 EXECUTING PIPELINE FOR TARGET: %s\n', upper(current_name));
     fprintf('=======================================================\n');
-    
+
     config_struct.dwi_type_name = current_name;
-    
+
     type_output_folder = fullfile(master_output_folder, current_name);
     if ~exist(type_output_folder, 'dir'), mkdir(type_output_folder); end
     config_struct.output_folder = type_output_folder;
+
+    % Open error log file in master output folder
+    error_log_file = fullfile(master_output_folder, 'error.log');
+    log_fid = fopen(error_log_file, 'a');
+    if log_fid > 0
+        fprintf(log_fid, '\n[%s] ===== Pipeline run started (type: %s) =====\n', ...
+            datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
+    end
+    cleanup_log = onCleanup(@() fclose(log_fid));
+    lastwarn(''); % Reset MATLAB warning tracker
+    fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
     % Set isolated file names
     dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
@@ -133,6 +152,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('      💾 Saved summary_metrics to %s\n', summary_metrics_file);
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During load_dwi_data: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             if ~isempty(ME.stack)
                 stack_line = ME.stack(1).line;
@@ -142,6 +166,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 fprintf('❌ FAILED.\n');
             end
             fprintf('❌ Error during data loading: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] Data loading failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
             return; % Halt pipeline
         end
     else
@@ -155,7 +186,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             else
                 target_dwi_file = '';
             end
-            
+
             if ~isempty(target_dwi_file) && exist(summary_metrics_file, 'file')
                 tmp_vectors = load(target_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
                 data_vectors_gtvp = tmp_vectors.data_vectors_gtvp;
@@ -170,6 +201,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
              fprintf('❌ FAILED.\n');
              fprintf('❌ Error loading data from disk: %s\n', ME.message);
+             if log_fid > 0
+                 fprintf(log_fid, '[%s] [ERROR] Loading data from disk failed: %s\n', ...
+                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+             end
              return;
         end
     end
@@ -184,15 +219,24 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 error('Sanity checks failed: %s', validation_msg);
             end
             fprintf('      ✅ Passed.\n');
-            
+
             sanity_results_file = fullfile(config_struct.output_folder, sprintf('sanity_checks_results_%s.txt', current_name));
             fid = fopen(sanity_results_file, 'w');
             fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
             fclose(fid);
             fprintf('      💾 Saved sanity check results to %s\n', sanity_results_file);
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During sanity_checks: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Pipeline halted due to sanity check failure: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] Sanity checks failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+            end
             return; % Halt pipeline MUST STOP HERE IF DATA IS CORRUPT
         end
     else
@@ -214,15 +258,27 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
              ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, ...
              nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
              metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
-             
+
             save(baseline_results_file, 'm_lf', 'm_total_time', 'm_total_follow_up_time', 'm_gtv_vol', 'm_adc_mean', 'm_d_mean', 'm_f_mean', 'm_dstar_mean', ...
              'm_id_list', 'm_mrn_list', 'm_d95_gtvp', 'm_v50gy_gtvp', 'm_data_vectors_gtvp', 'lf_group', 'valid_pts', ...
              'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_pct', 'Dstar_pct', ...
              'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_baseline: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_baseline: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_baseline failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
             return;
         end
     else
@@ -237,6 +293,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 nTp = tmp_base.nTp; metric_sets = tmp_base.metric_sets; set_names = tmp_base.set_names; time_labels = tmp_base.time_labels; dtype_label = tmp_base.dtype_label; dl_provenance = tmp_base.dl_provenance;
             else
                 fprintf('      ⚠️ Warning: metrics_baseline results not found. Subsequent metrics steps will fail.\n');
+                if log_fid > 0
+                    fprintf(log_fid, '[%s] [WARNING] metrics_baseline results not found at: %s\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), baseline_results_file);
+                end
             end
         end
     end
@@ -252,14 +312,26 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_longitudinal: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_longitudinal: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_longitudinal failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         fprintf('⏭️ [5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
     end
-    
+
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
         try
@@ -267,12 +339,24 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
                 metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                                   m_data_vectors_gtvp, summary_metrics.gtv_locations);
-            
+
             save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_dosimetry: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_dosimetry: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_dosimetry failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         if any(ismember({'metrics_stats_comparisons', 'metrics_stats_predictive'}, steps_to_run))
@@ -282,6 +366,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 d95_adc_sub = tmp_dosimetry.d95_adc_sub; v50_adc_sub = tmp_dosimetry.v50_adc_sub; d95_d_sub = tmp_dosimetry.d95_d_sub; v50_d_sub = tmp_dosimetry.v50_d_sub; d95_f_sub = tmp_dosimetry.d95_f_sub; v50_f_sub = tmp_dosimetry.v50_f_sub; d95_dstar_sub = tmp_dosimetry.d95_dstar_sub; v50_dstar_sub = tmp_dosimetry.v50_dstar_sub;
             else
                 fprintf('      ⚠️ Warning: metrics_dosimetry results not found. metrics_stats may fail.\n');
+                if log_fid > 0
+                    fprintf(log_fid, '[%s] [WARNING] metrics_dosimetry results not found at: %s\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), dosimetry_results_file);
+                end
                 % define defaults just to prevent hard crash occasionally
                 if iscell(nTp), nTp_val = nTp{1}; else, nTp_val = nTp; end
                 d95_adc_sub = nan(length(m_id_list), nTp_val); v50_adc_sub = nan(length(m_id_list), nTp_val);
@@ -293,25 +381,37 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('⏭️ [5.3/5] [%s] Skipping metrics_dosimetry.\n', current_name);
         end
     end
-    
+
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
-    
+
     if ismember('metrics_stats_comparisons', steps_to_run)
         try
             fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
             metrics_stats_comparisons(valid_pts, lf_group, ...
                 metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
                 ADC_abs, D_abs, f_abs, Dstar_abs);
-            
+
             comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
             fid = fopen(comparisons_results_file, 'w');
             fprintf(fid, 'Stats Comparisons generated successfully.\n');
             fclose(fid);
             fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_stats_comparisons: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_stats_comparisons: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_stats_comparisons failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         fprintf('⏭️ [5.4a/5] [%s] Skipping metrics_stats_comparisons.\n', current_name);
@@ -326,7 +426,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, ...
                 d95_dstar_sub, v50_dstar_sub, summary_metrics.id_list, config_struct.dwi_types_to_run, ...
                 dl_provenance, time_labels, m_lf, m_total_time, m_total_follow_up_time);
-            
+
             save(predictive_results_file, 'risk_scores_all', 'is_high_risk', 'times_km', 'events_km');
 
             % Build a calculated_results struct for any downstream visualize_results steps
@@ -341,11 +441,23 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             % Save calculated results
             save(results_file, 'calculated_results');
             fprintf('      💾 Saved calculated_results to %s\n', results_file);
-            
+
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_stats_predictive: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_stats_predictive: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_stats_predictive failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         if ismember('metrics_survival', steps_to_run)
@@ -355,6 +467,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 risk_scores_all = tmp_pred.risk_scores_all; is_high_risk = tmp_pred.is_high_risk; times_km = tmp_pred.times_km; events_km = tmp_pred.events_km;
             else
                 fprintf('      ⚠️ Warning: metrics_stats_predictive results not found. metrics_survival will fail.\n');
+                if log_fid > 0
+                    fprintf(log_fid, '[%s] [WARNING] metrics_stats_predictive results not found at: %s\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), predictive_results_file);
+                end
             end
         else
             fprintf('⏭️ [5.4b/5] [%s] Skipping metrics_stats_predictive.\n', current_name);
@@ -373,6 +489,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
                 else
                     fprintf('      ⚠️ Warning: calculated_results file not found. Visualizations may be incomplete.\n');
+                    if log_fid > 0
+                        fprintf(log_fid, '[%s] [WARNING] calculated_results file not found at: %s\n', ...
+                            datestr(now, 'yyyy-mm-dd HH:MM:SS'), results_file);
+                    end
                     calculated_results = struct(); % Empty struct fallback
                 end
             end
@@ -382,29 +502,53 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
             fclose(fid);
             fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During visualize_results: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error generating visualizations: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] visualize_results failed (non-fatal): %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         fprintf('⏭️ [5.4c/5] [%s] Skipping Visualization.\n', current_name);
     end
-    
+
     if ismember('metrics_survival', steps_to_run)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
                              m_total_follow_up_time, nTp, 'Survival', dtype_label);
-            
+
             survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
             fid = fopen(survival_results_file, 'w');
             fprintf(fid, 'Survival metrics generated successfully.\n');
             fclose(fid);
             fprintf('      💾 Saved survival results log to %s\n', survival_results_file);
             fprintf('      ✅ Done.\n');
+            [warn_msg, warn_id] = lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During metrics_survival: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
         catch ME
             fprintf('❌ FAILED.\n');
             fprintf('❌ Error during metrics_survival: %s\n', ME.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] metrics_survival failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
         end
     else
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
@@ -413,5 +557,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     fprintf('=======================================================\n');
     fprintf('🎉 Pipeline Execution Complete for parameter %s\n', current_name);
     fprintf('=======================================================\n');
+
+    if log_fid > 0
+        fprintf(log_fid, '[%s] ===== Pipeline run completed (type: %s) =====\n', ...
+            datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
+    end
 
 end
