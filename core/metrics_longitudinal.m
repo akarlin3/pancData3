@@ -54,8 +54,8 @@ sgtitle(['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'F
 subplot_scale = 0.92;
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
-    pos = allAx(k).Position;
-    allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+    pos = get(allAx(k), 'Position');
+    set(allAx(k), 'Position', [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale]);
 end
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
