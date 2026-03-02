@@ -1,0 +1,133 @@
+octave: X11 DISPLAY environment variable not set
+octave: disabling GUI features
+warning: function /usr/share/octave/packages/nan-3.7.0/moment.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/quantile.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/zscore.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/cov.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/detrend.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/median.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/range.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/sumsq.m shadows a built-in function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/kurtosis.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/mean.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/spearman.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/corrcoef.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/mad.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/var.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/center.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/skewness.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/ranks.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/iqr.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/meansq.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/std.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+warning: function /usr/share/octave/packages/nan-3.7.0/prctile.m shadows a core library function
+warning: called from
+    load_packages_and_dependencies at line 56 column 5
+    load_packages at line 53 column 3
+    pkg at line 639 column 7
+
+'gcp' undefined near line 7, column 5
+    file = /app/execute_all_workflows.m
+    name = execute_all_workflows
+    line = 7
+    column = 3
