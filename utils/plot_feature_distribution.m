@@ -47,12 +47,12 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                     bar(centers, [counts_lc(:), counts_lf(:)], 'stacked', 'EdgeColor', 'none');
                 end
             end
-            colormap([0.2 0.4 0.8; 0.8 0.2 0.2]);
+            colormap([0 0.4470 0.7410; 0.8500 0.3250 0.0980]);
             legend('Local Control', 'Local Failure', 'Location', 'best');
         else
-            histogram(vals_lc, edges, 'FaceColor', [0.2 0.4 0.8], 'FaceAlpha', 0.6, ...
+            histogram(vals_lc, edges, 'FaceColor', [0 0.4470 0.7410], 'FaceAlpha', 0.6, ...
                 'EdgeColor', 'none', 'DisplayName', 'Local Control'); hold on;
-            histogram(vals_lf, edges, 'FaceColor', [0.8 0.2 0.2], 'FaceAlpha', 0.6, ...
+            histogram(vals_lf, edges, 'FaceColor', [0.8500 0.3250 0.0980], 'FaceAlpha', 0.6, ...
                 'EdgeColor', 'none', 'DisplayName', 'Local Failure');
             hold off;
             legend('Location', 'best', 'FontSize', 8);
@@ -67,7 +67,7 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
             boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
         else
             % Just plot a single point if only 1 patient
-            plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', 'b');
+            plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', [0 0.4470 0.7410]);
             xlim([0.5, 2.5]);
             xticks([1, 2]);
             xticklabels({'LC (0)', 'LF (1)'});
