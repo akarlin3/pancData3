@@ -53,9 +53,10 @@ else
     end
 end
 
-fold_id = zeros(numel(id_list_cell), 1);
+pt_fold = zeros(n_unique, 1);
 for f = 1:k
     pt_idx = find(test(cvp, f));
-    fold_id(ismember(id_list_cell, unique_ids(pt_idx))) = f;
+    pt_fold(pt_idx) = f;
 end
+fold_id = pt_fold(ic);
 end
