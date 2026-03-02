@@ -26,7 +26,16 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         vals_lf = vals_clean(lf_clean == 1);   % Local Failure patients
 
         % Create 15 equally-spaced bins spanning the combined value range
-        edges = linspace(min(vals_clean), max(vals_clean), 16);
+        min_val = min(vals_clean, [], 'omitnan');
+        max_val = max(vals_clean, [], 'omitnan');
+
+        if isempty(vals_clean)
+            edges = linspace(0, 1, 16);
+        elseif min_val == max_val
+            edges = linspace(min_val - 0.5, max_val + 0.5, 16);
+        else
+            edges = linspace(min_val, max_val, 16);
+        end
 
         % Overlay semi-transparent histograms for each outcome group
         if exist('OCTAVE_VERSION', 'builtin')
