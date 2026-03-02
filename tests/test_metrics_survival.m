@@ -54,8 +54,8 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testSufficientEventsRunsCoxModel(testCase)
-            % With 8 events in 20 patients the Cox model (or Firth fallback)
-            % should fit successfully.
+            % With 8 events in 20 patients the Cox model should fit
+            % successfully (or gracefully set NaN outputs on non-convergence).
             rng(42);
             n   = 20;
             nTp = 4;
@@ -75,7 +75,7 @@ classdef test_metrics_survival < matlab.unittest.TestCase
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
                 m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label);
             testCase.verifyTrue(true, ...
-                'metrics_survival should complete (Cox or Firth) without error.');
+                'metrics_survival should complete without error.');
         end
 
         function testCompetingRisksTreatedAsCensored(testCase)
