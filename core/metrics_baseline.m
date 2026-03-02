@@ -41,26 +41,26 @@ dwi_locations = summary_metrics.dwi_locations;
 fprintf('  --- SECTION 1: Repeatability Analysis ---\n');
 if exist('OCTAVE_VERSION', 'builtin')
     adc_wCV = squeeze(nanstd(adc_mean_rpt,0,2))./squeeze(nanmean(adc_mean_rpt,2));
-    adc_wCV(n_rpt<2) = nan;
+    adc_wCV(n_rpt<2, :) = nan;
     adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,0,2))./squeeze(nanmean(adc_sub_rpt,2));
-    adc_wCV_sub(n_rpt<2) = nan;
+    adc_wCV_sub(n_rpt<2, :) = nan;
     d_wCV = squeeze(nanstd(d_mean_rpt,0,2))./squeeze(nanmean(d_mean_rpt,2));
-    d_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    d_wCV(n_rpt<2, :) = nan;
     f_wCV = squeeze(nanstd(f_mean_rpt,0,2))./squeeze(nanmean(f_mean_rpt,2));
-    f_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    f_wCV(n_rpt<2, :) = nan;
     dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2))./squeeze(nanmean(dstar_mean_rpt,2));
-    dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    dstar_wCV(n_rpt<2, :) = nan;
 else
     adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan'))./squeeze(mean(adc_mean_rpt,2,'omitnan'));
-    adc_wCV(n_rpt<2) = nan;
+    adc_wCV(n_rpt<2, :) = nan;
     adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan'))./squeeze(mean(adc_sub_rpt,2,'omitnan'));
-    adc_wCV_sub(n_rpt<2) = nan;
+    adc_wCV_sub(n_rpt<2, :) = nan;
     d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan'))./squeeze(mean(d_mean_rpt,2,'omitnan'));
-    d_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    d_wCV(n_rpt<2, :) = nan;
     f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan'))./squeeze(mean(f_mean_rpt,2,'omitnan'));
-    f_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    f_wCV(n_rpt<2, :) = nan;
     dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan'))./squeeze(mean(dstar_mean_rpt,2,'omitnan'));
-    dstar_wCV(repmat(n_rpt,[1,3])<2) = nan;
+    dstar_wCV(n_rpt<2, :) = nan;
 end
 
 fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
@@ -109,13 +109,13 @@ else
     id_list_normalized = strrep(id_list,'_','-');
 
     for j = 1:length(id_list)
-        i_find = find(contains(pat_normalized, id_list_normalized{j}));
+        i_find = find(~cellfun(@isempty, strfind(pat_normalized, id_list_normalized{j})));
         if ~isempty(i_find)
             i_find = i_find(1);
             lf(j) = T.LocalOrRegionalFailure(i_find);
             if ismember('CauseOfDeath', T.Properties.VariableNames)
                 cod = T.CauseOfDeath{i_find};
-                if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
+                if lf(j) == 0 && ~isempty(cod) && isempty(strfind(lower(cod), 'cancer'))
                     lf(j) = 2; % Competing risk
                 end
             end
@@ -223,23 +223,17 @@ end
 
 if exclude_outliers
     if exclude_missing_baseline
-        non_outlier_current = non_outlier(valid_baseline);
+        outlier_current = ~non_outlier(valid_baseline);
     else
-        non_outlier_current = non_outlier;
+        outlier_current = ~non_outlier;
     end
-    m_lf                   = m_lf(non_outlier_current);
-    m_total_time           = m_total_time(non_outlier_current);
-    m_total_follow_up_time = m_total_follow_up_time(non_outlier_current);
-    m_gtv_vol              = m_gtv_vol(non_outlier_current,:);
-    m_adc_mean             = m_adc_mean(non_outlier_current,:,:);
-    m_d_mean               = m_d_mean(non_outlier_current,:,:);
-    m_f_mean               = m_f_mean(non_outlier_current,:,:);
-    m_dstar_mean           = m_dstar_mean(non_outlier_current,:,:);
-    m_id_list              = m_id_list(non_outlier_current);
-    m_mrn_list             = m_mrn_list(non_outlier_current);
-    m_d95_gtvp             = m_d95_gtvp(non_outlier_current,:);
-    m_v50gy_gtvp           = m_v50gy_gtvp(non_outlier_current,:);
-    m_data_vectors_gtvp    = m_data_vectors_gtvp(non_outlier_current,:,:);
+    m_adc_mean(outlier_current,:,:)             = NaN;
+    m_d_mean(outlier_current,:,:)               = NaN;
+    m_f_mean(outlier_current,:,:)               = NaN;
+    m_dstar_mean(outlier_current,:,:)           = NaN;
+    m_gtv_vol(outlier_current,:)                = NaN;
+    m_d95_gtvp(outlier_current,:)               = NaN;
+    m_v50gy_gtvp(outlier_current,:)             = NaN;
 end
 
 ADC_abs = m_adc_mean(:,:,dtype);

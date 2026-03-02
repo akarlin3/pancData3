@@ -68,10 +68,10 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             testCase.DataVectors = struct('adc_vector', {ones(10,1)});
 
             % Add paths
-            addpath(fullfile(pwd, 'core'));
-            addpath(fullfile(pwd, 'utils'));
-            addpath(fullfile(pwd, 'dependencies'));
-
+            pancDataPath = fullfile(fileparts(mfilename('fullpath')), '..');
+            addpath(fullfile(pancDataPath, 'core'));
+            addpath(fullfile(pancDataPath, 'utils'));
+            
             % Ensure no figures are visible during testing
             set(0, 'DefaultFigureVisible', 'off');
         end

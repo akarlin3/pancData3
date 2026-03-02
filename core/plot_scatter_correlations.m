@@ -43,10 +43,13 @@ for di = 1:numel(diff_metrics)
             continue;
         end
 
+        % Ensure lf_group is a column vector to match clean, x_vals, and y_vals
+        lf_group_col = lf_group(:);
+
         % Plot LC (blue) and LF (red) points with black edge
-        scatter(x_vals(clean & lf_group==0), y_vals(clean & lf_group==0), ...
+        scatter(x_vals(clean & lf_group_col==0), y_vals(clean & lf_group_col==0), ...
             50, 'b', 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LC'); hold on;
-        scatter(x_vals(clean & lf_group==1), y_vals(clean & lf_group==1), ...
+        scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
             50, 'r', 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
         % Overlay a first-order (linear) polynomial fit
