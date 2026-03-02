@@ -178,7 +178,7 @@ if step2
     f2 = zeros(1,n);
     f2(mask_back) = fcalc(lim(2,4)*ones(1,sum(mask_back)),mask_back);
 
-    maskf = maskD & (((f1 > lim(1,3)) & (f1 < lim(2,3))) | ((f2 > lim(1,3)) & (f2 < lim(2,3))));
+    maskf = maskD & (((f1 >= lim(1,3)) & (f1 <= lim(2,3))) | ((f2 >= lim(1,3)) & (f2 <= lim(2,3))));
     if disp_prog
         fprintf('Discarding %d voxels due to f out of bounds\n',sum(maskD) - sum(maskf));
     end
@@ -190,16 +190,20 @@ if step2
     maskDstar = maskf;
 
     % Optimization
-    [Dstar(maskf),maskDstar(maskf)] = optimizeD(Y(:,maskf)-repmat(A(maskf),length(b),1).*exp(-b*D(maskf)),b,optlim,lim(:,4),disp_prog);
+    if any(maskf)
+        [Dstar(maskf),maskDstar(maskf)] = optimizeD(Y(:,maskf)-repmat(A(maskf),length(b),1).*exp(-b*D(maskf)),b,optlim,lim(:,4),disp_prog);
+    end
 
     % Calculates f
     f = lim(1,1)*ones(1,n);
 %     f(f1 < lim(1,3)) = lim(1,3);
 %     f(f2 > lim(2,3)) = lim(2,3); 
-    f(maskDstar) = fcalc(Dstar(maskDstar),maskDstar);
+    if any(maskDstar)
+        f(maskDstar) = fcalc(Dstar(maskDstar),maskDstar);
+    end
 
     % Checks for f out of bounds
-    maskf = maskf & (f > lim(1,3)) & (f < lim(2,3));
+    maskf = maskf & (f >= lim(1,3)) & (f <= lim(2,3));
 %     Dstar(f < lim(1,3)) = lim(1,4);
 %     Dstar(f > lim(2,3)) = lim(2,4);
 %     f(f < lim(1,3)) = lim(1,3);

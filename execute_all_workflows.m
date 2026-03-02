@@ -4,18 +4,31 @@
 repo_root = pwd;
 
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
-p = gcp('nocreate');
-if ~isempty(p)
-    delete(p);
+if ~exist('OCTAVE_VERSION', 'builtin')
+    p = gcp('nocreate');
+    if ~isempty(p)
+        delete(p);
+    end
+    p = parpool('Processes', 2, 'IdleTimeout', Inf);
+    addAttachedFiles(p, {fullfile(repo_root, 'core', 'load_dwi_data.m')});
+    pctRunOnAll addpath(fullfile(pwd, 'core'));
+    pctRunOnAll addpath(fullfile(pwd, 'utils'));
+    pctRunOnAll addpath(fullfile(pwd, 'dependencies'));
+    pctRunOnAll warning('off', 'all');
 end
-p = parpool('Processes', 2, 'IdleTimeout', Inf);
-addAttachedFiles(p, {fullfile(repo_root, 'core', 'load_dwi_data.m')});
-pctRunOnAll addpath(fullfile(pwd, 'core'));
-pctRunOnAll addpath(fullfile(pwd, 'utils'));
-pctRunOnAll addpath(fullfile(pwd, 'dependencies'));
-pctRunOnAll warning('off', 'all');
 
 clear global MASTER_OUTPUT_FOLDER;
+
+% --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
+disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+try
+    run_all_tests;
+    disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+catch ME
+    fprintf('❌ Test failure: %s\n', ME.message);
+    error('PipelineAborted:TestFailure', ...
+        'Pipeline aborted: test suite did not pass.');
+end
 
 % Load the configuration JSON explicitly because we are going to modify it
 fid = fopen('config.json', 'r');

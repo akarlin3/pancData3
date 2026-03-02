@@ -4,7 +4,6 @@ This folder contains third-party scripts and libraries required by the medical i
 
 ## Third-Party Scripts
 
-- **NIfTI Tools**: The NIfTI scripts included in this directory belong to their respective authors and retain their original open-source licenses. They are used to read and write imaging arrays.
 - **IVIM Scripts**: The IVIM (Intravoxel Incoherent Motion) scripts are the property of their respective authors and are distributed under their original open-source licenses. They handle Bayesian and segmented fitting approaches.
 - **Deep Learning Components**:
   - `apply_dncnn_symmetric.m`: Handles the application of symmetric DnCNN image spatial denoising.

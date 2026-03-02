@@ -38,9 +38,12 @@ v50_f_sub = nan(length(m_id_list), nTp);
 d95_dstar_sub = nan(length(m_id_list), nTp);
 v50_dstar_sub = nan(length(m_id_list), nTp);
 
+last_gtv_mat = '';
+last_gtv_mask_3d = [];
+
 for j = 1:length(m_id_list)
     j_orig = find(strcmp(id_list, m_id_list{j}));
-    for k = 1
+    for k = 1:nTp
         if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
             dtype_idx = config_struct.dwi_types_to_run;
         else
@@ -73,13 +76,20 @@ for j = 1:length(m_id_list)
             if ~isempty(gtv_mat)
                 path_parts = strsplit(gtv_mat, {'/', '\'});
                 gtv_mat = fullfile(path_parts{:});
-                if isunix && (startsWith(gtv_mat, filesep) == 0) && isempty(path_parts{1})
+                if isunix && ~startsWith(gtv_mat, filesep) && isempty(path_parts{1})
                     gtv_mat = [filesep gtv_mat];
                 end
 
                 if exist(gtv_mat, 'file')
-                    % SECURITY: Use safe_load_mask to prevent unsafe deserialization of untrusted .mat files
-                    gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                    if strcmp(gtv_mat, last_gtv_mat)
+                        gtv_mask_3d = last_gtv_mask_3d;
+                    else
+                        % SECURITY: Use safe_load_mask to prevent unsafe deserialization of untrusted .mat files
+                        gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                        last_gtv_mat = gtv_mat;
+                        last_gtv_mask_3d = gtv_mask_3d;
+                    end
+
                     if ~isempty(gtv_mask_3d) && sum(gtv_mask_3d(:) == 1) == length(adc_vec)
                         has_3d = true;
                     end

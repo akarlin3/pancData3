@@ -31,6 +31,28 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
     % Identify which rows belong to the training set
     is_train_row = ismember(pat_id_td, train_pat_ids);
 
+    % Pre-compute week masks and first occurrence indices outside the feature loop
+    % since they only depend on temporal_week_td and pat_id_td, not the features.
+    n_weeks = length(unique_weeks);
+    week_masks_cell = cell(n_weeks, 1);
+    first_occ_indices_cell = cell(n_weeks, 1);
+
+    for fn = 1:n_weeks
+        week_val = unique_weeks(fn);
+        week_mask = (temporal_week_td == week_val);
+        train_week_mask = week_mask & is_train_row;
+        week_masks_cell{fn} = week_mask;
+
+        % Extract training values for this specific week.
+        % To prevent row-weighted bias, extract the first occurrence per patient.
+        % Find the first index of each unique patient ID in this week's training subset
+        [~, unique_idx] = unique(pat_id_td(train_week_mask), 'first');
+
+        % Get the actual row indices in X_td_raw
+        train_week_indices = find(train_week_mask);
+        first_occ_indices_cell{fn} = train_week_indices(unique_idx);
+    end
+
     for fi = 1:n_feat
         name_fi = feat_names{fi};
         is_derivative = contains(name_fi, 'Delta', 'IgnoreCase', true) || ...
@@ -38,14 +60,9 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                         contains(name_fi, 'pct', 'IgnoreCase', true) || ...
                         contains(name_fi, 'diff', 'IgnoreCase', true);
 
-        for fn = 1:length(unique_weeks)
+        for fn = 1:n_weeks
             week_val = unique_weeks(fn);
-            
-            % Rows for this specific temporal week
-            week_mask = (temporal_week_td == week_val);
-            
-            % Training rows for this week
-            train_week_mask = week_mask & is_train_row;
+            week_mask = week_masks_cell{fn};
             
             mu_col = 0;
             sd_col = 1;
@@ -55,24 +72,13 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 mu_col = 0;
                 sd_col = 1;
             else
-                % Extract training values for this specific week.
-                % To prevent row-weighted bias, extract the first occurrence per patient.
-                train_pats_in_week = unique(pat_id_td(train_week_mask));
-                unique_vals = zeros(length(train_pats_in_week), 1);
+                % Get the pre-computed first occurrence indices for this week
+                first_occurrence_indices = first_occ_indices_cell{fn};
                 
-                valid_cnt = 0;
-                for p_idx = 1:length(train_pats_in_week)
-                    pid = train_pats_in_week(p_idx);
-                    % First row for this patient at this week
-                    idx = find(train_week_mask & (pat_id_td == pid), 1, 'first');
-                    val = X_td_raw(idx, fi);
-                    if ~isnan(val)
-                        valid_cnt = valid_cnt + 1;
-                        unique_vals(valid_cnt) = val;
-                    end
-                end
-                
-                unique_vals = unique_vals(1:valid_cnt);
+                % Extract the values and remove NaNs
+                vals = X_td_raw(first_occurrence_indices, fi);
+                unique_vals = vals(~isnan(vals));
+                valid_cnt = length(unique_vals);
                 
                 if valid_cnt > 1
                     mu_col = mean(unique_vals);

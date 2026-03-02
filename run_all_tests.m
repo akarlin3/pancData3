@@ -13,6 +13,7 @@ utilsDir = fullfile(repoRoot, 'utils');
 addpath(coreDir);
 addpath(utilsDir);
 addpath(repoRoot);
+addpath(genpath(testsDir));
 
 disp('===================================================');
 disp('   MATLAB CI Test Runner: Initializing Suite       ');
@@ -22,8 +23,8 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
-% 1. Discover all tests in the tests/ directory
-suite = TestSuite.fromFolder(testsDir);
+% 1. Discover all tests in the tests/ directory (including subdirectories)
+suite = TestSuite.fromFolder(testsDir, 'IncludingSubfolders', true);
 
 if isempty(suite)
     error('No tests found in the %s directory.', testsDir);
@@ -43,7 +44,7 @@ if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
     % Create a coverage plugin for the specific folders
     % For CI, producing Cobertura or just a console report is best.
     % In modern MATLAB (R2017b+), we can use:
-    coveragePlugin = CodeCoveragePlugin.forFolder(foldersToCover);
+    coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
     runner.addPlugin(coveragePlugin);
     disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
 else
@@ -63,7 +64,13 @@ disp('===================================================');
 
 % 5. Assert success (Throws an error and returns non-zero exit code if any test fails)
 % In CI environments running MATLAB with -batch, this will fail the step appropriately.
-assertSuccess(results);
+% assertSuccess(results) was introduced in R2020a, providing backward compatibility
+if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
+    assertSuccess(results);
+else
+    if any([results.Failed])
+        error('One or more tests failed.');
+    end
+end
 
 disp('All tests passed successfully!');
-
