@@ -8,7 +8,7 @@ else
     mkdir -p $MATLAB_CACHE_DIR
     wget -q https://www.mathworks.com/mpm/get/linux -O mpm
     chmod +x mpm
-    sudo ./mpm install --release=R2025a --destination=/opt/matlab --products MATLAB
+    sudo ./mpm install --release=R2025a --destination=$MATLAB_CACHE_DIR --products MATLAB
     rm mpm
     echo "Installation complete."
 fi
