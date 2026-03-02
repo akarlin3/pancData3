@@ -22,8 +22,8 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
-% 1. Discover all tests in the tests/ directory
-suite = TestSuite.fromFolder(testsDir);
+% 1. Discover all tests in the tests/ directory (including subdirectories)
+suite = TestSuite.fromFolder(testsDir, 'IncludingSubfolders', true);
 
 if isempty(suite)
     error('No tests found in the %s directory.', testsDir);

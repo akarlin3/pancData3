@@ -126,7 +126,7 @@ Contains an extensive suite of MATLAB tests (45 files) simulating scenarios and 
 - **`test_normalization_logic.m`**, **`test_landmark_cindex.m`**, **`test_landmark_cindex_mock.m`**: Specialized unit tests for normalization, concordance index computation, and mock-based landmark validation.
 
 #### `tests/benchmarks/`
-Performance benchmarks comparing algorithm implementations. Not executed by `run_all_tests.m`.
+Performance benchmarks comparing algorithm implementations.
 - **`benchmark_filter_collinear.m`**: Benchmarks collinearity filtering speed.
 - **`benchmark_metrics_opt.m`**: Benchmarks metric computation optimizations.
 - **`benchmark_make_grouped_folds.m`**: Benchmarks patient-stratified fold generation.
@@ -136,7 +136,7 @@ Performance benchmarks comparing algorithm implementations. Not executed by `run
 - **`test_perf.m`**: Benchmarks GTV file search pattern matching.
 
 #### `tests/diagnostics/`
-Lightweight scratch scripts for manual, interactive spot-checking during development. Not executed by `run_all_tests.m`.
+Lightweight diagnostic tests for spot-checking during development.
 - **`run_manual_test.m`**: Manually exercises `compute_summary_metrics` with inline mock data.
 - **`run_test_local.m`**: Quick local harness that calls `test_compute_summary_metrics` directly.
 - **`test_accumarray.m`**: Spot-check of MATLAB's `accumarray` for patient-level aggregation.

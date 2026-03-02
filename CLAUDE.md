@@ -145,8 +145,8 @@ run_all_tests
 | Location | Description | Run by CI? |
 |---|---|---|
 | `tests/` | Full functional and integration tests | Yes |
-| `tests/benchmarks/` | Performance benchmarks | No |
-| `tests/diagnostics/` | Manual spot-check scripts | No |
+| `tests/benchmarks/` | Performance benchmarks | Yes |
+| `tests/diagnostics/` | Diagnostic spot-check tests | Yes |
 
 ### Key test files
 
