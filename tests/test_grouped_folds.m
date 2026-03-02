@@ -52,7 +52,7 @@ catch e
 end
 
 % -----------------------------------------------------------------------
-%  3. k is clamped when n_folds > min_class_count or n_unique
+%  3. k is clamped when n_folds > n_unique_patients
 % -----------------------------------------------------------------------
 try
     % 2 unique patients, request 5 folds -> should give 2 folds at most
@@ -67,6 +67,37 @@ try
     n_pass = n_pass + 1;
 catch e
     fprintf('[FAIL] test_fold_clamping: %s\n', e.message);
+    n_fail = n_fail + 1;
+end
+
+% -----------------------------------------------------------------------
+%  3b. Class imbalance must NOT reduce k below n_unique_patients
+% -----------------------------------------------------------------------
+try
+    % 20 patients, only 2 with events — severe class imbalance.
+    % Request 5 folds. Old code clamped k to min_class_count (2),
+    % destroying training set size. k must stay at 5.
+    rng(5);
+    n_pts = 20;
+    ids = {};
+    for p = 1:n_pts
+        ids{end+1} = sprintf('IMB%02d', p); %#ok<SAGROW>
+        ids{end+1} = sprintf('IMB%02d', p); %#ok<SAGROW>
+    end
+    ids = ids(:);
+    y = zeros(numel(ids), 1);
+    y(1:2) = 1;  % IMB01 is an event
+    y(3:4) = 1;  % IMB02 is an event
+
+    fold_id = make_grouped_folds(ids, y, 5);
+    actual_k = max(fold_id);
+    assert(actual_k == 5, ...
+        sprintf('With 20 patients and 2 events, k should be 5, got %d', actual_k));
+    assert(all(fold_id >= 1), 'All fold IDs must be >= 1');
+    fprintf('[PASS] test_imbalance_preserves_k\n');
+    n_pass = n_pass + 1;
+catch e
+    fprintf('[FAIL] test_imbalance_preserves_k: %s\n', e.message);
     n_fail = n_fail + 1;
 end
 
