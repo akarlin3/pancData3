@@ -53,20 +53,18 @@ classdef test_convert_dicom < matlab.unittest.TestCase
             scanID = 'scan_001';
             fx_id = 'fx_test';
 
-            % Update mock script to generate 4 files (which simulates 3 files + dir delta) in OutLoc
+            % Update mock script to generate the 3 expected output files (.nii.gz, .bval, .bvec)
             fid = fopen(testCase.MockScript, 'w');
             if ispc
                 fprintf(fid, '@echo off\n');
-                fprintf(fid, 'echo dummy > "%s\\file1.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'echo dummy > "%s\\file2.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'echo dummy > "%s\\file3.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'echo dummy > "%s\\file4.txt"\n', testCase.OutLoc);
+                fprintf(fid, 'echo dummy > "%s\\%s.nii.gz"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'echo dummy > "%s\\%s.bval"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'echo dummy > "%s\\%s.bvec"\n', testCase.OutLoc, scanID);
             else
                 fprintf(fid, '#!/bin/bash\n');
-                fprintf(fid, 'touch "%s/file1.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'touch "%s/file2.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'touch "%s/file3.txt"\n', testCase.OutLoc);
-                fprintf(fid, 'touch "%s/file4.txt"\n', testCase.OutLoc);
+                fprintf(fid, 'touch "%s/%s.nii.gz"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'touch "%s/%s.bval"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'touch "%s/%s.bvec"\n', testCase.OutLoc, scanID);
             end
             fclose(fid);
             if ~ispc

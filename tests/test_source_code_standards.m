@@ -318,7 +318,9 @@ classdef test_source_code_standards < matlab.unittest.TestCase
         function testDIR_DfieldCached(testCase)
             % D_forward and ref3d should be written to the .mat cache file.
             code = loaddwi_code;
-            testCase.verifyTrue(contains(code, "parsave_dir_cache(dir_cache_file, gtv_mask_warped, D_forward, ref3d)"), ...
+            testCase.verifyTrue( ...
+                contains(code, 'parsave_dir_cache(dir_cache_file, gtv_mask_warped, D_forward, ref3d)') || ...
+                contains(code, 'parsave_dir_cache(dir_cache_file, gtv_mask_warped, D_forward_cur, ref3d_cur)'), ...
             'D_forward and ref3d must be included in the cache save call');
         end
 
@@ -438,7 +440,7 @@ function code = metrics_code()
 end
 
 function code = loaddwi_code()
-    files = {'load_dwi_data.m', 'discover_patient_files.m', 'compute_summary_metrics.m', 'process_single_scan.m'};
+    files = {'load_dwi_data.m', 'discover_patient_files.m', 'compute_summary_metrics.m', 'process_single_scan.m', 'fit_models.m'};
 
     code = '';
     for i = 1:numel(files)

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(matlab -batch \"run\\(''tests/test_metrics_stats_predictive.m''\\)\")"
+      "Bash(matlab -batch \"run\\(''tests/test_metrics_stats_predictive.m''\\)\")",
+      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); run\\(''tests/run_all_tests.m''\\)\")"
     ]
   }
 }

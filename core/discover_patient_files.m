@@ -56,6 +56,7 @@ gtvn_locations = cell(length(patlist),6,6); % a few cases have a nodal gtv as we
 for j=1:length(patlist)
     basefolder = fullfile(dataloc, patlist(j).name);
     basefolder_contents = clean_dir_command(basefolder);
+    id_list{j} = patlist(j).name;
     have_mrn = 0;    % flag: MRN already extracted for this patient
 
     for fi=1:length(fx_search)

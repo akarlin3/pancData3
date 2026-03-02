@@ -217,14 +217,18 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             try
                 % The function might use global variable MASTER_OUTPUT_FOLDER
                 clear global MASTER_OUTPUT_FOLDER;
+                % Skip preflight test suite to avoid recursive test execution
+                setenv('SKIP_PIPELINE_PREFLIGHT', '1');
                 % Change into MockDataDir since some functions might rely on pwd
                 cd(testCase.MockDataDir);
                 % Call the master orchestrator function
                 run_dwi_pipeline('config.json', steps_to_run, testCase.MockDataDir);
                 passed = true;
                 cd(orig_dir);
+                setenv('SKIP_PIPELINE_PREFLIGHT', '');
             catch ME
                 cd(orig_dir);
+                setenv('SKIP_PIPELINE_PREFLIGHT', '');
                 disp(ME.getReport());
                 passed = false;
             end

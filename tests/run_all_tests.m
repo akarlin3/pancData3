@@ -15,6 +15,15 @@ addpath(coreDir);
 addpath(utilsDir);
 if exist('OCTAVE_VERSION', 'builtin')
     addpath(fullfile(utilsDir, 'octave_compat'));
+else
+    % Defensive: remove octave_compat from path if it was added by a
+    % previous session or startup.m.  The @table shim inside octave_compat
+    % conflicts with MATLAB's built-in table class and causes
+    % 'MATLAB:dispatcher:InvalidObjtagReuse' errors.
+    oc_dir = fullfile(utilsDir, 'octave_compat');
+    if contains(path, oc_dir)
+        rmpath(genpath(oc_dir));
+    end
 end
 addpath(repoRoot);
 addpath(genpath(testsDir));

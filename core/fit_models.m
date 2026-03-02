@@ -36,6 +36,9 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         % We must pass a 3D volume to the dependency, [N, 1, 2, bval]
         dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
         mask_1d_vol = true(n_padded/2, 1, 2);
+        if pad_len > 0
+            mask_1d_vol(n_padded/2, 1, 2) = false;  % exclude padded voxel from fit
+        end
 
         % Execute the untouched dependency on the flattened array
         ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);

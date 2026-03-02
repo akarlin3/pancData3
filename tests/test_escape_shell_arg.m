@@ -5,15 +5,15 @@ classdef test_escape_shell_arg < matlab.unittest.TestCase
         function test_unix_simple(testCase)
             % Test simple Unix escaping
             arg = 'simple';
-            expected = "'simple'";
+            expected = '''simple''';
             actual = escape_shell_arg(arg, 'unix');
             testCase.verifyEqual(actual, expected);
         end
 
         function test_unix_single_quote(testCase)
             % Test escaping single quotes in Unix
-            arg = "O'Connor";
-            expected = "'O'\''Connor'";
+            arg = 'O''Connor';
+            expected = '''O''\''''Connor''';
             actual = escape_shell_arg(arg, 'unix');
             testCase.verifyEqual(actual, expected);
         end
@@ -21,7 +21,7 @@ classdef test_escape_shell_arg < matlab.unittest.TestCase
         function test_unix_spaces(testCase)
             % Test escaping spaces in Unix
             arg = 'path with spaces';
-            expected = "'path with spaces'";
+            expected = '''path with spaces''';
             actual = escape_shell_arg(arg, 'unix');
             testCase.verifyEqual(actual, expected);
         end
