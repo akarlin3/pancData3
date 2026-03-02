@@ -107,6 +107,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
                             s_p.d_vector_dncnn = v_d;
                             s_p.f_vector_dncnn = v_f;
                             s_p.dstar_vector_dncnn = v_dstar;
+
                             s_p.d_vector_ivimnet = v_d;
                             s_p.f_vector_ivimnet = v_f;
                             s_p.dstar_vector_ivimnet = v_dstar;
@@ -139,7 +140,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             summary_metrics.id_list = arrayfun(@(x) sprintf('P%02d', x), 1:nPat, 'UniformOutput', false);
             summary_metrics.mrn_list = arrayfun(@(x) sprintf('M%02d', x), 1:nPat, 'UniformOutput', false);
 
-            summary_metrics.adc_mean = base_adc + 1e-4 * randn(nPat, nTp, nDwiType);
+            summary_metrics.adc_mean = base_adc + 1e-4 * randn(nPat, nTp, 3);
             summary_metrics.d_mean = base_d + 1e-4 * randn(nPat, nTp, nDwiType);
             summary_metrics.f_mean = base_f + 0.02 * randn(nPat, nTp, nDwiType);
             summary_metrics.dstar_mean = base_dstar + 0.01 * randn(nPat, nTp, nDwiType);
@@ -175,28 +176,28 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             cfg.dcm2nii_call = 'dummy';
             cfg.clinical_data_sheet = 'dummy.xlsx';
             cfg.skip_to_reload = true;
-            cfg.dwi_type = 'Standard';
+            cfg.dwi_type = 'IVIMnet';
 
             % Write json
             fid = fopen(config_file, 'w');
             fprintf(fid, '%s', jsonencode(cfg));
             fclose(fid);
 
-            % Create mock dwi_vectors_Standard.mat and summary_metrics_Standard.mat
+            % Create mock dwi_vectors_IVIMnet.mat and summary_metrics_IVIMnet.mat
             % in the locations expected by run_dwi_pipeline
 
             % The pipeline uses output_folder for summary_metrics
-            output_folder = fullfile(testCase.MockDataDir, 'Standard');
+            output_folder = fullfile(testCase.MockDataDir, 'IVIMnet');
             if ~exist(output_folder, 'dir')
                 mkdir(output_folder);
             end
 
             % Save dummy data vectors to dataloc
-            dwi_vectors_file = fullfile(testCase.MockDataDir, 'dwi_vectors_Standard.mat');
+            dwi_vectors_file = fullfile(testCase.MockDataDir, 'dwi_vectors_IVIMnet.mat');
             save(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             % Save summary metrics to output_folder
-            summary_metrics_file = fullfile(output_folder, 'summary_metrics_Standard.mat');
+            summary_metrics_file = fullfile(output_folder, 'summary_metrics_IVIMnet.mat');
             save(summary_metrics_file, 'summary_metrics');
 
             % Also save the legacy format just in case
@@ -229,28 +230,28 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             testCase.verifyTrue(passed, 'run_dwi_pipeline failed to execute end-to-end with mock data.');
 
             % Verify expected outputs were generated
-            sanity_results = fullfile(output_folder, 'sanity_checks_results_Standard.txt');
+            sanity_results = fullfile(output_folder, 'sanity_checks_results_IVIMnet.txt');
             testCase.verifyTrue(exist(sanity_results, 'file') == 2, 'Sanity check results file not found.');
 
-            visualize_results = fullfile(output_folder, 'visualize_results_state_Standard.txt');
+            visualize_results = fullfile(output_folder, 'visualize_results_state_IVIMnet.txt');
             testCase.verifyTrue(exist(visualize_results, 'file') == 2, 'Visualize results file not found.');
 
-            baseline_results = fullfile(output_folder, 'metrics_baseline_results_Standard.mat');
+            baseline_results = fullfile(output_folder, 'metrics_baseline_results_IVIMnet.mat');
             testCase.verifyTrue(exist(baseline_results, 'file') == 2, 'Baseline results file not found.');
 
-            longitudinal_results = fullfile(output_folder, 'metrics_longitudinal_results_Standard.txt');
+            longitudinal_results = fullfile(output_folder, 'metrics_longitudinal_results_IVIMnet.txt');
             testCase.verifyTrue(exist(longitudinal_results, 'file') == 2, 'Longitudinal results file not found.');
 
-            dosimetry_results = fullfile(output_folder, 'metrics_dosimetry_results_Standard.mat');
+            dosimetry_results = fullfile(output_folder, 'metrics_dosimetry_results_IVIMnet.mat');
             testCase.verifyTrue(exist(dosimetry_results, 'file') == 2, 'Dosimetry results file not found.');
 
-            comparisons_results = fullfile(output_folder, 'metrics_stats_comparisons_results_Standard.txt');
+            comparisons_results = fullfile(output_folder, 'metrics_stats_comparisons_results_IVIMnet.txt');
             testCase.verifyTrue(exist(comparisons_results, 'file') == 2, 'Comparisons results file not found.');
 
-            predictive_results = fullfile(output_folder, 'metrics_stats_predictive_results_Standard.mat');
+            predictive_results = fullfile(output_folder, 'metrics_stats_predictive_results_IVIMnet.mat');
             testCase.verifyTrue(exist(predictive_results, 'file') == 2, 'Predictive results file not found.');
 
-            survival_results = fullfile(output_folder, 'metrics_survival_results_Standard.txt');
+            survival_results = fullfile(output_folder, 'metrics_survival_results_IVIMnet.txt');
             testCase.verifyTrue(exist(survival_results, 'file') == 2, 'Survival results file not found.');
         end
 
