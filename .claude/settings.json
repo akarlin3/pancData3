@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(matlab -batch *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(git fetch*)",
+      "Bash(git pull*)",
+      "Bash(ls*)",
+      "Bash(mkdir*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(*dependencies/*)",
+      "Edit(dependencies/*)"
+    ]
+  }
+}
