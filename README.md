@@ -64,9 +64,9 @@ Contains an extensive suite of MATLAB tests simulating scenarios and asserting c
 - **`test_mask_loading.m`**: Checks target-constrained normalization logic and boundary padding.
 - **`test_normalization_logic.m`**, **`test_landmark_cindex.m`**, etc.: Specialized unit tests for various mathematical operations in the codebase.
 
-### `dependencies/`
-External resources and third-party logic used directly by the pipeline:
-- NIfTI reading/writing scripts (`load_untouch_nii`, `load_nii_ext`, etc.).
-- Custom deep learning routines like `apply_dncnn_symmetric.m` for spatial denoising.
+### Dependencies
+- MATLAB R2021a or later (with Image Processing Toolbox and Statistics and Machine Learning Toolbox).
+- MRIcroGL’s `dcm2niix` executable or equivalent added to the system path for DICOM-to-NIFTI conversion.
 - Script implementations for Intravoxel Incoherent Motion (IVIM) fitting (`IVIMmodelfit.m`, `IVIM_seg.m`, `IVIM_bayes.m`) and mono-exponential ADC (`fit_adc_mono.m`).
+- Deep learning architectures appropriately configured for inference (e.g., `dncnn_model.mat`).
 - Functions for DVH processing (`dvh.m`, `sample_rtdose_on_image.m`).
