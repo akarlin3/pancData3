@@ -63,7 +63,13 @@ disp('===================================================');
 
 % 5. Assert success (Throws an error and returns non-zero exit code if any test fails)
 % In CI environments running MATLAB with -batch, this will fail the step appropriately.
-assertSuccess(results);
+% assertSuccess(results) was introduced in R2020a, providing backward compatibility
+if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
+    assertSuccess(results);
+else
+    if any([results.Failed])
+        error('One or more tests failed.');
+    end
+end
 
 disp('All tests passed successfully!');
-
