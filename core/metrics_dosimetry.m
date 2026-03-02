@@ -40,7 +40,7 @@ v50_dstar_sub = nan(length(m_id_list), nTp);
 
 for j = 1:length(m_id_list)
     j_orig = find(strcmp(id_list, m_id_list{j}));
-    for k = 1
+    for k = 1:nTp
         if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
             dtype_idx = config_struct.dwi_types_to_run;
         else

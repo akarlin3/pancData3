@@ -74,15 +74,10 @@ try
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
-    mdl_td = fitcox(X_td_global, T_td, 'Censoring', is_censored, 'TieBreakMethod', 'breslow');
+    [b_td, logl_td, ~, stats_td_raw] = coxphfit(X_td_global, T_td, 'Censoring', is_censored, 'Ties', 'breslow');
     warning(w_temp);
-    b_td        = mdl_td.Coefficients.Beta;
-    logl_td     = mdl_td.LogLikelihood;
-    stats_td.se = mdl_td.Coefficients.SE;
-    stats_td.p  = mdl_td.Coefficients.pValue;
-    
-    % Extract scaled Schoenfeld residuals for PH check
-    stats_td.sschres = mdl_td.Residuals.ScaledSchoenfeld;
+    stats_td.se = stats_td_raw.se;
+    stats_td.p  = stats_td_raw.p;
 catch ME_td
     if contains(ME_td.identifier, 'FitWarning') || ...
        contains(ME_td.identifier, 'IterationLimit') || ...
@@ -103,7 +98,6 @@ catch ME_td
         b_td           = mdl_firth_td.Coefficients.Estimate(2:end);
         stats_td.se    = mdl_firth_td.Coefficients.SE(2:end);
         stats_td.p     = mdl_firth_td.Coefficients.pValue(2:end);
-        stats_td.sschres = zeros(size(X_td_global,1), td_n_feat);
         logl_td        = mdl_firth_td.LogLikelihood;
         is_firth_td    = true;
     else

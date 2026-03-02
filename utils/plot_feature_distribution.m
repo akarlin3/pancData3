@@ -26,18 +26,31 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         vals_lf = vals_clean(lf_clean == 1);   % Local Failure patients
 
         % Create 15 equally-spaced bins spanning the combined value range
-        edges = linspace(min(vals_clean, [], 'omitnan'), max(vals_clean, [], 'omitnan'), 16);
+        edges = linspace(min(vals_clean), max(vals_clean), 16);
 
         % Overlay semi-transparent histograms for each outcome group
-        histogram(vals_lc, edges, 'FaceColor', [0.2 0.4 0.8], 'FaceAlpha', 0.6, ...
-            'EdgeColor', 'none', 'DisplayName', 'Local Control'); hold on;
-        histogram(vals_lf, edges, 'FaceColor', [0.8 0.2 0.2], 'FaceAlpha', 0.6, ...
-            'EdgeColor', 'none', 'DisplayName', 'Local Failure');
-        hold off;
+        if exist('OCTAVE_VERSION', 'builtin')
+            if length(unique(edges)) == length(edges) && length(edges) > 1
+                [counts_lc, centers] = hist(vals_lc, edges);
+                [counts_lf, ~] = hist(vals_lf, edges);
+                % handle edge case where centers is not unique
+                if length(unique(centers)) == length(centers)
+                    bar(centers, [counts_lc(:), counts_lf(:)], 'stacked', 'EdgeColor', 'none');
+                end
+            end
+            colormap([0.2 0.4 0.8; 0.8 0.2 0.2]);
+            legend('Local Control', 'Local Failure', 'Location', 'best');
+        else
+            histogram(vals_lc, edges, 'FaceColor', [0.2 0.4 0.8], 'FaceAlpha', 0.6, ...
+                'EdgeColor', 'none', 'DisplayName', 'Local Control'); hold on;
+            histogram(vals_lf, edges, 'FaceColor', [0.8 0.2 0.2], 'FaceAlpha', 0.6, ...
+                'EdgeColor', 'none', 'DisplayName', 'Local Failure');
+            hold off;
+            legend('Location', 'best', 'FontSize', 8);
+        end
 
         xlabel(metric_unit); ylabel('Count');
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
-        legend('Location', 'best', 'FontSize', 8);
         grid on;
 
     elseif strcmpi(plot_type, 'boxplot')
