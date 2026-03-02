@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -d \"Claude needs attention!\" ntfy.sh/YOUR_TOPIC_NAME"
+            "command": "curl -d \"Claude needs attention!\" ntfy.sh/claude_notif"
           }
         ]
       }
