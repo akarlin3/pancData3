@@ -109,13 +109,13 @@ else
     id_list_normalized = strrep(id_list,'_','-');
 
     for j = 1:length(id_list)
-        i_find = find(contains(pat_normalized, id_list_normalized{j}));
+        i_find = find(~cellfun(@isempty, strfind(pat_normalized, id_list_normalized{j})));
         if ~isempty(i_find)
             i_find = i_find(1);
             lf(j) = T.LocalOrRegionalFailure(i_find);
             if ismember('CauseOfDeath', T.Properties.VariableNames)
                 cod = T.CauseOfDeath{i_find};
-                if lf(j) == 0 && ~isempty(cod) && ~contains(lower(cod), 'cancer')
+                if lf(j) == 0 && ~isempty(cod) && isempty(strfind(lower(cod), 'cancer'))
                     lf(j) = 2; % Competing risk
                 end
             end

@@ -333,7 +333,7 @@ parfor j = 1:length(mrn_list)
     gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
-    i_pat = find(contains(T_Pat_normalized, id_list_normalized{j}));
+    i_pat = find(~cellfun(@isempty, strfind(T_Pat_normalized, id_list_normalized{j})));
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
@@ -343,7 +343,7 @@ parfor j = 1:length(mrn_list)
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
     for fi=1:size(dwi_locations,2)
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
-        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)
@@ -973,10 +973,14 @@ else
     if exist(datasave, 'file')
         load(datasave);
     else
-        fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
-        if exist(fallback_datasave, 'file')
+        fallback_datasave1 = fullfile(dataloc, 'dwi_vectors_Standard.mat');
+        fallback_datasave2 = fullfile(dataloc, 'dwi_vectors.mat');
+        if exist(fallback_datasave1, 'file')
+            fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors_Standard.mat');
+            load(fallback_datasave1);
+        elseif exist(fallback_datasave2, 'file')
             fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
-            load(fallback_datasave);
+            load(fallback_datasave2);
         else
             error('Unable to find file or directory ''%s''.', datasave);
         end

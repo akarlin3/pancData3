@@ -442,7 +442,7 @@ for target_fx = 2:nTp
             yline(0, 'k-');
             yline(cor_est, 'k--', 'CoR (+7.8%)');
             yline(-cor_est, 'k--', 'CoR (-7.8%)');
-        elseif ~sig_is_abs(vi) && contains(sig_units{vi}, '%')
+        elseif ~sig_is_abs(vi) && ~isempty(strfind(sig_units{vi}, '%'))
             yline(0, 'k-', 'Alpha', 0.3);
         end
         
