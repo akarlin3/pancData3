@@ -106,5 +106,108 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
             % All 3 voxels are below threshold. vox_vol=1 => f_sub_vol=3.
             testCase.verifyEqual(summary.f_sub_vol(2,1,1), 3.0, 'AbsTol', 1e-5);
         end
+
+        function testSingleVoxelGTV(testCase)
+            % Single-voxel GTV is an edge case for kurtosis/skewness
+            % (undefined for n=1). Should produce NaN for those metrics.
+            cfg = testCase.ConfigStruct;
+            cfg.min_vox_hist = 2;  % require at least 2 voxels for higher-order stats
+
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'vox_vol', 1);
+            dv = repmat(empty_entry, 1, 1);
+            dv(1,1).adc_vector = 0.001;
+            dv(1,1).d_vector = 0.0008;
+            dv(1,1).f_vector = 0.15;
+            dv(1,1).dstar_vector = 0.01;
+
+            summary = compute_summary_metrics(cfg, dv, ...
+                {'PT_single'}, {'9999'}, 0, 0, ...
+                {'/path'}, {'/dwi'}, 40, 35, 10);
+
+            % Mean should still be valid
+            testCase.verifyEqual(summary.adc_mean(1,1,1), 0.001, 'AbsTol', 1e-10);
+
+            % Kurtosis/skewness should be NaN because numel < min_vox_hist
+            testCase.verifyTrue(isnan(summary.adc_kurt(1,1,1)), ...
+                'Kurtosis should be NaN for single-voxel GTV below min_vox_hist.');
+            testCase.verifyTrue(isnan(summary.adc_skew(1,1,1)), ...
+                'Skewness should be NaN for single-voxel GTV below min_vox_hist.');
+        end
+
+        function testAllIdenticalValues(testCase)
+            % All identical ADC values should produce zero SD
+            cfg = testCase.ConfigStruct;
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'vox_vol', 1);
+            dv = repmat(empty_entry, 1, 1);
+            dv(1,1).adc_vector = [0.001; 0.001; 0.001; 0.001];
+            dv(1,1).d_vector = [0.001; 0.001; 0.001; 0.001];
+            dv(1,1).f_vector = [0.1; 0.1; 0.1; 0.1];
+            dv(1,1).dstar_vector = [0.01; 0.01; 0.01; 0.01];
+
+            summary = compute_summary_metrics(cfg, dv, ...
+                {'PT_ident'}, {'8888'}, 0, 0, ...
+                {'/path'}, {'/dwi'}, 40, 35, 10);
+
+            testCase.verifyEqual(summary.adc_sd(1,1,1), 0, 'AbsTol', 1e-15, ...
+                'SD should be zero for identical values.');
+            testCase.verifyEqual(summary.adc_mean(1,1,1), 0.001, 'AbsTol', 1e-10);
+        end
+
+        function testAllNaNVoxelVectors(testCase)
+            % All-NaN voxel vectors should produce NaN mean
+            cfg = testCase.ConfigStruct;
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'vox_vol', 1);
+            dv = repmat(empty_entry, 1, 1);
+            dv(1,1).adc_vector = [NaN; NaN; NaN];
+            dv(1,1).d_vector = [NaN; NaN; NaN];
+            dv(1,1).f_vector = [NaN; NaN; NaN];
+            dv(1,1).dstar_vector = [NaN; NaN; NaN];
+
+            summary = compute_summary_metrics(cfg, dv, ...
+                {'PT_nan'}, {'7777'}, 0, 0, ...
+                {'/path'}, {'/dwi'}, 40, 35, 10);
+
+            testCase.verifyTrue(isnan(summary.adc_mean(1,1,1)), ...
+                'Mean should be NaN for all-NaN voxels.');
+            testCase.verifyTrue(isnan(summary.d_mean(1,1,1)), ...
+                'D mean should be NaN for all-NaN voxels.');
+        end
+
+        function testMotionCorruptionFlag(testCase)
+            % Voxels exceeding adc_max should be flagged
+            cfg = testCase.ConfigStruct;
+            cfg.adc_max = 0.002;
+
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'vox_vol', 1);
+            dv = repmat(empty_entry, 1, 1);
+            % 2 out of 4 voxels exceed adc_max of 0.002
+            dv(1,1).adc_vector = [0.001; 0.0015; 0.003; 0.004];
+            dv(1,1).d_vector = [0.001; 0.001; 0.001; 0.001];
+            dv(1,1).f_vector = [0.1; 0.1; 0.1; 0.1];
+            dv(1,1).dstar_vector = [0.01; 0.01; 0.01; 0.01];
+
+            summary = compute_summary_metrics(cfg, dv, ...
+                {'PT_corrupt'}, {'6666'}, 0, 0, ...
+                {'/path'}, {'/dwi'}, 40, 35, 10);
+
+            testCase.verifyEqual(summary.fx_corrupted(1,1,1), 0.5, 'AbsTol', 1e-10, ...
+                'Motion corruption should flag 50%% of voxels exceeding adc_max.');
+        end
     end
 end
