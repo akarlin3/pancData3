@@ -19,6 +19,17 @@ end
 
 clear global MASTER_OUTPUT_FOLDER;
 
+% --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
+disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+try
+    run_all_tests;
+    disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+catch ME
+    fprintf('❌ Test failure: %s\n', ME.message);
+    error('PipelineAborted:TestFailure', ...
+        'Pipeline aborted: test suite did not pass.');
+end
+
 % Load the configuration JSON explicitly because we are going to modify it
 fid = fopen('config.json', 'r');
 raw = fread(fid, inf);
