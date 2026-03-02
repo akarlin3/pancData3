@@ -20,5 +20,18 @@
       "Bash(*dependencies/*)",
       "Edit(dependencies/*)"
     ]
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -d \"Claude needs attention!\" ntfy.sh/YOUR_TOPIC_NAME"
+          }
+        ]
+      }
+    ]
   }
 }
