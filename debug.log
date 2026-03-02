@@ -1,0 +1,12 @@
+MathWorks Licensing Error 96
+
+A licensing error occurred while trying to use MATLAB.
+Unable to communicate with your organization's license server or the Network License Manager has not been started.
+
+For help with this issue, contact your system administrator or see this support article:
+https://www.mathworks.com/support/lme/96
+
+Details for Support
+Feature: MATLAB
+License: 27000@vsmphpllicmlab1:/home/jules/.matlab/R2025a_licenses:/workspace/.cache/matlab_R2025a/licenses/license.dat:/workspace/.cache/matlab_R2025a/licenses
+Error Code: -96.2
