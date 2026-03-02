@@ -877,8 +877,8 @@ for j = 1:length(mrn_list)
 
         % Assign back to global arrays
         % Struct arrays
-        data_vectors_gtvp(j,:,:) = loaded_data.data_vectors_gtvp;
-        data_vectors_gtvn(j,:,:) = loaded_data.data_vectors_gtvn;
+        data_vectors_gtvp = align_and_assign_struct(data_vectors_gtvp, loaded_data.data_vectors_gtvp, j);
+        data_vectors_gtvn = align_and_assign_struct(data_vectors_gtvn, loaded_data.data_vectors_gtvn, j);
 
         % Scalar/Vector arrays (patient x fraction)
         dmean_gtvp(j,:) = loaded_data.dmean_gtvp;
@@ -1160,3 +1160,34 @@ function [have_mask, mask_data] = load_mask(filepath, dwi_size, message_prefix, 
         end
     end
 end % function [have_mask, mask_data] = load_mask(...)
+
+function global_struct = align_and_assign_struct(global_struct, new_struct, index)
+    % ALIGN_AND_ASSIGN_STRUCT Helper to assign struct arrays with potentially missing fields
+
+    if isempty(fieldnames(global_struct))
+        % Initialise global struct with the first valid entry's structure
+        global_struct(index, :, :) = new_struct;
+        return;
+    end
+
+    fields_global = fieldnames(global_struct);
+    fields_new = fieldnames(new_struct);
+
+    % Add any fields that exist in global_struct but are missing in new_struct
+    missing_in_new = setdiff(fields_global, fields_new);
+    for i = 1:length(missing_in_new)
+        [new_struct.(missing_in_new{i})] = deal([]);
+    end
+
+    % Add any fields that exist in new_struct but are missing in global_struct
+    missing_in_global = setdiff(fields_new, fields_global);
+    for i = 1:length(missing_in_global)
+        [global_struct.(missing_in_global{i})] = deal([]);
+    end
+
+    % Order the new struct fields to match global_struct
+    new_struct = orderfields(new_struct, global_struct);
+
+    % Perform the assignment safely
+    global_struct(index, :, :) = new_struct;
+end
