@@ -521,7 +521,7 @@ parfor j = 1:length(mrn_list)
                     try
                         % NOTE: Replace 'dncnn_model.mat' with the actual model file if known.
                         % For now, we assume a generic 'net' variable is loaded.
-                        loaded_model = load(fullfile(config_struct.dataloc, '../dependencies/dncnn_model.mat'), 'net');
+                        loaded_model = load(fullfile(fileparts(mfilename('fullpath')), '..', 'dependencies', 'dncnn_model.mat'), 'net');
                         dncnn_net = loaded_model.net;
 
                         % 2. Cast the raw 4D DWI volume and 3D GTV mask
