@@ -281,10 +281,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             else
                 fprintf('      ⚠️ Warning: metrics_dosimetry results not found. metrics_stats may fail.\n');
                 % define defaults just to prevent hard crash occasionally
-                d95_adc_sub = nan(length(m_id_list), nTp); v50_adc_sub = nan(length(m_id_list), nTp); 
-                d95_d_sub = nan(length(m_id_list), nTp); v50_d_sub = nan(length(m_id_list), nTp); 
-                d95_f_sub = nan(length(m_id_list), nTp); v50_f_sub = nan(length(m_id_list), nTp); 
-                d95_dstar_sub = nan(length(m_id_list), nTp); v50_dstar_sub = nan(length(m_id_list), nTp);
+                if iscell(nTp), nTp_val = nTp{1}; else, nTp_val = nTp; end
+                d95_adc_sub = nan(length(m_id_list), nTp_val); v50_adc_sub = nan(length(m_id_list), nTp_val);
+                d95_d_sub = nan(length(m_id_list), nTp_val); v50_d_sub = nan(length(m_id_list), nTp_val);
+                d95_f_sub = nan(length(m_id_list), nTp_val); v50_f_sub = nan(length(m_id_list), nTp_val);
+                d95_dstar_sub = nan(length(m_id_list), nTp_val); v50_dstar_sub = nan(length(m_id_list), nTp_val);
             end
         else
             fprintf('⏭️ [5.3/5] [%s] Skipping metrics_dosimetry.\n', current_name);

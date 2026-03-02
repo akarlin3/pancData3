@@ -22,6 +22,10 @@ d_thresh     = config_struct.d_thresh;
 f_thresh     = config_struct.f_thresh;      
 dstar_thresh = config_struct.dstar_thresh;  
 
+if iscell(nTp)
+    nTp = nTp{1};
+end
+
 d95_adc_sub = nan(length(m_id_list), nTp);
 v50_adc_sub = nan(length(m_id_list), nTp);
 
