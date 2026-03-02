@@ -17,7 +17,7 @@ function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_loca
 
 % List all patient folders, excluding any 'template' directories
 patlist = clean_dir_command(dataloc);
-patlist = patlist(~contains({patlist.name},'template'));
+patlist = patlist(cellfun(@isempty, strfind({patlist.name},'template')));
 
 % sort by pat id — extract the numeric patient ID from folder names
 % (e.g., "P12-ABC" → 12) and sort in ascending order
@@ -61,7 +61,7 @@ for j=1:length(patlist)
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
 
-        fxtmp_idx = contains({basefolder_contents.name}, fx_search{fi});
+        fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         if isempty(fxtmp)
@@ -72,7 +72,7 @@ for j=1:length(patlist)
             % or more for repeatability analysis)
             dwi_search = clean_dir_command(fullfile(fxfolder, '*DWI*'));
             % Fallback: some sites stored DICOMs under a generic 'DICOM' folder
-            if isempty(dwi_search), dwi_search = clean_dir_command(fullfile(fxfolder, '*DICOM*')); dwi_search = dwi_search(~contains({dwi_search.name}, 't2')); end
+            if isempty(dwi_search), dwi_search = clean_dir_command(fullfile(fxfolder, '*DICOM*')); dwi_search = dwi_search(cellfun(@isempty, strfind({dwi_search.name}, 't2'))); end
 
             % Verify each candidate folder actually contains .dcm files
             if ~isempty(dwi_search)
