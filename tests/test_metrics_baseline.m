@@ -23,15 +23,18 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
                 'dwi_types_to_run',   1, ...
                 'clinical_data_sheet','mock_clinical.xlsx');
 
-            % Write a minimal mock clinical Excel file with 4 matching patient IDs
+            % Number of mock patients
+            nPat = 8;
+
+            % Write a minimal mock clinical Excel file with matching patient IDs
             if ~exist('OCTAVE_VERSION', 'builtin')
-                id_list_xls = {'P1'; 'P2'; 'P3'; 'P4'};
-                lf_vals     = [0; 1; 0; 1];
-                dt_event    = datetime({'2023-06-01'; '2023-06-01'; '2023-06-01'; '2023-06-01'});
-                dt_censor   = datetime({'2023-06-01'; '2023-06-01'; '2023-06-01'; '2023-06-01'});
-                dt_reg      = datetime({'2023-06-01'; '2023-06-01'; '2023-06-01'; '2023-06-01'});
-                dt_rtstart  = datetime({'2022-01-01'; '2022-01-01'; '2022-01-01'; '2022-01-01'});
-                dt_rtstop   = datetime({'2022-03-01'; '2022-03-01'; '2022-03-01'; '2022-03-01'});
+                id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+                lf_vals     = repmat([0; 1], nPat/2, 1);
+                dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+                dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+                dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+                dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+                dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
                 T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
                     dt_rtstart, dt_rtstop, ...
                     'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...

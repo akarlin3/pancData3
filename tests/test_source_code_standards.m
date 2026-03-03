@@ -252,7 +252,7 @@ classdef test_source_code_standards < matlab.unittest.TestCase
         function testVis_ProtocolDeviationFlagged(testCase)
             % plot_parameter_maps.m should flag protocol deviations with a warning message.
             code = param_maps_code;
-            testCase.verifyTrue(contains(code, 'Protocol deviation'), ...
+            testCase.verifyTrue(contains(lower(code), 'protocol deviation'), ...
             'Protocol deviation flagging should be present in plot_parameter_maps.m');
         end
 
@@ -260,7 +260,7 @@ classdef test_source_code_standards < matlab.unittest.TestCase
             % The validation block should use 'continue' to exclude
             % deviating patients from the comparative mapping.
             code = param_maps_code;
-            idx_dev = strfind(code, 'Protocol deviation');
+            idx_dev = regexpi(code, 'protocol deviation', 'start');
             idx_continue = strfind(code, 'continue');
             testCase.verifyTrue(~isempty(idx_dev) && ~isempty(idx_continue), ...
             'Both protocol deviation flag and continue must exist in plot_parameter_maps.m');
