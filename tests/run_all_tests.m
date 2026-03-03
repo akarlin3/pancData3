@@ -65,14 +65,23 @@ runner.addPlugin(ProgressBarPlugin(numel(suite)));
 % Use Cobertura format or standard coverage plugin that outputs to the console/file.
 foldersToCover = {coreDir, utilsDir};
 
-% Add the CodeCoveragePlugin to generate an HTML report or standard coverage
+% Add the CodeCoveragePlugin to generate an HTML report or standard coverage.
+% Wrap in try-catch: when run_all_tests is invoked from run_dwi_pipeline's
+% pre-flight check, MATLAB may already have an active coverage session for
+% these folders (e.g. from an outer test runner), causing
+% "Simultaneously generating coverage reports" errors.
 if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
-    % Create a coverage plugin for the specific folders
-    % For CI, producing Cobertura or just a console report is best.
-    % In modern MATLAB (R2017b+), we can use:
-    coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
-    runner.addPlugin(coveragePlugin);
-    disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
+    try
+        coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
+        runner.addPlugin(coveragePlugin);
+        disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
+    catch ME
+        if contains(ME.message, 'Simultaneously')
+            disp('Code coverage already active — skipping coverage plugin for this run.');
+        else
+            rethrow(ME);
+        end
+    end
 else
     disp('CodeCoveragePlugin not available in this MATLAB version.');
 end
