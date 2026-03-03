@@ -321,15 +321,24 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         ivimnet_maps.Dstar_ivimnet = Dstar_ivimnet;
     end
 
-    % Determine DnCNN masks (may differ from native mask for fi>1)
-    dncnn_mask_p = gtv_mask;
-    dncnn_mask_n = gtvn_mask;
-    if fi > 1 && ~isempty(ctx.gtv_mask_fx1_ref) && ~isempty(D_forward_cur)
-        dncnn_mask_p = ctx.gtv_mask_fx1_ref;
+    % Determine the appropriate mask for biomarker extraction.
+    % When parameter maps are warped to Fx1 (baseline) geometry (can_warp),
+    % ALL DWI types must use the Fx1 reference mask for consistency.
+    % Previously DnCNN used the Fx1 mask while standard maps used the
+    % native Fx2+ mask, causing a spatial mismatch that invalidated
+    % cross-DWI-type longitudinal comparisons.
+    biomarker_mask_p = gtv_mask;
+    biomarker_mask_n = gtvn_mask;
+    if can_warp && ~isempty(ctx.gtv_mask_fx1_ref)
+        biomarker_mask_p = ctx.gtv_mask_fx1_ref;
         if ~isempty(ctx.gtvn_mask_fx1_ref)
-            dncnn_mask_n = ctx.gtvn_mask_fx1_ref;
+            biomarker_mask_n = ctx.gtvn_mask_fx1_ref;
         end
     end
+
+    % DnCNN masks now use the same mask as all other DWI types
+    dncnn_mask_p = biomarker_mask_p;
+    dncnn_mask_n = biomarker_mask_n;
 
     % --- Extract biomarkers for GTVp ---
     % Initialize with empty struct matching init_scan_structs fields
@@ -338,20 +347,20 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     result.data_gtvn = empty_n;
 
     if havegtvp
-        result.data_gtvp = extract_biomarkers(gtv_mask, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
+        result.data_gtvp = extract_biomarkers(biomarker_mask_p, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
 
-        result.adc_mean = nanmean(adc_map(gtv_mask==1));
+        result.adc_mean = nanmean(adc_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-        result.adc_kurtosis = kurtosis(adc_map(gtv_mask==1));
-        result.d_mean = nanmean(d_map(gtv_mask==1));
+        result.adc_kurtosis = kurtosis(adc_map(biomarker_mask_p==1));
+        result.d_mean = nanmean(d_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-        result.d_kurtosis = kurtosis(d_map(gtv_mask==1));
+        result.d_kurtosis = kurtosis(d_map(biomarker_mask_p==1));
 
         if havedenoised
             result.d_mean_dncnn = nanmean(d_map_dncnn(dncnn_mask_p==1));
         end
         if haveivimnet
-            result.d_mean_ivimnet = nanmean(D_ivimnet(gtv_mask==1));
+            result.d_mean_ivimnet = nanmean(D_ivimnet(biomarker_mask_p==1));
         end
     end
 
@@ -374,7 +383,7 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         % lines 296-298).  The legacy code incorrectly applied rot90 a
         % second time, causing a 180-deg orientation mismatch.
         ivimnet_maps_n = ivimnet_maps;
-        result.data_gtvn = extract_biomarkers(gtvn_mask, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
+        result.data_gtvn = extract_biomarkers(biomarker_mask_n, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
     end
 
     % --- DVH for GTVn ---

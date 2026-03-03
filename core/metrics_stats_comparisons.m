@@ -125,148 +125,147 @@ for s = 1:length(metric_sets)
     close(gcf);
 end
 
-fprintf('  --- SECTION 8: Compile and Export Significant Results ---\n');
-total_checks = 0;
-for s = 1:length(metric_sets)
-    total_checks = total_checks + length(metric_sets{s}) * length(time_labels);
-end
+% ---- SECTION 8 & 9: FDR Correction FIRST, Then Report Significant Results ----
+% With ~48 tests (4 metrics × 2 sets × 6 timepoints), reporting at nominal
+% alpha=0.05 before correction yields ~2.4 expected false positives.  We
+% therefore compute Benjamini-Hochberg FDR correction on the full family of
+% comparisons BEFORE flagging any individual result as significant.
+fprintf('  --- SECTION 8: Global FDR Correction (Benjamini-Hochberg) ---\n');
 
-sig_metric = cell(total_checks, 1);
-sig_fraction = cell(total_checks, 1);
-sig_pval = nan(total_checks, 1);
-sig_mean_LC = nan(total_checks, 1);
-sig_mean_LF = nan(total_checks, 1);
-sig_count = 0;
+% Collect ALL p-values across every timepoint and metric set into one
+% family so that the BH procedure controls the false discovery rate over
+% the full set of comparisons (n_sets * n_metrics * n_timepoints).
+max_metrics = sum(cellfun(@length, metric_sets));
+max_total   = max_metrics * length(time_labels);
+all_pvals   = nan(max_total, 1);
+all_labels  = cell(max_total, 1);
+all_tp_idx  = zeros(max_total, 1);
+all_set_idx = zeros(max_total, 1);
+all_met_idx = zeros(max_total, 1);
+total_count = 0;
 
-for s = 1:length(metric_sets)
-    current_metrics = metric_sets{s};
-    current_names = set_names{s};
-    num_metrics = length(current_metrics);
-    
-    for m = 1:num_metrics
-        metric_data = current_metrics{m};
-        cols_to_plot = min(size(metric_data, 2), length(time_labels));
-        
-        for tp = 1:cols_to_plot
+for tp = 1:length(time_labels)
+    for s = 1:length(metric_sets)
+        current_names = set_names{s};
+        for mi = 1:length(metric_sets{s})
             if tp <= size(p_val_store(s).p_vals, 2)
-                p = p_val_store(s).p_vals(m, tp);
+                p = p_val_store(s).p_vals(mi, tp);
             else
                 p = nan;
             end
-            
-            if ~isnan(p) && p < 0.05
-                y_raw = metric_data(valid_pts, tp);
-                has_data = ~isnan(y_raw);
-                y = y_raw(has_data);
-                g = lf_group(has_data);
-
-                mean_LC = mean(y(g == 0), 'omitnan');
-                mean_LF = mean(y(g == 1), 'omitnan');
-                
-                sig_count = sig_count + 1;
-                sig_metric{sig_count, 1} = current_names{m};
-                sig_fraction{sig_count, 1} = time_labels{tp};
-                sig_pval(sig_count, 1) = p;
-                sig_mean_LC(sig_count, 1) = mean_LC;
-                sig_mean_LF(sig_count, 1) = mean_LF;
+            if ~isnan(p)
+                total_count = total_count + 1;
+                all_pvals(total_count)  = p;
+                all_labels{total_count} = sprintf('%s @ %s', current_names{mi}, time_labels{tp});
+                all_tp_idx(total_count) = tp;
+                all_set_idx(total_count) = s;
+                all_met_idx(total_count) = mi;
             end
         end
     end
 end
 
-if sig_count < total_checks
+% Compute FDR-corrected q-values for the entire family
+q_unsorted = ones(total_count, 1);
+if total_count > 0
+    all_pvals   = all_pvals(1:total_count);
+    all_labels  = all_labels(1:total_count);
+    all_tp_idx  = all_tp_idx(1:total_count);
+    all_set_idx = all_set_idx(1:total_count);
+    all_met_idx = all_met_idx(1:total_count);
+
+    % Benjamini-Hochberg on the full family
+    n_all = length(all_pvals);
+    [p_sort, sort_id] = sort(all_pvals);
+    q_all = zeros(n_all, 1);
+    q_all(n_all) = p_sort(n_all);
+    for ii = n_all-1:-1:1
+        q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
+    end
+    q_all = min(q_all, 1);
+    q_unsorted = zeros(n_all, 1);
+    q_unsorted(sort_id) = q_all;
+
+    fprintf('  Global family size = %d comparisons\n', n_all);
+end
+
+fprintf('  --- SECTION 9: Compile and Export FDR-Significant Results ---\n');
+
+% Now report only results that survive FDR correction (q < 0.05)
+sig_metric = cell(total_count, 1);
+sig_fraction = cell(total_count, 1);
+sig_pval = nan(total_count, 1);
+sig_qval = nan(total_count, 1);
+sig_mean_LC = nan(total_count, 1);
+sig_mean_LF = nan(total_count, 1);
+sig_count = 0;
+
+for idx = 1:total_count
+    if q_unsorted(idx) < 0.05
+        s  = all_set_idx(idx);
+        mi = all_met_idx(idx);
+        tp = all_tp_idx(idx);
+        current_metrics = metric_sets{s};
+        current_names = set_names{s};
+        metric_data = current_metrics{mi};
+
+        y_raw = metric_data(valid_pts, tp);
+        has_data = ~isnan(y_raw);
+        y = y_raw(has_data);
+        g = lf_group(has_data);
+
+        mean_LC = mean(y(g == 0), 'omitnan');
+        mean_LF = mean(y(g == 1), 'omitnan');
+
+        sig_count = sig_count + 1;
+        sig_metric{sig_count, 1} = current_names{mi};
+        sig_fraction{sig_count, 1} = time_labels{tp};
+        sig_pval(sig_count, 1) = all_pvals(idx);
+        sig_qval(sig_count, 1) = q_unsorted(idx);
+        sig_mean_LC(sig_count, 1) = mean_LC;
+        sig_mean_LF(sig_count, 1) = mean_LF;
+    end
+end
+
+if sig_count > 0
     sig_metric = sig_metric(1:sig_count, :);
     sig_fraction = sig_fraction(1:sig_count, :);
     sig_pval = sig_pval(1:sig_count, :);
+    sig_qval = sig_qval(1:sig_count, :);
     sig_mean_LC = sig_mean_LC(1:sig_count, :);
     sig_mean_LF = sig_mean_LF(1:sig_count, :);
-end
 
-if ~isempty(sig_pval)
-    sig_results_table = table(sig_metric, sig_fraction, sig_pval, sig_mean_LC, sig_mean_LF, ...
-        'VariableNames', {'Metric', 'Timepoint', 'P_Value', 'Mean_LC', 'Mean_LF'});
-    sig_results_table = sortrows(sig_results_table, 'P_Value');
-    
-    disp('----- Significant Findings (p < 0.05) -----');
+    sig_results_table = table(sig_metric, sig_fraction, sig_pval, sig_qval, sig_mean_LC, sig_mean_LF, ...
+        'VariableNames', {'Metric', 'Timepoint', 'Raw_P', 'FDR_Q', 'Mean_LC', 'Mean_LF'});
+    sig_results_table = sortrows(sig_results_table, 'FDR_Q');
+
+    disp('----- FDR-Significant Findings (BH q < 0.05) -----');
     disp(sig_results_table);
-    
+
     export_filename = fullfile(dataloc, 'Significant_LF_Metrics.csv');
     writetable(sig_results_table, export_filename);
-    fprintf('Saved significant results to: %s\n', export_filename);
+    fprintf('Saved FDR-significant results to: %s\n', export_filename);
 else
-    disp('No significant differences (p < 0.05) found between LC and LF groups for these metrics.');
+    disp('No significant differences survived FDR correction (BH q < 0.05).');
 end
 
-fprintf('  --- SECTION 9: FDR Correction (Global) ---\n');
-if ~isempty(sig_pval)
-    fprintf('\n----- GLOBAL FDR (Benjamini-Hochberg, Q < 0.05) -----\n');
+% Full FDR table for reference
+if total_count > 0
+    fdr_table = table(all_labels, all_pvals, q_unsorted, ...
+        'VariableNames', {'Metric_Timepoint', 'Raw_P', 'FDR_Q'});
+    sig_global = fdr_table(fdr_table.FDR_Q < 0.05, :);
 
-    % Collect ALL p-values across every timepoint and metric set into one
-    % family so that the BH procedure controls the false discovery rate over
-    % the full set of comparisons (n_sets * n_metrics * n_timepoints).
-    max_metrics = sum(cellfun(@length, metric_sets));
-    max_total   = max_metrics * length(time_labels);
-    all_pvals   = nan(max_total, 1);
-    all_labels  = cell(max_total, 1);
-    all_tp_idx  = zeros(max_total, 1);
-    total_count = 0;
-
-    for tp = 1:length(time_labels)
-        for s = 1:length(metric_sets)
-            current_names = set_names{s};
-            for mi = 1:length(metric_sets{s})
-                if tp <= size(p_val_store(s).p_vals, 2)
-                    p = p_val_store(s).p_vals(mi, tp);
-                else
-                    p = nan;
-                end
-                if ~isnan(p)
-                    total_count = total_count + 1;
-                    all_pvals(total_count)  = p;
-                    all_labels{total_count} = sprintf('%s @ %s', current_names{mi}, time_labels{tp});
-                    all_tp_idx(total_count) = tp;
-                end
-            end
-        end
+    if ~isempty(sig_global)
+        writetable(sig_global, fullfile(dataloc, 'FDR_Sig_Global.csv'));
     end
 
-    if total_count > 0
-        all_pvals  = all_pvals(1:total_count);
-        all_labels = all_labels(1:total_count);
-        all_tp_idx = all_tp_idx(1:total_count);
-
-        % Benjamini-Hochberg on the full family
-        n_all = length(all_pvals);
-        [p_sort, sort_id] = sort(all_pvals);
-        q_all = zeros(n_all, 1);
-        q_all(n_all) = p_sort(n_all);
-        for ii = n_all-1:-1:1
-            q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
-        end
-        q_all = min(q_all, 1);
-        q_unsorted = zeros(n_all, 1);
-        q_unsorted(sort_id) = q_all;
-
-        fdr_table = table(all_labels, all_pvals, q_unsorted, ...
-            'VariableNames', {'Metric_Timepoint', 'Raw_P', 'FDR_Q'});
-        sig_global = fdr_table(fdr_table.FDR_Q < 0.05, :);
-
-        fprintf('  Global family size = %d comparisons\n', n_all);
-        if isempty(sig_global)
-            fprintf('    None survived global FDR correction.\n');
-        else
-            disp(sig_global);
-            writetable(sig_global, fullfile(dataloc, 'FDR_Sig_Global.csv'));
-        end
-
-        % Also print per-timepoint breakdown for readability
-        for tp = 1:length(time_labels)
-            tp_mask = (all_tp_idx == tp);
-            sig_tp = fdr_table(tp_mask & fdr_table.FDR_Q < 0.05, :);
-            fprintf('\n  Timepoint: %s — %d significant (global FDR)\n', time_labels{tp}, height(sig_tp));
-            if ~isempty(sig_tp)
-                disp(sig_tp);
-            end
+    % Per-timepoint breakdown for readability
+    for tp = 1:length(time_labels)
+        tp_mask = (all_tp_idx == tp);
+        sig_tp = fdr_table(tp_mask & fdr_table.FDR_Q < 0.05, :);
+        fprintf('\n  Timepoint: %s — %d significant (global FDR)\n', time_labels{tp}, height(sig_tp));
+        if ~isempty(sig_tp)
+            disp(sig_tp);
         end
     end
 end

@@ -182,14 +182,28 @@ if ~isfolder(checkpoint_dir)
     mkdir(checkpoint_dir);
 end
 
-% Scan for existing checkpoints to identify completed patients
+% Scan for existing checkpoints to identify completed patients.
+% A patient is considered complete ONLY if its checkpoint .mat exists AND
+% no .lock sentinel is present (which would indicate an in-progress or
+% interrupted write).  This prevents a race where Worker A is still writing
+% Patient N's checkpoint while Worker B sees a partial file and skips it.
 patient_completed = false(size(mrn_list));
 for j = 1:length(mrn_list)
     mrn = mrn_list{j};
     patient_id = id_list{j};
     checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
-    if exist(checkpoint_file, 'file')
+    lock_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.lock', j, patient_id));
+    if exist(checkpoint_file, 'file') && ~exist(lock_file, 'file')
         patient_completed(j) = true;
+    elseif exist(lock_file, 'file')
+        % A .lock file without a completed checkpoint indicates a
+        % previously interrupted run.  Delete the stale lock so this
+        % patient gets re-processed.
+        delete(lock_file);
+        if exist(checkpoint_file, 'file')
+            delete(checkpoint_file);
+            fprintf('Removed stale lock + partial checkpoint for patient %d (%s).\n', j, patient_id);
+        end
     end
 end
 
@@ -412,9 +426,11 @@ parfor j = 1:length(mrn_list)
     pat_data_out.immuno = pat_immuno;
     pat_data_out.bad_dwi_list = bad_dwi_list_j;
 
-    % Save checkpoint
+    % Save checkpoint with lock-file protection to prevent race conditions
+    % in parfor: the .lock file signals that a write is in progress.
     checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
-    parsave_checkpoint(checkpoint_file, pat_data_out);
+    lock_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.lock', j, patient_id));
+    parsave_checkpoint(checkpoint_file, pat_data_out, lock_file);
 
     fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
 end
@@ -547,8 +563,17 @@ summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_l
 
 end
 
-function parsave_checkpoint(fname, data)
+function parsave_checkpoint(fname, data, lock_file)
+    % Create lock sentinel BEFORE writing to prevent race conditions.
+    % The lock is removed only after the .mat write completes successfully.
+    if nargin >= 3 && ~isempty(lock_file)
+        fid = fopen(lock_file, 'w');
+        if fid > 0, fclose(fid); end
+    end
     save(fname, '-struct', 'data');
+    if nargin >= 3 && ~isempty(lock_file) && exist(lock_file, 'file')
+        delete(lock_file);
+    end
 end
 
 function global_struct = align_and_assign_struct(global_struct, new_struct, index)

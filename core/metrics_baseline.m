@@ -112,10 +112,22 @@ else
         if ~isempty(i_find)
             i_find = i_find(1);
             lf(j) = T.LocalOrRegionalFailure(i_find);
+            % --- Competing risk classification ---
+            % Clinical decision: a patient with documented local/regional
+            % failure (lf==1) is always coded as an *event* regardless of
+            % cause of death.  Rationale: imaging-confirmed LF represents
+            % the endpoint of interest; subsequent non-cancer death does
+            % not negate the failure observation.
+            %
+            % Competing risk (lf==2) is assigned ONLY when:
+            %   (a) NO local/regional failure was documented (lf==0), AND
+            %   (b) a non-cancer cause of death is recorded.
+            % This means patients who had LF AND later died of non-cancer
+            % causes are counted as events (lf==1), not competing risks.
             if ismember('CauseOfDeath', T.Properties.VariableNames)
                 cod = T.CauseOfDeath{i_find};
                 if lf(j) == 0 && ~isempty(cod) && isempty(strfind(lower(cod), 'cancer'))
-                    lf(j) = 2; % Competing risk
+                    lf(j) = 2; % Competing risk: non-cancer death without LF
                 end
             end
             lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);

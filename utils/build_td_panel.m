@@ -22,8 +22,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %
 %   Outputs
 %   -------
-%   X_td      - [n_intervals × n_feats] covariate matrix (Z-scored within
-%               panel for comparable HRs across features).
+%   X_td      - [n_intervals × n_feats] raw covariate matrix (NOT scaled).
+%               Callers MUST apply scale_td_panel() with explicit train/test
+%               patient lists to avoid cross-patient leakage.  Do NOT Z-score
+%               inside this function — all standardisation is delegated to
+%               scale_td_panel().
 %   t_start   - [n_intervals × 1] interval start times (days).
 %   t_stop    - [n_intervals × 1] interval stop times (days).
 %   event_td  - [n_intervals × 1] categorical event indicator:
