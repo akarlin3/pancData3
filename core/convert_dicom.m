@@ -12,7 +12,12 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
             escape_shell_arg(scanID), ...
             escape_shell_arg(outloc), ...
             escape_shell_arg(dicomloc));
-        system(nii_cmd);
+        [exit_status, cmd_output] = system(nii_cmd);
+        if exit_status ~= 0
+            warning('convert_dicom:nonZeroExit', ...
+                '❌ dcm2niix returned exit code %d for %s:\n%s', exit_status, fx_id, cmd_output);
+            bad_dwi_found = 1;
+        end
 
         % Verify the expected files were successfully created
         nii_exists = exist(fullfile(outloc, [scanID '.nii.gz']), 'file');

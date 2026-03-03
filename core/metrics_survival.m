@@ -1,4 +1,4 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label)
+function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
@@ -12,10 +12,14 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 %   nTp               - Counter of number of timepoints max
 %   fx_label          - Fraction labels used in logging
 %   dtype_label       - DWI type name used in output
+%   m_gtv_vol         - (Optional) GTV volume matrix (patients x fractions)
 %
 % Outputs:
 %   None. Outputs printed to console (HR and p-value tables).
 %
+
+% Handle optional GTV volume argument for backward compatibility
+if nargin < 12, m_gtv_vol = []; end
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
 
@@ -25,6 +29,20 @@ td_scan_days = [0, 5, 10, 15, 20, 90];   % update if exact scan dates are availa
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
                    f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+
+% Include baseline GTV volume as a time-constant confounder when available.
+% Tumor volume is a known prognostic factor; omitting it risks confounding
+% imaging biomarker effect estimates.
+has_vol = ~isempty(m_gtv_vol) && any(isfinite(m_gtv_vol(valid_pts, 1)));
+if has_vol
+    vol_baseline = m_gtv_vol(valid_pts, 1);
+    % Replicate baseline volume across timepoints (time-constant covariate)
+    vol_rep = repmat(vol_baseline, 1, nTp);
+    td_feat_arrays{end+1} = vol_rep;
+    td_feat_names{end+1}  = 'GTVvol';
+    fprintf('  Including baseline GTV volume as a covariate.\n');
+end
+
 td_n_feat      = numel(td_feat_arrays);
 
 td_lf       = m_lf(valid_pts);

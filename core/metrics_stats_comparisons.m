@@ -356,10 +356,27 @@ else
     warning('off', 'all');
     for b = 1:length(biomarkers)
         bm = biomarkers{b};
-        formula = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
+        % Try random intercept + slope first (captures patient-specific
+        % trajectories); fall back to random intercept only if the richer
+        % model fails to converge (common with small N).
+        formula_rs = sprintf('%s ~ 1 + LF * Timepoint + (1 + Timepoint|PatientID)', bm);
+        formula_ri = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
+        glme = [];
+        used_formula = '';
         try
-            glme = fitglme(glme_table_clean, formula, 'OptimizerOptions', statset('MaxIter', 10000));
-            fprintf('\n--- %s ---\n', formula);
+            glme = fitglme(glme_table_clean, formula_rs, 'OptimizerOptions', statset('MaxIter', 10000));
+            used_formula = formula_rs;
+        catch
+            try
+                glme = fitglme(glme_table_clean, formula_ri, 'OptimizerOptions', statset('MaxIter', 10000));
+                used_formula = formula_ri;
+                fprintf('  (random slope did not converge for %s; using random intercept only)\n', bm);
+            catch ME
+                fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
+            end
+        end
+        if ~isempty(glme)
+            fprintf('\n--- %s ---\n', used_formula);
 
             anova_res = anova(glme);
             row_idx = find(strcmp(anova_res.Term, 'LF:Timepoint'));
@@ -374,8 +391,6 @@ else
             else
                 disp(anova_res);
             end
-        catch ME
-            fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
         end
     end
     warning('on', 'all');

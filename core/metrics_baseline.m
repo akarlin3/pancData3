@@ -181,7 +181,13 @@ exclude_missing_baseline = true;
 valid_baseline = ~isnan(gtv_vol(:,1)) & ~isnan(adc_mean(:,1,dtype));
 exclude_outliers = true;
 
+% Outlier detection is outcome-BLINDED: thresholds are derived solely from
+% baseline imaging metrics (IQR fences) without reference to the lf outcome
+% variable.  However, differential removal across outcome groups can still
+% introduce selection bias.  We log the outcome distribution of flagged
+% outliers below so the researcher can verify no systematic imbalance.
 baseline_metrics_oi   = {adc_mean(:,1,dtype), d_mean(:,1,dtype), f_mean(:,1,dtype), dstar_mean(:,1,dtype)};
+baseline_metric_names = {'ADC', 'D', 'f', 'D*'};
 is_outlier = false(size(lf));
 for metric_idx = 1:numel(baseline_metrics_oi)
     col = baseline_metrics_oi{metric_idx};
@@ -193,7 +199,20 @@ for metric_idx = 1:numel(baseline_metrics_oi)
     lower_fence = med_val - 3 * iqr_val;
     upper_fence = med_val + 3 * iqr_val;
     outlier_flags = (col < lower_fence | col > upper_fence) & ~isnan(col);
+    if any(outlier_flags)
+        n_out = sum(outlier_flags);
+        n_out_lf = sum(outlier_flags & (lf == 1));
+        n_out_lc = sum(outlier_flags & (lf == 0));
+        n_out_cr = sum(outlier_flags & (lf == 2));
+        fprintf('  Outlier flag (%s): %d flagged (LF=%d, LC=%d, CR=%d)\n', ...
+            baseline_metric_names{metric_idx}, n_out, n_out_lf, n_out_lc, n_out_cr);
+    end
     is_outlier = is_outlier | outlier_flags;
+end
+n_total_outliers = sum(is_outlier);
+if n_total_outliers > 0
+    fprintf('  Total outliers removed: %d / %d (%.1f%%)\n', ...
+        n_total_outliers, numel(lf), 100*n_total_outliers/numel(lf));
 end
 non_outlier = ~is_outlier;
 

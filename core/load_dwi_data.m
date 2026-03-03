@@ -457,6 +457,23 @@ for j = 1:length(mrn_list)
             continue;
         end
 
+        % Validate dimensions of checkpoint arrays against expected sizes
+        expected_n_fx = size(dwi_locations, 2);
+        expected_n_rp = size(dwi_locations, 3);
+        cp_adc_size = size(loaded_data.adc_mean);
+        if length(cp_adc_size) < 2 || cp_adc_size(2) ~= expected_n_fx
+            warning('load_dwi_data:checkpointSizeMismatch', ...
+                'Checkpoint for patient %d (%s): adc_mean has %d fractions, expected %d. Skipping.', ...
+                j, patient_id, cp_adc_size(2), expected_n_fx);
+            continue;
+        end
+        if length(cp_adc_size) >= 3 && cp_adc_size(3) ~= expected_n_rp
+            warning('load_dwi_data:checkpointSizeMismatch', ...
+                'Checkpoint for patient %d (%s): adc_mean has %d repeats, expected %d. Skipping.', ...
+                j, patient_id, cp_adc_size(3), expected_n_rp);
+            continue;
+        end
+
         % Assign back to global arrays
         % Struct arrays
         data_vectors_gtvp = align_and_assign_struct(data_vectors_gtvp, loaded_data.data_vectors_gtvp, j);

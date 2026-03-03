@@ -93,6 +93,14 @@ for target_fx = 2:nTp
     id_list_valid = id_list(valid_pts);
     id_list_impute = id_list_valid(impute_mask);
 
+    % LIMITATION: KNN imputation produces a single completed dataset.
+    % Confidence intervals and p-values may be anti-conservative because
+    % they do not account for imputation uncertainty.  For definitive
+    % inference, consider multiple imputation (e.g., MICE) and pool
+    % estimates via Rubin's rules.  Single imputation is retained here
+    % because the small cohort size makes stable MI infeasible.
+    fprintf('  ⚠️  Single imputation: CIs may be anti-conservative (imputation uncertainty not propagated).\n');
+
     rng(42);
     fold_id_en = make_grouped_folds(id_list_impute, y_clean, 5);
     n_folds_en = max(fold_id_en);
