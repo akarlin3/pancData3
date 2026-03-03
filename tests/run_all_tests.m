@@ -26,7 +26,14 @@ else
     end
 end
 addpath(repoRoot);
-addpath(genpath(testsDir));
+% Add test subdirectories to path, excluding transient mock_data dirs that
+% may be left over from a previous crashed run.  Including them causes
+% spurious "Removed ... from the MATLAB path" warnings when test teardown
+% deletes them.
+test_paths = genpath(testsDir);
+test_paths = strsplit(test_paths, pathsep);
+test_paths = test_paths(~contains(test_paths, 'mock_data'));
+addpath(strjoin(test_paths, pathsep));
 
 % Suppress figure pop-ups during test execution
 set(0, 'DefaultFigureVisible', 'off');
