@@ -553,10 +553,24 @@ else
     file_prefix = '';
 end
 datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+if ~exist(datasave, 'file') && ~isempty(file_prefix)
+    % Fallback to the default (un-typed) file when the variant-specific
+    % file has not been created yet (e.g. first run before per-type saves).
+    datasave_fallback = fullfile(dataloc, 'dwi_vectors.mat');
+    if exist(datasave_fallback, 'file')
+        fprintf('💡 %s not found — falling back to %s\n', ...
+            ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+        datasave = datasave_fallback;
+    end
+end
 if ~exist(datasave, 'file')
+    type_label = '';
+    if isfield(config_struct, 'dwi_type_name')
+        type_label = config_struct.dwi_type_name;
+    end
     error('load_dwi_data:fileNotFound', ...
         'Required data file ''%s'' not found. Run the load step for DWI type ''%s'' before reloading.', ...
-        datasave, config_struct.dwi_type_name);
+        datasave, type_label);
 end
 tmp_data = load(datasave);
 data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;

@@ -106,12 +106,6 @@ for target_fx = 2:nTp
     n_folds_en = max(fold_id_en);
     n_lambdas = 10;
 
-    % Compute collinearity mask ONCE on the full imputed dataset before CV.
-    % This ensures all folds see the same predictor space, preventing
-    % instability from random collinearity patterns in small training sets.
-    X_impute_full = knn_impute_train_test(X_impute, [], 5, id_list_impute);
-    keep_global = filter_collinear_features(X_impute_full, y_clean);
-
     common_Lambda = [];
     cv_failed = false;
 
@@ -126,9 +120,10 @@ for target_fx = 2:nTp
         id_te = id_list_impute(te_idx);
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, id_tr, id_te);
 
-        % Apply the pre-computed global collinearity mask (same for all folds)
-        X_tr_kept = X_tr_imp(:, keep_global);
-        X_te_kept = X_te_imp(:, keep_global);
+        % Compute collinearity mask per fold from training data only
+        keep_fold = filter_collinear_features(X_tr_imp, y_tr);
+        X_tr_kept = X_tr_imp(:, keep_fold);
+        X_te_kept = X_te_imp(:, keep_fold);
         
         try
             if cv_i == 1
@@ -167,18 +162,17 @@ for target_fx = 2:nTp
         % estimation in the deployed model.  See LOOCV section below for
         % the unbiased performance estimate which uses proper train/test
         % imputation splits.
-        X_clean_all = X_impute_full;
+        X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
 
         try
-            [B_final, FitInfo_final] = lassoglm(X_clean_all(:, keep_global), y_clean, 'binomial', ...
+            [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 10000);
-            
+
             coefs_en = B_final;
 
-            % Map nonzero coefficient indices back through the collinearity
-            % mask and then through the original feature index mapping.
+            % Map nonzero coefficient indices to original feature names.
             nz_in_kept = find(coefs_en ~= 0);
-            selected_indices = original_feature_indices(keep_global(nz_in_kept));
+            selected_indices = original_feature_indices(nz_in_kept);
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
@@ -226,9 +220,10 @@ for target_fx = 2:nTp
         id_te_loo = id_list_impute(loo_i);
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5, id_tr_loo, id_te_loo);
 
-        % Apply the same global collinearity mask (consistent with outer CV)
-        X_tr_kept = X_tr_imp(:, keep_global);
-        X_te_kept = X_te_imp(:, keep_global);
+        % Compute collinearity mask per LOO fold from training data only
+        keep_fold = filter_collinear_features(X_tr_imp, y_tr_fold);
+        X_tr_kept = X_tr_imp(:, keep_fold);
+        X_te_kept = X_te_imp(:, keep_fold);
         
         w_state_loo = warning('off', 'all');
         try

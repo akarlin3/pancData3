@@ -351,8 +351,8 @@ classdef test_source_code_standards < matlab.unittest.TestCase
             ap_code = fread(fid,'*char')'; fclose(fid);
             testCase.verifyTrue(contains(ap_code, 'mid_img_refined'), ...
             "apply_dir_mask_propagation should use a refined midpoint image");
-            testCase.verifyTrue(contains(ap_code, 'D_forward = D_forward_mid - D_backward_mid'), ...
-            "apply_dir_mask_propagation should compute the symmetric proxy field");
+            testCase.verifyTrue(contains(ap_code, 'compose_displacement_fields(D_forward_mid, -D_backward_mid)'), ...
+            "apply_dir_mask_propagation should compose displacement fields for the symmetric proxy");
         end
 
         % ---- ADC source patterns ----------------------------------------
