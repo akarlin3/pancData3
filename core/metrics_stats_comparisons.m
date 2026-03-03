@@ -120,6 +120,7 @@ for s = 1:length(metric_sets)
             allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
         end
     end
+    set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
     saveas(gcf, fullfile(output_folder, sprintf('Metric_Set_%d_%s.png', s, dtype_label)));
     close(gcf);
 end

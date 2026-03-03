@@ -65,6 +65,7 @@ if ~exist('OCTAVE_VERSION', 'builtin')
         allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
     end
 end
+set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
 

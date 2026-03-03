@@ -76,6 +76,9 @@ classdef test_apply_dir_mask_propagation < matlab.unittest.TestCase
             moving = rand(6, 6, 6);
             mask = true(5, 5, 5);
 
+            warning('off', 'apply_dir_mask_propagation:sizeMismatch');
+            cleanup = onCleanup(@() warning('on', 'apply_dir_mask_propagation:sizeMismatch'));
+
             [warped, D_forward, ref3d] = apply_dir_mask_propagation(fixed, moving, mask);
 
             testCase.verifyEmpty(warped, 'Warped mask should be empty for mismatched sizes.');
@@ -88,6 +91,9 @@ classdef test_apply_dir_mask_propagation < matlab.unittest.TestCase
             fixed = rand(5, 5, 5);
             moving = rand(5, 5, 5);
             mask = true(4, 4, 4);
+
+            warning('off', 'apply_dir_mask_propagation:sizeMismatch');
+            cleanup = onCleanup(@() warning('on', 'apply_dir_mask_propagation:sizeMismatch'));
 
             [warped, ~, ~] = apply_dir_mask_propagation(fixed, moving, mask);
             testCase.verifyEmpty(warped, ...

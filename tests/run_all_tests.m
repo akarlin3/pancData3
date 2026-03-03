@@ -28,6 +28,9 @@ end
 addpath(repoRoot);
 addpath(genpath(testsDir));
 
+% Suppress figure pop-ups during test execution
+set(0, 'DefaultFigureVisible', 'off');
+
 disp('===================================================');
 disp('   MATLAB CI Test Runner: Initializing Suite       ');
 disp('===================================================');
@@ -85,5 +88,8 @@ else
         error('One or more tests failed.');
     end
 end
+
+% Restore figure visibility
+set(0, 'DefaultFigureVisible', 'on');
 
 disp('All tests passed successfully!');

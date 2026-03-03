@@ -368,6 +368,7 @@ for target_fx = 2:nTp
         legend(leg_entries, 'Location', 'SouthEast', 'FontSize', 11);
         grid on; box on;
         hold off;
+        set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
         saveas(gcf, fullfile(output_folder, ['ROC_OOF_Risk_Score_' fx_label '_' dtype_label '.png']));
         close(gcf);
         
@@ -461,6 +462,7 @@ for target_fx = 2:nTp
             set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
         end
         safe_name = strrep(curr_sig_file, '*', 'star');
+        set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
         saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));
         close(gcf);
     end
@@ -478,7 +480,11 @@ for target_fx = 2:nTp
                 scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
                 scatter(x_val(group==1), y_val(group==1), 80, 'r', 'filled', 'MarkerEdgeColor', 'k');
 
+                warning('off', 'stats:glmfit:IterationLimit');
+                warning('off', 'stats:glmfit:PerfectSeparation');
                 mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 10000));
+                warning('on', 'stats:glmfit:IterationLimit');
+                warning('on', 'stats:glmfit:PerfectSeparation');
                 coefs = mdl.Coefficients.Estimate;
                 x_range = linspace(min(x_val), max(x_val), 100);
                 y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
@@ -496,6 +502,7 @@ for target_fx = 2:nTp
                 
                 safe_name1 = strrep(sig_names{fi}, '*', 'star');
                 safe_name2 = strrep(sig_names{fj}, '*', 'star');
+                set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
                 saveas(gcf, fullfile(output_folder, sprintf('2D_Space_%s_vs_%s_%s_%s.png', safe_name1, safe_name2, fx_label, dtype_label)));
                 close(gcf);
             end

@@ -53,7 +53,9 @@ for di = 1:numel(diff_metrics)
             50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
         % Overlay a first-order (linear) polynomial fit
+        warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         p_fit = polyfit(x_vals(clean), y_vals(clean), 1);
+        warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         x_line = linspace(min(x_vals(clean)), max(x_vals(clean)), 50);
         plot(x_line, polyval(p_fit, x_line), 'k--', 'LineWidth', 1.5, ...
             'DisplayName', 'Linear fit');
@@ -85,6 +87,7 @@ for di = 1:numel(diff_metrics)
 end
 sgtitle(['RT Dose vs Diffusion Metrics (Fx1) (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
+set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']));
 close(gcf);
 

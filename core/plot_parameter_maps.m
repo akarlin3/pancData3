@@ -118,6 +118,7 @@ for j = 1:nPat
             sgtitle('Parameter Maps Overlaid on Anatomy (Fx1)', 'FontSize', 14, 'FontWeight', 'bold');
             cb = colorbar('Position', [0.93 0.11 0.015 0.8]);
             ylabel(cb, 'ADC (mm^2/s)');
+            set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
             saveas(gcf, fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_num - 1)));
             close(gcf);
         end
@@ -172,6 +173,7 @@ if patients_plotted > 0
     sgtitle('Parameter Maps Overlaid on Anatomy (Fx1)', 'FontSize', 14, 'FontWeight', 'bold');
     cb = colorbar('Position', [0.93 0.11 0.015 0.8]);
     ylabel(cb, 'ADC (mm^2/s)');
+    set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
     saveas(gcf, fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_num)));
     close(gcf);
     fprintf('  Plotted %d patients.\n', patients_plotted);
