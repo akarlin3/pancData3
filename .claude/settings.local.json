@@ -15,7 +15,9 @@
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_dwi_pipeline.m'',''Name'',''*testRunDwiPipelineEndToEnd''\\); disp\\(table\\(results\\)\\);\")",
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"run\\(''tests/run_all_tests.m''\\)\")",
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \":*)",
-      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies''\\); runtests\\(''tests/test_dwi_pipeline.m''\\)\")"
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies''\\); runtests\\(''tests/test_dwi_pipeline.m''\\)\")",
+      "Bash(\"/c/Program Files/MATLAB/R2025a/bin/matlab\" -batch \"addpath\\(''tests''\\); results = runtests\\(''test_safe_load_mask'', ''ProcedureName'', {''testInvalidTypeString'', ''testInvalidTypeStruct''}\\); disp\\(results\\);\")",
+      "Bash(\"/c/Program Files/MATLAB/R2025a/bin/matlab\" -batch \"addpath\\(''tests''\\); results = runtests\\(''test_apply_dir_mask_propagation'', ''ProcedureName'', {''testEmptyFixedReturnsEmpty'', ''testEmptyMovingReturnsEmpty'', ''testEmptyMaskReturnsEmpty''}\\); disp\\(results\\);\")"
     ]
   }
 }
