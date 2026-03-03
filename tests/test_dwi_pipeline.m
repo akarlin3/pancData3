@@ -311,11 +311,11 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             % BOILERPLATE MOCK 3D NIFTI ARRAY TEST
             % -----------------------------------------------------------------
             % 1. Create a tiny mock 4D DWI tensor (X, Y, Z, b-values)
-            % We simulate a 5x5x5 volume with 4 b-values (e.g., 0, 50, 400, 800)
+            % We simulate a 5x5x5 volume with 4 b-values (0, 30, 150, 550)
             sz = [5, 5, 5, 4];
 
             % Generate physically plausible exponential decay signal
-            bvals = [0, 50, 400, 800];
+            bvals = [0, 30, 150, 550];
             true_adc = 0.001; % Typical tissue ADC
 
             mockSignal = zeros(sz);

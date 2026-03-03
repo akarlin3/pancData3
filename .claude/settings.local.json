@@ -14,7 +14,8 @@
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_plot_feature_distributions.m'',''Name'',''*testHappyPath''\\); disp\\(table\\(results\\)\\);\")",
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_dwi_pipeline.m'',''Name'',''*testRunDwiPipelineEndToEnd''\\); disp\\(table\\(results\\)\\);\")",
       "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"run\\(''tests/run_all_tests.m''\\)\")",
-      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \":*)"
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \":*)",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies''\\); runtests\\(''tests/test_dwi_pipeline.m''\\)\")"
     ]
   }
 }
