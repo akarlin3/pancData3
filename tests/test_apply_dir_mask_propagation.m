@@ -97,9 +97,9 @@ classdef test_apply_dir_mask_propagation < matlab.unittest.TestCase
         function testOutputTypes(testCase)
             % Verify correct types for all outputs
             rng(2);
-            img = rand(16, 16, 4) * 100;
-            mask = false(16, 16, 4);
-            mask(5:10, 5:10, 2:3) = true;
+            img = rand(16, 16, 8) * 100;
+            mask = false(16, 16, 8);
+            mask(5:10, 5:10, 2:6) = true;
 
             [warped, D_forward, ref3d] = apply_dir_mask_propagation(img, img, mask);
 
@@ -112,11 +112,11 @@ classdef test_apply_dir_mask_propagation < matlab.unittest.TestCase
             % An image with extreme outlier voxels should still register
             % successfully (percentile normalization clips outliers).
             rng(3);
-            img = rand(20, 20, 6) * 100;
+            img = rand(20, 20, 8) * 100;
             % Add extreme outlier
             img(1, 1, 1) = 1e6;
-            mask = false(20, 20, 6);
-            mask(5:15, 5:15, 2:5) = true;
+            mask = false(20, 20, 8);
+            mask(5:15, 5:15, 2:7) = true;
 
             [warped, ~, ~] = apply_dir_mask_propagation(img, img, mask);
 

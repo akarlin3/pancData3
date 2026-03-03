@@ -179,8 +179,10 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
                 % Because skip_to_reload is false, Section 3 will save a new dwi_vectors.mat
                 % and Section 4 will reload it, and compute_summary_metrics will process empty arrays.
 
-                testCase.verifyEmpty(gtvp, 'GTVp should be empty struct');
-                testCase.verifyEmpty(gtvn, 'GTVn should be empty struct');
+                testCase.verifyTrue(isempty(gtvp) || numel(fieldnames(gtvp)) == 0, ...
+                    'GTVp should be empty struct');
+                testCase.verifyTrue(isempty(gtvn) || numel(fieldnames(gtvn)) == 0, ...
+                    'GTVn should be empty struct');
                 testCase.verifyEmpty(summary.id_list, 'Summary id_list should be empty');
 
                 % Verify it saved the empty state

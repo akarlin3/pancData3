@@ -45,6 +45,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             % Add necessary paths for tests
             testCase.ConfigStruct.orig_path = path;
             baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
+            addpath(baseDir);  % repo root for run_dwi_pipeline
             addpath(fullfile(baseDir, 'core'));
             addpath(fullfile(baseDir, 'utils'));
             addpath(fullfile(baseDir, 'dependencies'));
@@ -75,9 +76,6 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             nDwiType = 3; % Standard, DnCNN, IVIMnet
 
             % 1. Create Data Vectors
-            data_vectors_gtvp = struct();
-            data_vectors_gtvn = struct();
-
             % Generate dummy voxel data
             nvox = 50;
             base_adc = 0.001;
@@ -85,6 +83,17 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             base_f = 0.15;
             base_dstar = 0.05;
             base_dose = 2.0;
+
+            % Pre-allocate struct arrays with matching field signature to
+            % avoid 'heterogeneousStrucAssignment' error on indexed assignment.
+            s_template = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'dose_vector', [], 'ID', '', 'MRN', '', 'LF', 0, 'Immuno', 0, ...
+                'Fraction', 0, 'Repeatability_index', 0, 'vox_vol', 0, 'dvh', [], 'd95', 0, 'v50gy', 0);
+            data_vectors_gtvp = repmat(s_template, nPat, nTp);
+            data_vectors_gtvn = repmat(s_template, nPat, nTp);
 
             for j = 1:nPat
                 for k = 1:nTp
@@ -154,6 +163,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             summary_metrics.v50gy_gtvn = 5 + rand(nPat, nTp);
 
             summary_metrics.gtv_locations = cell(nPat, nTp, 1);
+            summary_metrics.dwi_locations = cell(nPat, nTp, 1);
             summary_metrics.adc_sd = 1e-4 * rand(nPat, nTp, nDwiType);
 
             % Make sure all metrics are positive to pass sanity checks
@@ -161,6 +171,22 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             summary_metrics.d_mean = abs(summary_metrics.d_mean) + 1e-5;
             summary_metrics.f_mean = abs(summary_metrics.f_mean) + 1e-5;
             summary_metrics.dstar_mean = abs(summary_metrics.dstar_mean) + 1e-5;
+
+            % Repeatability fields required by metrics_baseline
+            nRpt = 2;
+            summary_metrics.n_rpt = nRpt * ones(nPat, 1);
+            summary_metrics.adc_mean_rpt = abs(base_adc + 1e-4 * randn(nPat, nRpt, nDwiType));
+            summary_metrics.adc_sub_rpt = abs(base_adc + 1e-4 * randn(nPat, nRpt, nDwiType));
+            summary_metrics.d_mean_rpt = abs(base_d + 1e-4 * randn(nPat, nRpt, nDwiType));
+            summary_metrics.f_mean_rpt = abs(base_f + 0.02 * randn(nPat, nRpt, nDwiType));
+            summary_metrics.dstar_mean_rpt = abs(base_dstar + 0.01 * randn(nPat, nRpt, nDwiType));
+
+            % Volume and dose fields
+            summary_metrics.gtv_vol = 10 + rand(nPat, nTp);
+            summary_metrics.dmean_gtvp = 50 + rand(nPat, nTp) * 5;
+
+            % LF field for visualize_results
+            summary_metrics.lf = mod((1:nPat)', 2);
         end
     end
 
@@ -177,7 +203,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             cfg = struct();
             cfg.dataloc = testCase.MockDataDir;
             cfg.dcm2nii_call = 'dummy';
-            cfg.clinical_data_sheet = 'dummy.xlsx';
+            cfg.clinical_data_sheet = 'mock_clinical.xlsx';
             cfg.skip_to_reload = true;
             cfg.dwi_type = 'IVIMnet';
 
@@ -185,6 +211,24 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             fid = fopen(config_file, 'w');
             fprintf(fid, '%s', jsonencode(cfg));
             fclose(fid);
+
+            % Create mock clinical Excel file matching patient IDs
+            nPat = 3;
+            id_list_xls = arrayfun(@(x) sprintf('P%02d', x), (1:nPat)', 'UniformOutput', false);
+            lf_vals = mod((1:nPat)', 2);
+            dt_event  = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop  = repmat(datetime('2022-03-01'), nPat, 1);
+            dt_reg_censor = repmat(datetime('2023-06-01'), nPat, 1);
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, ...
+                dt_reg_censor, dt_rtstart, dt_rtstop, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate'});
+            writetable(T_clin, fullfile(testCase.MockDataDir, 'mock_clinical.xlsx'));
 
             % Create mock dwi_vectors_IVIMnet.mat and summary_metrics_IVIMnet.mat
             % in the locations expected by run_dwi_pipeline

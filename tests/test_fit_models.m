@@ -93,7 +93,8 @@ classdef test_fit_models < matlab.unittest.TestCase
             [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvals, mask, opts);
 
             % Should produce valid output without crash
-            testCase.verifyEqual(size(d_map), [3, 3, 1]);
+            % Note: MATLAB drops trailing singleton dims, so size is [3, 3]
+            testCase.verifyEqual(size(d_map), [3, 3]);
             testCase.verifyTrue(all(isfinite(d_map(mask))), ...
                 'Odd mask voxels should still produce finite D.');
         end

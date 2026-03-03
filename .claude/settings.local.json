@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(matlab -batch \"run\\(''tests/test_metrics_stats_predictive.m''\\)\")",
-      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); run\\(''tests/run_all_tests.m''\\)\")"
+      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); run\\(''tests/run_all_tests.m''\\)\")",
+      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); results = runtests\\(''tests/test_dwi_pipeline.m'', ''Name'', ''*testRunDwiPipelineEndToEnd*''\\); disp\\(results\\)\")"
     ]
   }
 }
