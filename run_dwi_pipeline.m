@@ -550,11 +550,6 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     calculated_results = tmp_results.calculated_results;
                     fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
                 else
-                    fprintf('      ⚠️ Warning: calculated_results file not found. Visualizations may be incomplete.\n');
-                    if log_fid > 0
-                        fprintf(log_fid, '[%s] [WARNING] calculated_results file not found at: %s\n', ...
-                            datestr(now, 'yyyy-mm-dd HH:MM:SS'), results_file);
-                    end
                     calculated_results = struct(); % Empty struct fallback
                 end
             end
