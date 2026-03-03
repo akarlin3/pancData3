@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+title: "pancData3: Pancreatic DWI Analysis Pipeline"
+message: "If you use this software in your research, please cite it as below."
+type: software
+authors:
+  - family-names: Karlin
+    given-names: Avery
+    affiliation: Memorial Sloan Kettering Cancer Center
+repository-code: "https://github.com/akarlin3/pancData3"
+license: MIT
+version: "1.0.0"
+date-released: "2026-01-01"
+keywords:
+  - diffusion-weighted imaging
+  - IVIM
+  - ADC
+  - pancreatic cancer
+  - radiotherapy
+  - medical physics
+  - MRI
+  - deep learning denoising
+  - survival analysis
+abstract: >-
+  A MATLAB-based analysis pipeline for pancreatic
+  diffusion-weighted MRI research. Supports IVIM and ADC
+  model fitting, deep learning denoising (DnCNN, IVIMnet),
+  radiotherapy dose correlation, and survival analysis with
+  competing risks modeling.

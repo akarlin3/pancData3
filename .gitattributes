@@ -1,0 +1,43 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# MATLAB source files
+*.m text diff=matlab linguist-language=MATLAB
+*.mlx binary
+
+# Data files (always binary)
+*.mat binary
+*.nii binary
+*.nii.gz binary
+*.dcm binary
+*.h5 binary
+*.hdf5 binary
+
+# Documentation
+*.md text diff=markdown
+*.txt text
+
+# Configuration
+*.json text
+*.yml text
+*.yaml text
+*.cfg text
+
+# Shell scripts
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text
+
+# Git and CI
+.gitignore text
+.gitattributes text
+.editorconfig text
+
+# Force LF for cross-platform scripts
+config.example.json text eol=lf
