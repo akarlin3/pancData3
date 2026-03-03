@@ -611,7 +611,14 @@ function global_struct = align_and_assign_struct(global_struct, new_struct, inde
     % ALIGN_AND_ASSIGN_STRUCT Helper to assign struct arrays with potentially missing fields
 
     if isempty(fieldnames(global_struct))
-        % Initialise global struct with the first valid entry's structure
+        % Initialise global struct: create a matching-fields template so
+        % MATLAB can perform subscripted assignment at any index.
+        fields = fieldnames(new_struct);
+        empty_vals = repmat({[]}, numel(fields), 1);
+        template = cell2struct(empty_vals, fields, 1);
+        sz_new = size(new_struct);
+        dims = [index, sz_new(2:end)];
+        global_struct = repmat(template, dims);
         global_struct(index, :, :) = new_struct;
         return;
     end
