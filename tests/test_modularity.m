@@ -9,6 +9,9 @@ classdef test_modularity < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Suppress figure pop-ups during pipeline execution
+            set(0, 'DefaultFigureVisible', 'off');
+
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -48,6 +51,7 @@ classdef test_modularity < matlab.unittest.TestCase
         function teardown(testCase)
             rmdir(testCase.TempDir, 's');
             setenv('SKIP_PIPELINE_PREFLIGHT', '');
+            set(0, 'DefaultFigureVisible', 'on');
         end
     end
 

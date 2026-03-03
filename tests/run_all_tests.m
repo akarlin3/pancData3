@@ -66,22 +66,16 @@ runner.addPlugin(ProgressBarPlugin(numel(suite)));
 foldersToCover = {coreDir, utilsDir};
 
 % Add the CodeCoveragePlugin to generate an HTML report or standard coverage.
-% Wrap in try-catch: when run_all_tests is invoked from run_dwi_pipeline's
-% pre-flight check, MATLAB may already have an active coverage session for
-% these folders (e.g. from an outer test runner), causing
-% "Simultaneously generating coverage reports" errors.
-if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
-    try
-        coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
-        runner.addPlugin(coveragePlugin);
-        disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
-    catch ME
-        if contains(ME.message, 'Simultaneously')
-            disp('Code coverage already active — skipping coverage plugin for this run.');
-        else
-            rethrow(ME);
-        end
-    end
+% Skip coverage when invoked from run_dwi_pipeline's pre-flight check — the
+% pre-flight only needs pass/fail, and adding coverage during a nested call
+% triggers "Simultaneously generating coverage reports" errors in MATLAB.
+is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
+if is_preflight
+    disp('Pre-flight mode — skipping code coverage plugin.');
+elseif exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
+    coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
+    runner.addPlugin(coveragePlugin);
+    disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
 else
     disp('CodeCoveragePlugin not available in this MATLAB version.');
 end

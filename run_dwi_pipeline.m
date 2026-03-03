@@ -54,10 +54,35 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     if ismember('test', steps_to_run)
         if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
             try
-                fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
-                run(fullfile(pipeline_dir, 'tests', 'run_all_tests.m'));
+                fprintf('⚙️ [Pre-flight] Running unit tests before pipeline...\n');
+                % Run tests directly instead of via run_all_tests.m to:
+                %  - Exclude integration tests (test_dwi_pipeline, test_modularity)
+                %    that call run_dwi_pipeline themselves, which would be circular.
+                %  - Skip the CodeCoveragePlugin (pre-flight only needs pass/fail).
+                %  - Keep pre-flight fast.
+                tests_dir = fullfile(pipeline_dir, 'tests');
+                addpath(tests_dir);
+                pf_suite = matlab.unittest.TestSuite.fromFolder(tests_dir, 'IncludingSubfolders', true);
+                % Exclude integration tests that invoke the pipeline
+                integration_names = {'test_dwi_pipeline', 'test_modularity'};
+                keep = true(size(pf_suite));
+                for ii = 1:numel(pf_suite)
+                    for jj = 1:numel(integration_names)
+                        if startsWith(pf_suite(ii).Name, integration_names{jj})
+                            keep(ii) = false;
+                        end
+                    end
+                end
+                pf_suite = pf_suite(keep);
+                old_fig_vis = get(0, 'DefaultFigureVisible');
+                set(0, 'DefaultFigureVisible', 'off');
+                pf_results = run(pf_suite);
+                set(0, 'DefaultFigureVisible', old_fig_vis);
+                if any([pf_results.Failed])
+                    error('PreFlight:TestFailure', '%d test(s) failed.', sum([pf_results.Failed]));
+                end
                 tests_passed_this_session = true;
-                fprintf('      ✅ Test suite passed. Proceeding with pipeline.\n');
+                fprintf('      ✅ %d unit tests passed.\n', numel(pf_results));
             catch ME
                 tests_passed_this_session = false;
                 fprintf('❌ Test suite failed: %s\n', ME.message);
@@ -69,6 +94,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     else
         fprintf('⏭️ [Pre-flight] Skipping test step.\n');
+    end
+
+    % If 'test' was the only requested step, stop here.
+    other_steps = setdiff(steps_to_run, {'test'});
+    if isempty(other_steps)
+        fprintf('✅ Test-only run complete. No pipeline steps to execute.\n');
+        return;
     end
 
     % 2) Programmatically check for required toolboxes

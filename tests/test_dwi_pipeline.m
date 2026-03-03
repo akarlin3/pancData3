@@ -20,6 +20,9 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     methods(TestMethodSetup)
         % Setup for each test
         function createMockConfig(testCase)
+            % Suppress figure pop-ups during pipeline execution
+            set(0, 'DefaultFigureVisible', 'off');
+
             % Create a dummy configuration structure for testing
             testCase.ConfigStruct = struct();
             testCase.ConfigStruct.skip_to_reload = false;
@@ -55,14 +58,21 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     methods(TestMethodTeardown)
         % Cleanup after each test
         function removeMockData(testCase)
+            % Restore path BEFORE deleting mock_data to avoid
+            % "Removed ... from the MATLAB path" warnings.
+            if isfield(testCase.ConfigStruct, 'orig_path')
+                % Filter out entries that no longer exist on disk (e.g.
+                % mock_data was deleted by a prior test in this run).
+                entries = strsplit(testCase.ConfigStruct.orig_path, pathsep);
+                entries = entries(cellfun(@(p) isempty(p) || isfolder(p), entries));
+                path(strjoin(entries, pathsep));
+            end
+
             if exist(testCase.MockDataDir, 'dir')
                 rmdir(testCase.MockDataDir, 's');
             end
 
-            % Restore path
-            if isfield(testCase.ConfigStruct, 'orig_path')
-                path(testCase.ConfigStruct.orig_path);
-            end
+            set(0, 'DefaultFigureVisible', 'on');
         end
     end
 
