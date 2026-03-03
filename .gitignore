@@ -54,3 +54,4 @@ results/
 
 # Configuration (contains local paths)
 config.json
+octave-workspace
