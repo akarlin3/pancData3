@@ -49,5 +49,8 @@ node_modules/
 __pycache__/
 *.log
 
-# Configuration
+# Build Artifacts
+results/
+
+# Configuration (contains local paths)
 config.json
