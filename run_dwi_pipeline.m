@@ -10,7 +10,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 %   3. Environment: Setting up paths and verifying dependencies dynamically.
 % Usage:
 %   run_dwi_pipeline('config.json');
-%   run_dwi_pipeline('config.json', {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'});
+%   run_dwi_pipeline('config.json', {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'});
 %   run_dwi_pipeline('config.json', {'load'}, 'path/to/my_output_folder');
 %
 % This function sequentially calls the module scripts:
@@ -33,26 +33,42 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
+    if nargin < 1
+        config_path = 'config.json';
+    end
+
+    if nargin < 2
+        steps_to_run = {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
+    end
+
+    if nargin < 3
+        master_output_folder = '';
+    end
+
     % 1.5) Run test suite before pipeline execution (once per session)
     % Uses a persistent variable so tests only run on the first call,
     % avoiding redundant re-runs when execute_all_workflows calls this
     % function multiple times.
     persistent tests_passed_this_session;
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
-    if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
-        try
-            fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
-            run(fullfile(pipeline_dir, 'tests', 'run_all_tests.m'));
-            tests_passed_this_session = true;
-            fprintf('      ✅ Test suite passed. Proceeding with pipeline.\n');
-        catch ME
-            tests_passed_this_session = false;
-            fprintf('❌ Test suite failed: %s\n', ME.message);
-            error('PipelineAborted:TestFailure', ...
-                'Pipeline aborted because the test suite did not pass.');
+    if ismember('test', steps_to_run)
+        if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
+            try
+                fprintf('⚙️ [Pre-flight] Running test suite before pipeline...\n');
+                run(fullfile(pipeline_dir, 'tests', 'run_all_tests.m'));
+                tests_passed_this_session = true;
+                fprintf('      ✅ Test suite passed. Proceeding with pipeline.\n');
+            catch ME
+                tests_passed_this_session = false;
+                fprintf('❌ Test suite failed: %s\n', ME.message);
+                error('PipelineAborted:TestFailure', ...
+                    'Pipeline aborted because the test suite did not pass.');
+            end
+        else
+            fprintf('⏭️ [Pre-flight] Test suite already passed this session or configured to skip. Skipping.\n');
         end
     else
-        fprintf('⏭️ [Pre-flight] Test suite already passed this session. Skipping.\n');
+        fprintf('⏭️ [Pre-flight] Skipping test step.\n');
     end
 
     % 2) Programmatically check for required toolboxes
@@ -70,18 +86,6 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     % ----------------------------
-
-    if nargin < 1
-        config_path = 'config.json';
-    end
-
-    if nargin < 2
-        steps_to_run = {'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
-    end
-
-    if nargin < 3
-        master_output_folder = '';
-    end
 
     log_fid = -1; % Error log file handle (opened after output folder is determined)
 
