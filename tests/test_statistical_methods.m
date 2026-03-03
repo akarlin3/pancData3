@@ -610,16 +610,20 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testDIR_EmptyInputsReturnEmpty(testCase)
             % All three empty-input cases should return [].
+            warning('off', 'apply_dir_mask_propagation:emptyInput');
             r1 = apply_dir_mask_propagation([], ones(4,4,4), true(4,4,4));
             r2 = apply_dir_mask_propagation(ones(4,4,4), [], true(4,4,4));
             r3 = apply_dir_mask_propagation(ones(4,4,4), ones(4,4,4), []);
+            warning('on', 'apply_dir_mask_propagation:emptyInput');
             testCase.verifyTrue(isempty(r1) && isempty(r2) && isempty(r3), ...
             'Empty inputs should return empty output');
         end
 
         function testDIR_SizeMismatchReturnsEmpty(testCase)
             % Mismatched image sizes should return [].
+            warning('off', 'apply_dir_mask_propagation:sizeMismatch');
             r = apply_dir_mask_propagation(ones(4,4,4), ones(5,5,5), true(4,4,4));
+            warning('on', 'apply_dir_mask_propagation:sizeMismatch');
             testCase.verifyTrue(isempty(r), ...
             'Size-mismatched inputs should return empty output');
         end

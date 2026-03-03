@@ -83,7 +83,9 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
                 'Should trigger warning for unsafe string type.');
 
             % Verify output is empty
+            w = warning('off', 'safe_load_mask:SecurityRisk');
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            warning(w);
             testCase.verifyEmpty(loaded_mask, ...
                 'Should return empty for unsafe string type.');
         end
@@ -100,7 +102,9 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
                 'Should trigger warning for unsafe struct type.');
 
             % Verify output is empty
+            w = warning('off', 'safe_load_mask:SecurityRisk');
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            warning(w);
             testCase.verifyEmpty(loaded_mask, ...
                 'Should return empty for unsafe struct type.');
         end
@@ -111,7 +115,9 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             DifferentVar = rand(3,3);
             save(filename, 'DifferentVar');
 
+            w = warning('off', 'safe_load_mask:VariableNotFound');
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            warning(w);
             testCase.verifyEmpty(loaded_mask, ...
                 'Should return empty if target variable is missing.');
         end
@@ -119,7 +125,9 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
         function testFileNotFound(testCase)
              % Should return empty if file does not exist
              filename = fullfile(testCase.TempDir, 'non_existent.mat');
+             w = warning('off', 'safe_load_mask:FileNotFound');
              loaded_mask = safe_load_mask(filename, 'Stvol3d');
+             warning(w);
              testCase.verifyEmpty(loaded_mask, ...
                  'Should return empty if file does not exist.');
         end
@@ -132,7 +140,9 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             fwrite(fid, 'NOT_A_VALID_MAT_FILE_HEADER');
             fclose(fid);
 
+            w = warning('off', 'safe_load_mask:FileReadError');
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
+            warning(w);
             testCase.verifyEmpty(loaded_mask, ...
                 'Should return empty for corrupted .mat file.');
         end

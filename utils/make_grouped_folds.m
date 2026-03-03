@@ -38,6 +38,8 @@ end
 % Attempt stratified partition; fall back to unstratified if the
 % minority class is too small for k folds.
 try
+    warnState = warning('off', 'stats:cvpartition:KFoldMissingGrp');
+    restoreWarn = onCleanup(@() warning(warnState));
     cvp = cvpartition(pt_y, 'KFold', k);
 catch
     cvp = cvpartition(n_unique, 'KFold', k);
