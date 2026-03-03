@@ -3,12 +3,14 @@ function filepath = discover_gtv_file(folder, patterns, index)
         patterns = {char(patterns)};
     end
     filepath = '';
-    gtv_search = [];
-    single_gtv_search = [];
+    gtv_search = dir(fullfile(folder, '__nonexistent__'));  % empty struct array with dir fields
+    single_gtv_search = gtv_search;
     for p = 1:length(patterns)
         pat = patterns{p};
-        gtv_search = cat(1, gtv_search, dir(fullfile(folder, [pat int2str(index) '*.mat'])));
-        single_gtv_search = cat(1, single_gtv_search, dir(fullfile(folder, [pat '.mat'])));
+        tmp = dir(fullfile(folder, [pat int2str(index) '*.mat']));
+        if ~isempty(tmp); gtv_search = [gtv_search; tmp]; end
+        tmp = dir(fullfile(folder, [pat '.mat']));
+        if ~isempty(tmp); single_gtv_search = [single_gtv_search; tmp]; end
     end
     if isempty(gtv_search)
         % fallback: sometimes only 1 mask exists for all repeats

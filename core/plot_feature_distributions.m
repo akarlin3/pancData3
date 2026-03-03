@@ -34,8 +34,8 @@ sgtitle(['Baseline Feature Distributions by Outcome (' dtype_label ')'], ...
 % the individual subplot titles.
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
-    pos = allAx(k).Position;
-    allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
+    pos = get(allAx(k), 'Position');
+    set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
 saveas(gcf, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']));
 close(gcf);
@@ -55,8 +55,8 @@ sgtitle(['Baseline Feature Box Plots by Outcome (' dtype_label ')'], ...
 % Shift subplot axes down to avoid supertitle/subplot-title overlap
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
-    pos = allAx(k).Position;
-    allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
+    pos = get(allAx(k), 'Position');
+    set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
 saveas(gcf, fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']));
 close(gcf);

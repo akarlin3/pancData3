@@ -75,7 +75,18 @@ for s = 1:length(metric_sets)
             if ~isnan(p)
                 p_val_store(s).p_vals(m, tp) = p;
 
-                boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
+                if exist('OCTAVE_VERSION', 'builtin')
+                    try
+                        boxplot(y, g);
+                    catch
+                        plot(g + 1, y, 'ko', 'MarkerSize', 6, 'MarkerFaceColor', [0 0.4470 0.7410]);
+                        xlim([0.5, 2.5]);
+                        set(gca, 'XTick', [1, 2]);
+                        set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
+                    end
+                else
+                    boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
+                end
                 title_str = sprintf('%s - %s\np = %.3f', current_names{m}, time_labels{tp}, p);
                 if p < 0.05
                     title(title_str, 'Color', 'r', 'FontWeight', 'bold');
@@ -244,95 +255,111 @@ if ~isempty(sig_pval)
     end
 end
 
-% Let's also run the GLME Mixed-effects model from the end of the script
-fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
-patient_indices = find(valid_pts);
-max_obs = length(patient_indices) * nTp;
+% GLME Mixed-effects model requires categorical() and fitglme() which are
+% not available in Octave. Skip this section in Octave.
+if exist('OCTAVE_VERSION', 'builtin')
+    fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
+    fprintf('  Skipped: fitglme/categorical not available in Octave.\n');
+else
+    fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
+    patient_indices = find(valid_pts);
+    max_obs = length(patient_indices) * nTp;
 
-long_PatientID = nan(max_obs, 1);
-long_Timepoint = nan(max_obs, 1);
-long_ADC = nan(max_obs, 1);
-long_D = nan(max_obs, 1);
-long_f = nan(max_obs, 1);
-long_Dstar = nan(max_obs, 1);
-long_LF = nan(max_obs, 1);
+    long_PatientID = nan(max_obs, 1);
+    long_Timepoint = nan(max_obs, 1);
+    long_ADC = nan(max_obs, 1);
+    long_D = nan(max_obs, 1);
+    long_f = nan(max_obs, 1);
+    long_Dstar = nan(max_obs, 1);
+    long_LF = nan(max_obs, 1);
 
-obs_idx = 0;
-for i = 1:length(patient_indices)
-    p_idx = patient_indices(i);
-    for t = 1:nTp
-        if ~isnan(ADC_abs(p_idx, t)) || ~isnan(D_abs(p_idx, t)) || ~isnan(f_abs(p_idx, t)) || ~isnan(Dstar_abs(p_idx, t))
-            obs_idx = obs_idx + 1;
-            long_PatientID(obs_idx) = i;
-            long_Timepoint(obs_idx) = t;
-            long_ADC(obs_idx) = ADC_abs(p_idx, t);
-            long_D(obs_idx) = D_abs(p_idx, t);
-            long_f(obs_idx) = f_abs(p_idx, t);
-            long_Dstar(obs_idx) = Dstar_abs(p_idx, t);
-            long_LF(obs_idx) = lf_group(i);
-        end
-    end
-end
-
-long_PatientID = long_PatientID(1:obs_idx);
-long_Timepoint = long_Timepoint(1:obs_idx);
-long_ADC = long_ADC(1:obs_idx);
-long_D = long_D(1:obs_idx);
-long_f = long_f(1:obs_idx);
-long_Dstar = long_Dstar(1:obs_idx);
-long_LF = long_LF(1:obs_idx);
-
-glme_table = table(categorical(long_PatientID), long_Timepoint, ...
-    long_ADC, long_D, long_f, long_Dstar, long_LF, ...
-    'VariableNames', {'PatientID', 'Timepoint', 'ADC', 'D', 'f', 'Dstar', 'LF'});
-
-clean_idx = ~isnan(glme_table.ADC) & ~isnan(glme_table.D) & ~isnan(glme_table.f) & ~isnan(glme_table.Dstar);
-glme_table_clean = glme_table(clean_idx, :);
-baseline_idx = glme_table_clean.Timepoint == 1;
-
-mean_ADC_base = mean(glme_table_clean.ADC(baseline_idx));
-std_ADC_base = std(glme_table_clean.ADC(baseline_idx));
-mean_D_base = mean(glme_table_clean.D(baseline_idx));
-std_D_base = std(glme_table_clean.D(baseline_idx));
-mean_f_base = mean(glme_table_clean.f(baseline_idx));
-std_f_base = std(glme_table_clean.f(baseline_idx));
-mean_Dstar_base = mean(glme_table_clean.Dstar(baseline_idx));
-std_Dstar_base = std(glme_table_clean.Dstar(baseline_idx));
-
-glme_table_clean.ADC_z = (glme_table_clean.ADC - mean_ADC_base) / std_ADC_base;
-glme_table_clean.D_z = (glme_table_clean.D - mean_D_base) / std_D_base;
-glme_table_clean.f_z = (glme_table_clean.f - mean_f_base) / std_f_base;
-glme_table_clean.Dstar_z = (glme_table_clean.Dstar - mean_Dstar_base) / std_Dstar_base;
-
-glme_table_clean.LF = categorical(glme_table_clean.LF);
-glme_table_clean.Timepoint = categorical(glme_table_clean.Timepoint);
-
-biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
-warning('off', 'all');
-for b = 1:length(biomarkers)
-    bm = biomarkers{b};
-    formula = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
-    try
-        glme = fitglme(glme_table_clean, formula, 'OptimizerOptions', statset('MaxIter', 10000));
-        fprintf('\n--- %s ---\n', formula);
-        
-        anova_res = anova(glme);
-        row_idx = find(strcmp(anova_res.Term, 'LF:Timepoint'));
-        if ~isempty(row_idx)
-            pval = anova_res.pValue(row_idx);
-            fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', pval);
-            if pval < 0.05
-                fprintf('  -> SIGNIFICANT DIFFERENCE in trajectory between LC and LF groups.\n');
-            else
-                fprintf('  -> No significant difference in trajectory between LC and LF groups.\n');
+    obs_idx = 0;
+    for i = 1:length(patient_indices)
+        p_idx = patient_indices(i);
+        for t = 1:nTp
+            if ~isnan(ADC_abs(p_idx, t)) || ~isnan(D_abs(p_idx, t)) || ~isnan(f_abs(p_idx, t)) || ~isnan(Dstar_abs(p_idx, t))
+                obs_idx = obs_idx + 1;
+                long_PatientID(obs_idx) = i;
+                long_Timepoint(obs_idx) = t;
+                long_ADC(obs_idx) = ADC_abs(p_idx, t);
+                long_D(obs_idx) = D_abs(p_idx, t);
+                long_f(obs_idx) = f_abs(p_idx, t);
+                long_Dstar(obs_idx) = Dstar_abs(p_idx, t);
+                long_LF(obs_idx) = lf_group(i);
             end
-        else
-            disp(anova_res);
         end
-    catch ME
-        fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
     end
+
+    long_PatientID = long_PatientID(1:obs_idx);
+    long_Timepoint = long_Timepoint(1:obs_idx);
+    long_ADC = long_ADC(1:obs_idx);
+    long_D = long_D(1:obs_idx);
+    long_f = long_f(1:obs_idx);
+    long_Dstar = long_Dstar(1:obs_idx);
+    long_LF = long_LF(1:obs_idx);
+
+    % Filter to complete cases before table construction
+    clean_idx = ~isnan(long_ADC) & ~isnan(long_D) & ~isnan(long_f) & ~isnan(long_Dstar);
+    long_PatientID = long_PatientID(clean_idx);
+    long_Timepoint = long_Timepoint(clean_idx);
+    long_ADC = long_ADC(clean_idx);
+    long_D = long_D(clean_idx);
+    long_f = long_f(clean_idx);
+    long_Dstar = long_Dstar(clean_idx);
+    long_LF = long_LF(clean_idx);
+
+    % Compute z-scores before table construction to avoid adding new fields
+    % to an existing table (which fails in Octave's old-style class system)
+    baseline_idx = long_Timepoint == 1;
+
+    mean_ADC_base = mean(long_ADC(baseline_idx));
+    std_ADC_base = std(long_ADC(baseline_idx));
+    mean_D_base = mean(long_D(baseline_idx));
+    std_D_base = std(long_D(baseline_idx));
+    mean_f_base = mean(long_f(baseline_idx));
+    std_f_base = std(long_f(baseline_idx));
+    mean_Dstar_base = mean(long_Dstar(baseline_idx));
+    std_Dstar_base = std(long_Dstar(baseline_idx));
+
+    long_ADC_z = (long_ADC - mean_ADC_base) / std_ADC_base;
+    long_D_z = (long_D - mean_D_base) / std_D_base;
+    long_f_z = (long_f - mean_f_base) / std_f_base;
+    long_Dstar_z = (long_Dstar - mean_Dstar_base) / std_Dstar_base;
+
+    % Build the table with all columns at once (including z-scores)
+    glme_table_clean = table(categorical(long_PatientID), categorical(long_Timepoint), ...
+        long_ADC, long_D, long_f, long_Dstar, categorical(long_LF), ...
+        long_ADC_z, long_D_z, long_f_z, long_Dstar_z, ...
+        'VariableNames', {'PatientID', 'Timepoint', 'ADC', 'D', 'f', 'Dstar', 'LF', ...
+                          'ADC_z', 'D_z', 'f_z', 'Dstar_z'});
+
+    biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
+    warning('off', 'all');
+    for b = 1:length(biomarkers)
+        bm = biomarkers{b};
+        formula = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
+        try
+            glme = fitglme(glme_table_clean, formula, 'OptimizerOptions', statset('MaxIter', 10000));
+            fprintf('\n--- %s ---\n', formula);
+
+            anova_res = anova(glme);
+            row_idx = find(strcmp(anova_res.Term, 'LF:Timepoint'));
+            if ~isempty(row_idx)
+                pval = anova_res.pValue(row_idx);
+                fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', pval);
+                if pval < 0.05
+                    fprintf('  -> SIGNIFICANT DIFFERENCE in trajectory between LC and LF groups.\n');
+                else
+                    fprintf('  -> No significant difference in trajectory between LC and LF groups.\n');
+                end
+            else
+                disp(anova_res);
+            end
+        catch ME
+            fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
+        end
+    end
+    warning('on', 'all');
 end
-warning('on', 'all');
 
 end
