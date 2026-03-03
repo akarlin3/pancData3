@@ -1,7 +1,7 @@
 % execute_all_workflows.m
 % Automates the /run_data workflow for sequential modeling pipelines
 
-repo_root = pwd;
+repo_root = fileparts(mfilename('fullpath'));
 
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
 if ~exist('OCTAVE_VERSION', 'builtin')

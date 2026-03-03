@@ -147,14 +147,14 @@ else
 end
 
 fprintf('  --- DEEP LEARNING RIGOR AUDIT ---\n');
-manifest_file = fullfile(pwd, 'dl_validation_manifest.mat');
+manifest_file = fullfile(config_struct.dataloc, 'dl_validation_manifest.mat');
 dl_provenance = load_dl_provenance(manifest_file);
 
 dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 if isfield(config_struct, 'output_folder')
     output_folder = config_struct.output_folder;
 else
-    output_folder = fullfile(pwd, 'saved_figures');
+    output_folder = fullfile(config_struct.dataloc, 'saved_figures');
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 diary_file = fullfile(output_folder, 'metrics_output.txt');

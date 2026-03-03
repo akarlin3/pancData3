@@ -57,7 +57,7 @@ d95_gtvp = summary_metrics.d95_gtvp;
 if nargin > 3 && isfield(config_struct, 'output_folder')
     output_folder = config_struct.output_folder;
 else
-    output_folder = fullfile(pwd, 'saved_figures');
+    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', 'saved_figures');
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 

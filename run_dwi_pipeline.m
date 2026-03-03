@@ -139,7 +139,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
             % First run in this MATLAB session without a specific folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-            master_output_folder = fullfile(pwd, sprintf('saved_figures_%s', timestamp_str));
+            master_output_folder = fullfile(pipeline_dir, sprintf('saved_figures_%s', timestamp_str));
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
@@ -158,7 +158,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     catch ME
         fprintf('❌ FAILED.\n');
         fprintf('❌ Error parsing configuration: %s\n', ME.message);
-        fb_fid = fopen(fullfile(pwd, 'error.log'), 'a');
+        fb_fid = fopen(fullfile(pipeline_dir, 'error.log'), 'a');
         if fb_fid > 0
             fprintf(fb_fid, '[%s] [ERROR] Error parsing configuration: %s\n', ...
                 datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
