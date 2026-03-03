@@ -1,0 +1,21 @@
+# CODEOWNERS — pancData3
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @akarlin3
+
+# Core pipeline modules — require owner review
+/core/ @akarlin3
+/utils/ @akarlin3
+/run_dwi_pipeline.m @akarlin3
+/execute_all_workflows.m @akarlin3
+
+# Configuration template
+/config.example.json @akarlin3
+
+# Dependencies — read-only, flag any changes
+/dependencies/ @akarlin3
+
+# CI and project infrastructure
+/.github/ @akarlin3
+/CLAUDE.md @akarlin3

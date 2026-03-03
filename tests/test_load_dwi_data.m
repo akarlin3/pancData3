@@ -169,7 +169,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             % Mocking the clinical sheet creation for readtable
             T = table({'P01'}, 0, 0, 'VariableNames', {'Pat', 'LF', 'Immuno'});
             sheet_path = fullfile(testCase.TempDataLoc, testCase.ConfigStruct.clinical_data_sheet);
-            writetable(T, sheet_path, 'Sheet', 'Clin List');
+            writetable(T, sheet_path, 'Sheet', 'Clin List_MR');
 
             try
                 [gtvp, gtvn, summary] = load_dwi_data(testCase.ConfigStruct);

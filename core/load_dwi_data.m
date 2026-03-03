@@ -289,6 +289,7 @@ end
 fprintf('--- DEBUG: Total spreadsheet entries: %d, Total folder entries: %d ---\n\n', numel(T_Pat_normalized), numel(id_list_normalized));
 
 % --- Progress bar for parallel patient processing ---
+dq_progress = [];  % initialise so parfor sees the variable regardless of branch
 n_to_process = sum(~patient_completed);
 if ~exist('OCTAVE_VERSION', 'builtin') && n_to_process > 0
     dq_progress = parallel.pool.DataQueue;
@@ -458,7 +459,7 @@ parfor j = 1:length(mrn_list)
     parsave_checkpoint(checkpoint_file, pat_data_out, lock_file);
 
     % Signal progress to the client-side progress bar
-    if ~exist('OCTAVE_VERSION', 'builtin') && exist('dq_progress', 'var')
+    if ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(dq_progress)
         send(dq_progress, j);
     end
 

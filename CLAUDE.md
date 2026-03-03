@@ -51,7 +51,7 @@ pancData3/
 ├── core/                       # Primary pipeline modules (17 files)
 ├── utils/                      # Helper utilities (17 files + octave_compat/)
 │   └── octave_compat/          # Octave compatibility shims (20 files)
-├── tests/                      # Full test suite (46 test files)
+├── tests/                      # Full test suite (63 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)

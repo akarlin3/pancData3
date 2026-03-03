@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
     name: Run Tests (MATLAB)
@@ -31,7 +35,16 @@ jobs:
           code-coverage-cobertura: results/coverage.xml
           select-by-folder: tests
 
-      - name: Upload test results
+      - name: Publish test results
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: MATLAB Test Results
+          path: results/test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload test artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:

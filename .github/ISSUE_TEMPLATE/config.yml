@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project Documentation
+    url: https://github.com/akarlin3/pancData3#readme
+    about: Read the project README before opening an issue
+  - name: CLAUDE.md — AI Assistant Guide
+    url: https://github.com/akarlin3/pancData3/blob/main/CLAUDE.md
+    about: Reference for AI agents and contributors working on this codebase
