@@ -3,6 +3,11 @@
 
 repo_root = pwd;
 
+% --- 0. START LOGGING ---
+logfile = fullfile(repo_root, 'log.out');
+diary(logfile);
+cleanupObj = onCleanup(@() diary('off'));
+
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
 if ~exist('OCTAVE_VERSION', 'builtin')
     p = gcp('nocreate');
