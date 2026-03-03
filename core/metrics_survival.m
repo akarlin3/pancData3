@@ -1,4 +1,4 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label)
+function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
@@ -12,10 +12,14 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 %   nTp               - Counter of number of timepoints max
 %   fx_label          - Fraction labels used in logging
 %   dtype_label       - DWI type name used in output
+%   m_gtv_vol         - (Optional) GTV volume matrix (patients x fractions)
 %
 % Outputs:
 %   None. Outputs printed to console (HR and p-value tables).
 %
+
+% Handle optional GTV volume argument for backward compatibility
+if nargin < 12, m_gtv_vol = []; end
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
 
@@ -25,6 +29,20 @@ td_scan_days = [0, 5, 10, 15, 20, 90];   % update if exact scan dates are availa
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
                    f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+
+% Include baseline GTV volume as a time-constant confounder when available.
+% Tumor volume is a known prognostic factor; omitting it risks confounding
+% imaging biomarker effect estimates.
+has_vol = ~isempty(m_gtv_vol) && any(isfinite(m_gtv_vol(valid_pts, 1)));
+if has_vol
+    vol_baseline = m_gtv_vol(valid_pts, 1);
+    % Replicate baseline volume across timepoints (time-constant covariate)
+    vol_rep = repmat(vol_baseline, 1, nTp);
+    td_feat_arrays{end+1} = vol_rep;
+    td_feat_names{end+1}  = 'GTVvol';
+    fprintf('  Including baseline GTV volume as a covariate.\n');
+end
+
 td_n_feat      = numel(td_feat_arrays);
 
 td_lf       = m_lf(valid_pts);
@@ -37,10 +55,10 @@ td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~i
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
 
-% Global exploratory scaling using all patients
-X_td_global_def = scale_td_panel(X_td_def, td_feat_names, pat_id_td_def, t_start_td_def, unique(pat_id_td_def));
-
-td_ok = (sum(event_td_def) >= 3) && (size(X_td_global_def, 1) > td_n_feat + 1);
+% NOTE: Scaling is deferred until after landmark subsetting (below) to
+% prevent pre-landmark covariate distributions from contaminating the
+% statistics used to standardise the post-landmark analysis set.
+td_ok = (sum(event_td_def) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
 half_life_grid = [3, 6, 12, 18, 24];
 td_panels = cell(length(half_life_grid), 1);
@@ -56,7 +74,6 @@ if ~td_ok
 end
 
 X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
-X_td_global = X_td_global_def;
 
 % ---- Landmark analysis: discard intervals before end-of-RT -----------
 % Using covariates from scans that occurred AFTER the event they predict
@@ -73,40 +90,58 @@ if any(lm_keep)
     event_td    = event_td(lm_keep);
     pat_id_td   = pat_id_td(lm_keep);
     frac_td     = frac_td(lm_keep);
-    X_td_global = X_td_global(lm_keep, :);
     fprintf('  Landmark at day %d: %d → %d intervals (%d patients, %d events)\n', ...
         landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td > 0));
 end
 
+% Scale AFTER landmark subsetting so that standardisation statistics are
+% computed exclusively on post-landmark intervals, preventing pre-landmark
+% covariate distributions from leaking into the primary analysis.
+X_td_global = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, unique(pat_id_td));
+
 % ---- Compute IPCW weights for informative censoring correction --------
-% With competing risks, treating event=2 as censored violates the
-% independent-censoring assumption.  We fit a Cox model on the censoring
-% indicator and derive stabilised IPCW weights (Robins & Finkelstein 2000).
+% Cause-Specific Hazards: competing events (event=2) are treated as
+% censored when modelling the cause of interest (event=1).
 event_td_csh = event_td;
 event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
 
+% IPCW corrects for informative *administrative* censoring only.
+% Competing events are NOT uninformative censoring — including them in
+% the censoring model violates the IPCW independence assumption and can
+% bias hazard ratios in either direction (Robins & Finkelstein 2000).
+% We therefore exclude competing-event rows from the IPCW censoring
+% model and only model the probability of true administrative censoring.
 ipcw_weights = ones(size(event_td));   % default: unweighted
-has_competing = any(event_td == 2);
-if has_competing
+has_admin_cens = any(event_td == 0);
+if has_admin_cens
     try
-        % Censoring model: predict being censored (event_td_csh == 0)
-        is_cens_for_ipcw = double(event_td_csh == 0);
-        T_cens = [t_start_td, t_stop_td];
+        % Restrict IPCW model to rows that are NOT competing events.
+        % In this subset: event_td==0 is admin censored, event_td==1 is the event.
+        not_competing = (event_td ~= 2);
+        is_admin_cens_subset = double(event_td(not_competing) == 0);
+        T_cens = [t_start_td(not_competing), t_stop_td(not_competing)];
+        X_cens_subset = X_td_global(not_competing, :);
         w_ipcw = warning('off', 'all');
-        [b_cens, ~, ~, stats_cens] = coxphfit(X_td_global, T_cens, ...
-            'Censoring', (is_cens_for_ipcw == 0), 'Ties', 'breslow');
+        [b_cens, ~, ~, stats_cens] = coxphfit(X_cens_subset, T_cens, ...
+            'Censoring', (is_admin_cens_subset == 0), 'Ties', 'breslow');
         warning(w_ipcw);
 
         % Compute survival function of censoring (Kaplan-Meier-like via Cox)
-        lp_cens = X_td_global * b_cens;           % linear predictor
-        uniq_times = unique(t_stop_td);
+        % Use the censoring model coefficients (fit on non-competing subset)
+        % to compute censoring probabilities for ALL rows.
+        lp_cens = X_td_global * b_cens;           % linear predictor (all rows)
+        % Baseline hazard estimated from the non-competing subset only
+        lp_cens_sub = X_cens_subset * b_cens;
+        t_start_sub = t_start_td(not_competing);
+        t_stop_sub  = t_stop_td(not_competing);
+        uniq_times = unique(t_stop_sub);
         G_hat = ones(size(t_stop_td));             % P(C > t | X)
         for ui = 1:length(uniq_times)
             t_u = uniq_times(ui);
-            at_risk  = (t_start_td < t_u) & (t_stop_td >= t_u);
-            events_u = at_risk & (t_stop_td == t_u) & (is_cens_for_ipcw == 1);
-            if any(events_u) && any(at_risk)
-                h0 = sum(events_u) / sum(exp(lp_cens(at_risk)));
+            at_risk_sub  = (t_start_sub < t_u) & (t_stop_sub >= t_u);
+            events_u_sub = at_risk_sub & (t_stop_sub == t_u) & (is_admin_cens_subset == 1);
+            if any(events_u_sub) && any(at_risk_sub)
+                h0 = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
                 rows_after = (t_stop_td >= t_u);
                 G_hat(rows_after) = G_hat(rows_after) .* exp(-h0 * exp(lp_cens(rows_after)));
             end
@@ -116,8 +151,8 @@ if has_competing
         G_hat = max(G_hat, 0.05);                  % truncate to avoid extreme weights
         ipcw_weights = 1 ./ G_hat;
         ipcw_weights = ipcw_weights / mean(ipcw_weights);  % stabilise
-        fprintf('  IPCW weights applied (competing risks detected). Range: [%.2f, %.2f]\n', ...
-            min(ipcw_weights), max(ipcw_weights));
+        fprintf('  IPCW weights applied (admin censoring model, %d competing events excluded). Range: [%.2f, %.2f]\n', ...
+            sum(event_td == 2), min(ipcw_weights), max(ipcw_weights));
     catch ME_ipcw
         fprintf('  ⚠️  IPCW weight estimation failed (%s). Proceeding unweighted.\n', ME_ipcw.message);
         ipcw_weights = ones(size(event_td));

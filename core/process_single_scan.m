@@ -178,9 +178,12 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         ivimnet_file = fullfile(ctx.basefolder, 'ivimnet', ivimid);
         if exist(ivimnet_file,'file')
             tmp = load(ivimnet_file);
-            D_ivimnet = tmp.D_ivimnet;
-            f_ivimnet = tmp.f_ivimnet;
-            Dstar_ivimnet = tmp.Dstar_ivimnet;
+            % Apply rot90 at load time, consistent with how DWI and DnCNN
+            % volumes are rotated from NIfTI to MATLAB orientation (line 112/154).
+            % IVIMnet .mat files store maps in NIfTI convention.
+            D_ivimnet = rot90(tmp.D_ivimnet);
+            f_ivimnet = rot90(tmp.f_ivimnet);
+            Dstar_ivimnet = rot90(tmp.Dstar_ivimnet);
             haveivimnet=1;
         end
     end
@@ -293,7 +296,15 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             Dstar_ivimnet = imwarp(Dstar_ivimnet, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
         end
 
-        fprintf('  [DIR] Warped all parameter maps to baseline geometry.\n');
+        % Warp dose map to baseline geometry so DVH metrics are in the same
+        % reference frame as warped parameter maps.  Without this, dose stays
+        % in native Fx2+ space while parameters are in Fx1 space, creating a
+        % spatial mismatch in dose-parameter correlations.
+        if havedose
+            dose_map = imwarp(dose_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', 0);
+        end
+
+        fprintf('  [DIR] Warped all parameter maps and dose to baseline geometry.\n');
     end
 
     % Build maps struct for extract_biomarkers
@@ -310,26 +321,32 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         dncnn_maps.adc_map_dncnn   = adc_map_dncnn;
     end
 
-    % IVIMnet maps struct
+    % IVIMnet maps struct (already rotated at load time, lines 182-184)
     ivimnet_maps = struct();
     if haveivimnet
-        D_ivimnet = rot90(D_ivimnet);
-        f_ivimnet = rot90(f_ivimnet);
-        Dstar_ivimnet = rot90(Dstar_ivimnet);
         ivimnet_maps.D_ivimnet     = D_ivimnet;
         ivimnet_maps.f_ivimnet     = f_ivimnet;
         ivimnet_maps.Dstar_ivimnet = Dstar_ivimnet;
     end
 
-    % Determine DnCNN masks (may differ from native mask for fi>1)
-    dncnn_mask_p = gtv_mask;
-    dncnn_mask_n = gtvn_mask;
-    if fi > 1 && ~isempty(ctx.gtv_mask_fx1_ref) && ~isempty(D_forward_cur)
-        dncnn_mask_p = ctx.gtv_mask_fx1_ref;
+    % Determine the appropriate mask for biomarker extraction.
+    % When parameter maps are warped to Fx1 (baseline) geometry (can_warp),
+    % ALL DWI types must use the Fx1 reference mask for consistency.
+    % Previously DnCNN used the Fx1 mask while standard maps used the
+    % native Fx2+ mask, causing a spatial mismatch that invalidated
+    % cross-DWI-type longitudinal comparisons.
+    biomarker_mask_p = gtv_mask;
+    biomarker_mask_n = gtvn_mask;
+    if can_warp && ~isempty(ctx.gtv_mask_fx1_ref)
+        biomarker_mask_p = ctx.gtv_mask_fx1_ref;
         if ~isempty(ctx.gtvn_mask_fx1_ref)
-            dncnn_mask_n = ctx.gtvn_mask_fx1_ref;
+            biomarker_mask_n = ctx.gtvn_mask_fx1_ref;
         end
     end
+
+    % DnCNN masks now use the same mask as all other DWI types
+    dncnn_mask_p = biomarker_mask_p;
+    dncnn_mask_n = biomarker_mask_n;
 
     % --- Extract biomarkers for GTVp ---
     % Initialize with empty struct matching init_scan_structs fields
@@ -338,31 +355,39 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     result.data_gtvn = empty_n;
 
     if havegtvp
-        result.data_gtvp = extract_biomarkers(gtv_mask, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
+        result.data_gtvp = extract_biomarkers(biomarker_mask_p, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
 
-        result.adc_mean = nanmean(adc_map(gtv_mask==1));
+        result.adc_mean = nanmean(adc_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-        result.adc_kurtosis = kurtosis(adc_map(gtv_mask==1));
-        result.d_mean = nanmean(d_map(gtv_mask==1));
+        result.adc_kurtosis = kurtosis(adc_map(biomarker_mask_p==1));
+        result.d_mean = nanmean(d_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-        result.d_kurtosis = kurtosis(d_map(gtv_mask==1));
+        result.d_kurtosis = kurtosis(d_map(biomarker_mask_p==1));
 
         if havedenoised
             result.d_mean_dncnn = nanmean(d_map_dncnn(dncnn_mask_p==1));
         end
         if haveivimnet
-            result.d_mean_ivimnet = nanmean(D_ivimnet(gtv_mask==1));
+            result.d_mean_ivimnet = nanmean(D_ivimnet(biomarker_mask_p==1));
         end
     end
 
     % --- DVH for GTVp ---
+    % When dose has been warped to Fx1 geometry (can_warp), use the Fx1
+    % reference mask so dose and mask are in the same coordinate frame.
+    dvh_mask_p = gtv_mask_for_dvh;
+    dvh_dose   = dose_map_dvh;
+    if can_warp && havedose
+        dvh_dose   = dose_map;          % dose already warped to Fx1 above
+        dvh_mask_p = biomarker_mask_p;   % Fx1 reference mask
+    end
     if havedose && havegtvp
-        result.dmean_gtvp = nanmean(dose_map_dvh(gtv_mask_for_dvh==1));
-        [dvhparams, dvh_values] = dvh(dose_map_dvh, gtv_mask_for_dvh, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
+        result.dmean_gtvp = nanmean(dvh_dose(dvh_mask_p==1));
+        [dvhparams, dvh_values] = dvh(dvh_dose, dvh_mask_p, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
         result.d95_gtvp = dvhparams.("D95% (Gy)");
         result.v50gy_gtvp = dvhparams.("V50Gy (%)");
 
-        result.data_gtvp.dose_vector = dose_map_dvh(gtv_mask_for_dvh==1);
+        result.data_gtvp.dose_vector = dvh_dose(dvh_mask_p==1);
         result.data_gtvp.dvh = dvh_values;
         result.data_gtvp.d95 = dvhparams.("D95% (Gy)");
         result.data_gtvp.v50gy = dvhparams.("V50Gy (%)");
@@ -374,18 +399,23 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         % lines 296-298).  The legacy code incorrectly applied rot90 a
         % second time, causing a 180-deg orientation mismatch.
         ivimnet_maps_n = ivimnet_maps;
-        result.data_gtvn = extract_biomarkers(gtvn_mask, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
+        result.data_gtvn = extract_biomarkers(biomarker_mask_n, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
     end
 
     % --- DVH for GTVn ---
+    % Use the same warped dose and consistent mask as GTVp
+    dvh_mask_n = gtvn_mask;
+    dvh_dose_n = dose_map;
+    if can_warp && havedose
+        dvh_mask_n = biomarker_mask_n;   % Fx1 reference mask (or native if no ref)
+    end
     if havedose && havegtvn
-        dose_map_dvh_n = dose_map;
-        result.dmean_gtvn = nanmean(dose_map_dvh_n(gtvn_mask==1));
-        [dvhparams, dvh_values] = dvh(dose_map_dvh_n, gtvn_mask, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
+        result.dmean_gtvn = nanmean(dvh_dose_n(dvh_mask_n==1));
+        [dvhparams, dvh_values] = dvh(dvh_dose_n, dvh_mask_n, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
         result.d95_gtvn = dvhparams.("D95% (Gy)");
         result.v50gy_gtvn = dvhparams.("V50Gy (%)");
 
-        result.data_gtvn.dose_vector = dose_map_dvh_n(gtvn_mask==1);
+        result.data_gtvn.dose_vector = dvh_dose_n(dvh_mask_n==1);
         result.data_gtvn.dvh = dvh_values;
         result.data_gtvn.d95 = dvhparams.("D95% (Gy)");
         result.data_gtvn.v50gy = dvhparams.("V50Gy (%)");

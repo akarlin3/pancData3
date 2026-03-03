@@ -100,9 +100,10 @@ for j=1:length(patlist)
                     dwi_locations{j,fi,dwii} = fullfile(dwi_search(dwii).folder, dwi_search(dwii).name);
 
                     if have_fx_date==0
-                        % get the MRN and study date from an arbitrary DICOM header
+                        % get the MRN and study date from a DICOM header
                         dicom_files = dir(fullfile(dwi_locations{j,fi,dwii}, '*.dcm'));
-                        pat_data = dicominfo(fullfile(dicom_files(5).folder, dicom_files(5).name));
+                        dcm_idx = min(5, length(dicom_files));
+                        pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
                         if have_mrn==0
                             mrn_list{j} = pat_data.PatientID;
                             id_list{j} = patlist(j).name;

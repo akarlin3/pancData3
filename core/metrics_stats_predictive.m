@@ -77,6 +77,7 @@ for target_fx = 2:nTp
     end
 
     valid_cols = ~all(isnan(X_lasso_all), 1);
+    feat_names_lasso_full = feat_names_lasso;  % keep unfiltered copy for display
     X_lasso_all = X_lasso_all(:, valid_cols);
     feat_names_lasso = feat_names_lasso(valid_cols);
     original_feature_indices = original_feature_indices(valid_cols);
@@ -92,28 +93,42 @@ for target_fx = 2:nTp
     id_list_valid = id_list(valid_pts);
     id_list_impute = id_list_valid(impute_mask);
 
-    rng(42); 
+    % LIMITATION: KNN imputation produces a single completed dataset.
+    % Confidence intervals and p-values may be anti-conservative because
+    % they do not account for imputation uncertainty.  For definitive
+    % inference, consider multiple imputation (e.g., MICE) and pool
+    % estimates via Rubin's rules.  Single imputation is retained here
+    % because the small cohort size makes stable MI infeasible.
+    fprintf('  ⚠️  Single imputation: CIs may be anti-conservative (imputation uncertainty not propagated).\n');
+
+    rng(42);
     fold_id_en = make_grouped_folds(id_list_impute, y_clean, 5);
     n_folds_en = max(fold_id_en);
     n_lambdas = 10;
-    
+
+    % Compute collinearity mask ONCE on the full imputed dataset before CV.
+    % This ensures all folds see the same predictor space, preventing
+    % instability from random collinearity patterns in small training sets.
+    X_impute_full = knn_impute_train_test(X_impute, [], 5, id_list_impute);
+    keep_global = filter_collinear_features(X_impute_full, y_clean);
+
     common_Lambda = [];
     cv_failed = false;
-    
+
     w_state_cv = warning('off', 'all');
     for cv_i = 1:n_folds_en
         tr_idx = (fold_id_en ~= cv_i);
         te_idx = (fold_id_en == cv_i);
         X_tr = X_impute(tr_idx, :); y_tr = y_clean(tr_idx);
         X_te = X_impute(te_idx, :); y_te = y_clean(te_idx);
-        
+
         id_tr = id_list_impute(tr_idx);
         id_te = id_list_impute(te_idx);
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, id_tr, id_te);
-        
-        keep_fold = filter_collinear_features(X_tr_imp, y_tr);
-        X_tr_kept = X_tr_imp(:, keep_fold);
-        X_te_kept = X_te_imp(:, keep_fold);
+
+        % Apply the pre-computed global collinearity mask (same for all folds)
+        X_tr_kept = X_tr_imp(:, keep_global);
+        X_te_kept = X_te_imp(:, keep_global);
         
         try
             if cv_i == 1
@@ -145,19 +160,28 @@ for target_fx = 2:nTp
         [~, idx_min] = min(mean_deviance);
         opt_lambda = common_Lambda(idx_min);
         
-        X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
-        
+        % NOTE: Final model uses in-sample KNN imputation (entire dataset as
+        % its own reference).  This is intentional — the final model is NOT
+        % used for performance estimation (LOOCV handles that).  In-sample
+        % imputation here maximises the data available for coefficient
+        % estimation in the deployed model.  See LOOCV section below for
+        % the unbiased performance estimate which uses proper train/test
+        % imputation splits.
+        X_clean_all = X_impute_full;
+
         try
-            [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
+            [B_final, FitInfo_final] = lassoglm(X_clean_all(:, keep_global), y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 10000);
             
             coefs_en = B_final;
-            
-            selected_indices = find(coefs_en ~= 0);
-            selected_indices = original_feature_indices(selected_indices);
+
+            % Map nonzero coefficient indices back through the collinearity
+            % mask and then through the original feature index mapping.
+            nz_in_kept = find(coefs_en ~= 0);
+            selected_indices = original_feature_indices(keep_global(nz_in_kept));
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
-                fx_label, opt_lambda, strjoin(feat_names_lasso(selected_indices), ', '));
+                fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
         catch
             cv_failed = true;
         end
@@ -201,10 +225,10 @@ for target_fx = 2:nTp
         id_tr_loo = id_list_impute(train_mask);
         id_te_loo = id_list_impute(loo_i);
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr_fold, X_te_fold, 5, id_tr_loo, id_te_loo);
-        
-        keep_fold = filter_collinear_features(X_tr_imp, y_tr_fold);
-        X_tr_kept = X_tr_imp(:, keep_fold);
-        X_te_kept = X_te_imp(:, keep_fold);
+
+        % Apply the same global collinearity mask (consistent with outer CV)
+        X_tr_kept = X_tr_imp(:, keep_global);
+        X_te_kept = X_te_imp(:, keep_global);
         
         w_state_loo = warning('off', 'all');
         try

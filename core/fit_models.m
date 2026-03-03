@@ -69,12 +69,15 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         dstar_map(valid_voxels_idx) = dstar_vec;
     end
 
-    % Monoexponential ADC fit — log-linear OLS on active voxels only.
+    % Monoexponential ADC fit — weighted log-linear regression on active voxels.
     % [PHYSICS EXPLANATION]:
     % Apparent Diffusion Coefficient (ADC) assumes a simple mono-exponential decay:
     % S = S0 * exp(-b * ADC)
     % Linearized form: ln(S/S0) = -b * ADC
-    % Solved via Ordinary Least Squares (OLS) on the log-signal.
+    % The log transform amplifies noise at low signal intensities (variance of
+    % ln(S) ~ 1/S^2 for Gaussian noise).  Weighted Least Squares (WLS) with
+    % weights = S^2 corrects for this heteroscedasticity, giving more weight
+    % to high-SNR measurements.
 
     adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];
     adc_map = nan(adc_sz);
@@ -92,9 +95,17 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         if any(adc_valid_idx)
             S_a = dwi_valid(adc_valid_idx, :);
 
-            % Vectorized OLS on valid masked voxels
-            adc_vals = (-bvalues(2:end) \ ...
-                permute(log(S_a(:,2:end) ./ S_a(:,1)), [2 1]))';
+            % Vectorized WLS: weights = S^2 at each b-value
+            % For a single-predictor model y = A*adc where A = -b, y = ln(S/S0):
+            %   adc = sum(w * A * y) / sum(w * A^2)
+            A_b = -bvalues(2:end);                             % [n_b x 1]
+            Y = log(S_a(:,2:end) ./ S_a(:,1));                % [n_vox x n_b]
+            W = S_a(:,2:end).^2;                               % [n_vox x n_b]
+
+            % Compute weighted numerator and denominator per voxel
+            numer = sum(W .* Y .* A_b', 2);                   % [n_vox x 1]
+            denom = sum(W .* (A_b'.^2), 2);                   % [n_vox x 1]
+            adc_vals = numer ./ denom;
 
             adc_vals(adc_vals < 0) = nan;  % clamp noise-driven negative ADC estimates
 

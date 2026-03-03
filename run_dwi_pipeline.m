@@ -552,7 +552,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
-                             m_total_follow_up_time, nTp, 'Survival', dtype_label);
+                             m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol);
 
             survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
             fid = fopen(survival_results_file, 'w');
