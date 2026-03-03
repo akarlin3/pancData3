@@ -11,7 +11,10 @@ else
     dataloc = fullfile(fileparts(mfilename('fullpath')), '..', filesep);
 end
 
-load(fullfile(dataloc, 'dwi_vectors.mat'), 'id_list', 'data_vectors_gtvp', 'gtv_locations');
+tmp_dwi = load(fullfile(dataloc, 'dwi_vectors.mat'), 'id_list', 'data_vectors_gtvp', 'gtv_locations');
+id_list = tmp_dwi.id_list;
+data_vectors_gtvp = tmp_dwi.data_vectors_gtvp;
+gtv_locations = tmp_dwi.gtv_locations;
 
 found = false;
 for j = 1:size(gtv_locations,1)
@@ -27,8 +30,8 @@ for j = 1:size(gtv_locations,1)
             end
 
             if exist(gtv_mat, 'file')
-                load(gtv_mat, 'Stvol3d');
-                gtv_mask = Stvol3d;
+                tmp_gtv = load(gtv_mat, 'Stvol3d');
+                gtv_mask = tmp_gtv.Stvol3d;
                 
                 vec_len = length(data_vectors_gtvp(j,k,1).adc_vector);
                 mask_sum = sum(gtv_mask(:) == 1);
