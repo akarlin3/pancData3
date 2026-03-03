@@ -23,7 +23,9 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     warning('on', 'all');  % pctRunOnAll also runs on client — restore client warnings
 end
 
-clear global MASTER_OUTPUT_FOLDER;
+% Reset persistent output folder in run_dwi_pipeline so each full workflow
+% sequence starts with a fresh timestamped output directory.
+clear run_dwi_pipeline;
 
 % --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
 disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
@@ -42,6 +44,14 @@ raw = fread(fid, inf);
 str = char(raw');
 fclose(fid);
 config_struct = jsondecode(str);
+original_config_str = str;  % preserve original for rollback
+
+% Backup config.json so a mid-run crash does not leave it in a modified state
+config_backup = 'config.json.bak';
+fid_bak = fopen(config_backup, 'w');
+fprintf(fid_bak, '%s', str);
+fclose(fid_bak);
+restore_config = onCleanup(@() restore_config_file(original_config_str, config_backup));
 
 % Execute all 9 discrete target modules
 steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
@@ -73,3 +83,18 @@ fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
 run_dwi_pipeline('config.json', steps);
 
 disp('====== ALL WORKFLOWS COMPLETED ======');
+
+function restore_config_file(original_str, backup_path)
+% Restore config.json to its original state when the script exits (whether
+% by normal completion or error).  Also removes the backup file.
+    try
+        fid = fopen('config.json', 'w');
+        fprintf(fid, '%s', original_str);
+        fclose(fid);
+        if exist(backup_path, 'file')
+            delete(backup_path);
+        end
+    catch
+        fprintf('⚠️  Could not restore config.json. Backup saved at %s\n', backup_path);
+    end
+end

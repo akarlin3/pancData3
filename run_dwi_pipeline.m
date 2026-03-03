@@ -96,7 +96,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('      ✅ Done.\n');
 
         % --- Master Output Folder Logic ---
-        global MASTER_OUTPUT_FOLDER;
+        % Use a persistent variable scoped to this function instead of a
+        % global, which can leak across unrelated MATLAB sessions.
+        persistent MASTER_OUTPUT_FOLDER;
 
         if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
             % First run in this MATLAB session without a specific folder
@@ -105,9 +107,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
-            fprintf('      💡 (To start a new session folder, run: clear global MASTER_OUTPUT_FOLDER)\n');
         elseif isempty(master_output_folder) && ~isempty(MASTER_OUTPUT_FOLDER)
-            % Subsequent run in the same session
+            % Subsequent call within the same execute_all_workflows session
             master_output_folder = MASTER_OUTPUT_FOLDER;
             fprintf('      📁 Reusing EXISTING master output folder: %s\n', master_output_folder);
         else

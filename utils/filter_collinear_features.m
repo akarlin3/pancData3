@@ -51,7 +51,9 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
         y_corr = y;
     end
 
-    R = corrcoef(X_corr, 'Rows', 'pairwise');
+    % Spearman (rank) correlation is more robust than Pearson for the
+    % skewed, heavy-tailed distributions typical of IVIM parameters.
+    R = corr(X_corr, 'Type', 'Spearman', 'Rows', 'pairwise');
     n_feats = size(X, 2);
     drop_idx = false(1, n_feats);
     

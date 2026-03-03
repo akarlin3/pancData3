@@ -220,6 +220,9 @@ for j=1:length(id_list)
                 end
                 p1 = c1 / numel(adc_vec); p1(p1==0)=eps;
                 adc_histograms(j,k,:,dwi_type) = p1;
+                % NOTE: KS-test p-values are liberal because within-patient
+                % voxels are spatially autocorrelated (violates independence).
+                % Treat as descriptive, not inferential.
                 if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
                         && any(~isnan(adc_vec)) && any(~isnan(adc_baseline))
                     [~,p,ks2stat] = kstest2(adc_vec,adc_baseline);
@@ -273,6 +276,7 @@ for j=1:length(id_list)
                 end
                 p1 = c1 / numel(d_vec); p1(p1==0)=eps;
                 d_histograms(j,k,:,dwi_type) = p1;
+                % NOTE: KS-test p-values are liberal (see ADC comment above).
                 if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
                         && any(~isnan(d_vec)) && any(~isnan(d_baseline))
                     [~,p,ks2stat] = kstest2(d_vec,d_baseline);

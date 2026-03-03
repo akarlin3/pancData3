@@ -244,14 +244,17 @@ for target_fx = 2:nTp
         warning(w_state_loo);
 
         risk_scores_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
-        
-        train_median = median(X_tr_kept * coefs_loo + intercept_loo);
-        is_high_risk_oof(loo_i) = risk_scores_oof(loo_i) > train_median;
     end
     
+    % Compute high-risk threshold from the full set of out-of-fold scores
+    % AFTER the LOOCV loop completes, avoiding the circular per-fold median.
+    valid_oof = ~isnan(risk_scores_oof);
+    oof_median = median(risk_scores_oof(valid_oof));
+    is_high_risk_oof = risk_scores_oof > oof_median;
+
     risk_scores_all_target = nan(sum(valid_pts), 1);
     risk_scores_all_target(impute_mask) = risk_scores_oof;
-    
+
     is_high_risk_target = false(sum(valid_pts), 1);
     is_high_risk_target(impute_mask) = is_high_risk_oof;
 

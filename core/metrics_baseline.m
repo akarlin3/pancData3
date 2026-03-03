@@ -241,11 +241,16 @@ D_abs   = m_d_mean(:,:,dtype);
 f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
-epsilon = 1e-4;
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (ADC_abs(:,1) + epsilon)) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ (D_abs(:,1) + epsilon)) * 100;
+% Use a data-adaptive epsilon (1% of baseline IQR) to prevent inflated
+% percent changes when baseline values are near zero, while remaining
+% proportional to the actual measurement scale.
+adc_eps  = max(1e-8, 0.01 * iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1)));
+d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
+dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (ADC_abs(:,1) + adc_eps)) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ (D_abs(:,1) + d_eps)) * 100;
 f_pct   = (f_abs - f_abs(:,1));
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + epsilon)) * 100;
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + dstar_eps)) * 100;
 
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);

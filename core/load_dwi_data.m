@@ -298,7 +298,15 @@ parfor j = 1:length(mrn_list)
     gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)
 
     % read clinical data (local failure, immunotherapy) from spreadsheet
-    i_pat = find(~cellfun(@isempty, strfind(T_Pat_normalized, id_list_normalized{j})));
+    % Use exact matching (strcmp) to prevent substring collisions (e.g. "P12" matching "P123").
+    i_pat = find(strcmp(T_Pat_normalized, id_list_normalized{j}));
+    if isempty(i_pat)
+        warning('load_dwi_data:patientNotFound', 'Patient ID ''%s'' not found in clinical spreadsheet. Skipping.', id_list{j});
+        continue;
+    end
+    if numel(i_pat) > 1
+        warning('load_dwi_data:duplicatePatient', 'Patient ID ''%s'' has %d matches in clinical spreadsheet. Using first.', id_list{j}, numel(i_pat));
+    end
     pat_immuno = T.Immuno(i_pat(1));
     pat_lf = T.LF(i_pat(1));
 
@@ -418,8 +426,20 @@ for j = 1:length(mrn_list)
     checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
 
     if exist(checkpoint_file, 'file')
-        % Load checkpoint
+        % Load checkpoint with basic corruption detection
         loaded_data = load(checkpoint_file);
+
+        required_fields = {'data_vectors_gtvp', 'data_vectors_gtvn', ...
+            'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', ...
+            'v50gy_gtvp', 'v50gy_gtvn', 'adc_mean', 'd_mean', ...
+            'd_mean_dncnn', 'd_mean_ivimnet', 'lf', 'immuno', 'bad_dwi_list'};
+        missing_fields = setdiff(required_fields, fieldnames(loaded_data));
+        if ~isempty(missing_fields)
+            warning('load_dwi_data:corruptCheckpoint', ...
+                'Checkpoint for patient %d (%s) is missing fields: %s. Skipping.', ...
+                j, patient_id, strjoin(missing_fields, ', '));
+            continue;
+        end
 
         % Assign back to global arrays
         % Struct arrays
@@ -500,53 +520,18 @@ else
     file_prefix = '';
 end
 datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
-if exist(datasave, 'file')
-    tmp_data = load(datasave);
-    data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
-else
-    fallback_datasave = fullfile(dataloc, 'dwi_vectors.mat');
-    if exist(fallback_datasave, 'file')
-        fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
-        tmp_data = load(fallback_datasave);
-        data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf; immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates; dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations; gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn; d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn; bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
-    else
-        file_prefix = '';
-    end
-    datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
-    if exist(datasave, 'file')
-        tmp_data = load(datasave);
-        data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;
-        immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates;
-        dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations;
-        gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn;
-        d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn;
-        bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
-    else
-        fallback_datasave1 = fullfile(dataloc, 'dwi_vectors_Standard.mat');
-        fallback_datasave2 = fullfile(dataloc, 'dwi_vectors.mat');
-        if exist(fallback_datasave1, 'file')
-            fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors_Standard.mat');
-            tmp_data = load(fallback_datasave1);
-            data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;
-            immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates;
-            dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations;
-            gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn;
-            d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn;
-            bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
-        elseif exist(fallback_datasave2, 'file')
-            fprintf('  Specific %s not found. Falling back to %s\n', ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
-            tmp_data = load(fallback_datasave2);
-            data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;
-            immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates;
-            dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations;
-            gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn;
-            d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn;
-            bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
-        else
-            error('Unable to find file or directory ''%s''.', datasave);
-        end
-    end
+if ~exist(datasave, 'file')
+    error('load_dwi_data:fileNotFound', ...
+        'Required data file ''%s'' not found. Run the load step for DWI type ''%s'' before reloading.', ...
+        datasave, config_struct.dwi_type_name);
 end
+tmp_data = load(datasave);
+data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;
+immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates;
+dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations;
+gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn;
+d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn;
+bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
     
 if exist('OCTAVE_VERSION', 'builtin') && ~exist('id_list', 'var')
     warning('id_list not loaded from save file. This may occur during mock tests. Proceeding with dummy data.');

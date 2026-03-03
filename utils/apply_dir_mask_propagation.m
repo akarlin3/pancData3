@@ -85,7 +85,10 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
             D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
-            D_forward = D_forward_mid - D_backward_mid;
+            % Compose displacement fields: D_forward(x) = D_fwd(x) + (-D_bwd)(x + D_fwd(x))
+            % Simple subtraction is a linear approximation that degrades for
+            % the several-mm inter-fraction deformations common in pancreas.
+            D_forward = compose_displacement_fields(D_forward_mid, -D_backward_mid);
             ref3d = imref3d(size(b0_moving));
             mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
                 'Interp', 'linear', 'FillValues', 0);
@@ -131,4 +134,26 @@ function img_norm = robust_percentile_norm(img)
 
     img_norm = (img - lo) / (hi - lo);
     img_norm = max(min(img_norm, 1), 0);  % clip to [0, 1]
+end
+
+function D_out = compose_displacement_fields(D1, D2)
+% compose_displacement_fields  Compose two 3-D displacement fields.
+%   D_out(x) = D1(x) + D2(x + D1(x))
+%   where D2 is evaluated at the displaced coordinates via trilinear
+%   interpolation.  This is more accurate than simple addition or
+%   subtraction for deformations larger than ~1 voxel.
+
+    sz = size(D1);
+    [X, Y, Z] = ndgrid(1:sz(1), 1:sz(2), 1:sz(3));
+
+    % Displaced coordinates after applying D1
+    X1 = X + D1(:,:,:,1);
+    Y1 = Y + D1(:,:,:,2);
+    Z1 = Z + D1(:,:,:,3);
+
+    D_out = D1;
+    for dim = 1:3
+        D_out(:,:,:,dim) = D1(:,:,:,dim) + ...
+            interpn(D2(:,:,:,dim), X1, Y1, Z1, 'linear', 0);
+    end
 end
