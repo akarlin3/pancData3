@@ -374,10 +374,10 @@ for target_fx = 2:nTp
         figure('Name', ['ROC Analysis - ' fx_label ' — ' dtype_label], 'Position', [200, 200, 700, 600]);
         hold on;
         
-        plot(roc_X, roc_Y, 'b-', 'LineWidth', 2.5);
+        plot(roc_X, roc_Y, '-', 'Color', [0 0.4470 0.7410], 'LineWidth', 2.5);
         leg_entries = {sprintf('LOOCV OOF Risk Score (AUC = %.3f)', roc_AUC)};
         
-        plot(roc_X(roc_opt_idx), roc_Y(roc_opt_idx), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+        plot(roc_X(roc_opt_idx), roc_Y(roc_opt_idx), 'o', 'MarkerSize', 8, 'MarkerFaceColor', [0.8500 0.3250 0.0980], 'MarkerEdgeColor', [0.8500 0.3250 0.0980]);
         leg_entries{end+1} = sprintf('Youden Cutoff (score = %.3f)', roc_opt_thresh);
         
         plot([0 1], [0 1], 'k--', 'LineWidth', 1.5);
@@ -499,8 +499,8 @@ for target_fx = 2:nTp
                 y_val = sig_data_selected{fj}(valid_pts, target_fx);
                 group = lf_group;
 
-                scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
-                scatter(x_val(group==1), y_val(group==1), 80, 'r', 'filled', 'MarkerEdgeColor', 'k');
+                scatter(x_val(group==0), y_val(group==0), 80, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k');
+                scatter(x_val(group==1), y_val(group==1), 80, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k');
 
                 warning('off', 'stats:glmfit:IterationLimit');
                 warning('off', 'stats:glmfit:PerfectSeparation');
