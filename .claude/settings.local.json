@@ -3,7 +3,18 @@
     "allow": [
       "Bash(matlab -batch \"run\\(''tests/test_metrics_stats_predictive.m''\\)\")",
       "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); run\\(''tests/run_all_tests.m''\\)\")",
-      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); results = runtests\\(''tests/test_dwi_pipeline.m'', ''Name'', ''*testRunDwiPipelineEndToEnd*''\\); disp\\(results\\)\")"
+      "Bash(matlab -batch \"addpath\\(''core'',''utils'',''dependencies''\\); results = runtests\\(''tests/test_dwi_pipeline.m'', ''Name'', ''*testRunDwiPipelineEndToEnd*''\\); disp\\(results\\)\")",
+      "Bash(where matlab)",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = run\\(matlab.unittest.TestSuite.fromFile\\(''tests/test_apply_dir_mask_propagation.m'',''Name'',''*testEmptyFixedReturnsEmpty''\\)\\); disp\\(results\\(1\\).Details\\)\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_apply_dir_mask_propagation.m''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_build_td_panel.m'',''Name'',''*testEmptyInputs''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_dvh.m''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_load_dwi_data.m'',''Name'',''*testDiscoverFilesEmpty''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_metrics_baseline.m''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_plot_feature_distributions.m'',''Name'',''*testHappyPath''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"addpath\\(''core'',''utils'',''dependencies'',''tests''\\); results = runtests\\(''tests/test_dwi_pipeline.m'',''Name'',''*testRunDwiPipelineEndToEnd''\\); disp\\(table\\(results\\)\\);\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \"run\\(''tests/run_all_tests.m''\\)\")",
+      "Bash(\"C:/Program Files/MATLAB/R2025a/bin/matlab.exe\" -batch \":*)"
     ]
   }
 }

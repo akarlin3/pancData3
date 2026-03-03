@@ -308,7 +308,7 @@ glme_table_clean.LF = categorical(glme_table_clean.LF);
 glme_table_clean.Timepoint = categorical(glme_table_clean.Timepoint);
 
 biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
-warning('off', 'all');
+w_state_glme = warning('off', 'all');
 for b = 1:length(biomarkers)
     bm = biomarkers{b};
     formula = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
@@ -333,6 +333,6 @@ for b = 1:length(biomarkers)
         fprintf('GLME model for %s failed to converge: %s\n', bm, ME.message);
     end
 end
-warning('on', 'all');
+warning(w_state_glme);
 
 end
