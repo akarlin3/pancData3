@@ -197,61 +197,76 @@ else
     disp('No significant differences (p < 0.05) found between LC and LF groups for these metrics.');
 end
 
-fprintf('  --- SECTION 9: FDR Correction ---\n');
+fprintf('  --- SECTION 9: FDR Correction (Global) ---\n');
 if ~isempty(sig_pval)
-    fprintf('\n----- PER-TIMEPOINT FDR (Benjamini-Hochberg, Q < 0.05) -----\n');
+    fprintf('\n----- GLOBAL FDR (Benjamini-Hochberg, Q < 0.05) -----\n');
 
+    % Collect ALL p-values across every timepoint and metric set into one
+    % family so that the BH procedure controls the false discovery rate over
+    % the full set of comparisons (n_sets * n_metrics * n_timepoints).
     max_metrics = sum(cellfun(@length, metric_sets));
+    max_total   = max_metrics * length(time_labels);
+    all_pvals   = nan(max_total, 1);
+    all_labels  = cell(max_total, 1);
+    all_tp_idx  = zeros(max_total, 1);
+    total_count = 0;
 
     for tp = 1:length(time_labels)
-        tp_pvals  = nan(max_metrics, 1);
-        tp_labels = cell(max_metrics, 1);
-        tp_count = 0;
-
         for s = 1:length(metric_sets)
-            current_metrics = metric_sets{s};
             current_names = set_names{s};
-            for mi = 1:length(current_metrics)
+            for mi = 1:length(metric_sets{s})
                 if tp <= size(p_val_store(s).p_vals, 2)
                     p = p_val_store(s).p_vals(mi, tp);
                 else
                     p = nan;
                 end
-
                 if ~isnan(p)
-                    tp_count = tp_count + 1;
-                    tp_pvals(tp_count, 1)  = p;
-                    tp_labels{tp_count, 1} = current_names{mi};
+                    total_count = total_count + 1;
+                    all_pvals(total_count)  = p;
+                    all_labels{total_count} = sprintf('%s @ %s', current_names{mi}, time_labels{tp});
+                    all_tp_idx(total_count) = tp;
                 end
             end
         end
-        
-        if tp_count == 0, continue; end
+    end
 
-        tp_pvals = tp_pvals(1:tp_count);
-        tp_labels = tp_labels(1:tp_count);
-        
-        n_tp = length(tp_pvals);
-        [p_sort, sort_id] = sort(tp_pvals);
-        q_tp = zeros(n_tp, 1);
-        q_tp(n_tp) = p_sort(n_tp);
-        for ii = n_tp-1:-1:1
-            q_tp(ii) = min(q_tp(ii+1), p_sort(ii) * (n_tp / ii));
+    if total_count > 0
+        all_pvals  = all_pvals(1:total_count);
+        all_labels = all_labels(1:total_count);
+        all_tp_idx = all_tp_idx(1:total_count);
+
+        % Benjamini-Hochberg on the full family
+        n_all = length(all_pvals);
+        [p_sort, sort_id] = sort(all_pvals);
+        q_all = zeros(n_all, 1);
+        q_all(n_all) = p_sort(n_all);
+        for ii = n_all-1:-1:1
+            q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
         end
-        q_tp = min(q_tp, 1);
-        q_unsorted = zeros(n_tp, 1);
-        q_unsorted(sort_id) = q_tp;
-        
-        tp_table = table(tp_labels, tp_pvals, q_unsorted, ...
-            'VariableNames', {'Metric', 'Raw_P', 'FDR_Q'});
-        sig_tp = tp_table(tp_table.FDR_Q < 0.05, :);
-        
-        fprintf('\n  Timepoint: %s (family size = %d)\n', time_labels{tp}, n_tp);
-        if isempty(sig_tp)
-            fprintf('    None survived FDR correction.\n');
+        q_all = min(q_all, 1);
+        q_unsorted = zeros(n_all, 1);
+        q_unsorted(sort_id) = q_all;
+
+        fdr_table = table(all_labels, all_pvals, q_unsorted, ...
+            'VariableNames', {'Metric_Timepoint', 'Raw_P', 'FDR_Q'});
+        sig_global = fdr_table(fdr_table.FDR_Q < 0.05, :);
+
+        fprintf('  Global family size = %d comparisons\n', n_all);
+        if isempty(sig_global)
+            fprintf('    None survived global FDR correction.\n');
         else
-            disp(sig_tp);
-            writetable(sig_tp, fullfile(dataloc, sprintf('FDR_Sig_%s.csv', strrep(time_labels{tp},' ','_'))));
+            disp(sig_global);
+            writetable(sig_global, fullfile(dataloc, 'FDR_Sig_Global.csv'));
+        end
+
+        % Also print per-timepoint breakdown for readability
+        for tp = 1:length(time_labels)
+            tp_mask = (all_tp_idx == tp);
+            sig_tp = fdr_table(tp_mask & fdr_table.FDR_Q < 0.05, :);
+            fprintf('\n  Timepoint: %s — %d significant (global FDR)\n', time_labels{tp}, height(sig_tp));
+            if ~isempty(sig_tp)
+                disp(sig_tp);
+            end
         end
     end
 end

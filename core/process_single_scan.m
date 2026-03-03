@@ -350,14 +350,10 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
 
     % --- Extract biomarkers for GTVn ---
     if havegtvn
-        % For GTVn we pass an IVIMnet struct with a second rot90 applied
-        % (matching the original code which called rot90 again for GTVn)
-        ivimnet_maps_n = struct();
-        if haveivimnet
-            ivimnet_maps_n.D_ivimnet     = rot90(D_ivimnet);
-            ivimnet_maps_n.f_ivimnet     = rot90(f_ivimnet);
-            ivimnet_maps_n.Dstar_ivimnet = rot90(Dstar_ivimnet);
-        end
+        % GTVn uses the same IVIMnet maps as GTVp (already rotated once at
+        % lines 296-298).  The legacy code incorrectly applied rot90 a
+        % second time, causing a 180-deg orientation mismatch.
+        ivimnet_maps_n = ivimnet_maps;
         result.data_gtvn = extract_biomarkers(gtvn_mask, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
     end
 

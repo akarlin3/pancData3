@@ -58,14 +58,77 @@ end
 X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
 X_td_global = X_td_global_def;
 
+% ---- Landmark analysis: discard intervals before end-of-RT -----------
+% Using covariates from scans that occurred AFTER the event they predict
+% violates the time-dependent Cox assumption.  Landmark subsetting keeps
+% only patients still at risk after the last treatment fraction, using
+% covariates measured at or before the landmark.
+landmark_day = td_scan_days(min(5, length(td_scan_days)));  % end of RT (Fx5, day 20)
+lm_keep = (t_start_td >= landmark_day);
+if any(lm_keep)
+    n_before = length(t_start_td);
+    X_td        = X_td(lm_keep, :);
+    t_start_td  = t_start_td(lm_keep);
+    t_stop_td   = t_stop_td(lm_keep);
+    event_td    = event_td(lm_keep);
+    pat_id_td   = pat_id_td(lm_keep);
+    frac_td     = frac_td(lm_keep);
+    X_td_global = X_td_global(lm_keep, :);
+    fprintf('  Landmark at day %d: %d → %d intervals (%d patients, %d events)\n', ...
+        landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td > 0));
+end
+
+% ---- Compute IPCW weights for informative censoring correction --------
+% With competing risks, treating event=2 as censored violates the
+% independent-censoring assumption.  We fit a Cox model on the censoring
+% indicator and derive stabilised IPCW weights (Robins & Finkelstein 2000).
+event_td_csh = event_td;
+event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
+
+ipcw_weights = ones(size(event_td));   % default: unweighted
+has_competing = any(event_td == 2);
+if has_competing
+    try
+        % Censoring model: predict being censored (event_td_csh == 0)
+        is_cens_for_ipcw = double(event_td_csh == 0);
+        T_cens = [t_start_td, t_stop_td];
+        w_ipcw = warning('off', 'all');
+        [b_cens, ~, ~, stats_cens] = coxphfit(X_td_global, T_cens, ...
+            'Censoring', (is_cens_for_ipcw == 0), 'Ties', 'breslow');
+        warning(w_ipcw);
+
+        % Compute survival function of censoring (Kaplan-Meier-like via Cox)
+        lp_cens = X_td_global * b_cens;           % linear predictor
+        uniq_times = unique(t_stop_td);
+        G_hat = ones(size(t_stop_td));             % P(C > t | X)
+        for ui = 1:length(uniq_times)
+            t_u = uniq_times(ui);
+            at_risk  = (t_start_td < t_u) & (t_stop_td >= t_u);
+            events_u = at_risk & (t_stop_td == t_u) & (is_cens_for_ipcw == 1);
+            if any(events_u) && any(at_risk)
+                h0 = sum(events_u) / sum(exp(lp_cens(at_risk)));
+                rows_after = (t_stop_td >= t_u);
+                G_hat(rows_after) = G_hat(rows_after) .* exp(-h0 * exp(lp_cens(rows_after)));
+            end
+        end
+
+        % Stabilised weights: G_marginal / G_conditional (truncated)
+        G_hat = max(G_hat, 0.05);                  % truncate to avoid extreme weights
+        ipcw_weights = 1 ./ G_hat;
+        ipcw_weights = ipcw_weights / mean(ipcw_weights);  % stabilise
+        fprintf('  IPCW weights applied (competing risks detected). Range: [%.2f, %.2f]\n', ...
+            min(ipcw_weights), max(ipcw_weights));
+    catch ME_ipcw
+        fprintf('  ⚠️  IPCW weight estimation failed (%s). Proceeding unweighted.\n', ME_ipcw.message);
+        ipcw_weights = ones(size(event_td));
+    end
+end
+
 % ---- Fit the time-dependent Cox model --------------------------------
 % coxphfit accepts a two-column [t_start t_stop] matrix for start-stop data.
 warning('error', 'stats:coxphfit:FitWarning');
 warning('error', 'stats:coxphfit:IterationLimit');
 try
-    % Treat competing risks (2) as right-censored (0) for Cause-Specific Hazard.
-    event_td_csh = event_td;
-    event_td_csh(event_td_csh == 2) = 0;
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
 
@@ -73,7 +136,9 @@ try
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
-    [b_td, logl_td, ~, stats_td_raw] = coxphfit(X_td_global, T_td, 'Censoring', is_censored, 'Ties', 'breslow');
+    [b_td, logl_td, ~, stats_td_raw] = coxphfit(X_td_global, T_td, ...
+        'Censoring', is_censored, 'Ties', 'breslow', ...
+        'Frequency', round(ipcw_weights * 100));   % integer pseudo-counts
     warning(w_temp);
     stats_td.se = stats_td_raw.se;
     stats_td.p  = stats_td_raw.p;
