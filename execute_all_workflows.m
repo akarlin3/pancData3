@@ -2,6 +2,7 @@
 % Automates the /run_data workflow for sequential modeling pipelines
 
 repo_root = fileparts(mfilename('fullpath'));
+config_file = fullfile(repo_root, 'config.json');
 
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
 if ~exist('OCTAVE_VERSION', 'builtin')
@@ -11,9 +12,9 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     end
     p = parpool('Processes', 2, 'IdleTimeout', Inf);
     addAttachedFiles(p, {fullfile(repo_root, 'core', 'load_dwi_data.m')});
-    pctRunOnAll addpath(fullfile(pwd, 'core'));
-    pctRunOnAll addpath(fullfile(pwd, 'utils'));
-    pctRunOnAll addpath(fullfile(pwd, 'dependencies'));
+    pctRunOnAll addpath(fullfile(repo_root, 'core'));
+    pctRunOnAll addpath(fullfile(repo_root, 'utils'));
+    pctRunOnAll addpath(fullfile(repo_root, 'dependencies'));
     pctRunOnAll warning('off', 'all');
     warning('on', 'all');  % pctRunOnAll also runs on client — restore client warnings
 end
@@ -34,7 +35,7 @@ catch ME
 end
 
 % Load the configuration JSON explicitly because we are going to modify it
-fid = fopen('config.json', 'r');
+fid = fopen(config_file, 'r');
 raw = fread(fid, inf);
 str = char(raw');
 fclose(fid);
@@ -42,11 +43,11 @@ config_struct = jsondecode(str);
 original_config_str = str;  % preserve original for rollback
 
 % Backup config.json so a mid-run crash does not leave it in a modified state
-config_backup = 'config.json.bak';
+config_backup = fullfile(repo_root, 'config.json.bak');
 fid_bak = fopen(config_backup, 'w');
 fprintf(fid_bak, '%s', str);
 fclose(fid_bak);
-restore_config = onCleanup(@() restore_config_file(original_config_str, config_backup));
+restore_config = onCleanup(@() restore_config_file(config_file, original_config_str, config_backup));
 
 % Execute all 9 discrete target modules
 steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
@@ -58,32 +59,32 @@ disp('====== STARTING STANDARD PIPELINE ======');
 config_struct.dwi_type = 'Standard';
 config_struct.skip_to_reload = false;
 json_str = jsonencode(config_struct);
-fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline('config.json', steps);
+fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+run_dwi_pipeline(config_file, steps);
 
 % --- 3. RUN dnCNN PIPELINE ---
 disp('====== STARTING dnCNN PIPELINE ======');
 config_struct.dwi_type = 'dnCNN';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
-fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline('config.json', steps);
+fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+run_dwi_pipeline(config_file, steps);
 
 % --- 4. RUN IVIMnet PIPELINE ---
 disp('====== STARTING IVIMnet PIPELINE ======');
 config_struct.dwi_type = 'IVIMnet';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
-fid = fopen('config.json', 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline('config.json', steps);
+fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+run_dwi_pipeline(config_file, steps);
 
 disp('====== ALL WORKFLOWS COMPLETED ======');
 
-function restore_config_file(original_str, backup_path)
+function restore_config_file(config_path, original_str, backup_path)
 % Restore config.json to its original state when the script exits (whether
 % by normal completion or error).  Also removes the backup file.
     try
-        fid = fopen('config.json', 'w');
+        fid = fopen(config_path, 'w');
         fprintf(fid, '%s', original_str);
         fclose(fid);
         if exist(backup_path, 'file')

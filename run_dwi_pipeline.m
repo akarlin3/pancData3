@@ -34,7 +34,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     if nargin < 1
-        config_path = 'config.json';
+        config_path = fullfile(pipeline_dir, 'config.json');
+    end
+
+    % Resolve relative config path against pipeline directory
+    if ~isfile(config_path) && isfile(fullfile(pipeline_dir, config_path))
+        config_path = fullfile(pipeline_dir, config_path);
     end
 
     if nargin < 2
