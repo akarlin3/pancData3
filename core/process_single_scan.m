@@ -267,13 +267,33 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         end
     end
 
-    % --- Warp native-space DnCNN parameter maps to baseline geometry ---
-    if havedenoised && fi > 1 && ~isempty(D_forward_cur) && ~isempty(ctx.b0_fx1_ref)
-        d_map_dncnn     = imwarp(d_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        f_map_dncnn     = imwarp(f_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        dstar_map_dncnn = imwarp(dstar_map_dncnn, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        adc_map_dncnn   = imwarp(adc_map_dncnn,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        fprintf('  [DnCNN] Warped native-space parameter maps to baseline geometry.\n');
+    % --- Warp native-space parameter maps to baseline geometry -----------
+    % All DWI types are warped consistently so longitudinal comparisons
+    % use the same spatial reference frame.
+    can_warp = (fi > 1) && ~isempty(D_forward_cur) && ~isempty(ctx.b0_fx1_ref);
+    if can_warp
+        % Standard maps
+        adc_map = imwarp(adc_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+        d_map   = imwarp(d_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+        f_map   = imwarp(f_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+        dstar_map = imwarp(dstar_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+
+        % DnCNN maps
+        if havedenoised
+            d_map_dncnn     = imwarp(d_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+            f_map_dncnn     = imwarp(f_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+            dstar_map_dncnn = imwarp(dstar_map_dncnn, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+            adc_map_dncnn   = imwarp(adc_map_dncnn,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+        end
+
+        % IVIMnet maps
+        if haveivimnet
+            D_ivimnet     = imwarp(D_ivimnet,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+            f_ivimnet     = imwarp(f_ivimnet,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+            Dstar_ivimnet = imwarp(Dstar_ivimnet, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
+        end
+
+        fprintf('  [DIR] Warped all parameter maps to baseline geometry.\n');
     end
 
     % Build maps struct for extract_biomarkers

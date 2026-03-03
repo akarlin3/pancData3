@@ -426,8 +426,20 @@ for j = 1:length(mrn_list)
     checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
 
     if exist(checkpoint_file, 'file')
-        % Load checkpoint
+        % Load checkpoint with basic corruption detection
         loaded_data = load(checkpoint_file);
+
+        required_fields = {'data_vectors_gtvp', 'data_vectors_gtvn', ...
+            'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', ...
+            'v50gy_gtvp', 'v50gy_gtvn', 'adc_mean', 'd_mean', ...
+            'd_mean_dncnn', 'd_mean_ivimnet', 'lf', 'immuno', 'bad_dwi_list'};
+        missing_fields = setdiff(required_fields, fieldnames(loaded_data));
+        if ~isempty(missing_fields)
+            warning('load_dwi_data:corruptCheckpoint', ...
+                'Checkpoint for patient %d (%s) is missing fields: %s. Skipping.', ...
+                j, patient_id, strjoin(missing_fields, ', '));
+            continue;
+        end
 
         % Assign back to global arrays
         % Struct arrays

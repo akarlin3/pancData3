@@ -192,6 +192,33 @@ if ~isnan(LRT_p)
     fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', td_n_feat, LRT_stat, LRT_p);
 end
 
+% ---- Imputation half-life sensitivity analysis -----------------------
+% Report how HRs change across the half-life grid so users can assess
+% robustness of the exponential decay imputation assumption.
+fprintf('\n  --- Imputation Sensitivity (half-life months → HR) ---\n');
+fprintf('  %-6s', 'HL');
+for fi = 1:td_n_feat
+    fprintf('  %10s', td_feat_names{fi});
+end
+fprintf('\n');
+for hl_idx = 1:length(half_life_grid)
+    pnl = td_panels{hl_idx};
+    try
+        ev_csh = pnl.event; ev_csh(ev_csh == 2) = 0;
+        X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id));
+        w_hl = warning('off', 'all');
+        [b_hl] = coxphfit(X_hl, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
+        warning(w_hl);
+        fprintf('  %-6d', half_life_grid(hl_idx));
+        for fi = 1:td_n_feat
+            fprintf('  %10.3f', exp(b_hl(fi)));
+        end
+        fprintf('\n');
+    catch
+        fprintf('  %-6d  (model did not converge)\n', half_life_grid(hl_idx));
+    end
+end
+
 fprintf('\nMetrics module sequence completed successfully.\n');
 end
 

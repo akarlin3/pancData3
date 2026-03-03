@@ -23,7 +23,9 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     warning('on', 'all');  % pctRunOnAll also runs on client — restore client warnings
 end
 
-clear global MASTER_OUTPUT_FOLDER;
+% Reset persistent output folder in run_dwi_pipeline so each full workflow
+% sequence starts with a fresh timestamped output directory.
+clear run_dwi_pipeline;
 
 % --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
 disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');

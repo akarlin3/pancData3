@@ -301,7 +301,11 @@ else
                 long_D(obs_idx) = D_abs(p_idx, t);
                 long_f(obs_idx) = f_abs(p_idx, t);
                 long_Dstar(obs_idx) = Dstar_abs(p_idx, t);
-                long_LF(obs_idx) = lf_group(i);
+                % Recode competing risks (lf==2) as censored (lf==0) for
+                % consistency with the Cause-Specific Hazards survival model.
+                lf_val = lf_group(i);
+                if lf_val == 2, lf_val = 0; end
+                long_LF(obs_idx) = lf_val;
             end
         end
     end
