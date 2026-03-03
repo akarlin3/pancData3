@@ -153,8 +153,11 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
 
-            testCase.verifyFalse(is_valid, 'Excessive NaN in dose should invalidate run');
-            testCase.verifyTrue(contains(msg, 'Failed'), 'Message should indicate failure');
+            % NaN dose coverage is a soft warning (partial RT dose overlap
+            % is common), not a hard failure.  Only dimensional mismatches
+            % invalidate the run.
+            testCase.verifyTrue(is_valid, 'NaN dose warnings should not invalidate run');
+            testCase.verifyTrue(contains(msg, 'NaN dose warnings'), 'Message should report NaN dose warnings');
         end
 
         function testOutlierDetection(testCase)

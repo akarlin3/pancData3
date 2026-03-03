@@ -373,13 +373,14 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- DVH for GTVp ---
-    % When dose has been warped to Fx1 geometry (can_warp), use the Fx1
-    % reference mask so dose and mask are in the same coordinate frame.
-    dvh_mask_p = gtv_mask_for_dvh;
+    % Always use the same mask for dose as for biomarkers so that
+    % dose_vector and adc_vector have identical lengths.  When maps are
+    % warped to Fx1 the dose map is already in that frame; otherwise the
+    % native dose map is resampled onto the native biomarker mask.
+    dvh_mask_p = biomarker_mask_p;
     dvh_dose   = dose_map_dvh;
     if can_warp && havedose
         dvh_dose   = dose_map;          % dose already warped to Fx1 above
-        dvh_mask_p = biomarker_mask_p;   % Fx1 reference mask
     end
     if havedose && havegtvp
         result.dmean_gtvp = nanmean(dvh_dose(dvh_mask_p==1));
@@ -403,12 +404,9 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- DVH for GTVn ---
-    % Use the same warped dose and consistent mask as GTVp
-    dvh_mask_n = gtvn_mask;
+    % Always use the same mask for dose as for biomarkers (mirrors GTVp).
+    dvh_mask_n = biomarker_mask_n;
     dvh_dose_n = dose_map;
-    if can_warp && havedose
-        dvh_mask_n = biomarker_mask_n;   % Fx1 reference mask (or native if no ref)
-    end
     if havedose && havegtvn
         result.dmean_gtvn = nanmean(dvh_dose_n(dvh_mask_n==1));
         [dvhparams, dvh_values] = dvh(dvh_dose_n, dvh_mask_n, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);

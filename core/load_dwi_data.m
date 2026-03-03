@@ -123,8 +123,13 @@ dataloc = config_struct.dataloc;
 
 % load clinical data (local failure and immunotherapy status per patient)
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
+if isfield(config_struct, 'clinical_sheet_name')
+    sheet_name = config_struct.clinical_sheet_name;
+else
+    sheet_name = 'Clin List_MR';
+end
 try
-    T = readtable(clinical_data_sheet,'Sheet','Clin List');
+    T = readtable(clinical_data_sheet,'Sheet',sheet_name);
 catch ME
     if exist('OCTAVE_VERSION', 'builtin')
         warning('Octave could not read %s. Creating dummy clinical data table.', clinical_data_sheet);
@@ -254,6 +259,8 @@ if isempty(T_Pat_cell)
     T_Pat_normalized = {};
 else
     try
+        % Strip leading/trailing single quotes that Excel may embed in text cells
+        T_Pat_cell = strrep(T_Pat_cell, '''', '');
         T_Pat_normalized = strrep(T_Pat_cell, '_', '-');
     catch
         T_Pat_normalized = {};
@@ -269,6 +276,17 @@ else
         id_list_normalized = {};
     end
 end
+
+% --- DEBUG: print spreadsheet vs folder patient IDs for matching diagnosis ---
+fprintf('\n--- DEBUG: Clinical spreadsheet Pat column (first 5) ---\n');
+for dbg_i = 1:min(5, numel(T_Pat_normalized))
+    fprintf('  Spreadsheet[%d]: "%s"\n', dbg_i, T_Pat_normalized{dbg_i});
+end
+fprintf('--- DEBUG: Folder id_list (first 5) ---\n');
+for dbg_i = 1:min(5, numel(id_list_normalized))
+    fprintf('  Folder[%d]: "%s"\n', dbg_i, id_list_normalized{dbg_i});
+end
+fprintf('--- DEBUG: Total spreadsheet entries: %d, Total folder entries: %d ---\n\n', numel(T_Pat_normalized), numel(id_list_normalized));
 
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
@@ -609,6 +627,13 @@ end
 
 function global_struct = align_and_assign_struct(global_struct, new_struct, index)
     % ALIGN_AND_ASSIGN_STRUCT Helper to assign struct arrays with potentially missing fields
+
+    % Per-patient checkpoint data is stored as nFx × nRp (no patient dim).
+    % Reshape to 1 × nFx × nRp so it can be slotted into the global
+    % nPatients × nFx × nRp array at (index, :, :).
+    if ndims(new_struct) <= 2 && size(new_struct, 1) > 1
+        new_struct = reshape(new_struct, [1, size(new_struct)]);
+    end
 
     if isempty(fieldnames(global_struct))
         % Initialise global struct: create a matching-fields template so

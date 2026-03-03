@@ -6,6 +6,8 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
 %   (.nii.gz, .bval, .bvec) were created.
 
     bad_dwi_found = 0;
+    bt_state = warning('query', 'backtrace');
+    warning('off', 'backtrace');
     if ~exist(fullfile(outloc, [scanID '.nii.gz']), 'file')
         nii_cmd = sprintf('%s -z y -f %s -o %s %s', ...
             escape_shell_arg(dcm2nii_call), ...
@@ -30,4 +32,5 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
             bad_dwi_found = 1;
         end
     end
+    warning(bt_state.state, 'backtrace');
 end

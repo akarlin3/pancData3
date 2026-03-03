@@ -250,7 +250,8 @@ fprintf('\n--- SECTION 3: Data Alignment (RT Dose <-> DWI) ---\n');
 % -----------------------------------------------------------------------
 fprintf('\n--- 3. Data Alignment (RT Dose ↔ DWI) ---\n');
 
-align_issues = 0;   % running count of dimensional or NaN-fraction flags
+dim_mismatches = 0;   % hard errors: dose/ADC vector length mismatch
+nan_warnings   = 0;   % soft warnings: high NaN fraction in dose
 
 for j = 1:nPat
     nFx = min(size(data_vectors_gtvp, 2), 5); % dose only for Fx1-5
@@ -268,23 +269,26 @@ for j = 1:nPat
         if numel(dose_vec) ~= numel(adc_vec)
             fprintf('  MISMATCH: Patient %s  %s : dose voxels=%d, ADC voxels=%d\n', ...
                 id_list{j}, fx_labels{k}, numel(dose_vec), numel(adc_vec));
-            align_issues = align_issues + 1;
+            dim_mismatches = dim_mismatches + 1;
         end
 
         % Check for NaN-only dose regions inside the mask
         frac_nan = sum(isnan(dose_vec)) / numel(dose_vec);
         if frac_nan > 0.1
-            fprintf('  WARNING: Patient %s  %s : %.1f%% of in-mask dose voxels are NaN (possible mis-registration)\n', ...
-                id_list{j}, fx_labels{k}, frac_nan * 100);
-            align_issues = align_issues + 1;
+            nan_warnings = nan_warnings + 1;
         end
     end
 end
 
-if align_issues == 0
+if dim_mismatches == 0 && nan_warnings == 0
     fprintf('  All dose/DWI pairs are dimensionally consistent with <10%% NaN.\n');
 else
-    fprintf('  Total alignment flags: %d\n', align_issues);
+    if dim_mismatches > 0
+        fprintf('  ❌ Dimensional mismatches: %d (dose/ADC vector length differs)\n', dim_mismatches);
+    end
+    if nan_warnings > 0
+        fprintf('  💡 NaN dose warnings: %d pairs have >10%% NaN in-mask dose voxels (partial RT dose coverage)\n', nan_warnings);
+    end
 end
 
 fprintf('\n======================================================\n');
@@ -292,12 +296,13 @@ fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');
 diary off
 
-if align_issues == 0
+if dim_mismatches == 0
     is_valid = true;
-    validation_msg = sprintf('Passed all alignment checks. %d convergence warnings.', conv_issues);
+    validation_msg = sprintf('Passed all alignment checks. %d convergence warnings, %d NaN dose warnings.', conv_issues, nan_warnings);
 else
-    % We treat alignment mismatch as invalidating the run
+    % Only dimensional mismatches invalidate the run — NaN dose coverage
+    % is common when the RT dose grid does not fully overlap the DWI FOV.
     is_valid = false;
-    validation_msg = sprintf('Failed %d alignment checks.', align_issues);
+    validation_msg = sprintf('Failed %d dimensional alignment checks.', dim_mismatches);
 end
 end
