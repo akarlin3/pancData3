@@ -70,44 +70,36 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
     moving_norm = robust_percentile_norm(double(b0_moving));
 
     % --- Symmetric Diffeomorphic Registration (Halfway-Space / Midpoint) ---
-    % Replaces standard additive demons with a symmetric approach (e.g., Log-Domain / SyN).
-    % This ensures topological consistency and physical validity by registering both
-    % images to a common midpoint geometry.
-    try
-        % Initial midpoint
-        mid_img = (fixed_norm + moving_norm) / 2;
-        
-        % Pass 1: Register Fixed -> Mid and Moving -> Mid
-        D_fixed_to_mid = imregdemons(fixed_norm, mid_img, [100 50 25], ...
-            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
-        D_moving_to_mid = imregdemons(moving_norm, mid_img, [100 50 25], ...
-            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
-        
-        % Refine midpoint based on initial alignment
-        fixed_warped = imwarp(fixed_norm, D_fixed_to_mid);
-        moving_warped = imwarp(moving_norm, D_moving_to_mid);
-        mid_img_refined = (fixed_warped + moving_warped) / 2;
-        
-        % Pass 2: Final Registration to Refined Midpoint
-        D_forward_mid = imregdemons(fixed_norm, mid_img_refined, [100 50 25], ...
-            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
-        D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
-            'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
-
-        % The displacement field to map Fixed -> Moving is approximated by:
-        % D = D_forward_mid - D_backward_mid (symmetric proxy)
-        D_forward = D_forward_mid - D_backward_mid;
-
-        % Warp the baseline mask into the current fraction's geometry.
-        % We use 'linear' interpolation to generate a continuous probability 
-        % map, preventing nearest-neighbor truncation artifacts and allowing 
-        % the mask boundary to scale with the local deformation Jacobian.
-        ref3d = imref3d(size(b0_moving));
-        mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
-            'Interp', 'linear', 'FillValues', 0);
-    catch ME
-        warning('apply_dir_mask_propagation:imregdemonsFailed', '%s', ME.message);
-        return;
+    has_demons = exist('imregdemons', 'file') || exist('imregdemons', 'builtin');
+    if has_demons
+        try
+            mid_img = (fixed_norm + moving_norm) / 2;
+            D_fixed_to_mid = imregdemons(fixed_norm, mid_img, [100 50 25], ...
+                'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+            D_moving_to_mid = imregdemons(moving_norm, mid_img, [100 50 25], ...
+                'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+            fixed_warped = imwarp(fixed_norm, D_fixed_to_mid);
+            moving_warped = imwarp(moving_norm, D_moving_to_mid);
+            mid_img_refined = (fixed_warped + moving_warped) / 2;
+            D_forward_mid = imregdemons(fixed_norm, mid_img_refined, [100 50 25], ...
+                'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+            D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
+                'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+            D_forward = D_forward_mid - D_backward_mid;
+            ref3d = imref3d(size(b0_moving));
+            mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
+                'Interp', 'linear', 'FillValues', 0);
+        catch ME
+            warning('apply_dir_mask_propagation:imregdemonsFailed', '%s', ME.message);
+            return;
+        end
+    else
+        warning('apply_dir_mask_propagation:noDemons', ...
+            'imregdemons not available. Using identity transform (no deformation).');
+        sz = size(b0_moving);
+        D_forward = zeros([sz, 3]);
+        ref3d = struct('ImageSize', sz);
+        mask_warped_float = double(gtv_mask_fixed);
     end
 
 

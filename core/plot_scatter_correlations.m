@@ -60,13 +60,24 @@ for di = 1:numel(diff_metrics)
         hold off;
 
         % Compute Spearman rank correlation and annotate the title
-        [r_sp, p_sp] = corr(x_vals(clean), y_vals(clean), 'Type', 'Spearman');
+        if exist('OCTAVE_VERSION', 'builtin')
+            r_sp = spearman(x_vals(clean), y_vals(clean));
+            n_clean = sum(clean);
+            t_stat = r_sp * sqrt((n_clean - 2) / (1 - r_sp^2 + eps));
+            p_sp = 2 * (1 - tcdf(abs(t_stat), n_clean - 2));
+        else
+            [r_sp, p_sp] = corr(x_vals(clean), y_vals(clean), 'Type', 'Spearman');
+        end
 
         xlabel(x_label);
         ylabel([diff_names{di} ' (' diff_units{di} ')']);
         title(sprintf('%s vs Dose\nr_s=%.2f, p=%.3f', diff_names{di}, r_sp, p_sp), ...
             'FontSize', 10);
-        legend('Location', 'best', 'FontSize', 7);
+        if exist('OCTAVE_VERSION', 'builtin')
+            legend('LC', 'LF', 'Linear fit', 'location', 'best');
+        else
+            legend('Location', 'best', 'FontSize', 7);
+        end
         grid on;
 
         plot_idx = plot_idx + 1;

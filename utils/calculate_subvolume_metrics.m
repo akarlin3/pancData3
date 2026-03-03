@@ -19,7 +19,11 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     d95 = NaN;
     v50 = NaN;
 
-    se = strel('sphere', 1);
+    if exist('OCTAVE_VERSION', 'builtin')
+        se = strel('arbitrary', ones(3, 3, 3));
+    else
+        se = strel('sphere', 1);
+    end
     min_cc_voxels = 10;
     min_subvol_voxels = 100;
 

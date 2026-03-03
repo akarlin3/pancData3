@@ -162,9 +162,21 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             summary_metrics.v50gy_gtvp = 10 + rand(nPat, nTp);
             summary_metrics.v50gy_gtvn = 5 + rand(nPat, nTp);
 
+            summary_metrics.lf = mod((1:nPat)', 2);
+            summary_metrics.dmean_gtvp = base_dose * repmat(1:nTp, nPat, 1);
+            summary_metrics.gtv_vol = 10 + rand(nPat, nTp);
             summary_metrics.gtv_locations = cell(nPat, nTp, 1);
             summary_metrics.dwi_locations = cell(nPat, nTp, 1);
             summary_metrics.adc_sd = 1e-4 * rand(nPat, nTp, nDwiType);
+
+            % Repeatability fields (nPat x nRpt x nDwiType)
+            nRpt = 2;
+            summary_metrics.adc_mean_rpt = abs(base_adc + 1e-4 * randn(nPat, nRpt, nDwiType)) + 1e-5;
+            summary_metrics.adc_sub_rpt = abs(base_adc + 1e-4 * randn(nPat, nRpt, nDwiType)) + 1e-5;
+            summary_metrics.d_mean_rpt = abs(base_d + 1e-4 * randn(nPat, nRpt, nDwiType)) + 1e-5;
+            summary_metrics.f_mean_rpt = abs(base_f + 0.02 * randn(nPat, nRpt, nDwiType)) + 1e-5;
+            summary_metrics.dstar_mean_rpt = abs(base_dstar + 0.01 * randn(nPat, nRpt, nDwiType)) + 1e-5;
+            summary_metrics.n_rpt = nRpt * ones(nPat, 1);
 
             % Make sure all metrics are positive to pass sanity checks
             summary_metrics.adc_mean = abs(summary_metrics.adc_mean) + 1e-5;
@@ -273,7 +285,11 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             catch ME
                 cd(orig_dir);
                 setenv('SKIP_PIPELINE_PREFLIGHT', '');
-                disp(ME.getReport());
+                if exist('OCTAVE_VERSION', 'builtin')
+                    fprintf('Error: %s\n', ME.message);
+                else
+                    disp(ME.getReport());
+                end
                 passed = false;
             end
 

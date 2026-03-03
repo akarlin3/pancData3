@@ -457,8 +457,8 @@ for target_fx = 2:nTp
         sgtitle(['Validation (' curr_sig_disp '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
         allAx = findall(gcf, 'Type', 'Axes');
         for k = 1:numel(allAx)
-            pos = allAx(k).Position;
-            allAx(k).Position = [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92];
+            pos = get(allAx(k), 'Position');
+            set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
         end
         safe_name = strrep(curr_sig_file, '*', 'star');
         saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));

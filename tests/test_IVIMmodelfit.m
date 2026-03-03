@@ -3,14 +3,14 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function addDependenciesToPath(testCase)
-            % Ensure the dependencies folder is on the path
-            import matlab.unittest.fixtures.PathFixture
-            % Get the root of the repository relative to this file
             repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             depPath = fullfile(repoRoot, 'dependencies');
-
-            % Use PathFixture to add path temporarily for the test
-            testCase.applyFixture(PathFixture(depPath));
+            if exist('OCTAVE_VERSION', 'builtin')
+                addpath(depPath);
+            else
+                import matlab.unittest.fixtures.PathFixture
+                testCase.applyFixture(PathFixture(depPath));
+            end
         end
     end
 

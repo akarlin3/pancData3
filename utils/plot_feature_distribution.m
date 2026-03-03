@@ -26,8 +26,13 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         vals_lf = vals_clean(lf_clean == 1);   % Local Failure patients
 
         % Create 15 equally-spaced bins spanning the combined value range
-        min_val = min(vals_clean, [], 'omitnan');
-        max_val = max(vals_clean, [], 'omitnan');
+        if exist('OCTAVE_VERSION', 'builtin')
+            min_val = min(vals_clean(~isnan(vals_clean)));
+            max_val = max(vals_clean(~isnan(vals_clean)));
+        else
+            min_val = min(vals_clean, [], 'omitnan');
+            max_val = max(vals_clean, [], 'omitnan');
+        end
 
         if isempty(vals_clean)
             edges = linspace(0, 1, 16);
@@ -44,7 +49,7 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                 [counts_lf, ~] = hist(vals_lf, edges);
                 % handle edge case where centers is not unique
                 if length(unique(centers)) == length(centers)
-                    bar(centers, [counts_lc(:), counts_lf(:)], 'stacked', 'EdgeColor', 'none');
+                    bar(centers, [counts_lc(:), counts_lf(:)], 'stacked');
                 end
             end
             colormap([0 0.4470 0.7410; 0.8500 0.3250 0.0980]);
@@ -64,13 +69,27 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
 
     elseif strcmpi(plot_type, 'boxplot')
         if sum(has_data) > 1
-            boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+            if exist('OCTAVE_VERSION', 'builtin')
+                try
+                    boxplot(vals_clean, lf_clean);
+                catch
+                    % Octave's boxplot can fail with very small groups;
+                    % fall back to scatter-style display.
+                    plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, ...
+                        'MarkerFaceColor', [0 0.4470 0.7410]);
+                    xlim([0.5, 2.5]);
+                    set(gca, 'XTick', [1, 2]);
+                    set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
+                end
+            else
+                boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+            end
         else
             % Just plot a single point if only 1 patient
             plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', [0 0.4470 0.7410]);
             xlim([0.5, 2.5]);
-            xticks([1, 2]);
-            xticklabels({'LC (0)', 'LF (1)'});
+            set(gca, 'XTick', [1, 2]);
+            set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
         end
         
         ylabel(metric_unit);
