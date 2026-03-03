@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Time-dependent Cox PH model for survival analysis with IPCW weighting
+- DICOM-to-NIfTI conversion module (`convert_dicom.m`) using `dcm2niix`
+- Per-scan processing module (`process_single_scan.m`) for modular scan handling
+- Scan data structure initialization utility (`init_scan_structs.m`)
+- Octave compatibility guards across core, utils, and tests
+- Octave-compatible test runner (`run_all_tests_octave.m`) and `matlab.unittest` shim layer
+- Comprehensive unit and integration tests for DWI data loading, model fitting, mask propagation, and pipeline metrics
+- Tests for safe mask loading, statistical methods, and grouped folds
+- Core scripts for DWI/IVIM metrics baseline, statistical comparisons, and predictive analysis
 - `CONTRIBUTING.md` with contribution guidelines
 - `CITATION.cff` for machine-readable academic citation
 - `SECURITY.md` with vulnerability reporting policy
@@ -16,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - GitHub Actions CI workflow for automated testing
 - GitHub issue and pull request templates
 - Improved `README.md` with badges, table of contents, and structured documentation
+
+### Fixed
+- Octave compatibility issues across core, utils, and test modules
 
 ## [1.0.0] - 2026-01-01
 
@@ -28,7 +40,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Visualization suite: parameter maps, feature distributions, scatter correlations
 - Metrics pipeline: baseline, longitudinal, dosimetry, statistical comparisons, predictive modeling
 - Survival analysis with competing risks (Cause-Specific Hazards) and IPCW weighting
-- Comprehensive test suite (47 test files) with code coverage
+- Comprehensive test suite with code coverage
 - Octave compatibility shims
 - Checkpointing system for large cohort recovery
 - Security utilities: `safe_load_mask`, `escape_shell_arg`

@@ -49,11 +49,12 @@ pancData3/
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (17 files)
-├── utils/                      # Helper utilities (25 files + @table/)
-├── tests/                      # Full test suite (47 files)
+├── utils/                      # Helper utilities (17 files + octave_compat/)
+│   └── octave_compat/          # Octave compatibility shims (20 files)
+├── tests/                      # Full test suite (46 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
-│   ├── benchmarks/             # Performance benchmarks (not run by CI)
-│   └── diagnostics/            # Manual spot-check scripts (not run by CI)
+│   ├── benchmarks/             # Performance benchmarks (7 files)
+│   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -185,6 +186,7 @@ run('tests/run_all_tests.m')
 | `plot_parameter_maps.m` | Visualization helpers for parameter overlays |
 | `plot_feature_distributions.m` | Feature histogram/boxplot rendering |
 | `plot_scatter_correlations.m` | Correlation scatter plots |
+| `process_single_scan.m` | Per-scan DICOM conversion, model fitting, and caching |
 
 ---
 
@@ -208,6 +210,15 @@ run('tests/run_all_tests.m')
 | `discover_gtv_file.m` | Locates GTV mask file with flexible naming patterns |
 | `find_gtv_files.m` | Locates GTVp and GTVn masks for complex tumor anatomy |
 | `plot_feature_distribution.m` | Histogram/boxplot with ANOVA p-value annotation |
+| `init_scan_structs.m` | Initializes scan data structures for pipeline processing |
+
+### Octave Compatibility (`utils/octave_compat/`)
+
+Contains 20 shim files for GNU Octave compatibility, including:
+
+- `@table/` class implementation (`table.m`, `subsasgn.m`, `subsref.m`, `display.m`)
+- `+matlab/+unittest/` namespace shims (`TestSuite.m`, `TestCase.m`, `TestRunner.m`)
+- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`
 
 ---
 
@@ -278,6 +289,9 @@ Contains third-party scripts. Treat as read-only:
 | `fit_adc_mono.m` | Mono-exponential ADC fitting |
 | `apply_dncnn_symmetric.m` | DnCNN deep learning denoising |
 | `dvh.m`, `sample_rtdose_on_image.m` | Dose-volume histogram processing |
+| `clean_dir_command.m` | Directory cleaning helper |
+| `halfSampleMode.m` | Half-sample mode statistical estimator |
+| `im2Y.m` | Image-to-luminance conversion |
 
 See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
