@@ -2,7 +2,7 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-47%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-46%20files-brightgreen)](#running-tests)
 [![Octave Compatible](https://img.shields.io/badge/Octave-compatible-orange?logo=gnu)](https://www.gnu.org/software/octave/)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
@@ -141,7 +141,7 @@ The pipeline executes the following steps in order:
 | 1. **Load** | `load_dwi_data` | DICOM conversion, model fitting, DL denoising, checkpointing |
 | 2. **Sanity** | `sanity_checks` | Convergence validation, missingness, spatial alignment |
 | 3. **Visualize** | `visualize_results` | Parameter maps, distributions, longitudinal trajectories |
-| 4. **Metrics** | | |
+| 4. **Metrics** | `compute_summary_metrics` | Summary metric aggregation, then sub-steps below |
 | 4a. Baseline | `metrics_baseline` | Summary metrics, outlier cleaning, percent delta |
 | 4b. Longitudinal | `metrics_longitudinal` | Longitudinal change analysis |
 | 4c. Dosimetry | `metrics_dosimetry` | Dose metrics (D95, V50) within diffusion-defined subvolumes |
@@ -157,7 +157,7 @@ The pipeline executes the following steps in order:
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 47 test files covering:
+The test suite includes 46 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -182,18 +182,21 @@ pancData3/
 │   ├── load_dwi_data.m         #   Data loading & model fitting
 │   ├── sanity_checks.m         #   Data validation
 │   ├── visualize_results.m     #   Visualization generation
+│   ├── process_single_scan.m   #   Per-scan DICOM/model processing
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (25+ files)
+├── utils/                      # Helper utilities (17 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
+│   ├── init_scan_structs.m     #   Scan data structure initialization
+│   ├── octave_compat/          #   Octave compatibility shims (20 files)
 │   └── ...
-├── tests/                      # Test suite (47 files)
+├── tests/                      # Test suite (46 test files)
 │   ├── run_all_tests.m         #   Master test runner
-│   ├── benchmarks/             #   Performance benchmarks
-│   └── diagnostics/            #   Diagnostic spot-checks
+│   ├── benchmarks/             #   Performance benchmarks (7 files)
+│   └── diagnostics/            #   Diagnostic spot-checks (5 files)
 ├── dependencies/               # Third-party scripts (read-only)
 └── .agents/                    # AI agent configuration
     ├── rules/                  #   Agent safety rules

@@ -84,7 +84,15 @@ run('tests/run_all_tests.m')
 |---|---|
 | `tests/` | Functional and integration tests |
 | `tests/benchmarks/` | Performance benchmarks |
-| `tests/diagnostics/` | Manual diagnostic scripts |
+| `tests/diagnostics/` | Diagnostic spot-check scripts |
+
+### Octave Compatibility
+
+The pipeline supports GNU Octave via shims in `utils/octave_compat/`. When adding new functionality:
+
+- Avoid MATLAB-only syntax not covered by the existing shim layer
+- Run `tests/run_all_tests_octave.m` to verify Octave compatibility if available
+- Compatibility shims are in `utils/octave_compat/` -- add new shims there if needed
 
 ## Code Style
 
@@ -116,8 +124,9 @@ This is a research pipeline with strict leakage prevention requirements. When mo
 - Code correctness and test coverage
 - No data leakage introduced
 - No modification of files in `dependencies/`
-- No hardcoded file paths (use `config.json`)
+- No hardcoded file paths (uses `config.json`)
 - No unsanitized strings passed to `system()`
+- Octave compatibility preserved (no MATLAB-only syntax without shims)
 
 ## Important Constraints
 
