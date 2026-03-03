@@ -20,6 +20,7 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     pctRunOnAll addpath(fullfile(pwd, 'utils'));
     pctRunOnAll addpath(fullfile(pwd, 'dependencies'));
     pctRunOnAll warning('off', 'all');
+    warning('on', 'all');  % pctRunOnAll also runs on client — restore client warnings
 end
 
 clear global MASTER_OUTPUT_FOLDER;
