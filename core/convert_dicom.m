@@ -20,7 +20,8 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
         bvec_exists = exist(fullfile(outloc, [scanID '.bvec']), 'file');
 
         if ~(nii_exists && bval_exists && bvec_exists)
-            fprintf('!!!! incorrect number of DWI files generated for %s... need to fix!\n', fx_id);
+            warning('convert_dicom:missingFiles', ...
+                '❌ Expected DWI files not found for %s (need .nii.gz, .bval, .bvec).', fx_id);
             bad_dwi_found = 1;
         end
     end

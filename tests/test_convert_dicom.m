@@ -99,9 +99,11 @@ classdef test_convert_dicom < matlab.unittest.TestCase
                 system(['chmod +x ' testCase.MockScript]);
             end
 
+            warnState = warning('off', 'convert_dicom:missingFiles');
+            restoreWarn = onCleanup(@() warning(warnState));
             bad_dwi_found = convert_dicom(testCase.DicomLoc, testCase.OutLoc, scanID, testCase.MockScript, fx_id);
 
-            testCase.verifyEqual(bad_dwi_found, 1, 'Should return 1 when dir length increases by 3 instead of 4.');
+            testCase.verifyEqual(bad_dwi_found, 1, 'Should return 1 when expected files are not created.');
         end
 
         function test_skip_existing_file(testCase)
@@ -119,7 +121,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
             if ispc
                 fprintf(fid, '@echo off\n');
                 for i = 1:10
-                    fprintf(fid, 'echo dummy > "%s\\file%%d.txt"\n', testCase.OutLoc, i);
+                    fprintf(fid, 'echo dummy > "%s\\file%d.txt"\n', testCase.OutLoc, i);
                 end
             else
                 fprintf(fid, '#!/bin/bash\n');
