@@ -51,7 +51,10 @@ end
 % 2. Create a test runner with text output
 runner = TestRunner.withTextOutput();
 
-% 3. Configure code coverage for core and utils directories
+% 3. Add dot-style progress bar plugin
+runner.addPlugin(ProgressBarPlugin(numel(suite)));
+
+% 4. Configure code coverage for core and utils directories
 % Use Cobertura format or standard coverage plugin that outputs to the console/file.
 foldersToCover = {coreDir, utilsDir};
 
@@ -71,14 +74,14 @@ disp('===================================================');
 disp('   Running Tests...                                ');
 disp('===================================================');
 
-% 4. Run the test suite
+% 5. Run the test suite
 results = runner.run(suite);
 
 disp('===================================================');
 disp('   Test Execution Completed                        ');
 disp('===================================================');
 
-% 5. Assert success (Throws an error and returns non-zero exit code if any test fails)
+% 6. Assert success (Throws an error and returns non-zero exit code if any test fails)
 % In CI environments running MATLAB with -batch, this will fail the step appropriately.
 % assertSuccess(results) was introduced in R2020a, providing backward compatibility
 if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
