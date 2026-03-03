@@ -16,6 +16,12 @@ patients_plotted = 0;
 % Maximum number of patient rows per figure panel
 pats_per_fig     = 5;
 
+% Diagnostic counters for skip reasons
+diag_out_of_range = 0;
+diag_empty_adc    = 0;
+diag_missing_file = 0;
+diag_bad_bval     = 0;
+
 % Pre-count eligible patients (those with Fx1 DWI, bval, and GTV files)
 % so that each figure can be allocated the correct number of subplot rows.
 n_eligible = 0;
@@ -38,11 +44,17 @@ n_rows_cur_fig = 0;  % will be set when each new figure is created
 
 for j = 1:nPat
     if j > size(data_vectors_gtvp, 1)
+        diag_out_of_range = diag_out_of_range + 1;
+        fprintf('  💡 Pt %d: index exceeds data_vectors_gtvp rows (%d)\n', j, size(data_vectors_gtvp, 1));
         continue;
     end
     % Skip patients without extracted ADC data at Fx1
     s = data_vectors_gtvp(j, 1, 1);
-    if isempty(s.adc_vector), continue; end
+    if isempty(s.adc_vector)
+        diag_empty_adc = diag_empty_adc + 1;
+        fprintf('  💡 Pt %d (%s): empty adc_vector at Fx1 — skipping\n', j, id_list{j});
+        continue;
+    end
 
     % Build file paths for the Fx1 DWI volume, b-value table, and GTV mask
     basefolder = fullfile(dataloc, id_list{j});
@@ -53,6 +65,9 @@ for j = 1:nPat
 
     % All three files must exist on disk to proceed
     if ~exist(dwi_file, 'file') || ~exist(bval_file, 'file') || ~exist(gtv_file, 'file')
+        diag_missing_file = diag_missing_file + 1;
+        fprintf('  💡 Pt %d (%s): missing NIfTI — dwi=%d bval=%d gtv=%d\n', ...
+            j, id_list{j}, exist(dwi_file,'file')~=0, exist(bval_file,'file')~=0, exist(gtv_file,'file')~=0);
         continue;
     end
 
@@ -70,8 +85,9 @@ for j = 1:nPat
     % Validate b-values against expected study protocol
     expected_bvals = [0; 30; 150; 550];
     if size(dwi_img, 4) ~= length(bvals) || ~isequal(sort(bvals), expected_bvals)
-        fprintf('  Protocol deviation: Pt %d has non-standard b-values %s — excluding from comparative mapping.\n', ...
-            j, mat2str(bvals'));
+        diag_bad_bval = diag_bad_bval + 1;
+        fprintf('  💡 Pt %d (%s): protocol deviation — b-values %s (expected %s)\n', ...
+            j, id_list{j}, mat2str(bvals'), mat2str(expected_bvals'));
         continue;
     end
 
@@ -161,6 +177,17 @@ if patients_plotted > 0
     fprintf('  Plotted %d patients.\n', patients_plotted);
 else
     fprintf('  No patients with complete NIfTI data found on disk. Skipping.\n');
+end
+
+% Diagnostic summary of skip reasons
+if diag_out_of_range + diag_empty_adc + diag_missing_file + diag_bad_bval > 0
+    fprintf('  --- Parameter Maps skip summary ---\n');
+    fprintf('  nPat=%d, data_vectors_gtvp rows=%d\n', nPat, size(data_vectors_gtvp, 1));
+    if diag_out_of_range > 0, fprintf('    Index out of range: %d\n', diag_out_of_range); end
+    if diag_empty_adc    > 0, fprintf('    Empty adc_vector:   %d\n', diag_empty_adc); end
+    if diag_missing_file > 0, fprintf('    Missing NIfTI file: %d\n', diag_missing_file); end
+    if diag_bad_bval     > 0, fprintf('    b-value mismatch:   %d\n', diag_bad_bval); end
+    fprintf('    Plotted:            %d\n', patients_plotted);
 end
 
 end

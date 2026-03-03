@@ -45,35 +45,35 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
             % Mock Data vectors GTVp (unused by metrics_baseline directly but required input)
             testCase.DataVectorsGTVp = repmat( ...
                 struct('adc', [1, 2, 3]', 'd', [1, 2, 3]', 'f', [0.1, 0.2, 0.3]', 'dstar', [0.01, 0.02, 0.03]'), ...
-                4, 3);
+                nPat, 3);
             testCase.DataVectorsGTVn = repmat( ...
                 struct('adc', [1.5, 2.5]', 'd', [1.5, 2.5]', 'f', [0.15, 0.25]', 'dstar', [0.015, 0.025]'), ...
-                4, 3);
+                nPat, 3);
 
-            % Mock Summary metrics — 4 patients, 3 timepoints
+            % Mock Summary metrics — 8 patients, 3 timepoints
             testCase.SummaryMetrics = struct();
-            testCase.SummaryMetrics.id_list    = {'P1', 'P2', 'P3', 'P4'};
-            testCase.SummaryMetrics.mrn_list   = {'M1', 'M2', 'M3', 'M4'};
-            testCase.SummaryMetrics.lf         = [0; 1; 0; 1];
-            testCase.SummaryMetrics.gtv_vol    = repmat([10; 15; 8; 12], 1, 3);
-            testCase.SummaryMetrics.dmean_gtvp = repmat([50; 55; 48; 52], 1, 3);
-            testCase.SummaryMetrics.d95_gtvp   = repmat([45; 50; 43; 47], 1, 3);
-            testCase.SummaryMetrics.v50gy_gtvp = repmat([90; 85; 88; 92], 1, 3);
+            testCase.SummaryMetrics.id_list    = arrayfun(@(x) sprintf('P%d', x), 1:nPat, 'UniformOutput', false);
+            testCase.SummaryMetrics.mrn_list   = arrayfun(@(x) sprintf('M%d', x), 1:nPat, 'UniformOutput', false);
+            testCase.SummaryMetrics.lf         = repmat([0; 1], nPat/2, 1);
+            testCase.SummaryMetrics.gtv_vol    = repmat([10; 15; 8; 12; 11; 14; 9; 13], 1, 3);
+            testCase.SummaryMetrics.dmean_gtvp = repmat([50; 55; 48; 52; 51; 54; 49; 53], 1, 3);
+            testCase.SummaryMetrics.d95_gtvp   = repmat([45; 50; 43; 47; 46; 49; 44; 48], 1, 3);
+            testCase.SummaryMetrics.v50gy_gtvp = repmat([90; 85; 88; 92; 89; 86; 87; 91], 1, 3);
 
             % Deterministic DWI metric arrays to avoid non-reproducible outlier detection
-            testCase.SummaryMetrics.adc_mean  = repmat([1.0; 1.2; 0.8; 1.1], 1, 3) * 1e-3;
-            testCase.SummaryMetrics.d_mean    = repmat([0.8; 1.0; 0.7; 0.9], 1, 3) * 1e-3;
-            testCase.SummaryMetrics.f_mean    = repmat([0.20; 0.20; 0.20; 0.20], 1, 3);
-            testCase.SummaryMetrics.dstar_mean = repmat([0.01; 0.01; 0.01; 0.01], 1, 3);
-            testCase.SummaryMetrics.adc_sd    = repmat([0.1; 0.1; 0.1; 0.1], 1, 3) * 1e-3;
+            testCase.SummaryMetrics.adc_mean  = repmat([1.0; 1.2; 0.8; 1.1; 0.9; 1.3; 0.85; 1.15], 1, 3) * 1e-3;
+            testCase.SummaryMetrics.d_mean    = repmat([0.8; 1.0; 0.7; 0.9; 0.75; 1.05; 0.72; 0.95], 1, 3) * 1e-3;
+            testCase.SummaryMetrics.f_mean    = repmat(0.20 * ones(nPat, 1), 1, 3);
+            testCase.SummaryMetrics.dstar_mean = repmat(0.01 * ones(nPat, 1), 1, 3);
+            testCase.SummaryMetrics.adc_sd    = repmat(0.1e-3 * ones(nPat, 1), 1, 3);
 
             % Repeatability fields
-            testCase.SummaryMetrics.n_rpt          = [2; 2; 2; 2];
-            testCase.SummaryMetrics.adc_mean_rpt   = rand(4, 2);
-            testCase.SummaryMetrics.adc_sub_rpt    = rand(4, 2);
-            testCase.SummaryMetrics.d_mean_rpt     = rand(4, 2);
-            testCase.SummaryMetrics.f_mean_rpt     = rand(4, 2);
-            testCase.SummaryMetrics.dstar_mean_rpt = rand(4, 2);
+            testCase.SummaryMetrics.n_rpt          = 2 * ones(nPat, 1);
+            testCase.SummaryMetrics.adc_mean_rpt   = rand(nPat, 2);
+            testCase.SummaryMetrics.adc_sub_rpt    = rand(nPat, 2);
+            testCase.SummaryMetrics.d_mean_rpt     = rand(nPat, 2);
+            testCase.SummaryMetrics.f_mean_rpt     = rand(nPat, 2);
+            testCase.SummaryMetrics.dstar_mean_rpt = rand(nPat, 2);
 
             % Fields accessed by some metric modules
             testCase.SummaryMetrics.gtv_locations  = {};
@@ -98,20 +98,20 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
              nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
              metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, testCase.SummaryMetrics, testCase.ConfigStruct);
 
-            % Check that valid_pts masks correctly (4 patients, all with finite lf)
-            testCase.verifyEqual(length(valid_pts), 4);
+            % Check that valid_pts masks correctly (8 patients, all with finite lf)
+            testCase.verifyEqual(length(valid_pts), 8);
             testCase.verifyTrue(all(valid_pts));
 
             % Check output matrix dimensions
-            testCase.verifyEqual(size(ADC_abs, 1), 4);  % 4 patients
-            testCase.verifyEqual(size(ADC_pct, 1), 4);
+            testCase.verifyEqual(size(ADC_abs, 1), 8);  % 8 patients
+            testCase.verifyEqual(size(ADC_pct, 1), 8);
             testCase.verifyEqual(size(ADC_abs, 2), 3);  % 3 timepoints
             testCase.verifyEqual(size(ADC_pct, 2), 3);  % same shape as ADC_abs
         end
 
         function testOutlierCleaning(testCase)
             % Insert an outlier into the summary metrics for patient 1 at baseline.
-            % With 4 patients the IQR-based fence is computed and 1e6 is detected.
+            % With 8 patients the IQR-based fence is narrow enough to detect 1e6.
             testCase.SummaryMetrics.adc_mean(1, 1) = 1e6;
 
             [~, ~, ~, ~, m_adc_mean, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...

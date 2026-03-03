@@ -148,7 +148,8 @@ if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 diary_file = fullfile(output_folder, 'metrics_output.txt');
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
-warning('off', 'stats:glmfit:IterationLimit');
+w_state_baseline = warning('off', 'stats:glmfit:IterationLimit');
+prev_fig_vis = get(0, 'DefaultFigureVisible');
 set(0, 'DefaultFigureVisible', 'off');  
 
 if ~exist('nTp', 'var') || isempty(nTp)
@@ -260,4 +261,9 @@ set_names = {
     {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (abs)', '\Delta D* (%)'} ...
 };
 time_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};
+
+% Restore global state modified at the top of this function
+diary off;
+warning(w_state_baseline);
+set(0, 'DefaultFigureVisible', prev_fig_vis);
 end

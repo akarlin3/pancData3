@@ -41,6 +41,7 @@ Thumbs.db
 .vscode/
 .idea/
 .jules/
+.claude/
 *.swp
 *~
 .env

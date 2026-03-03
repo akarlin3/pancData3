@@ -100,7 +100,7 @@ for target_fx = 2:nTp
     common_Lambda = [];
     cv_failed = false;
     
-    warning('off', 'all');
+    w_state_cv = warning('off', 'all');
     for cv_i = 1:n_folds_en
         tr_idx = (fold_id_en ~= cv_i);
         te_idx = (fold_id_en == cv_i);
@@ -138,8 +138,8 @@ for target_fx = 2:nTp
             break;
         end
     end
-    warning('on', 'all');
-    
+    warning(w_state_cv);
+
     if ~cv_failed && ~isempty(common_Lambda)
         mean_deviance = mean(all_deviance, 2);
         [~, idx_min] = min(mean_deviance);
@@ -206,7 +206,7 @@ for target_fx = 2:nTp
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
-        warning('off', 'all');
+        w_state_loo = warning('off', 'all');
         try
             inn_fold_id = make_grouped_folds(id_tr_loo, y_tr_fold, 5);
             n_inn_folds = max(inn_fold_id);
@@ -241,8 +241,8 @@ for target_fx = 2:nTp
             coefs_loo = zeros(size(X_tr_kept, 2), 1);
             intercept_loo = 0;
         end
-        warning('on', 'all');
-        
+        warning(w_state_loo);
+
         risk_scores_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
         
         train_median = median(X_tr_kept * coefs_loo + intercept_loo);
