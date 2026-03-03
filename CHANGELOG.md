@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-03
+
 ### Added
 - Time-dependent Cox PH model for survival analysis with IPCW weighting
 - DICOM-to-NIfTI conversion module (`convert_dicom.m`) using `dcm2niix`

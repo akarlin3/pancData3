@@ -52,5 +52,5 @@ This project processes medical imaging data. The following security measures are
 
 | Version | Supported |
 |---|---|
-| Latest (`main`) | Yes |
-| Older commits | No |
+| 1.1.x (latest) | Yes |
+| 1.0.x | No |
