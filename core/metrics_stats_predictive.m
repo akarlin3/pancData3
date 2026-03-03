@@ -111,6 +111,7 @@ for target_fx = 2:nTp
 
     w_state_cv = warning('off', 'all');
     for cv_i = 1:n_folds_en
+        text_progress_bar(cv_i, n_folds_en, 'Elastic Net CV');
         tr_idx = (fold_id_en ~= cv_i);
         te_idx = (fold_id_en == cv_i);
         X_tr = X_impute(tr_idx, :); y_tr = y_clean(tr_idx);
@@ -193,6 +194,7 @@ for target_fx = 2:nTp
 
     fprintf('  Generating unbiased out-of-fold risk scores via nested LOOCV...\n');
     for loo_i = 1:n_pts_impute
+        text_progress_bar(loo_i, n_pts_impute, 'LOOCV risk scores');
         pat_id_i = id_list_impute{loo_i};
         is_leaky = false;
         if dtype == 2 

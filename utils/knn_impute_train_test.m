@@ -67,7 +67,11 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             
             % Apply self/patient exclusions
             if ~isempty(pat_id_tr)
-                is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
+                if iscell(pat_id_tr)
+                    is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_tr{i});
+                else
+                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
+                end
             else
                 is_valid_ref(i) = false; % remove self
             end
@@ -126,7 +130,11 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
                 
                 if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
+                    if iscell(pat_id_tr)
+                        is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_te{i});
+                    else
+                        is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
+                    end
                 end
                 
                 ref_idx = find(is_valid_ref);

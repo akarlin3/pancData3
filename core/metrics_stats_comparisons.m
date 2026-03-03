@@ -31,7 +31,9 @@ figure_titles = {
 
 p_val_store = struct('p_vals', {});
 
-for s = 1:length(metric_sets)
+n_metric_sets = length(metric_sets);
+for s = 1:n_metric_sets
+    text_progress_bar(s, n_metric_sets, 'Univariate analysis');
     current_metrics = metric_sets{s};
     current_names = set_names{s};
     
@@ -353,8 +355,10 @@ else
                           'ADC_z', 'D_z', 'f_z', 'Dstar_z'});
 
     biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
+    n_biomarkers = length(biomarkers);
     warning('off', 'all');
-    for b = 1:length(biomarkers)
+    for b = 1:n_biomarkers
+        text_progress_bar(b, n_biomarkers, 'Fitting GLME models');
         bm = biomarkers{b};
         % Try random intercept + slope first (captures patient-specific
         % trajectories); fall back to random intercept only if the richer

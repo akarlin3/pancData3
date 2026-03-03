@@ -61,8 +61,10 @@ td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~i
 td_ok = (sum(event_td_def) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
 half_life_grid = [3, 6, 12, 18, 24];
-td_panels = cell(length(half_life_grid), 1);
-for hl_idx = 1:length(half_life_grid)
+n_halflife = length(half_life_grid);
+td_panels = cell(n_halflife, 1);
+for hl_idx = 1:n_halflife
+    text_progress_bar(hl_idx, n_halflife, 'Half-life sensitivity');
     [X_i, t_start_i, t_stop_i, ev_i, pid_i, frac_i] = ...
         build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, half_life_grid(hl_idx));
     td_panels{hl_idx} = struct('X', X_i, 't_start', t_start_i, 't_stop', t_stop_i, 'event', ev_i, 'pat_id', pid_i, 'frac', frac_i);

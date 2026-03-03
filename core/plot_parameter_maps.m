@@ -43,6 +43,7 @@ end
 n_rows_cur_fig = 0;  % will be set when each new figure is created
 
 for j = 1:nPat
+    text_progress_bar(j, nPat, 'Generating parameter maps');
     if j > size(data_vectors_gtvp, 1)
         diag_out_of_range = diag_out_of_range + 1;
         fprintf('  💡 Pt %d: index exceeds data_vectors_gtvp rows (%d)\n', j, size(data_vectors_gtvp, 1));

@@ -288,6 +288,13 @@ for dbg_i = 1:min(5, numel(id_list_normalized))
 end
 fprintf('--- DEBUG: Total spreadsheet entries: %d, Total folder entries: %d ---\n\n', numel(T_Pat_normalized), numel(id_list_normalized));
 
+% --- Progress bar for parallel patient processing ---
+n_to_process = sum(~patient_completed);
+if ~exist('OCTAVE_VERSION', 'builtin') && n_to_process > 0
+    dq_progress = parallel.pool.DataQueue;
+    afterEach(dq_progress, parfor_progress(n_to_process, 'Processing patients'));
+end
+
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
     patient_id = id_list{j};
@@ -450,11 +457,18 @@ parfor j = 1:length(mrn_list)
     lock_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.lock', j, patient_id));
     parsave_checkpoint(checkpoint_file, pat_data_out, lock_file);
 
+    % Signal progress to the client-side progress bar
+    if ~exist('OCTAVE_VERSION', 'builtin') && exist('dq_progress', 'var')
+        send(dq_progress, j);
+    end
+
     fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
 end
 
 % Reconstruct global arrays from checkpoints
-for j = 1:length(mrn_list)
+n_reconstruct = length(mrn_list);
+for j = 1:n_reconstruct
+    text_progress_bar(j, n_reconstruct, 'Reconstructing checkpoints');
     mrn = mrn_list{j};
     patient_id = id_list{j};
     checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));

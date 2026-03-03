@@ -121,7 +121,9 @@ dstar_mean_rpt = nan(length(id_list),nRpt,3);
 n_rpt = nan(length(id_list),1);
 
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
-for j=1:length(id_list)
+n_patients_metrics = length(id_list);
+for j=1:n_patients_metrics
+    text_progress_bar(j, n_patients_metrics, 'Computing summary metrics');
     for k=1:nTp
         if length(data_vectors_gtvp(j,k,1).vox_vol) == 1
             vox_vol = data_vectors_gtvp(j,k,1).vox_vol;

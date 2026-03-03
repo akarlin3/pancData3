@@ -53,7 +53,9 @@ gtv_locations = cell(length(patlist),6,6);
 gtvn_locations = cell(length(patlist),6,6); % a few cases have a nodal gtv as well
 
 % --- Main discovery loop: iterate over patients × fractions ---
-for j=1:length(patlist)
+n_pat_discover = length(patlist);
+for j=1:n_pat_discover
+    text_progress_bar(j, n_pat_discover, 'Discovering patient files');
     basefolder = fullfile(dataloc, patlist(j).name);
     basefolder_contents = clean_dir_command(basefolder);
     id_list{j} = patlist(j).name;

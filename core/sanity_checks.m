@@ -89,6 +89,7 @@ fprintf('\n--- 1. Verify Convergence ---\n');
 conv_issues = 0;   % running count of flagged patient-timepoint-metric tuples
 
 for j = 1:nPat
+    text_progress_bar(j, nPat, 'Checking convergence');
     for k = 1:nTp
         % Pull the per-voxel result struct for the primary (rpi=1)
         % acquisition of this patient and timepoint.
@@ -254,6 +255,7 @@ dim_mismatches = 0;   % hard errors: dose/ADC vector length mismatch
 nan_warnings   = 0;   % soft warnings: high NaN fraction in dose
 
 for j = 1:nPat
+    text_progress_bar(j, nPat, 'Checking alignment');
     nFx = min(size(data_vectors_gtvp, 2), 5); % dose only for Fx1-5
     for k = 1:nFx
         if j > size(data_vectors_gtvp, 1) || k > size(data_vectors_gtvp, 2)
