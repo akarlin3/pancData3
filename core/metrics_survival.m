@@ -375,14 +375,19 @@ function X_scaled = scale_td_panel(X_td, feat_names, pat_id, t_start, train_pids
     X_scaled = X_td;
     n_feat   = size(X_td, 2);
     
+    % ⚡ Bolt Optimization: Precompute the expensive ismember() operation and
+    % baseline mask outside the feature loop, as pat_id and t_start are invariant.
+    is_train_row = ismember(pat_id, train_pids);
+    is_train_base_mask = is_train_row & (t_start == 0);
+
     for fi = 1:n_feat
-        is_train_base = ismember(pat_id, train_pids) & (t_start == 0) & ~isnan(X_td(:, fi));
+        is_train_base = is_train_base_mask & ~isnan(X_td(:, fi));
         
         base_vals = X_td(is_train_base, fi);
         
         if isempty(base_vals)
-            mu  = mean(X_td(ismember(pat_id, train_pids), fi), 'omitnan');
-            sig = std(X_td(ismember(pat_id, train_pids), fi), 0, 'omitnan');
+            mu  = mean(X_td(is_train_row, fi), 'omitnan');
+            sig = std(X_td(is_train_row, fi), 0, 'omitnan');
         else
             mu  = mean(base_vals);
             sig = std(base_vals);
