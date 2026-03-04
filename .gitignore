@@ -53,6 +53,7 @@ __pycache__/
 # Build Artifacts
 results/
 test.out
+failure_summary.out
 
 # Configuration (contains local paths)
 config.json
