@@ -26,10 +26,10 @@ function config_struct = parse_config(json_path)
             config_struct.use_checkpoints = false;
         end
         if ~isfield(config_struct, 'adc_thresh')
-            config_struct.adc_thresh = 0.001;
+            config_struct.adc_thresh = 0.00115;
         end
         if ~isfield(config_struct, 'high_adc_thresh')
-            config_struct.high_adc_thresh = 0.00115;
+            config_struct.high_adc_thresh = 0.001;
         end
         if ~isfield(config_struct, 'd_thresh')
             config_struct.d_thresh = 0.001;
