@@ -43,8 +43,10 @@ function p = perform_statistical_test(data, groups, test_type)
                 y1 = data(groups == g1);
                 y2 = data(groups == g2);
 
-                % Require at least 3 observations per group for a meaningful rank-sum test
-                if length(y1) >= 3 && length(y2) >= 3
+                % Require at least 5 observations per group for a meaningful
+                % rank-sum test.  With n<5, the test cannot achieve
+                % significance at alpha=0.05 even with zero overlap.
+                if length(y1) >= 5 && length(y2) >= 5
                     p = ranksum(y1, y2);
                 end
             end

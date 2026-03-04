@@ -175,6 +175,14 @@ else
     end
 end
 
+% Warn if competing risks could not be identified because the clinical
+% spreadsheet lacks a CauseOfDeath column.  Without it, non-cancer deaths
+% are treated as administrative censoring, which inflates the CSH estimate.
+if ~exist('OCTAVE_VERSION', 'builtin') && ~ismember('CauseOfDeath', T.Properties.VariableNames)
+    warning('metrics_baseline:noCauseOfDeath', ...
+        'CauseOfDeath column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased.');
+end
+
 if exist('OCTAVE_VERSION', 'builtin')
     total_time = m_total_time;
     total_follow_up_time = m_total_follow_up_time;

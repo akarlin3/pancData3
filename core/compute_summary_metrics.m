@@ -66,6 +66,7 @@ adc_sub_mean = nan(length(id_list),nTp,3);
 adc_sub_kurt = nan(length(id_list),nTp,3);
 adc_sub_skew = nan(length(id_list),nTp,3);
 high_adc_sub_vol = nan(length(id_list),nTp,3);
+high_adc_sub_vol_pc = nan(length(id_list),nTp,3);
 f_sub_vol = nan(length(id_list),nTp,3);
 gtv_vol = nan(length(id_list),nTp);
 
@@ -254,6 +255,11 @@ for j=1:n_patients_metrics
                 end
 
                 high_adc_sub_vol(j,k,dwi_type) = numel(adc_vec_high_sub)*vox_vol;
+                if finite_vol > 0
+                    high_adc_sub_vol_pc(j,k,dwi_type) = high_adc_sub_vol(j,k,dwi_type)/finite_vol;
+                else
+                    high_adc_sub_vol_pc(j,k,dwi_type) = NaN;
+                end
                 if n_finite_adc > 0
                     fx_corrupted(j,k,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_adc;
                 end
@@ -490,6 +496,7 @@ summary_metrics.f_sub_vol = f_sub_vol;
 summary_metrics.adc_sub_vol = adc_sub_vol;
 summary_metrics.adc_sub_vol_pc = adc_sub_vol_pc;
 summary_metrics.high_adc_sub_vol = high_adc_sub_vol;
+summary_metrics.high_adc_sub_vol_pc = high_adc_sub_vol_pc;
 summary_metrics.d_kurt = d_kurt;
 summary_metrics.d_skew = d_skew;
 summary_metrics.d_sd = d_sd;

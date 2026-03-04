@@ -9,20 +9,20 @@ classdef test_perform_statistical_test < matlab.unittest.TestCase
 
     methods(Test)
         function testRanksumBasic(testCase)
-            data = [1; 2; 3; 10; 11; 12];
-            groups = [1; 1; 1; 2; 2; 2];
+            data = [1; 2; 3; 4; 5; 10; 11; 12; 13; 14];
+            groups = [1; 1; 1; 1; 1; 2; 2; 2; 2; 2];
 
             p = perform_statistical_test(data, groups, 'ranksum');
 
             % Check p-value for ranksum
             % We expect a small p-value for completely separated distributions
             testCase.verifyTrue(~isnan(p));
-            testCase.verifyLessThanOrEqual(p, 0.1);
+            testCase.verifyLessThanOrEqual(p, 0.05);
         end
 
         function testRanksumIdentical(testCase)
-            data = [1; 2; 3; 1; 2; 3];
-            groups = [1; 1; 1; 2; 2; 2];
+            data = [1; 2; 3; 4; 5; 1; 2; 3; 4; 5];
+            groups = [1; 1; 1; 1; 1; 2; 2; 2; 2; 2];
 
             p = perform_statistical_test(data, groups, 'ranksum');
 
@@ -49,22 +49,22 @@ classdef test_perform_statistical_test < matlab.unittest.TestCase
         end
 
         function testRanksumWithNaN(testCase)
-            data = [1; 2; 3; NaN; 10; 11; 12];
-            groups = [1; 1; 1; 1; 2; 2; 2];
+            data = [1; 2; 3; 4; 5; NaN; 10; 11; 12; 13; 14];
+            groups = [1; 1; 1; 1; 1; 1; 2; 2; 2; 2; 2];
 
             p = perform_statistical_test(data, groups, 'ranksum');
 
             testCase.verifyTrue(~isnan(p));
         end
         function testRanksumTinyGroups(testCase)
-            % Groups with fewer than 3 observations each should return NaN
-            data = [1; 2; 10; 11];
-            groups = [1; 1; 2; 2];   % n1=2, n2=2
+            % Groups with fewer than 5 observations each should return NaN
+            data = [1; 2; 3; 4; 10; 11; 12; 13];
+            groups = [1; 1; 1; 1; 2; 2; 2; 2];   % n1=4, n2=4
 
             p = perform_statistical_test(data, groups, 'ranksum');
 
             testCase.verifyTrue(isnan(p), ...
-                'Rank-sum with fewer than 3 per group should return NaN');
+                'Rank-sum with fewer than 5 per group should return NaN');
         end
 
     end

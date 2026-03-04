@@ -55,16 +55,10 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
         return;
     end
 
-    % Warn if voxel spacing information is available and differs.
-    % imregdemons operates in voxel coordinates, so anisotropic or
-    % mismatched spacing can distort the displacement field.
-    if isstruct(b0_fixed) && isfield(b0_fixed, 'PixelDimensions') && ...
-       isstruct(b0_moving) && isfield(b0_moving, 'PixelDimensions')
-        if ~isequal(b0_fixed.PixelDimensions, b0_moving.PixelDimensions)
-            warning('apply_dir_mask_propagation:spacingMismatch', ...
-                'Fixed and moving images have different voxel spacing. Registration accuracy may be degraded.');
-        end
-    end
+    % NOTE: imregdemons operates in voxel coordinates, so anisotropic or
+    % mismatched voxel spacing between fixed and moving images will silently
+    % distort the displacement field.  Callers must ensure inputs are
+    % resampled to a matching voxel grid before calling this function.
 
     if ~isequal(size(b0_fixed), size(gtv_mask_fixed))
         warning('apply_dir_mask_propagation:sizeMismatch', ...

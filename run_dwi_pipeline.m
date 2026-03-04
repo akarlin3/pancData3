@@ -54,7 +54,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % Uses a persistent variable so tests only run on the first call,
     % avoiding redundant re-runs when execute_all_workflows calls this
     % function multiple times.
+    % The timestamp tracks WHEN tests last passed so we can invalidate
+    % if test files have been modified since (interactive development).
     persistent tests_passed_this_session;
+    persistent tests_passed_timestamp;
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
     if ~skip_preflight
         try
@@ -68,6 +71,18 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     if ismember('test', steps_to_run)
+        % Invalidate cached test result if any test file was modified since
+        % the last successful run (supports interactive development).
+        if tests_passed_this_session && ~isempty(tests_passed_timestamp)
+            test_files_info = dir(fullfile(pipeline_dir, 'tests', '**', '*.m'));
+            if ~isempty(test_files_info)
+                latest_mod = max([test_files_info.datenum]);
+                if latest_mod > tests_passed_timestamp
+                    tests_passed_this_session = false;
+                    fprintf('  💡 Test files modified since last pre-flight; re-running.\n');
+                end
+            end
+        end
         if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
             try
                 fprintf('⚙️ [Pre-flight] Running unit tests before pipeline...\n');
@@ -104,6 +119,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     error('PreFlight:TestFailure', '%d test(s) failed.', sum([pf_results.Failed]));
                 end
                 tests_passed_this_session = true;
+                tests_passed_timestamp = now;
                 fprintf('      ✅ %d unit tests passed.\n', numel(pf_results));
             catch ME
                 diary off;
@@ -175,10 +191,6 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Using explicitly provided master output folder: %s\n', master_output_folder);
-        elseif ~isempty(MASTER_OUTPUT_FOLDER) && exist(MASTER_OUTPUT_FOLDER, 'dir')
-            % Subsequent call within the same execute_all_workflows session
-            master_output_folder = MASTER_OUTPUT_FOLDER;
-            fprintf('      📁 Reusing EXISTING master output folder: %s\n', master_output_folder);
         else
             % Standalone run — always create a fresh folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');

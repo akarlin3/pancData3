@@ -406,6 +406,14 @@ parfor j = 1:length(mrn_list)
             if ~isempty(gtvp_ref_upd), gtv_mask_fx1_ref = gtvp_ref_upd;   end
             if ~isempty(gtvn_ref_upd), gtvn_mask_fx1_ref = gtvn_ref_upd;  end
 
+            % Warn if baseline reference could not be established at Fx1.
+            % Subsequent fractions will silently skip DIR registration,
+            % producing spatially misaligned parameter and dose maps.
+            if fi == 1 && isempty(b0_fx1_ref)
+                warning('load_dwi_data:missingFx1Reference', ...
+                    'Baseline b0 reference not available for patient %s. DIR registration will be skipped for all subsequent fractions.', id_list{j});
+            end
+
             % Collect bad DWI locations
             for bi_bad = 1:length(scan_result.bad_dwi_list)
                 bad_dwi_idx_j = bad_dwi_idx_j + 1;
