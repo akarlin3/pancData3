@@ -38,8 +38,8 @@ function test_corr_filter()
     
     % Visualization of the test case
     figure('Name', 'Correlation Filter Test Data');
-    scatter(f1(y==0), f2(y==0), 50, 'b', 'filled', 'MarkerEdgeColor', 'k'); hold on;
-    scatter(f1(y==1), f2(y==1), 50, 'r', 'filled', 'MarkerEdgeColor', 'k');
+    scatter(f1(y==0), f2(y==0), 50, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k'); hold on;
+    scatter(f1(y==1), f2(y==1), 50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k');
     xlabel('F1 (Stronger C-index)'); ylabel('F2 (Correlated)');
     title(sprintf('Correlation Filter Mock Data (r=%.2f)', R(1,2)));
     legend('LC', 'LF', 'Location', 'best');
