@@ -175,7 +175,7 @@ fprintf('  %-12s  %s\n', 'Metric', strjoin(fx_labels,'   '));
 
 % Evaluate missingness using the active DWI type from config, not hardcoded 1.
 if isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
-    dtype_miss = config_struct.dwi_types_to_run;
+    dtype_miss = config_struct.dwi_types_to_run(1);  % scalar: use first type
 else
     dtype_miss = 1;
 end
