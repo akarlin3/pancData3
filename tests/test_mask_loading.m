@@ -11,7 +11,14 @@ else
     dataloc = fullfile(fileparts(mfilename('fullpath')), '..', filesep);
 end
 
-load(fullfile(dataloc, 'dwi_vectors.mat'), 'id_list', 'data_vectors_gtvp', 'gtv_locations');
+data_file = fullfile(dataloc, 'dwi_vectors.mat');
+if ~exist(data_file, 'file')
+    fprintf('Skipping test_mask_loading: no local data_vectors.mat found.\n');
+    diary off;
+    return;
+end
+
+load(data_file, 'id_list', 'data_vectors_gtvp', 'gtv_locations');
 
 found = false;
 for j = 1:size(gtv_locations,1)

@@ -14,6 +14,10 @@ jobs:
   test:
     name: Run Tests (MATLAB)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
 
     steps:
       - name: Check out repository
@@ -27,6 +31,9 @@ jobs:
             Statistics_and_Machine_Learning_Toolbox
             Image_Processing_Toolbox
 
+      - name: Hide Octave shims from MATLAB test runner
+        run: mv utils/octave_compat .octave_compat
+
       - name: Run test suite
         uses: matlab-actions/run-tests@v2
         with:
@@ -34,6 +41,10 @@ jobs:
           test-results-junit: results/test-results.xml
           code-coverage-cobertura: results/coverage.xml
           select-by-folder: tests
+
+      - name: Restore Octave shims
+        if: always()
+        run: mv .octave_compat utils/octave_compat
 
       - name: Publish test results
         if: always()

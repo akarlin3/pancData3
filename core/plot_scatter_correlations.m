@@ -75,7 +75,7 @@ for di = 1:n_diff_metrics
 
         xlabel(x_label);
         ylabel([diff_names{di} ' (' diff_units{di} ')']);
-        title(sprintf('%s vs Dose\nr_s=%.2f, p=%.3f', diff_names{di}, r_sp, p_sp), ...
+        title(sprintf('%s vs Dose\nr_s=%.2f, %s', diff_names{di}, r_sp, format_p_value(p_sp)), ...
             'FontSize', 10);
         if exist('OCTAVE_VERSION', 'builtin')
             legend('LC', 'LF', 'Linear fit', 'location', 'best');

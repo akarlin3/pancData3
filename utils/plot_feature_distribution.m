@@ -100,7 +100,7 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         if sum(has_data) > 2 && numel(unique(lf_clean)) > 1
             p = anova1(vals_clean, lf_clean, 'off');
             yl = ylim;
-            text(1.5, yl(2)*0.95, sprintf('p = %.3f', p), ...
+            text(1.5, yl(2)*0.95, format_p_value(p), ...
                 'HorizontalAlignment', 'center', 'FontSize', 10);
         end
     else

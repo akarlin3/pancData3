@@ -4,6 +4,8 @@ classdef run_test_local < matlab.unittest.TestCase
     methods (Test)
         function testComputeSummaryMetricsHarness(testCase)
             import matlab.unittest.TestSuite;
+            repo_root = fileparts(fileparts(fileparts(mfilename('fullpath'))));
+            addpath(fullfile(repo_root, 'tests'));
             suite = TestSuite.fromClass(?test_compute_summary_metrics);
             runner = matlab.unittest.TestRunner.withNoPlugins();
             results = runner.run(suite);
