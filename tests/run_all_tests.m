@@ -119,6 +119,23 @@ serial_suite   = suite(~is_parallel);
 fprintf('Discovered %d tests (%d parallel-safe, %d serial).\n\n', ...
     numel(suite), numel(parallel_suite), numel(serial_suite));
 
+% --- Waitbar setup (GUI environments only) ---
+has_display = false;
+if ~exist('OCTAVE_VERSION', 'builtin')
+    try
+        has_display = usejava('desktop') || ...
+                      (~isempty(getenv('DISPLAY')) && usejava('jvm'));
+    catch
+        has_display = false;
+    end
+end
+hWaitbar = [];
+if has_display
+    hWaitbar = waitbar(0, 'Initializing test suite...', ...
+        'Name', 'Test Suite Progress', ...
+        'Visible', 'on');
+end
+
 % 3. Check whether parallel execution is available
 is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
 
@@ -148,13 +165,26 @@ disp('===================================================');
 if can_run_parallel
     % --- Phase 1: parallel-safe tests via runInParallel ---
     fprintf('Running %d parallel-safe tests with runInParallel...\n', numel(parallel_suite));
+    if ~isempty(hWaitbar) && isvalid(hWaitbar)
+        waitbar(0, hWaitbar, sprintf('Running %d parallel-safe tests...', numel(parallel_suite)));
+    end
     par_runner = TestRunner.withTextOutput();
     parallel_results = par_runner.runInParallel(parallel_suite);
+
+    parallel_done = numel(parallel_suite);
+    if ~isempty(hWaitbar) && isvalid(hWaitbar)
+        waitbar(parallel_done / numel(suite), hWaitbar, ...
+            sprintf('Parallel phase complete (%d/%d). Starting serial tests...', ...
+            parallel_done, numel(suite)));
+    end
 
     % --- Phase 2: serial tests sequentially ---
     fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
     ser_runner = TestRunner.withTextOutput();
     ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+    if ~isempty(hWaitbar) && isvalid(hWaitbar)
+        ser_runner.addPlugin(WaitbarProgressPlugin(hWaitbar, numel(suite), parallel_done));
+    end
 
     % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
     % not compatible with runInParallel.  Serial tests exercise all core
@@ -177,6 +207,9 @@ else
 
     runner = TestRunner.withTextOutput();
     runner.addPlugin(ProgressBarPlugin(numel(suite)));
+    if ~isempty(hWaitbar) && isvalid(hWaitbar)
+        runner.addPlugin(WaitbarProgressPlugin(hWaitbar, numel(suite), 0));
+    end
 
     if is_preflight
         disp('Pre-flight mode — skipping code coverage plugin.');
@@ -204,6 +237,11 @@ else
     if any([results.Failed])
         error('One or more tests failed.');
     end
+end
+
+% Close waitbar
+if ~isempty(hWaitbar) && isvalid(hWaitbar)
+    close(hWaitbar);
 end
 
 % Restore figure visibility
