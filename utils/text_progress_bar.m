@@ -26,11 +26,11 @@ function text_progress_bar(current, total, label)
     empty_char = char(9617);  % U+2591 LIGHT SHADE
 
     bar_str = [repmat(fill_char, 1, filled), repmat(empty_char, 1, empty_count)];
-    pct = floor(fraction * 100);
+    pct = fraction * 100;
 
     if current >= total
-        fprintf('\r  %s: |%s| %3d%% (%d/%d)\n', label, bar_str, pct, current, total);
+        fprintf('\r  %s: |%s| %5.1f%% (%d/%d)\n', label, bar_str, pct, current, total);
     else
-        fprintf('\r  %s: |%s| %3d%% (%d/%d)', label, bar_str, pct, current, total);
+        fprintf('\r  %s: |%s| %5.1f%% (%d/%d)', label, bar_str, pct, current, total);
     end
 end
