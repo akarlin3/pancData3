@@ -340,6 +340,7 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Branch naming follows: `claude/<description>-<session-id>` for Claude branches, `jules-<description>` for Jules branches.
 - PRs from Jules must be reviewed before merging.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
+- After pushing a branch, Claude should automatically create a pull request targeting `main` using `gh pr create`. Include a summary of changes and a test plan in the PR body.
 
 ---
 
@@ -347,7 +348,6 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
 ### Do
 - Read and understand existing code before suggesting changes.
-- Run `run('tests/run_all_tests.m')` after any non-trivial modification to `core/` or `utils/`.
 - Use `safe_load_mask` and `escape_shell_arg` when handling file I/O.
 - Follow the orchestrator pattern — keep pipeline steps modular and independently callable.
 - Preserve checkpointing logic in `load_dwi_data.m`; it is critical for large cohort recovery.
@@ -360,3 +360,4 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Bypass the temporal leakage safeguards in imputation or cross-validation.
 - Use unsanitized strings in `system()` calls.
 - Hard-code file paths — all paths must flow through `config.json`.
+- Run the test suite (`run_all_tests.m`) or the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) as a verification step. Tests and pipeline runs are initiated by the researcher, not by AI assistants.
