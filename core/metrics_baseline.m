@@ -361,7 +361,13 @@ Dstar_pct(Dstar_pct < -pct_clip) = -pct_clip;  Dstar_pct(Dstar_pct > pct_clip) =
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);
 
-% Re-organize metrics into 4 distinct Sets:
+% Re-organize metrics into distinct Sets:
+% NOTE: f_delta is absolute change (f range [0,1]), not percent change.
+% It is grouped with percent-change metrics for convenience in downstream
+% univariate analysis (each metric tested independently).  In multivariate
+% models (Cox, GLME), scale_td_panel z-scores all features to comparable
+% scales, so the raw-scale difference does not affect model coefficients.
+% The set_names label already distinguishes it as '\Delta f (abs)'.
 metric_sets = {
     {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1
     {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2

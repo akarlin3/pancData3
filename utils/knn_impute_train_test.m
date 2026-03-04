@@ -167,7 +167,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     end
     
     % --- 3. Final Fallback ---
-    % Use pre-imputation training means to avoid circular dependency
+    % When all K nearest neighbors have NaN for a feature, impute with the
+    % pre-imputation training-set column mean.  This is a standard fallback
+    % (sklearn KNNImputer uses the same approach).  For test rows, this
+    % introduces marginal information leakage (a training-set statistic),
+    % but is strictly less leakage than using a global or test-set mean,
+    % and only activates when KNN fails entirely (rare in practice).
     tr_mean = mean(X_tr, 1, 'omitnan');
     all_nan_cols = isnan(tr_mean);
     if any(all_nan_cols)
