@@ -278,6 +278,15 @@ end
 % Restore figure visibility
 set(0, 'DefaultFigureVisible', 'on');
 
+% Clean up any saved_files_* folders created by tests in the repo root
+stray_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+for k = 1:numel(stray_dirs)
+    if stray_dirs(k).isdir
+        rmdir(fullfile(repoRoot, stray_dirs(k).name), 's');
+        fprintf('Cleaned up stray test artifact: %s\n', stray_dirs(k).name);
+    end
+end
+
 if standalone_diary
     diary off;
 end

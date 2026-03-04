@@ -70,23 +70,8 @@ classdef test_modularity < matlab.unittest.TestCase
             save(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'summary_metrics');
             save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
-            % Run pipeline skipping 'load'
-            % We run 'sanity' which should pass with minimal data or fail gracefully.
-            % We catch any error, but check the output for the "Skipping Load" message.
-
-            cmd = sprintf("run_dwi_pipeline('%s', {'sanity'})", testCase.ConfigPath);
-            try
-                T = evalc(cmd);
-            catch
-                % If sanity checks fail (e.g. alignment checks), that's fine,
-                % we just want to verify loading logic.
-                % But evalc might not capture output if error is thrown immediately.
-                % So we should wrap run_dwi_pipeline to not error?
-                % Or inspect the exception?
-                % Actually, if error occurs, T is not assigned.
-            end
-
-            % Re-run capturing output by wrapping in try-catch block inside evalc string
+            % Run pipeline skipping 'load' — pass TempDir as the 3rd argument
+            % to avoid creating a saved_files_* folder in the repo root.
             cmd_safe = sprintf("addpath('%s'); try, clear run_dwi_pipeline; run_dwi_pipeline('%s', {'sanity'}, '%s'); diary off; catch, diary off; end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
             T = evalc(cmd_safe);
 
