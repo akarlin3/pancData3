@@ -1,6 +1,5 @@
 # pancData3
 
-[![CI](https://github.com/akarlin3/pancData3/actions/workflows/ci.yml/badge.svg)](https://github.com/akarlin3/pancData3/actions/workflows/ci.yml)
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-63%20files-brightgreen)](#running-tests)
