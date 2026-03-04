@@ -51,13 +51,21 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
         mask_1d = vol_3d(gtv_mask_3d == 1);
     end
 
-    dose_sub = dose_vec(mask_1d);
-    % Remove NaN dose values to avoid biasing V50 downward (NaN >= 50 is
-    % false, inflating the denominator without contributing to the numerator).
-    dose_sub = dose_sub(~isnan(dose_sub));
+    dose_sub_raw = dose_vec(mask_1d);
+    n_total = numel(dose_sub_raw);
+    dose_sub = dose_sub_raw(~isnan(dose_sub_raw));
+    n_valid = numel(dose_sub);
 
-    if ~isempty(dose_sub) && length(dose_sub) >= min_subvol_voxels
+    if ~isempty(dose_sub) && n_valid >= min_subvol_voxels
         d95 = prctile(dose_sub, 5);
-        v50 = sum(dose_sub >= 50) / length(dose_sub) * 100;
+        % V50 uses all subvolume voxels as denominator (NaN = unknown dose,
+        % not "no dose") to avoid inflating coverage estimates.
+        v50 = sum(dose_sub >= 50) / max(n_total, 1) * 100;
+        nan_frac = 1 - n_valid / max(n_total, 1);
+        if nan_frac > 0.2
+            warning('calculate_subvolume_metrics:highNaNFrac', ...
+                '%.0f%% of subvolume voxels have NaN dose — V50 may be deflated.', ...
+                nan_frac * 100);
+        end
     end
 end

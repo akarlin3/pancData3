@@ -108,7 +108,7 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     if length(bl_vals) > 1
                         mu_col = mean(bl_vals);
                         sd_col = std(bl_vals);
-                        if sd_col == 0, sd_col = 0; end  % zero-variance → zeroed at division guard
+                        % sd_col == 0 → zero-variance; handled by division guard below
                     end
                     % else: keep defaults mu_col=0, sd_col=0 (single value → zeroed)
                 else
