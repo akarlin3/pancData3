@@ -41,8 +41,11 @@ function dl_provenance = load_dl_provenance(manifest_file, dl_provenance_workspa
 
     % Flag whether the manifest was actually loaded so callers can detect
     % when the leakage guard is inactive (empty IDs + no manifest = no protection).
+    % Distinguish "manifest file not found" (dangerous — no leakage protection)
+    % from "manifest found but empty" (benign — no DL patients to guard against).
     if ~isfield(dl_provenance, 'manifest_loaded')
-        dl_provenance.manifest_loaded = ~isempty(fieldnames(dl_provenance)) && ...
-            (~isempty(dl_provenance.dncnn_train_ids) || ~isempty(dl_provenance.ivimnet_train_ids));
+        manifest_file_existed = (nargin >= 2 && ~isempty(dl_provenance_workspace) && isstruct(dl_provenance_workspace)) || ...
+            (nargin > 0 && ~isempty(manifest_file) && exist(manifest_file, 'file'));
+        dl_provenance.manifest_loaded = manifest_file_existed;
     end
 end

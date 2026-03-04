@@ -164,7 +164,12 @@ for j=1:n_patients_metrics
             % --- Compute ADC summary metrics for this patient/timepoint ---
             if ~isempty(adc_vec)
                 n_finite_adc = sum(~isnan(adc_vec));
-                gtv_vol(j,k) = n_finite_adc*vox_vol;
+                % Only set gtv_vol from the first dwi_type to avoid
+                % overwriting with pipeline-specific voxel counts.  GTV
+                % volume is a geometric property independent of DWI type.
+                if isnan(gtv_vol(j,k))
+                    gtv_vol(j,k) = n_finite_adc*vox_vol;
+                end
                 if exist('OCTAVE_VERSION', 'builtin')
                     % Octave nanmean might fail if it's a vector of all nans or something else
                     tmp = adc_vec(~isnan(adc_vec));
@@ -326,7 +331,10 @@ for j=1:n_patients_metrics
                 % NOTE: KS-test p-values are liberal (see ADC comment above).
                 if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
                         && any(~isnan(d_vec)) && any(~isnan(d_baseline))
-                    [~,p,ks2stat] = kstest2(d_vec,d_baseline);
+                    % Remove NaN before kstest2 (consistent with ADC path)
+                    d_vec_ks = d_vec(~isnan(d_vec));
+                    d_bl_ks  = d_baseline(~isnan(d_baseline));
+                    [~,p,ks2stat] = kstest2(d_vec_ks, d_bl_ks);
                     ks_stats_d(j,k,dwi_type) = ks2stat;
                     ks_pvals_d(j,k,dwi_type) = p;
                 end
@@ -424,8 +432,9 @@ for j=1:n_patients_metrics
                         else
                             adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
                         end
-                        if numel(adc_vec) > 0
-                            fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+                        n_finite_rpt = sum(~isnan(adc_vec));
+                        if n_finite_rpt > 0
+                            fx_corrupted_rpt(j,rpi,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_rpt;
                         end
                         adc_vec_sub = adc_vec(adc_vec<adc_thresh);
                         if isempty(adc_vec_sub)
