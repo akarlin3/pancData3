@@ -228,7 +228,38 @@ disp('===================================================');
 disp('   Test Execution Completed                        ');
 disp('===================================================');
 
-% 6. Assert success (Throws an error and returns non-zero exit code if any test fails)
+% 6. Write failure summary file if any tests failed
+failureSummaryFile = fullfile(repoRoot, 'failure_summary.out');
+failedIdx = find([results.Failed]);
+if ~isempty(failedIdx)
+    fid = fopen(failureSummaryFile, 'w');
+    if fid ~= -1
+        fprintf(fid, 'Test Failure Summary — %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+        fprintf(fid, '===================================================\n');
+        fprintf(fid, '%d of %d tests failed.\n\n', numel(failedIdx), numel(results));
+        for fi = 1:numel(failedIdx)
+            idx = failedIdx(fi);
+            fprintf(fid, '--- %s ---\n', results(idx).Name);
+            if ~isempty(results(idx).Details) && isfield(results(idx).Details, 'DiagnosticRecord')
+                diagRec = results(idx).Details.DiagnosticRecord;
+                for di = 1:numel(diagRec)
+                    report = diagRec(di).Report;
+                    if ~isempty(report)
+                        fprintf(fid, '%s\n', report);
+                    end
+                end
+            end
+            fprintf(fid, '\n');
+        end
+        fclose(fid);
+        fprintf('Failure summary written to: %s\n', failureSummaryFile);
+    end
+elseif exist(failureSummaryFile, 'file')
+    % Clean up stale summary from a previous failing run
+    delete(failureSummaryFile);
+end
+
+% 7. Assert success (Throws an error and returns non-zero exit code if any test fails)
 % In CI environments running MATLAB with -batch, this will fail the step appropriately.
 % assertSuccess(results) was introduced in R2020a, providing backward compatibility
 if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
