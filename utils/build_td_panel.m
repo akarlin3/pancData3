@@ -90,6 +90,12 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         last_valid_row = -1;
         last_X = nan(1, n_feat);
         last_t = 0;
+        % Track original (non-imputed) observations and their times for
+        % decay imputation.  Using the already-imputed last_X would cause
+        % compounding decay across consecutive missing scans, making values
+        % decay faster than the intended biological half-life.
+        orig_X = nan(1, n_feat);   % last observed (non-NaN) value per feature
+        orig_t = zeros(1, n_feat); % day of that observation
 
         for tp = 1:nTp
             day_tp = scan_days(tp);
@@ -106,11 +112,17 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 end
             end
 
-            % Apply exponential decay imputation for missing covariates
+            % Save the raw (pre-imputation) covariate row so we can track
+            % which features were genuinely observed at this timepoint.
+            cov_row_raw = cov_row;
+
+            % Apply exponential decay imputation for missing covariates.
+            % Decay from the *original* observed value and its timestamp to
+            % avoid compounding decay across consecutive missing scans.
             if use_decay && any(isnan(cov_row))
-                dt = day_tp - last_t;
-                decay_mask = isnan(cov_row) & ~isnan(last_X);
-                cov_row(decay_mask) = last_X(decay_mask) .* exp(-lambda_decay * dt);
+                decay_mask = isnan(cov_row) & ~isnan(orig_X);
+                dt_per_feat = day_tp - orig_t;
+                cov_row(decay_mask) = orig_X(decay_mask) .* exp(-lambda_decay * dt_per_feat(decay_mask));
             end
 
             if all(isnan(cov_row))
@@ -160,6 +172,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             last_valid_row      = row;
             last_X = cov_row;
             last_t = day_tp;
+            % Update per-feature original observation tracking: only for
+            % features that were actually observed (not decay-imputed).
+            observed = ~isnan(cov_row_raw);
+            orig_X(observed) = cov_row_raw(observed);
+            orig_t(observed) = day_tp;
 
             if is_terminal, break; end
         end

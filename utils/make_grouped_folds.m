@@ -44,7 +44,7 @@ try
 catch
     % Retry with fewer folds to preserve stratification before falling back
     % to unstratified partitioning.
-    k_try = min(k, sum(pt_y == 0), sum(pt_y == 1));
+    k_try = min([k, sum(pt_y == 0), sum(pt_y == 1)]);
     if k_try >= 2
         try
             cvp = cvpartition(pt_y, 'KFold', k_try);

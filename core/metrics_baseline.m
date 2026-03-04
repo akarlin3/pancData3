@@ -58,20 +58,26 @@ if exist('OCTAVE_VERSION', 'builtin')
     dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2)) ./ dstar_denom;
     dstar_wCV(n_rpt<2 | abs(dstar_denom) < wcv_denom_floor, :) = nan;
 else
-    adc_denom = squeeze(mean(adc_mean_rpt,2,'omitnan'));
-    adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan')) ./ adc_denom;
+    % Use reshape instead of squeeze to preserve [nPatients x nDwiTypes]
+    % shape.  squeeze() collapses a [1 x 1 x 3] result to [3 x 1] when
+    % nPatients==1, causing dimension mismatches with the [nPatients x 1]
+    % masking vectors (n_rpt, denom floors).
+    nPat_rpt = size(adc_mean_rpt, 1);
+    nDwi_rpt = size(adc_mean_rpt, 3);
+    adc_denom = reshape(mean(adc_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    adc_wCV = reshape(std(adc_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ adc_denom;
     adc_wCV(n_rpt<2 | abs(adc_denom) < wcv_denom_floor, :) = nan;
-    adc_sub_denom = squeeze(mean(adc_sub_rpt,2,'omitnan'));
-    adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan')) ./ adc_sub_denom;
+    adc_sub_denom = reshape(mean(adc_sub_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    adc_wCV_sub = reshape(std(adc_sub_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ adc_sub_denom;
     adc_wCV_sub(n_rpt<2 | abs(adc_sub_denom) < wcv_denom_floor, :) = nan;
-    d_denom = squeeze(mean(d_mean_rpt,2,'omitnan'));
-    d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan')) ./ d_denom;
+    d_denom = reshape(mean(d_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    d_wCV = reshape(std(d_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ d_denom;
     d_wCV(n_rpt<2 | abs(d_denom) < wcv_denom_floor, :) = nan;
-    f_denom = squeeze(mean(f_mean_rpt,2,'omitnan'));
-    f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan')) ./ f_denom;
+    f_denom = reshape(mean(f_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    f_wCV = reshape(std(f_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ f_denom;
     f_wCV(n_rpt<2 | abs(f_denom) < wcv_denom_floor, :) = nan;
-    dstar_denom = squeeze(mean(dstar_mean_rpt,2,'omitnan'));
-    dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan')) ./ dstar_denom;
+    dstar_denom = reshape(mean(dstar_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    dstar_wCV = reshape(std(dstar_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ dstar_denom;
     dstar_wCV(n_rpt<2 | abs(dstar_denom) < wcv_denom_floor, :) = nan;
 end
 
