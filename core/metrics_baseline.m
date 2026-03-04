@@ -146,7 +146,9 @@ else
             % This means patients who had LF AND later died of non-cancer
             % causes are counted as events (lf==1), not competing risks.
             if ismember('CauseOfDeath', T.Properties.VariableNames)
-                cod = T.CauseOfDeath{i_find};
+                cod_raw = T.CauseOfDeath(i_find);
+                if iscell(cod_raw), cod_raw = cod_raw{1}; end
+                cod = char(string(cod_raw));  % handles string, categorical, numeric, missing
                 cod_lower = strtrim(lower(cod));
                 is_unknown = isempty(cod_lower) || strcmp(cod_lower, 'unknown') || ...
                              strcmp(cod_lower, 'pending') || strcmp(cod_lower, 'n/a');
@@ -323,6 +325,13 @@ ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
 D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
 f_delta = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
+
+% Winsorize percent changes at ±500% to limit influence of near-zero
+% baselines that passed the epsilon filter but still produce extreme ratios.
+pct_clip = 500;
+ADC_pct(ADC_pct < -pct_clip) = -pct_clip;  ADC_pct(ADC_pct > pct_clip) = pct_clip;
+D_pct(D_pct < -pct_clip) = -pct_clip;      D_pct(D_pct > pct_clip) = pct_clip;
+Dstar_pct(Dstar_pct < -pct_clip) = -pct_clip;  Dstar_pct(Dstar_pct > pct_clip) = pct_clip;
 
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);

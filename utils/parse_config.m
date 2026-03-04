@@ -55,9 +55,9 @@ function config_struct = parse_config(json_path)
                 case 'dncnn', config_struct.dwi_types_to_run = 2;
                 case 'ivimnet', config_struct.dwi_types_to_run = 3;
                 otherwise
-                    warning('parse_config:unknownDwiType', ...
-                        'Unrecognized dwi_type "%s". Running all 3 types.', config_struct.dwi_type);
-                    config_struct.dwi_types_to_run = 1:3;
+                    error('parse_config:unknownDwiType', ...
+                        'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
+                        config_struct.dwi_type);
             end
         else
             config_struct.dwi_types_to_run = 1:3;

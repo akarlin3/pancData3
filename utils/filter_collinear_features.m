@@ -43,6 +43,8 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
             y_corr = y(baseline_mask);
         else
             % No Fraction 1 rows present: fall back to full matrix
+            warning('filter_collinear_features:noBaseline', ...
+                'No Fraction 1 (baseline) rows found. Using full matrix for collinearity detection (correlation structure may differ from baseline).');
             X_corr = X;
             y_corr = y;
         end

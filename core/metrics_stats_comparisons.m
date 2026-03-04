@@ -296,8 +296,18 @@ else
     long_LF = nan(max_obs, 1);
 
     obs_idx = 0;
+    n_competing_excluded = 0;
     for i = 1:length(patient_indices)
         p_idx = patient_indices(i);
+        % Exclude competing-risk patients (lf==2) from the GLME.  Unlike
+        % the CSH Cox model where competing events are correctly treated as
+        % censored, the GLME models an observed outcome state.  Recoding
+        % non-cancer deaths as "local control" would conflate patients who
+        % achieved LC with those who died before failure could be observed.
+        if lf_group(i) == 2
+            n_competing_excluded = n_competing_excluded + 1;
+            continue;
+        end
         for t = 1:nTp
             if ~isnan(ADC_abs(p_idx, t)) || ~isnan(D_abs(p_idx, t)) || ~isnan(f_abs(p_idx, t)) || ~isnan(Dstar_abs(p_idx, t))
                 obs_idx = obs_idx + 1;
@@ -307,13 +317,12 @@ else
                 long_D(obs_idx) = D_abs(p_idx, t);
                 long_f(obs_idx) = f_abs(p_idx, t);
                 long_Dstar(obs_idx) = Dstar_abs(p_idx, t);
-                % Recode competing risks (lf==2) as censored (lf==0) for
-                % consistency with the Cause-Specific Hazards survival model.
-                lf_val = lf_group(i);
-                if lf_val == 2, lf_val = 0; end
-                long_LF(obs_idx) = lf_val;
+                long_LF(obs_idx) = lf_group(i);
             end
         end
+    end
+    if n_competing_excluded > 0
+        fprintf('  💡 Excluded %d competing-risk patients from GLME (lf==2).\n', n_competing_excluded);
     end
 
     long_PatientID = long_PatientID(1:obs_idx);
