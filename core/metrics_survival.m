@@ -1,4 +1,4 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder)
+function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder, actual_scan_days)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
@@ -14,6 +14,10 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 %   dtype_label       - DWI type name used in output
 %   m_gtv_vol         - (Optional) GTV volume matrix (patients x fractions)
 %   output_folder     - (Optional) Directory for diary output
+%   actual_scan_days  - (Optional) Vector of actual scan days from DICOM
+%                       headers or clinical records.  When provided,
+%                       replaces the default [0,5,10,15,20,90] to avoid
+%                       immortal time bias.
 %
 % Outputs:
 %   None. Outputs printed to console (HR and p-value tables).
@@ -22,6 +26,7 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 % Handle optional arguments for backward compatibility
 if nargin < 12, m_gtv_vol = []; end
 if nargin < 13, output_folder = ''; end
+if nargin < 14, actual_scan_days = []; end
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
 
@@ -32,12 +37,20 @@ if ~isempty(output_folder)
     diary(diary_file);
 end
 
-% Default scan days assume 5 on-treatment fractions + 1 post-treatment scan.
-% Replace with actual scan dates from DICOM headers or clinical records to
-% avoid immortal time bias in the time-dependent Cox model.
-td_scan_days = [0, 5, 10, 15, 20, 90];
-fprintf('  ⚠️  Using default scan days [%s]. Replace with actual timing to avoid immortal time bias.\n', ...
-    num2str(td_scan_days));
+% Scan day timing for the time-dependent Cox model.
+if ~isempty(actual_scan_days)
+    td_scan_days = actual_scan_days;
+    fprintf('  Using provided scan days [%s].\n', num2str(td_scan_days));
+else
+    % Default scan days assume 5 on-treatment fractions + 1 post-treatment scan.
+    td_scan_days = [0, 5, 10, 15, 20, 90];
+    warning('metrics_survival:defaultScanDays', ...
+        'Using default scan days [%s]. Replace with actual timing to avoid immortal time bias.', ...
+        num2str(td_scan_days));
+    fprintf('  ⚠️  CAUTION: Using default scan days [%s].\n', num2str(td_scan_days));
+    fprintf('      Pass actual DICOM-derived scan days via config.json td_scan_days field\n');
+    fprintf('      or as the 14th argument to avoid immortal time bias.\n');
+end
 
 % Covariates: all four IVIM parameters (absolute, all fractions)
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
@@ -214,9 +227,21 @@ try
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
+    % IPCW weighting via coxphfit's 'Frequency' parameter.  'Frequency'
+    % expects integer counts, so we scale weights by 100 before rounding to
+    % preserve relative differences.  A scale factor of 1 (i.e., simple
+    % rounding of mean-stabilised ~1 weights) collapses most weights to 1,
+    % losing the IPCW correction.  Scaling by 100 retains two decimal
+    % places of precision.  The ideal solution would be a custom weighted
+    % Cox partial likelihood, but MATLAB's coxphfit does not support
+    % continuous probability weights natively.
+    ipcw_scale = 100;
+    ipcw_freq = max(1, round(ipcw_weights * ipcw_scale));
+    fprintf('  IPCW→Frequency: scale=%d, effective N=%d (actual N=%d)\n', ...
+        ipcw_scale, sum(ipcw_freq), length(ipcw_weights));
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights)));             % IPCW weights are mean-stabilised ~1; round directly to keep effective N ~ actual N
+        'Frequency', ipcw_freq);
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -255,7 +280,7 @@ try
     cleanupObj = onCleanup(@() warning(w_temp_null));
     [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
         'Censoring', is_censored_null, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights)), ...
+        'Frequency', ipcw_freq, ...
         'Options', statset('MaxIter', 100));
     LRT_stat = 2 * (logl_td - logl_null_td);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
@@ -346,9 +371,10 @@ for hl_idx = 1:length(half_life_grid)
             end
         end
         w_hl = warning('off', 'all');
+        ipcw_freq_hl = max(1, round(ipcw_hl_sens * ipcw_scale));
         [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
             'Censoring', ev_csh==0, 'Ties', 'breslow', ...
-            'Frequency', max(1, round(ipcw_hl_sens)));
+            'Frequency', ipcw_freq_hl);
         warning(w_hl);
         b_hl = zeros(td_n_feat, 1);
         b_hl(keep_hl) = b_hl_short;

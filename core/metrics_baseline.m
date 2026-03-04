@@ -270,6 +270,26 @@ if size(dmean_gtvp, 2) < nTp, dmean_gtvp = [dmean_gtvp, nan(size(dmean_gtvp, 1),
 
 
 if exclude_missing_baseline
+    % Report imaging-based exclusion statistics for informative censoring assessment.
+    % Patients are excluded based on imaging availability (valid_baseline), which
+    % could be correlated with disease severity.  If event rates differ between
+    % excluded and included patients, results may not generalise.
+    n_excluded_baseline = sum(~valid_baseline);
+    n_total_cohort = numel(valid_baseline);
+    if n_excluded_baseline > 0
+        fprintf('  ⚠️  Excluded %d/%d patients due to missing baseline imaging (GTV or ADC).\n', ...
+            n_excluded_baseline, n_total_cohort);
+        lf_excluded = lf(~valid_baseline);
+        lf_included = lf(valid_baseline);
+        lf_rate_excl = 100 * sum(lf_excluded == 1) / max(1, sum(isfinite(lf_excluded)));
+        lf_rate_incl = 100 * sum(lf_included == 1) / max(1, sum(isfinite(lf_included)));
+        fprintf('      LF rate: included=%.1f%%, excluded=%.1f%%\n', lf_rate_incl, lf_rate_excl);
+        if abs(lf_rate_excl - lf_rate_incl) > 10
+            fprintf('  ⚠️  >10pp difference in LF rates between imaging-excluded and included patients.\n');
+            fprintf('      Potential informative censoring — interpret downstream survival results with caution.\n');
+        end
+    end
+
     m_lf                   = m_lf(valid_baseline);
     m_total_time           = m_total_time(valid_baseline);
     m_total_follow_up_time = m_total_follow_up_time(valid_baseline);
@@ -312,12 +332,17 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 % Use a data-adaptive epsilon (1% of baseline IQR) to prevent inflated
 % percent changes when baseline values are near zero, while remaining
 % proportional to the actual measurement scale.
+% NOTE: Outlier patients were NaN-ified above (lines 318-324), so the
+% isfinite() filter correctly excludes them from epsilon estimation.
 adc_eps  = max(1e-8, 0.01 * iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1)));
 d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
 dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
-% Exclude patients with negative baselines (noisy fits) from percent change
-% computation to avoid sign-flipped ratios.  These patients get NaN percent
-% change so they are excluded from downstream group comparisons.
+% Exclude patients with near-zero or negative baselines from percent change
+% computation to avoid sign-flipped or inflated ratios.  These patients get
+% NaN percent change so they are excluded from downstream group comparisons.
+% Known trade-off: this creates a discontinuity — baselines just below
+% epsilon are excluded (NaN), while baselines just above may produce large
+% ratios that are subsequently winsorized to ±500%.
 adc_bl = ADC_abs(:,1);  adc_bl(adc_bl < adc_eps) = NaN;
 d_bl   = D_abs(:,1);    d_bl(d_bl < d_eps) = NaN;
 dstar_bl = Dstar_abs(:,1); dstar_bl(dstar_bl < dstar_eps) = NaN;

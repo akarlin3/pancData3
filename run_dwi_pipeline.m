@@ -677,8 +677,14 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     if ismember('metrics_survival', steps_to_run)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
+            % Pass actual scan days from config if available; otherwise
+            % metrics_survival uses defaults and emits a warning.
+            td_scan_days_cfg = [];
+            if isfield(config_struct, 'td_scan_days') && ~isempty(config_struct.td_scan_days)
+                td_scan_days_cfg = config_struct.td_scan_days;
+            end
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
-                             m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol, config_struct.output_folder);
+                             m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol, config_struct.output_folder, td_scan_days_cfg);
 
             survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
             fid = fopen(survival_results_file, 'w');
