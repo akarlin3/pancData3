@@ -113,7 +113,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             denom = sum(W .* (A_b'.^2), 2);                   % [n_vox x 1]
             adc_vals = numer ./ denom;
 
-            adc_vals(adc_vals < 0) = nan;  % clamp noise-driven negative ADC estimates
+            adc_vals(adc_vals < 0 | ~isfinite(adc_vals)) = nan;  % clamp negative and Inf ADC estimates
 
             % Prepare a temporary 1D vector for all valid mask voxels
             adc_vec_out = nan(n_valid, 1);

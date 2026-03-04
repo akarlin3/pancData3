@@ -90,13 +90,23 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             for bi = 1:n_dicom_files
                 text_progress_bar(bi, n_dicom_files, 'Scanning DICOMs for b=0');
                 data_tmp = dicominfo(fullfile(dicom_files(bi).folder, dicom_files(bi).name), 'UseDictionaryVR', true);
+                if ~isfield(data_tmp, 'DiffusionBValue'), continue; end
                 if data_tmp.DiffusionBValue == 0
                     b0count = b0count+1;
                     b0list{b0count,1} = fullfile(dicom_files(bi).folder, dicom_files(bi).name);
                 end
             end
             rtdose_dicom = dir(fullfile(ctx.dicomdoseloc, '*.dcm'));
-            rtdosefile = fullfile(rtdose_dicom.folder, rtdose_dicom.name);
+            if isempty(rtdose_dicom)
+                warning('process_single_scan:noDose', 'No DICOM dose file found in %s', ctx.dicomdoseloc);
+                rtdosefile = '';
+            else
+                if numel(rtdose_dicom) > 1
+                    warning('process_single_scan:multipleDose', ...
+                        'Multiple DICOM dose files found in %s; using first.', ctx.dicomdoseloc);
+                end
+                rtdosefile = fullfile(rtdose_dicom(1).folder, rtdose_dicom(1).name);
+            end
             dose_sampled = sample_rtdose_on_image(b0list,rtdosefile);
             niftiwrite(rot90(dose_sampled,-1),fullfile(outloc, dosename),'Compressed',true);
         end

@@ -186,6 +186,7 @@ else
     output_folder = fullfile(config_struct.dataloc, 'saved_figures');
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
+dtype = config_struct.dwi_types_to_run;
 diary_file = fullfile(output_folder, ['metrics_baseline_output_' dwi_type_names{dtype} '.txt']);
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
@@ -197,16 +198,7 @@ if ~exist('nTp', 'var') || isempty(nTp)
     nTp = size(adc_mean, 2);
 end
 
-fprintf('  --- Baseline Data Completeness Check ---\n');
-n_ids_baseline = length(id_list);
-for j = 1:n_ids_baseline
-    text_progress_bar(j, n_ids_baseline, 'Checking baseline completeness');
-    baseline_adc = adc_mean(j, 1, 1);
-    baseline_vol = gtv_vol(j, 1);
-end
-
 % Set up common variables for the next scripts
-dtype = config_struct.dwi_types_to_run;
 dtype_label = dwi_type_names{dtype};
 exclude_missing_baseline = true;
 valid_baseline = ~isnan(gtv_vol(:,1)) & ~isnan(adc_mean(:,1,dtype));
@@ -315,12 +307,16 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 adc_eps  = max(1e-8, 0.01 * iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1)));
 d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
 dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
-% Use max(abs(baseline), eps) in denominator to avoid sign flips when
-% baseline is negative (noisy fits) and eps is added to a raw value.
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (max(abs(ADC_abs(:,1)), adc_eps))) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ (max(abs(D_abs(:,1)), d_eps))) * 100;
+% Exclude patients with negative baselines (noisy fits) from percent change
+% computation to avoid sign-flipped ratios.  These patients get NaN percent
+% change so they are excluded from downstream group comparisons.
+adc_bl = ADC_abs(:,1);  adc_bl(adc_bl < adc_eps) = NaN;
+d_bl   = D_abs(:,1);    d_bl(d_bl < d_eps) = NaN;
+dstar_bl = Dstar_abs(:,1); dstar_bl(dstar_bl < dstar_eps) = NaN;
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
 f_delta = (f_abs - f_abs(:,1));
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (max(abs(Dstar_abs(:,1)), dstar_eps))) * 100;
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
 
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);

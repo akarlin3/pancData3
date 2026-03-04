@@ -51,7 +51,7 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     % false, inflating the denominator without contributing to the numerator).
     dose_sub = dose_sub(~isnan(dose_sub));
 
-    if ~isempty(dose_sub) && sum(mask_1d) >= min_subvol_voxels
+    if ~isempty(dose_sub) && length(dose_sub) >= min_subvol_voxels
         d95 = prctile(dose_sub, 5);
         v50 = sum(dose_sub >= 50) / length(dose_sub) * 100;
     end

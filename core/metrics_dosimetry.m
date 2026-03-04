@@ -71,7 +71,7 @@ for j = 1:n_pat_dosimetry
                 f_vec   = m_data_vectors_gtvp(j,k,1).f_vector_dncnn;
                 dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
             case 3
-                adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector;
+                adc_vec = m_data_vectors_gtvp(j,k,1).adc_vector_ivimnet;
                 d_vec   = m_data_vectors_gtvp(j,k,1).d_vector_ivimnet;
                 f_vec   = m_data_vectors_gtvp(j,k,1).f_vector_ivimnet;
                 dstar_vec = m_data_vectors_gtvp(j,k,1).dstar_vector_ivimnet;

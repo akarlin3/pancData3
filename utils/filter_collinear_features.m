@@ -120,7 +120,7 @@ function auc_val = compute_auc(feat_col, y_col)
         ranks = tiedrank(feat_valid);
         auc = (sum(ranks(y_valid == 1)) - n1 * (n1 + 1) / 2) / (n1 * n0);
 
-        auc_val = max(auc, 1 - auc);
+        auc_val = abs(auc - 0.5) + 0.5;
     else
         auc_val = 0.5;
     end
