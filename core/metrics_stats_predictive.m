@@ -132,6 +132,8 @@ for target_fx = 2:nTp
 
     common_Lambda = [];
     cv_failed = false;
+    n_features_impute = size(X_impute, 2);
+    keep_fold_counts = zeros(1, n_features_impute);  % track feature retention across folds
 
     w_state_cv = warning('off', 'all');
     for cv_i = 1:n_folds_en
@@ -147,6 +149,7 @@ for target_fx = 2:nTp
 
         % Compute collinearity mask per fold from training data only
         keep_fold = filter_collinear_features(X_tr_imp, y_tr);
+        keep_fold_counts = keep_fold_counts + double(keep_fold(:)');
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
@@ -189,8 +192,10 @@ for target_fx = 2:nTp
         % imputation splits.
         X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
 
-        % Apply collinearity filtering to match what was done in CV folds
-        keep_final = filter_collinear_features(X_clean_all, y_clean);
+        % Use consensus collinearity mask from CV folds (feature kept in
+        % majority of folds) to avoid data leakage from filtering on the
+        % full cohort.  See filter_collinear_features docstring.
+        keep_final = (keep_fold_counts > n_folds_en / 2);
         X_clean_kept = X_clean_all(:, keep_final);
         final_feature_indices = original_feature_indices(keep_final);
 
