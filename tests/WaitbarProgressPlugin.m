@@ -4,6 +4,8 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
 %   existing waitbar handle and an offset count so that progress spans
 %   both parallel and serial test phases.
 %
+%   Shows precise percentage, pass/fail counts, and the current test name.
+%
 %   Usage:
 %       h = waitbar(0, 'Running tests...', 'Visible', 'on');
 %       runner.addPlugin(WaitbarProgressPlugin(h, totalTests, offset));
@@ -13,6 +15,8 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
         TotalTests double   % Total test count (parallel + serial)
         Offset double       % Tests already completed (from parallel phase)
         CompletedTests double = 0
+        PassedTests double = 0
+        FailedTests double = 0
     end
 
     methods
@@ -28,26 +32,66 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
         function runTestSuite(plugin, pluginData)
             if isvalid(plugin.WaitbarHandle)
                 frac = plugin.Offset / max(plugin.TotalTests, 1);
+                pct = frac * 100;
                 waitbar(frac, plugin.WaitbarHandle, ...
-                    sprintf('Running serial tests... (%d/%d)', ...
-                    plugin.Offset, plugin.TotalTests));
+                    sprintf('%.1f%% — Running serial tests... (%d/%d)', ...
+                    pct, plugin.Offset, plugin.TotalTests));
             end
 
             runTestSuite@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
 
             if isvalid(plugin.WaitbarHandle)
-                waitbar(1, plugin.WaitbarHandle, 'Tests complete!');
+                if plugin.FailedTests > 0
+                    waitbar(1, plugin.WaitbarHandle, ...
+                        sprintf('100.0%% — Done: %d passed, %d failed', ...
+                        plugin.PassedTests, plugin.FailedTests));
+                else
+                    waitbar(1, plugin.WaitbarHandle, ...
+                        sprintf('100.0%% — Done: %d passed', plugin.PassedTests));
+                end
             end
         end
 
         function runTest(plugin, pluginData)
-            runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
-            plugin.CompletedTests = plugin.CompletedTests + 1;
+            % Show current test name before running
+            testName = pluginData.Name;
             total_done = plugin.Offset + plugin.CompletedTests;
             if isvalid(plugin.WaitbarHandle)
                 frac = total_done / max(plugin.TotalTests, 1);
+                pct = frac * 100;
+                % Truncate long test names to fit the waitbar
+                displayName = testName;
+                if length(displayName) > 50
+                    displayName = ['...' displayName(end-46:end)];
+                end
                 waitbar(frac, plugin.WaitbarHandle, ...
-                    sprintf('Test %d / %d', total_done, plugin.TotalTests));
+                    sprintf('%.1f%% (%d/%d) — %s', ...
+                    pct, total_done, plugin.TotalTests, displayName));
+            end
+
+            runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
+
+            plugin.CompletedTests = plugin.CompletedTests + 1;
+            if pluginData.TestResult.Failed
+                plugin.FailedTests = plugin.FailedTests + 1;
+            else
+                plugin.PassedTests = plugin.PassedTests + 1;
+            end
+
+            total_done = plugin.Offset + plugin.CompletedTests;
+            if isvalid(plugin.WaitbarHandle)
+                frac = total_done / max(plugin.TotalTests, 1);
+                pct = frac * 100;
+                if plugin.FailedTests > 0
+                    waitbar(frac, plugin.WaitbarHandle, ...
+                        sprintf('%.1f%% (%d/%d) — %d passed, %d failed', ...
+                        pct, total_done, plugin.TotalTests, ...
+                        plugin.PassedTests, plugin.FailedTests));
+                else
+                    waitbar(frac, plugin.WaitbarHandle, ...
+                        sprintf('%.1f%% (%d/%d) — %d passed', ...
+                        pct, total_done, plugin.TotalTests, plugin.PassedTests));
+                end
             end
         end
     end

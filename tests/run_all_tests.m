@@ -166,16 +166,17 @@ if can_run_parallel
     % --- Phase 1: parallel-safe tests via runInParallel ---
     fprintf('Running %d parallel-safe tests with runInParallel...\n', numel(parallel_suite));
     if ~isempty(hWaitbar) && isvalid(hWaitbar)
-        waitbar(0, hWaitbar, sprintf('Running %d parallel-safe tests...', numel(parallel_suite)));
+        waitbar(0, hWaitbar, sprintf('0.0%% — Running %d parallel-safe tests...', numel(parallel_suite)));
     end
     par_runner = TestRunner.withTextOutput();
     parallel_results = par_runner.runInParallel(parallel_suite);
 
     parallel_done = numel(parallel_suite);
     if ~isempty(hWaitbar) && isvalid(hWaitbar)
+        pct_done = (parallel_done / numel(suite)) * 100;
         waitbar(parallel_done / numel(suite), hWaitbar, ...
-            sprintf('Parallel phase complete (%d/%d). Starting serial tests...', ...
-            parallel_done, numel(suite)));
+            sprintf('%.1f%% — Parallel phase complete (%d/%d). Starting serial...', ...
+            pct_done, parallel_done, numel(suite)));
     end
 
     % --- Phase 2: serial tests sequentially ---
