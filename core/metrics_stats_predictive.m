@@ -430,7 +430,7 @@ for target_fx = 2:nTp
         
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
-            text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), sprintf('p = %.3f', p_vol), ...
+            text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), format_p_value(p_vol), ...
                 'HorizontalAlignment', 'center', 'FontSize', 11);
         end
         grid on;
@@ -449,7 +449,7 @@ for target_fx = 2:nTp
         
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
-            text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), sprintf('p = %.3f', p_sd), ...
+            text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), format_p_value(p_sd), ...
                 'HorizontalAlignment', 'center', 'FontSize', 11);
         end
         grid on;
