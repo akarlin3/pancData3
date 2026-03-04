@@ -254,7 +254,7 @@ for j=1:n_patients_metrics
 
                 f_vec_sub = f_vec(f_vec<f_thresh);
                 f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;
-                d_vec_sub = d_vec(adc_vec<adc_thresh);
+                d_vec_sub = d_vec(d_vec<d_thresh);
 
                 if exist('OCTAVE_VERSION', 'builtin')
                     tmp = d_vec(~isnan(d_vec));

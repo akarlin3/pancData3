@@ -39,6 +39,8 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
             base_vals = X_td_raw(is_train_base, fi);
 
             if isempty(base_vals)
+                warning('scale_td_panel:noBaseline', ...
+                    'No baseline (t_start==0) training data for feature %s. Using all training rows.', feat_names{fi});
                 mu  = mean(X_td_raw(is_train_row, fi), 'omitnan');
                 sig = std(X_td_raw(is_train_row, fi), 0, 'omitnan');
             else

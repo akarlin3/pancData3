@@ -71,7 +71,7 @@ for target_fx = 2:nTp
     if iscell(X_lasso_all)
         vars = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
         vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
-        fp = fopen('debug_concat_error.txt', 'a');
+        fp = fopen(fullfile(output_folder, 'debug_concat_error.txt'), 'a');
         fprintf(fp, '\n--- X_lasso_all is a cell array at fx_label=%s ---\n', fx_label);
         for i_v = 1:length(vars)
             tmp_v = vars_vals{i_v};
@@ -209,7 +209,7 @@ for target_fx = 2:nTp
         catch
             cv_failed = true;
         end
-        warning(w_state_final);
+        warning(w_state_cv);
     end
     
     if cv_failed || isempty(common_Lambda)

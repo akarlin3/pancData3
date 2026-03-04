@@ -38,28 +38,41 @@ gtv_locations = summary_metrics.gtv_locations;
 dwi_locations = summary_metrics.dwi_locations;
 
 fprintf('  --- SECTION 1: Repeatability Analysis ---\n');
+% Within-patient coefficient of variation (wCV = SD / mean).
+% Guard against division by near-zero denominators (especially for f, D*).
+wcv_denom_floor = 1e-10;
 if exist('OCTAVE_VERSION', 'builtin')
-    adc_wCV = squeeze(nanstd(adc_mean_rpt,0,2))./squeeze(nanmean(adc_mean_rpt,2));
-    adc_wCV(n_rpt<2, :) = nan;
-    adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,0,2))./squeeze(nanmean(adc_sub_rpt,2));
-    adc_wCV_sub(n_rpt<2, :) = nan;
-    d_wCV = squeeze(nanstd(d_mean_rpt,0,2))./squeeze(nanmean(d_mean_rpt,2));
-    d_wCV(n_rpt<2, :) = nan;
-    f_wCV = squeeze(nanstd(f_mean_rpt,0,2))./squeeze(nanmean(f_mean_rpt,2));
-    f_wCV(n_rpt<2, :) = nan;
-    dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2))./squeeze(nanmean(dstar_mean_rpt,2));
-    dstar_wCV(n_rpt<2, :) = nan;
+    adc_denom = squeeze(nanmean(adc_mean_rpt,2));
+    adc_wCV = squeeze(nanstd(adc_mean_rpt,0,2)) ./ adc_denom;
+    adc_wCV(n_rpt<2 | abs(adc_denom) < wcv_denom_floor, :) = nan;
+    adc_sub_denom = squeeze(nanmean(adc_sub_rpt,2));
+    adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,0,2)) ./ adc_sub_denom;
+    adc_wCV_sub(n_rpt<2 | abs(adc_sub_denom) < wcv_denom_floor, :) = nan;
+    d_denom = squeeze(nanmean(d_mean_rpt,2));
+    d_wCV = squeeze(nanstd(d_mean_rpt,0,2)) ./ d_denom;
+    d_wCV(n_rpt<2 | abs(d_denom) < wcv_denom_floor, :) = nan;
+    f_denom = squeeze(nanmean(f_mean_rpt,2));
+    f_wCV = squeeze(nanstd(f_mean_rpt,0,2)) ./ f_denom;
+    f_wCV(n_rpt<2 | abs(f_denom) < wcv_denom_floor, :) = nan;
+    dstar_denom = squeeze(nanmean(dstar_mean_rpt,2));
+    dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2)) ./ dstar_denom;
+    dstar_wCV(n_rpt<2 | abs(dstar_denom) < wcv_denom_floor, :) = nan;
 else
-    adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan'))./squeeze(mean(adc_mean_rpt,2,'omitnan'));
-    adc_wCV(n_rpt<2, :) = nan;
-    adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan'))./squeeze(mean(adc_sub_rpt,2,'omitnan'));
-    adc_wCV_sub(n_rpt<2, :) = nan;
-    d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan'))./squeeze(mean(d_mean_rpt,2,'omitnan'));
-    d_wCV(n_rpt<2, :) = nan;
-    f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan'))./squeeze(mean(f_mean_rpt,2,'omitnan'));
-    f_wCV(n_rpt<2, :) = nan;
-    dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan'))./squeeze(mean(dstar_mean_rpt,2,'omitnan'));
-    dstar_wCV(n_rpt<2, :) = nan;
+    adc_denom = squeeze(mean(adc_mean_rpt,2,'omitnan'));
+    adc_wCV = squeeze(std(adc_mean_rpt,0,2,'omitnan')) ./ adc_denom;
+    adc_wCV(n_rpt<2 | abs(adc_denom) < wcv_denom_floor, :) = nan;
+    adc_sub_denom = squeeze(mean(adc_sub_rpt,2,'omitnan'));
+    adc_wCV_sub = squeeze(std(adc_sub_rpt,0,2,'omitnan')) ./ adc_sub_denom;
+    adc_wCV_sub(n_rpt<2 | abs(adc_sub_denom) < wcv_denom_floor, :) = nan;
+    d_denom = squeeze(mean(d_mean_rpt,2,'omitnan'));
+    d_wCV = squeeze(std(d_mean_rpt,0,2,'omitnan')) ./ d_denom;
+    d_wCV(n_rpt<2 | abs(d_denom) < wcv_denom_floor, :) = nan;
+    f_denom = squeeze(mean(f_mean_rpt,2,'omitnan'));
+    f_wCV = squeeze(std(f_mean_rpt,0,2,'omitnan')) ./ f_denom;
+    f_wCV(n_rpt<2 | abs(f_denom) < wcv_denom_floor, :) = nan;
+    dstar_denom = squeeze(mean(dstar_mean_rpt,2,'omitnan'));
+    dstar_wCV = squeeze(std(dstar_mean_rpt,0,2,'omitnan')) ./ dstar_denom;
+    dstar_wCV(n_rpt<2 | abs(dstar_denom) < wcv_denom_floor, :) = nan;
 end
 
 fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
@@ -128,7 +141,10 @@ else
             % causes are counted as events (lf==1), not competing risks.
             if ismember('CauseOfDeath', T.Properties.VariableNames)
                 cod = T.CauseOfDeath{i_find};
-                if lf(j) == 0 && ~isempty(cod) && isempty(strfind(lower(cod), 'cancer'))
+                cod_lower = strtrim(lower(cod));
+                is_unknown = isempty(cod_lower) || strcmp(cod_lower, 'unknown') || ...
+                             strcmp(cod_lower, 'pending') || strcmp(cod_lower, 'n/a');
+                if lf(j) == 0 && ~isempty(cod) && ~is_unknown && isempty(strfind(cod_lower, 'cancer'))
                     lf(j) = 2; % Competing risk: non-cancer death without LF
                 end
             end

@@ -32,7 +32,12 @@ if ~isempty(output_folder)
     diary(diary_file);
 end
 
-td_scan_days = [0, 5, 10, 15, 20, 90];   % update if exact scan dates are available
+% Default scan days assume 5 on-treatment fractions + 1 post-treatment scan.
+% Replace with actual scan dates from DICOM headers or clinical records to
+% avoid immortal time bias in the time-dependent Cox model.
+td_scan_days = [0, 5, 10, 15, 20, 90];
+fprintf('  ⚠️  Using default scan days [%s]. Replace with actual timing to avoid immortal time bias.\n', ...
+    num2str(td_scan_days));
 
 % Covariates: all four IVIM parameters (absolute, all fractions)
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
@@ -58,8 +63,9 @@ td_lf       = m_lf(valid_pts);
 td_tot_time = m_total_time(valid_pts);
 
 % Censored patients use follow-up time; events use time-to-event
-cens_mask_td = (td_lf == 0) & ~isnan(m_total_follow_up_time(valid_pts));
-td_tot_time(cens_mask_td) = m_total_follow_up_time(valid_pts & (m_lf(:)==0) & ~isnan(m_total_follow_up_time(:)));
+follow_up_valid = m_total_follow_up_time(valid_pts);
+cens_mask_td = (td_lf == 0) & ~isnan(follow_up_valid);
+td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
@@ -200,7 +206,7 @@ try
     warning('error', 'stats:coxphfit:IterationLimit');
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', round(ipcw_weights * 10));    % integer pseudo-counts (x10 approximation)
+        'Frequency', max(1, round(ipcw_weights * 100)));    % integer pseudo-counts (x100 for precision)
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -274,6 +280,7 @@ for hl_idx = 1:length(half_life_grid)
     try
         ev_csh = pnl.event; ev_csh(ev_csh == 2) = 0;
         X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id), 'baseline');
+        [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
         w_hl = warning('off', 'all');
         [b_hl_short] = coxphfit(X_hl_clean, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
         warning(w_hl);

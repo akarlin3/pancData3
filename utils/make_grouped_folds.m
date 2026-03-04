@@ -42,6 +42,8 @@ try
     restoreWarn = onCleanup(@() warning(warnState));
     cvp = cvpartition(pt_y, 'KFold', k);
 catch
+    warning('make_grouped_folds:unstratified', ...
+        'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);
     cvp = cvpartition(n_unique, 'KFold', k);
 end
 
