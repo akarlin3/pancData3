@@ -27,8 +27,9 @@ for j = 1:size(gtv_locations,1)
             end
 
             if exist(gtv_mat, 'file')
-                load(gtv_mat, 'Stvol3d');
-                gtv_mask = Stvol3d;
+                % 🛡️ Sentinel: Fix workspace injection vulnerability by loading into a struct
+                loaded_data = load(gtv_mat, 'Stvol3d');
+                gtv_mask = loaded_data.Stvol3d;
                 
                 vec_len = length(data_vectors_gtvp(j,k,1).adc_vector);
                 mask_sum = sum(gtv_mask(:) == 1);
