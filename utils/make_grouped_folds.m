@@ -44,20 +44,27 @@ try
 catch
     % Retry with fewer folds to preserve stratification before falling back
     % to unstratified partitioning.
-    k_try = min([k, sum(pt_y == 0), sum(pt_y == 1)]);
+    % Ensure at least 2-fold stratification when any events exist, to
+    % prevent all events from clustering in a single fold.
+    k_try = max(2, min([k, sum(pt_y == 0), sum(pt_y == 1)]));
     if k_try >= 2
         try
             cvp = cvpartition(pt_y, 'KFold', k_try);
             warning('make_grouped_folds:reducedFolds', ...
                 'Stratified CV with %d folds failed; using %d folds to preserve stratification.', k, k_try);
+            % Also log via fprintf so message appears in diary even when
+            % callers suppress warnings with warning('off','all').
+            fprintf('  ⚠️  make_grouped_folds: Stratified CV with %d folds failed; using %d folds.\n', k, k_try);
         catch
             warning('make_grouped_folds:unstratified', ...
                 'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);
+            fprintf('  ⚠️  make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
             cvp = cvpartition(n_unique, 'KFold', k);
         end
     else
         warning('make_grouped_folds:unstratified', ...
             'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);
+        fprintf('  ⚠️  make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
         cvp = cvpartition(n_unique, 'KFold', k);
     end
 end

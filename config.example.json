@@ -16,5 +16,6 @@
     "skip_tests": false,
     "use_checkpoints": true,
     "patient_ids": [],
-    "dwi_type": "Standard"
+    "dwi_type": "Standard",
+    "td_scan_days": []
 }

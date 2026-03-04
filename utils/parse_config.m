@@ -49,6 +49,9 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'adc_max')
             config_struct.adc_max = 0.003;
         end
+        if ~isfield(config_struct, 'td_scan_days')
+            config_struct.td_scan_days = [];
+        end
         if isfield(config_struct, 'dwi_type')
             switch lower(config_struct.dwi_type)
                 case 'standard', config_struct.dwi_types_to_run = 1;

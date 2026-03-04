@@ -322,7 +322,15 @@ else
         end
     end
     if n_competing_excluded > 0
-        fprintf('  💡 Excluded %d competing-risk patients from GLME (lf==2).\n', n_competing_excluded);
+        n_total_glme = length(patient_indices);
+        pct_excluded = 100 * n_competing_excluded / n_total_glme;
+        fprintf('  ⚠️  GLME: Excluded %d/%d (%.1f%%) competing-risk patients (lf==2).\n', ...
+            n_competing_excluded, n_total_glme, pct_excluded);
+        fprintf('      These patients experienced non-cancer death without documented LF.\n');
+        if pct_excluded > 20
+            fprintf('  ⚠️  >20%% of cohort excluded — interpret GLME results with caution.\n');
+            fprintf('      Consider Fine-Gray subdistribution hazard model for sensitivity analysis.\n');
+        end
     end
 
     long_PatientID = long_PatientID(1:obs_idx);

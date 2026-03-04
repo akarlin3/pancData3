@@ -131,15 +131,16 @@ classdef test_parse_config < matlab.unittest.TestCase
             testCase.verifyEqual(config.dwi_types_to_run, 3);
         end
 
-        function testInvalidDwiTypeDefaultsToAll(testCase)
-            % An unrecognized dwi_type should default to running all types [1:3]
+        function testInvalidDwiTypeThrowsError(testCase)
+            % An unrecognized dwi_type should throw an error (wrapped as
+            % parse_config:invalidJSON by the outer try-catch).
             cfg = struct('dataloc', '/tmp', 'dwi_type', 'InvalidType');
             fid = fopen(testCase.TempConfigFile, 'w');
             fprintf(fid, '%s', jsonencode(cfg));
             fclose(fid);
 
-            config = parse_config(testCase.TempConfigFile);
-            testCase.verifyEqual(config.dwi_types_to_run, 1:3);
+            testCase.verifyError(@() parse_config(testCase.TempConfigFile), ...
+                'parse_config:invalidJSON');
         end
 
         function testMissingDwiTypeDefaultsToAll(testCase)
