@@ -19,6 +19,9 @@ function config_struct = parse_config(json_path)
         config_struct = jsondecode(raw_json);
 
         % Assign defaults for missing fields
+        if ~isfield(config_struct, 'skip_tests')
+            config_struct.skip_tests = false;
+        end
         if ~isfield(config_struct, 'use_checkpoints')
             config_struct.use_checkpoints = false;
         end

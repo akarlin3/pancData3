@@ -78,6 +78,7 @@ Key fields:
   "clinical_data_sheet": "MASTER_pancreas_DWIanalysis.xlsx",
   "clinical_sheet_name": "Clin List_MR",
   "skip_to_reload": false,
+  "skip_tests": false,
   "ivim_bthr": 100,
   "adc_thresh": 0.00115,
   "dwi_type": "Standard"

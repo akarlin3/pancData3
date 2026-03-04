@@ -13,6 +13,7 @@
     "dstar_thresh": 0.01,
     "min_vox_hist": 100,
     "adc_max": 0.003,
+    "skip_tests": false,
     "use_checkpoints": true,
     "patient_ids": [],
     "dwi_type": "Standard"
