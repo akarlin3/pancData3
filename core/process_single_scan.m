@@ -86,7 +86,9 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             dicom_files = dir(fullfile(ctx.dicomloc, '*.dcm'));
             b0list = cell(1);
             b0count = 0;
-            for bi = 1:length(dicom_files)
+            n_dicom_files = length(dicom_files);
+            for bi = 1:n_dicom_files
+                text_progress_bar(bi, n_dicom_files, 'Scanning DICOMs for b=0');
                 data_tmp = dicominfo(fullfile(dicom_files(bi).folder, dicom_files(bi).name), 'UseDictionaryVR', true);
                 if data_tmp.DiffusionBValue == 0
                     b0count = b0count+1;
@@ -505,7 +507,9 @@ function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mas
         end
 
         dwi_dncnn_cpu = zeros(size(dwi_cpu), 'single');
-        for b_idx = 1:size(dwi_cpu, 4)
+        n_bvals_dncnn = size(dwi_cpu, 4);
+        for b_idx = 1:n_bvals_dncnn
+            text_progress_bar(b_idx, n_bvals_dncnn, 'DnCNN denoising b-values');
             dwi_dncnn_cpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_cpu(:,:,:,b_idx), mask_cpu, dncnn_net, 15);
         end
 

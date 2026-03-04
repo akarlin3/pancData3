@@ -20,7 +20,9 @@ figure('Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
        'Position', [150, 150, 1400, 500]);
 
 plot_idx = 1;
-for di = 1:numel(diff_metrics)
+n_diff_metrics = numel(diff_metrics);
+for di = 1:n_diff_metrics
+    text_progress_bar(di, n_diff_metrics, 'Generating scatter plots');
     y_vals = diff_metrics{di};
 
     % Loop over the two dose endpoints (mean dose, D95)

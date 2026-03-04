@@ -94,8 +94,12 @@ fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
 % -----------------------------------------------------------------------
 fprintf('\n--- 2. Distributions of Extracted Features ---\n');
 
+n_dtypes_viz = numel(config_struct.dwi_types_to_run);
+dtype_counter = 0;
 for dtype = config_struct.dwi_types_to_run
+    dtype_counter = dtype_counter + 1;
     dtype_label = dwi_type_names{dtype};
+    text_progress_bar(dtype_counter, n_dtypes_viz, 'Plotting distributions & correlations');
 
     plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts, lf_group, dtype, output_folder);
 

@@ -48,7 +48,9 @@ v50_dstar_sub = nan(length(m_id_list), nTp);
 last_gtv_mat = '';
 last_gtv_mask_3d = [];
 
-for j = 1:length(m_id_list)
+n_pat_dosimetry = length(m_id_list);
+for j = 1:n_pat_dosimetry
+    text_progress_bar(j, n_pat_dosimetry, 'Computing dosimetry metrics');
     j_orig = find(strcmp(id_list, m_id_list{j}));
     for k = 1:nTp
         if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
