@@ -65,8 +65,9 @@ fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
 % Build a logical mask identifying patients with usable clinical and
 % imaging data.  Require a finite LF label and a
 % non-NaN baseline ADC value (Standard DWI, Fx1).
-dtype = config_struct.dwi_types_to_run;
-valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
+% Use the first DWI type for baseline validity check (dtype may be a vector)
+dtype_first = config_struct.dwi_types_to_run(1);
+valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,dtype_first));
 % Subset the outcome labels to the valid patients for later grouping
 lf_group = lf(valid_pts);
 
@@ -102,7 +103,12 @@ for dtype = config_struct.dwi_types_to_run
     dtype_label = dwi_type_names{dtype};
     text_progress_bar(dtype_counter, n_dtypes_viz, 'Plotting distributions & correlations');
 
-    plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts, lf_group, dtype, output_folder);
+    % Recompute valid_pts per dtype so patients missing data for this type
+    % are excluded rather than carried over from the first type.
+    valid_pts_dtype = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
+    lf_group_dtype  = lf(valid_pts_dtype);
+
+    plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 
     %% -----------------------------------------------------------------------
     fprintf('\n--- SECTION 3: Scatter Plots for Dose Correlation ---\n');
@@ -115,7 +121,7 @@ for dtype = config_struct.dwi_types_to_run
     % -----------------------------------------------------------------------
     fprintf('\n--- 3. Scatter Plots for Dose Correlation ---\n');
 
-    plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts, lf_group, dtype, output_folder);
+    plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 end % for dtype
 
 fprintf('\n======================================================\n');

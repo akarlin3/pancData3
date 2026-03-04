@@ -361,10 +361,19 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
 
         result.adc_mean = nanmean(adc_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-        result.adc_kurtosis = kurtosis(adc_map(biomarker_mask_p==1));
+        % Filter NaN before kurtosis() which does not ignore NaN values.
+        adc_finite = adc_map(biomarker_mask_p==1);
+        adc_finite = adc_finite(~isnan(adc_finite));
+        if numel(adc_finite) >= 4
+            result.adc_kurtosis = kurtosis(adc_finite);
+        end
         result.d_mean = nanmean(d_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-        result.d_kurtosis = kurtosis(d_map(biomarker_mask_p==1));
+        d_finite = d_map(biomarker_mask_p==1);
+        d_finite = d_finite(~isnan(d_finite));
+        if numel(d_finite) >= 4
+            result.d_kurtosis = kurtosis(d_finite);
+        end
 
         if havedenoised
             result.d_mean_dncnn = nanmean(d_map_dncnn(dncnn_mask_p==1));

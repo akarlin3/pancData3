@@ -17,7 +17,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     f_vec = nan(n_valid, 1);
     dstar_vec = nan(n_valid, 1);
 
-    has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2;
+    has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2 && sum(bvalues < opts.bthr) >= 1;
     if has_sufficient_bvalues && n_valid > 0
         fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
 

@@ -123,7 +123,7 @@ else
     n_ids_clinical = length(id_list);
     for j = 1:n_ids_clinical
         text_progress_bar(j, n_ids_clinical, 'Matching clinical data');
-        i_find = find(~cellfun(@isempty, strfind(pat_normalized, id_list_normalized{j})));
+        i_find = find(strcmp(pat_normalized, id_list_normalized{j}));
         if ~isempty(i_find)
             i_find = i_find(1);
             lf(j) = T.LocalOrRegionalFailure(i_find);
@@ -149,7 +149,18 @@ else
                 end
             end
             lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
-            censor_date(j) = max(T.LocalFailureDateOfLocalFailureOrCensor(i_find),T.RegionalFailureDateOfRegionalFailureOrCensor(i_find));
+            % Use the later of the two censor dates, but if one is NaT use the other.
+            lf_cens = T.LocalFailureDateOfLocalFailureOrCensor(i_find);
+            rf_cens = T.RegionalFailureDateOfRegionalFailureOrCensor(i_find);
+            if isnat(lf_cens) && isnat(rf_cens)
+                censor_date(j) = NaT;
+            elseif isnat(lf_cens)
+                censor_date(j) = rf_cens;
+            elseif isnat(rf_cens)
+                censor_date(j) = lf_cens;
+            else
+                censor_date(j) = max(lf_cens, rf_cens);
+            end
             rtstartdate(j) = T.RTStartDate(i_find);
             rtenddate(j) = T.RTStopDate(i_find);
         end
@@ -304,10 +315,12 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 adc_eps  = max(1e-8, 0.01 * iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1)));
 d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
 dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (ADC_abs(:,1) + adc_eps)) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ (D_abs(:,1) + d_eps)) * 100;
+% Use max(abs(baseline), eps) in denominator to avoid sign flips when
+% baseline is negative (noisy fits) and eps is added to a raw value.
+ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (max(abs(ADC_abs(:,1)), adc_eps))) * 100;
+D_pct   = ((D_abs - D_abs(:,1)) ./ (max(abs(D_abs(:,1)), d_eps))) * 100;
 f_delta = (f_abs - f_abs(:,1));
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + dstar_eps)) * 100;
+Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (max(abs(Dstar_abs(:,1)), dstar_eps))) * 100;
 
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);

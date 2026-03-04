@@ -142,18 +142,26 @@ function D_out = compose_displacement_fields(D1, D2)
 %   where D2 is evaluated at the displaced coordinates via trilinear
 %   interpolation.  This is more accurate than simple addition or
 %   subtraction for deformations larger than ~1 voxel.
+%
+%   imregdemons returns displacement fields in meshgrid convention:
+%     D(:,:,:,1) = column (X) displacement
+%     D(:,:,:,2) = row    (Y) displacement
+%     D(:,:,:,3) = slice  (Z) displacement
+%   interpn indexes arrays in ndgrid order (row, col, slice), so we must
+%   add D(:,:,:,2) to the row coordinate and D(:,:,:,1) to the column
+%   coordinate.
 
     sz = size(D1);
-    [X, Y, Z] = ndgrid(1:sz(1), 1:sz(2), 1:sz(3));
+    [R, C, S] = ndgrid(1:sz(1), 1:sz(2), 1:sz(3));
 
-    % Displaced coordinates after applying D1
-    X1 = X + D1(:,:,:,1);
-    Y1 = Y + D1(:,:,:,2);
-    Z1 = Z + D1(:,:,:,3);
+    % Displaced coordinates after applying D1 (meshgrid → ndgrid mapping)
+    R1 = R + D1(:,:,:,2);   % rows displaced by Y component
+    C1 = C + D1(:,:,:,1);   % cols displaced by X component
+    S1 = S + D1(:,:,:,3);   % slices displaced by Z component
 
     D_out = D1;
     for dim = 1:3
         D_out(:,:,:,dim) = D1(:,:,:,dim) + ...
-            interpn(D2(:,:,:,dim), X1, Y1, Z1, 'linear', 0);
+            interpn(D2(:,:,:,dim), R1, C1, S1, 'linear', 0);
     end
 end

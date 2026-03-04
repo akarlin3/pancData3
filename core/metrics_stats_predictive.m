@@ -88,6 +88,10 @@ for target_fx = 2:nTp
     original_feature_indices = original_feature_indices(valid_cols);
 
     y_lasso_all = lf_group;
+    % Recode competing risk (lf==2) as censored (lf==0) for binomial model.
+    % Without this, lassoglm treats value 2 as a non-binary outcome, which
+    % is invalid for logistic regression.
+    y_lasso_all(y_lasso_all == 2) = 0;
 
     base_cols = min(8, size(X_lasso_all, 2));
     has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);

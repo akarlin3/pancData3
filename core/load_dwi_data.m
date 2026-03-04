@@ -557,7 +557,7 @@ datasave = fullfile(dataloc, 'dwi_vectors.mat');
 if exist(datasave,'file')
     dt = datetime('now');
     dateString = char(dt, 'yyyy_MMM_dd');
-    newfilename = cat(2,dataloc, 'dwi_vectors_', dateString, '.mat');
+    newfilename = fullfile(dataloc, ['dwi_vectors_', dateString, '.mat']);
     copyfile(datasave,newfilename);
     fprintf('backed up existing save to %s\n',newfilename);
 end

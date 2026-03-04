@@ -47,6 +47,9 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     end
 
     dose_sub = dose_vec(mask_1d);
+    % Remove NaN dose values to avoid biasing V50 downward (NaN >= 50 is
+    % false, inflating the denominator without contributing to the numerator).
+    dose_sub = dose_sub(~isnan(dose_sub));
 
     if ~isempty(dose_sub) && sum(mask_1d) >= min_subvol_voxels
         d95 = prctile(dose_sub, 5);
