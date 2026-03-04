@@ -480,10 +480,12 @@ for target_fx = 2:nTp
         vol_fx3 = m_gtv_vol(valid_pts, target_fx);  
         vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;  
         
-        boxplot(vol_pct, lf_group, 'Labels', {'LC (0)', 'LF (1)'});
+        % Exclude competing risk patients (lf==2) from sanity check plots
+        non_competing = (lf_group <= 1);
+        boxplot(vol_pct(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['% Change in GTV Volume (' fx_label ')']);
         title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
-        p_vol = perform_statistical_test(vol_pct, lf_group, 'ranksum');
+        p_vol = perform_statistical_test(vol_pct(non_competing), lf_group(non_competing), 'ranksum');
         
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
@@ -568,11 +570,18 @@ for target_fx = 2:nTp
                 
                 x_val = sig_data_selected{fi}(valid_pts, target_fx);
                 y_val = sig_data_selected{fj}(valid_pts, target_fx);
+                % Exclude competing risk patients (lf==2) from scatter plots
                 group = lf_group;
+                scatter_mask = (group <= 1);
+                x_val = x_val(scatter_mask);
+                y_val = y_val(scatter_mask);
+                group = group(scatter_mask);
 
                 scatter(x_val(group==0), y_val(group==0), 80, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k');
                 scatter(x_val(group==1), y_val(group==1), 80, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k');
 
+                % NOTE: Decision boundary is fitted on the full displayed
+                % dataset (not cross-validated) for visualization only.
                 w_state = warning('off', 'all');
                 mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 10000));
                 warning(w_state);
@@ -586,7 +595,7 @@ for target_fx = 2:nTp
                 xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
                 ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
                 title(sprintf('Biomarker Interaction: Separation of LC vs LF (%s, %s)', fx_label, dtype_label), 'FontSize', 14);
-                legend({'Local Control', 'Local Failure', 'Logistic Decision Boundary'}, 'Location', 'NorthWest');
+                legend({'Local Control', 'Local Failure', 'Logistic Boundary (illustrative, not CV)'}, 'Location', 'NorthWest');
                 
                 grid on; box on;
                 xline(0, 'k-', 'Alpha', 0.2); yline(0, 'k-', 'Alpha', 0.2);

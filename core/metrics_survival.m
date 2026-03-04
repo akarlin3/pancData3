@@ -100,6 +100,7 @@ end
 
 if ~td_ok
     fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td_def));
+    if ~isempty(output_folder), diary off; end
     return;
 end
 

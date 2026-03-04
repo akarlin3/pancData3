@@ -29,7 +29,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     addpath(fullfile(pipeline_dir, 'core'));
     addpath(fullfile(pipeline_dir, 'utils'));
     if exist('OCTAVE_VERSION', 'builtin')
-        addpath(fullfile(pipeline_dir, '.octave_compat'));
+        addpath(fullfile(pipeline_dir, 'utils', 'octave_compat'));
     end
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
@@ -247,7 +247,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf(log_fid, '\n[%s] ===== Pipeline run started (type: %s) =====\n', ...
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
     end
-    cleanup_log = onCleanup(@() fclose(log_fid));
+    cleanup_log = onCleanup(@() safe_fclose_log(log_fid));
     lastwarn(''); % Reset MATLAB warning tracker
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
@@ -377,7 +377,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 if exist(dwi_vectors_file, 'file')
                     target_dwi_file = dwi_vectors_file;
                 elseif exist(fallback_dwi_vectors_file, 'file')
-                    target_dwi_file = fallback_dwi_vectors_file;
+                    % Legacy file without DWI-type suffix: only allow for
+                    % Standard (type 1) to prevent cross-contamination.
+                    if current_dtype == 1
+                        fprintf('  💡 Using legacy dwi_vectors.mat (no type suffix) for Standard.\n');
+                        target_dwi_file = fallback_dwi_vectors_file;
+                    else
+                        fprintf('  ❌ Type-specific file %s not found and legacy dwi_vectors.mat cannot be used for %s (risk of cross-contamination).\n', ...
+                            dwi_vectors_file, current_name);
+                        target_dwi_file = '';
+                    end
                 else
                     target_dwi_file = '';
                 end
@@ -736,4 +745,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     diary off;  % close master diary at end of pipeline run
+end
+
+function safe_fclose_log(fid)
+%SAFE_FCLOSE_LOG  Close a file handle only if it is valid.
+    if fid > 0
+        try fclose(fid); catch, end
+    end
 end

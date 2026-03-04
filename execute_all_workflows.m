@@ -35,8 +35,12 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     pctRunOnAll addpath(fullfile(repo_root, 'core'));
     pctRunOnAll addpath(fullfile(repo_root, 'utils'));
     pctRunOnAll addpath(fullfile(repo_root, 'dependencies'));
+    % Suppress noisy warnings on workers but keep critical ones.
+    % Avoid warning('off','all') which permanently silences convergence
+    % and numerical warnings on workers for the entire session.
     w_state_before_pct = warning;  % save client warning state before pctRunOnAll clobbers it
-    pctRunOnAll warning('off', 'all');
+    pctRunOnAll warning('off', 'MATLAB:imagesci:niftiinfo:fileDoesNotExist');
+    pctRunOnAll warning('off', 'MATLAB:DELETE:FileNotFound');
     warning(w_state_before_pct);   % restore client warnings (pctRunOnAll also executes on client)
 end
 
@@ -110,7 +114,7 @@ original_config_str = str;  % preserve original for rollback
 
 % Backup config.json so a mid-run crash does not leave it in a modified state
 fid_bak = fopen(config_backup, 'w');
-fprintf(fid_bak, '%s', str);
+fwrite(fid_bak, str);
 fclose(fid_bak);
 restore_config = onCleanup(@() restore_config_file(config_file, original_config_str, config_backup));
 
@@ -124,7 +128,7 @@ disp('====== STARTING STANDARD PIPELINE ======');
 config_struct.dwi_type = 'Standard';
 config_struct.skip_to_reload = false;
 json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run
 
@@ -133,7 +137,7 @@ disp('====== STARTING dnCNN PIPELINE ======');
 config_struct.dwi_type = 'dnCNN';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run
 
@@ -142,7 +146,7 @@ disp('====== STARTING IVIMnet PIPELINE ======');
 config_struct.dwi_type = 'IVIMnet';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
+fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run
 
@@ -157,7 +161,7 @@ function restore_config_file(config_path, original_str, backup_path)
         if fid == -1
             error('restore:openFailed', 'Cannot open config.json for writing.');
         end
-        fprintf(fid, '%s', original_str);
+        fwrite(fid, original_str);
         fclose(fid);
         if exist(backup_path, 'file')
             delete(backup_path);
