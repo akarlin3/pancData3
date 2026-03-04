@@ -3,7 +3,7 @@
 [![CI](https://github.com/akarlin3/pancData3/actions/workflows/ci.yml/badge.svg)](https://github.com/akarlin3/pancData3/actions/workflows/ci.yml)
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-53%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-63%20files-brightgreen)](#running-tests)
 [![Octave Compatible](https://img.shields.io/badge/Octave-compatible-orange?logo=gnu)](https://www.gnu.org/software/octave/)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
@@ -177,7 +177,7 @@ The pipeline executes the following steps in order:
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 53 test files covering:
+The test suite includes 63 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -206,14 +206,16 @@ pancData3/
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (17 files)
+├── utils/                      # Helper utilities (19 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
 │   ├── init_scan_structs.m     #   Scan data structure initialization
+│   ├── parfor_progress.m       #   Parallel loop progress reporting
+│   ├── text_progress_bar.m     #   Text-based progress bar display
 │   ├── octave_compat/          #   Octave compatibility shims (20 files)
 │   └── ...
-├── tests/                      # Test suite (46 test files)
+├── tests/                      # Test suite (63 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
