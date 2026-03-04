@@ -237,10 +237,10 @@ for j=1:n_patients_metrics
                 n_valid_adc = sum(~isnan(adc_vec));
                 if n_valid_adc > 0
                     p1 = c1 / n_valid_adc;
+                    p1(p1==0)=eps;
                 else
-                    p1 = c1;
+                    p1 = zeros(size(c1));
                 end
-                p1(p1==0)=eps;
                 adc_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal because within-patient
                 % voxels are spatially autocorrelated (violates independence).
@@ -260,7 +260,10 @@ for j=1:n_patients_metrics
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
             if ~isempty(d_vec)
-                f_vec(f_vec==0) = nan;  % zero perfusion fraction = failed fit
+                % Exclude only exact-zero f values that co-occur with failed D*
+                % fits (D* == 0 or NaN), preserving genuine zero perfusion.
+                failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
+                f_vec(failed_fit) = nan;
 
                 f_vec_sub = f_vec(f_vec<f_thresh);
                 f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;

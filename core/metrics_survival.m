@@ -216,7 +216,7 @@ try
     warning('error', 'stats:coxphfit:IterationLimit');
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights * 10)));      % scale by 10x before rounding to reduce discretization bias
+        'Frequency', max(1, round(ipcw_weights)));            % integer-rounded IPCW weights (1:1 effective sample size)
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)

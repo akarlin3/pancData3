@@ -93,8 +93,18 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 sd_col = 1;
 
                 if is_derivative && week_val == 0
-                    mu_col = 0;
-                    sd_col = 1;
+                    % Derivatives at baseline are structurally zero.  Use
+                    % training-set statistics so test-set rows are scaled
+                    % consistently (avoids bypassing the train/test split).
+                    train_week_mask = week_mask & is_train_row;
+                    bl_vals = X_td_raw(train_week_mask, fi);
+                    bl_vals = bl_vals(~isnan(bl_vals));
+                    if length(bl_vals) > 1
+                        mu_col = mean(bl_vals);
+                        sd_col = std(bl_vals);
+                        if sd_col == 0, sd_col = 1; end
+                    end
+                    % else: keep defaults mu_col=0, sd_col=1
                 else
                     first_occurrence_indices = first_occ_indices_cell{fn};
                     vals = X_td_raw(first_occurrence_indices, fi);
