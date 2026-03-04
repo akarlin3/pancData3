@@ -22,8 +22,12 @@ function p = perform_statistical_test(data, groups, test_type)
     data = data(:);
     groups = groups(:);
 
-    % Remove NaNs
-    valid_idx = ~isnan(data) & ~isnan(groups);
+    % Remove NaNs (isnan is undefined for categorical, so use ismissing)
+    if iscategorical(groups)
+        valid_idx = ~isnan(data) & ~ismissing(groups);
+    else
+        valid_idx = ~isnan(data) & ~isnan(groups);
+    end
     data = data(valid_idx);
     groups = groups(valid_idx);
 

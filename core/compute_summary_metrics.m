@@ -162,6 +162,7 @@ for j=1:n_patients_metrics
 
             % --- Compute ADC summary metrics for this patient/timepoint ---
             if ~isempty(adc_vec)
+                n_finite_adc = sum(~isnan(adc_vec));
                 gtv_vol(j,k) = numel(adc_vec)*vox_vol;
                 if exist('OCTAVE_VERSION', 'builtin')
                     % Octave nanmean might fail if it's a vector of all nans or something else
@@ -197,7 +198,14 @@ for j=1:n_patients_metrics
                 adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
 
                 adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
-                adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/gtv_vol(j,k);
+                % Use count of finite (non-NaN) voxels as denominator so
+                % NaN voxels do not artificially deflate the percentage.
+                finite_vol = n_finite_adc * vox_vol;
+                if finite_vol > 0
+                    adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/finite_vol;
+                else
+                    adc_sub_vol_pc(j,k,dwi_type) = NaN;
+                end
                 if isempty(adc_vec_sub)
                     adc_sub_mean(j,k,dwi_type) = NaN;
                 else

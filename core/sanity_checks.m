@@ -296,9 +296,9 @@ end
 fprintf('\n======================================================\n');
 fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');
-diary off
 
 % --- 4. Excessive NaN check: fail if >50% of voxels are NaN across the cohort ---
+% NOTE: diary stays open so the pass/fail result is captured in the log.
 max_nan_frac = 0.5;
 excessive_nan = false;
 nan_check_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector'};
@@ -338,4 +338,6 @@ else
     is_valid = false;
     validation_msg = sprintf('Failed %d dimensional alignment checks.', dim_mismatches);
 end
+
+diary off
 end

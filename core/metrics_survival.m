@@ -165,8 +165,8 @@ if has_admin_cens
             events_u_sub = at_risk_sub & (t_stop_sub == t_u) & (is_admin_cens_subset == 1);
             if any(events_u_sub) && any(at_risk_sub)
                 h0 = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
-                rows_after = (t_stop_td >= t_u);
-                G_hat(rows_after) = G_hat(rows_after) .* exp(-h0 * exp(lp_cens(rows_after)));
+                at_risk_full = (t_start_td < t_u) & (t_stop_td >= t_u);
+                G_hat(at_risk_full) = G_hat(at_risk_full) .* exp(-h0 * exp(lp_cens(at_risk_full)));
             end
         end
 
@@ -206,7 +206,7 @@ try
     warning('error', 'stats:coxphfit:IterationLimit');
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights * 100)));    % integer pseudo-counts (x100 for precision)
+        'Frequency', max(1, round(ipcw_weights)));           % integer pseudo-counts (1x, not inflated)
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -247,7 +247,8 @@ try
         'Censoring', is_censored_null, 'Ties', 'breslow', ...
         'Options', statset('MaxIter', 100));
     LRT_stat = 2 * (logl_td - logl_null_td);
-    LRT_p    = 1 - chi2cdf(LRT_stat, td_n_feat);
+    LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
+    LRT_p    = 1 - chi2cdf(LRT_stat, LRT_df);
 catch
     LRT_stat = NaN; LRT_p = NaN;
 end
@@ -263,7 +264,7 @@ for fi = 1:td_n_feat
         td_feat_names{fi}, hr_i, ci_lo, ci_hi, stats_td.p(fi));
 end
 if ~isnan(LRT_p)
-    fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', td_n_feat, LRT_stat, LRT_p);
+    fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', LRT_df, LRT_stat, LRT_p);
 end
 
 % ---- Imputation half-life sensitivity analysis -----------------------
@@ -278,11 +279,27 @@ fprintf('\n');
 for hl_idx = 1:length(half_life_grid)
     pnl = td_panels{hl_idx};
     try
-        ev_csh = pnl.event; ev_csh(ev_csh == 2) = 0;
-        X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id), 'baseline');
+        % Apply landmark subsetting to match the primary analysis
+        lm_keep_hl = (pnl.t_start >= landmark_day);
+        if ~any(lm_keep_hl), error('sensitivity:noData', 'No post-landmark intervals.'); end
+        pnl_X = pnl.X(lm_keep_hl, :);
+        pnl_tstart = pnl.t_start(lm_keep_hl);
+        pnl_tstop  = pnl.t_stop(lm_keep_hl);
+        pnl_event  = pnl.event(lm_keep_hl);
+        pnl_pid    = pnl.pat_id(lm_keep_hl);
+        ev_csh = pnl_event; ev_csh(ev_csh == 2) = 0;
+        X_hl = scale_td_panel(pnl_X, td_feat_names, pnl_pid, pnl_tstart, unique(pnl_pid), 'baseline');
         [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
+        % Use IPCW weights consistent with primary analysis
+        ipcw_hl = ipcw_weights(lm_keep);
+        ipcw_hl_sens = ipcw_hl(1:sum(lm_keep_hl));
+        if length(ipcw_hl_sens) ~= size(X_hl_clean, 1)
+            ipcw_hl_sens = ones(size(X_hl_clean, 1), 1);
+        end
         w_hl = warning('off', 'all');
-        [b_hl_short] = coxphfit(X_hl_clean, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
+        [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
+            'Censoring', ev_csh==0, 'Ties', 'breslow', ...
+            'Frequency', max(1, round(ipcw_hl_sens)));
         warning(w_hl);
         b_hl = zeros(td_n_feat, 1);
         b_hl(keep_hl) = b_hl_short;
