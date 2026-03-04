@@ -347,7 +347,6 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
 ### Do
 - Read and understand existing code before suggesting changes.
-- Run `run('tests/run_all_tests.m')` after any non-trivial modification to `core/` or `utils/`.
 - Use `safe_load_mask` and `escape_shell_arg` when handling file I/O.
 - Follow the orchestrator pattern — keep pipeline steps modular and independently callable.
 - Preserve checkpointing logic in `load_dwi_data.m`; it is critical for large cohort recovery.
@@ -360,3 +359,4 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Bypass the temporal leakage safeguards in imputation or cross-validation.
 - Use unsanitized strings in `system()` calls.
 - Hard-code file paths — all paths must flow through `config.json`.
+- Run the test suite (`run_all_tests.m`) or the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) as a verification step. Tests and pipeline runs are initiated by the researcher, not by AI assistants.
