@@ -298,9 +298,40 @@ fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');
 diary off
 
-if dim_mismatches == 0
+% --- 4. Excessive NaN check: fail if >50% of voxels are NaN across the cohort ---
+max_nan_frac = 0.5;
+excessive_nan = false;
+nan_check_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector'};
+nan_check_names  = {'ADC', 'D', 'f', 'D*'};
+for fi = 1:numel(nan_check_fields)
+    total_voxels = 0;
+    total_nans   = 0;
+    for j = 1:nPat
+        for k = 1:min(size(data_vectors_gtvp, 2), nTp)
+            if j > size(data_vectors_gtvp, 1) || k > size(data_vectors_gtvp, 2), continue; end
+            v = data_vectors_gtvp(j, k, 1).(nan_check_fields{fi});
+            if ~isempty(v)
+                total_voxels = total_voxels + numel(v);
+                total_nans   = total_nans + sum(isnan(v));
+            end
+        end
+    end
+    if total_voxels > 0
+        frac = total_nans / total_voxels;
+        if frac > max_nan_frac
+            fprintf('  ❌ Excessive NaN fraction in %s: %.1f%% (threshold: %.0f%%)\n', ...
+                nan_check_names{fi}, frac*100, max_nan_frac*100);
+            excessive_nan = true;
+        end
+    end
+end
+
+if dim_mismatches == 0 && ~excessive_nan
     is_valid = true;
     validation_msg = sprintf('Passed all alignment checks. %d convergence warnings, %d NaN dose warnings.', conv_issues, nan_warnings);
+elseif excessive_nan
+    is_valid = false;
+    validation_msg = sprintf('Failed: >%.0f%% NaN voxels detected. %d dimensional mismatches.', max_nan_frac*100, dim_mismatches);
 else
     % Only dimensional mismatches invalidate the run — NaN dose coverage
     % is common when the RT dose grid does not fully overlap the DWI FOV.

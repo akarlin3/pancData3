@@ -1,4 +1,4 @@
-function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, nTp, dtype_label, output_folder)
+function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, dtype_label, output_folder)
 % METRICS_LONGITUDINAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 2/5 of the metrics step. Visualizes longitudinal evolution of absolute
 % parameters and their relative percent changes.
@@ -23,7 +23,7 @@ diary(diary_file);
 
 % Group data for easy iteration
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
-metrics_pct = {ADC_pct, D_pct, f_pct, Dstar_pct};
+metrics_pct = {ADC_pct, D_pct, f_delta, Dstar_pct};
 metric_names = {'ADC', 'D', 'f', 'D*'};
 metric_units = {'mm^2/s', 'mm^2/s', 'Fraction', 'mm^2/s'};
 x_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};

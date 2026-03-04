@@ -108,7 +108,7 @@ end
 % Scale AFTER landmark subsetting so that standardisation statistics are
 % computed exclusively on post-landmark intervals, preventing pre-landmark
 % covariate distributions from leaking into the primary analysis.
-X_td_global = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, unique(pat_id_td));
+X_td_global = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, unique(pat_id_td), 'baseline');
 
 % ---- Compute IPCW weights for informative censoring correction --------
 % Cause-Specific Hazards: competing events (event=2) are treated as
@@ -132,10 +132,16 @@ if has_admin_cens
         is_admin_cens_subset = double(event_td(not_competing) == 0);
         T_cens = [t_start_td(not_competing), t_stop_td(not_competing)];
         X_cens_subset = X_td_global(not_competing, :);
+        [X_cens_clean, keep_ipcw] = remove_constant_columns(X_cens_subset);
+        if size(X_cens_clean, 2) == 0
+            error('IPCW:NoVariableColumns', 'All covariate columns are constant.');
+        end
         w_ipcw = warning('off', 'all');
-        [b_cens, ~, ~, stats_cens] = coxphfit(X_cens_subset, T_cens, ...
+        [b_cens_short, ~, ~, stats_cens] = coxphfit(X_cens_clean, T_cens, ...
             'Censoring', (is_admin_cens_subset == 0), 'Ties', 'breslow');
         warning(w_ipcw);
+        b_cens = zeros(td_n_feat, 1);
+        b_cens(keep_ipcw) = b_cens_short;
 
         % Compute survival function of censoring (Kaplan-Meier-like via Cox)
         % Use the censoring model coefficients (fit on non-competing subset)
@@ -178,16 +184,32 @@ try
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
 
-    % Suppress trivial warnings like Constant Term, but KEEP error triggers for convergence failures
+    % Remove constant columns to prevent DisallowedConstantTerm warning
+    [X_td_clean, keep_main] = remove_constant_columns(X_td_global);
+    if sum(~keep_main) > 0
+        fprintf('  💡 Removed %d constant column(s) before Cox fit: %s\n', ...
+            sum(~keep_main), strjoin(td_feat_names(~keep_main), ', '));
+    end
+    if size(X_td_clean, 2) == 0
+        error('Cox:NoVariableColumns', 'All covariate columns are constant after scaling.');
+    end
+
+    % Suppress trivial warnings, but KEEP error triggers for convergence failures
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
-    [b_td, logl_td, ~, stats_td_raw] = coxphfit(X_td_global, T_td, ...
+    [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', round(ipcw_weights * 100));   % integer pseudo-counts
+        'Frequency', round(ipcw_weights * 10));    % integer pseudo-counts (x10 approximation)
     warning(w_temp);
-    stats_td.se = stats_td_raw.se;
-    stats_td.p  = stats_td_raw.p;
+
+    % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
+    b_td = zeros(td_n_feat, 1);
+    b_td(keep_main) = b_td_short;
+    stats_td.se = nan(td_n_feat, 1);
+    stats_td.p  = nan(td_n_feat, 1);
+    stats_td.se(keep_main) = stats_td_short.se;
+    stats_td.p(keep_main)  = stats_td_short.p;
 catch ME_td
     if exist('w_temp', 'var'), warning(w_temp); end
     if ~isempty(strfind(ME_td.identifier, 'FitWarning')) || ...
@@ -212,7 +234,7 @@ warning('on', 'stats:coxphfit:IterationLimit');
 
 % ---- Likelihood-ratio test vs. null model (no covariates) -----------
 try
-    is_censored_null = (event_td == 0);
+    is_censored_null = (event_td_csh == 0);
     w_temp_null = warning('off', 'all');
     cleanupObj = onCleanup(@() warning(w_temp_null));
     [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
@@ -251,10 +273,12 @@ for hl_idx = 1:length(half_life_grid)
     pnl = td_panels{hl_idx};
     try
         ev_csh = pnl.event; ev_csh(ev_csh == 2) = 0;
-        X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id));
+        X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id), 'baseline');
         w_hl = warning('off', 'all');
-        [b_hl] = coxphfit(X_hl, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
+        [b_hl_short] = coxphfit(X_hl_clean, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
         warning(w_hl);
+        b_hl = zeros(td_n_feat, 1);
+        b_hl(keep_hl) = b_hl_short;
         fprintf('  %-6d', half_life_grid(hl_idx));
         for fi = 1:td_n_feat
             fprintf('  %10.3f', exp(b_hl(fi)));
@@ -272,129 +296,5 @@ if ~isempty(output_folder)
 end
 end
 
-%% ========================================================================
-%  Helper Functions for Time-Dependent Cox and Elastic Net (Copied from metrics.m)
-% =========================================================================
-
-function [X_panel, t_start_out, t_stop_out, event_out, pat_id_out, frac_out] = build_td_panel(feat_arrays, feat_names, lf, tot_time, nTp, scan_days, hl_months)
-    % Unpacks subject-level data into a start-stop panel for time-dependent Cox.
-    n_pts   = size(feat_arrays{1}, 1);
-    n_feat  = numel(feat_arrays);
-    n_rows_est = n_pts * nTp;
-    
-    X_panel_pre = nan(n_rows_est, n_feat);
-    t_start_pre = nan(n_rows_est, 1);
-    t_stop_pre  = nan(n_rows_est, 1);
-    event_pre   = zeros(n_rows_est, 1);
-    pat_id_pre  = zeros(n_rows_est, 1);
-    frac_pre    = zeros(n_rows_est, 1);
-    
-    hl_days     = hl_months * 30.44;
-    lambda_decay= log(2) / hl_days;
-    
-    row_count = 0;
-    
-    for pi = 1:n_pts
-        surv_T  = tot_time(pi);
-        ev_stat = lf(pi);
-        
-        if isnan(surv_T), continue; end
-        
-        last_t  = 0;
-        last_X  = nan(1, n_feat);
-        
-        for ti = 1:nTp
-            curr_X = nan(1, n_feat);
-            for fi = 1:n_feat
-                curr_X(fi) = feat_arrays{fi}(pi, ti);
-            end
-            
-            % Exponential decay imputation if missing
-            if any(isnan(curr_X))
-                dt = scan_days(ti) - last_t;
-                curr_X(isnan(curr_X)) = last_X(isnan(curr_X)) * exp(-lambda_decay * dt);
-            end
-            
-            if any(isnan(curr_X))
-                continue; % Still missing (e.g., Fx1 was NA)
-            end
-            
-            t_int_start = scan_days(ti);
-            
-            t_int_stop = surv_T;
-            for t_next = (ti+1):nTp
-                next_X = nan(1, n_feat);
-                for fi = 1:n_feat
-                    next_X(fi) = feat_arrays{fi}(pi, t_next);
-                end
-                if ~any(isnan(next_X))
-                    t_int_stop = scan_days(t_next);
-                    break;
-                end
-            end
-            
-            if t_int_start >= surv_T
-                break;
-            end
-            
-            t_int_stop = min(t_int_stop, surv_T);
-            is_terminal = (t_int_stop == surv_T);
-            
-            row_count = row_count + 1;
-            X_panel_pre(row_count, :) = curr_X;
-            t_start_pre(row_count)    = t_int_start;
-            t_stop_pre(row_count)     = t_int_stop;
-            pat_id_pre(row_count)     = pi;
-            frac_pre(row_count)       = ti;
-            
-            if is_terminal
-                event_pre(row_count) = ev_stat;
-            else
-                event_pre(row_count) = 0;
-            end
-            
-            last_X = curr_X;
-            last_t = t_int_start;
-            
-            if is_terminal, break; end 
-        end
-    end
-    
-    X_panel     = X_panel_pre(1:row_count, :);
-    t_start_out = t_start_pre(1:row_count);
-    t_stop_out  = t_stop_pre(1:row_count);
-    event_out   = event_pre(1:row_count);
-    pat_id_out  = pat_id_pre(1:row_count);
-    frac_out    = frac_pre(1:row_count);
-end
-
-function X_scaled = scale_td_panel(X_td, feat_names, pat_id, t_start, train_pids)
-    % Z-scores the panel data using the baseline (t_start==0) mean and std
-    % strictly from the training patients.
-    
-    X_scaled = X_td;
-    n_feat   = size(X_td, 2);
-    
-    % ⚡ Bolt Optimization: Precompute the expensive ismember() operation and
-    % baseline mask outside the feature loop, as pat_id and t_start are invariant.
-    is_train_row = ismember(pat_id, train_pids);
-    is_train_base_mask = is_train_row & (t_start == 0);
-
-    for fi = 1:n_feat
-        is_train_base = is_train_base_mask & ~isnan(X_td(:, fi));
-        
-        base_vals = X_td(is_train_base, fi);
-        
-        if isempty(base_vals)
-            mu  = mean(X_td(is_train_row, fi), 'omitnan');
-            sig = std(X_td(is_train_row, fi), 0, 'omitnan');
-        else
-            mu  = mean(base_vals);
-            sig = std(base_vals);
-        end
-        
-        if sig == 0 || isnan(sig), sig = 1; end
-        
-        X_scaled(:, fi) = (X_td(:, fi) - mu) / sig;
-    end
-end
+% Local helper functions removed — now uses utils/build_td_panel.m and
+% utils/scale_td_panel.m for consistency across the pipeline.

@@ -168,7 +168,8 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     end
     
     % --- 3. Final Fallback ---
-    tr_mean = mean(X_tr_imp, 1, 'omitnan');
+    % Use pre-imputation training means to avoid circular dependency
+    tr_mean = mean(X_tr, 1, 'omitnan');
     tr_mean(isnan(tr_mean)) = 0; % Ultimate fallback if entirely NaN
     
     for m = 1:p

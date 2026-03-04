@@ -58,6 +58,9 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
+    % Validate scan_days is strictly increasing
+    assert(all(diff(scan_days) > 0), 'build_td_panel:scanDays', 'scan_days must be strictly increasing');
+
     % --- Vectorized Generation of General Intervals ---
     % Preallocate arrays safely overestimating bounds
     max_rows = n_pts * nTp;
@@ -68,24 +71,33 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     pat_buf     = zeros(max_rows, 1);
     frac_buf    = nan(max_rows, 1);
 
+    % Exponential decay imputation parameters
+    use_decay = (decay_half_life_months > 0);
+    if use_decay
+        hl_days      = decay_half_life_months * 30.44;
+        lambda_decay = log(2) / hl_days;
+    end
+
     % Find valid patients (T_j and lf_j not NaN)
     valid_pts = find(~isnan(total_time_vec) & ~isnan(lf_vec));
-    
-    row = 0; % Keep manual row counter for now as decay generation restricts pure vectorization
+
+    row = 0;
     for p_idx = 1:length(valid_pts)
         j = valid_pts(p_idx);
         T_j   = total_time_vec(j);
         lf_j  = lf_vec(j);
-        
+
         last_valid_row = -1;
-        
+        last_X = nan(1, n_feat);
+        last_t = 0;
+
         for tp = 1:nTp
             day_tp = scan_days(tp);
             if day_tp >= T_j
                 break;
             end
-            
-            % Extract covariates for this patient at this timepoint efficiently
+
+            % Extract covariates for this patient at this timepoint
             cov_row = nan(1, n_feat);
             for fi = 1:n_feat
                 arr = feat_arrays{fi};
@@ -93,32 +105,63 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                     cov_row(fi) = arr(j, tp);
                 end
             end
-            
+
+            % Apply exponential decay imputation for missing covariates
+            if use_decay && any(isnan(cov_row))
+                dt = day_tp - last_t;
+                decay_mask = isnan(cov_row) & ~isnan(last_X);
+                cov_row(decay_mask) = last_X(decay_mask) .* exp(-lambda_decay * dt);
+            end
+
             if all(isnan(cov_row))
                 continue;
             end
-            
-            day_next = min(T_j, (tp < nTp) * (scan_days(min(tp+1, nTp))) + (tp == nTp) * T_j);
+
+            % Compute interval end: next observed scan or event/censoring time
+            if tp < nTp
+                % Look ahead for the next non-missing timepoint
+                day_next = T_j;
+                for t_next = (tp+1):nTp
+                    next_row = nan(1, n_feat);
+                    for fi = 1:n_feat
+                        arr = feat_arrays{fi};
+                        if t_next <= size(arr, 2)
+                            next_row(fi) = arr(j, t_next);
+                        end
+                    end
+                    if ~all(isnan(next_row))
+                        day_next = min(scan_days(t_next), T_j);
+                        break;
+                    end
+                end
+            else
+                day_next = T_j;
+            end
+
             if day_next <= day_tp
                 continue;
             end
-            
+
+            is_terminal = (day_next == T_j);
+
             row = row + 1;
             X_buf(row, :)       = cov_row;
             t_start_buf(row)    = day_tp;
-            
-            % The decay logic is highly specific to risk-set splitting
-            % and better handled separately or kept as-is if performance isn't 
-            % severely bottlenecked here (we simplified the base loop).
-            t_stop_buf(row)     = day_next; 
-            event_buf(row)      = false;
+            t_stop_buf(row)     = day_next;
             pat_buf(row)        = j;
             frac_buf(row)       = tp;
+
+            if is_terminal
+                event_buf(row) = lf_j;
+            else
+                event_buf(row) = 0;
+            end
+
             last_valid_row      = row;
-        end
-        
-        if last_valid_row > 0 && lf_j > 0
-            event_buf(last_valid_row) = lf_j;
+            last_X = cov_row;
+            last_t = day_tp;
+
+            if is_terminal, break; end
         end
     end
 

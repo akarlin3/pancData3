@@ -1,4 +1,4 @@
-function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time)
+function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time)
 % METRICS_STATS_PREDICTIVE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 4b/5 of the metrics step: Predictive Modeling (Elastic Net & Cox prep).
 % Performs multivariate feature selection via Elastic Net logistic regression
@@ -44,7 +44,7 @@ for target_fx = 2:nTp
     X_lasso_all = [ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
                    f_abs(valid_pts, target_fx),   Dstar_abs(valid_pts, target_fx), ...
                    ADC_pct(valid_pts, target_fx), D_pct(valid_pts, target_fx), ...
-                   f_pct(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
+                   f_delta(valid_pts, target_fx),   Dstar_pct(valid_pts, target_fx), ...
                    m_d95_gtvp(valid_pts, target_fx), m_v50gy_gtvp(valid_pts, target_fx), ...
                    d95_adc_sub(valid_pts, target_fx), v50_adc_sub(valid_pts, target_fx), ...
                    d95_d_sub(valid_pts, target_fx),   v50_d_sub(valid_pts, target_fx), ...
@@ -69,8 +69,8 @@ for target_fx = 2:nTp
     end
     
     if iscell(X_lasso_all)
-        vars = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_pct', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
-        vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
+        vars = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
+        vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
         fp = fopen('debug_concat_error.txt', 'a');
         fprintf(fp, '\n--- X_lasso_all is a cell array at fx_label=%s ---\n', fx_label);
         for i_v = 1:length(vars)
@@ -105,6 +105,25 @@ for target_fx = 2:nTp
     % estimates via Rubin's rules.  Single imputation is retained here
     % because the small cohort size makes stable MI infeasible.
     fprintf('  ⚠️  Single imputation: CIs may be anti-conservative (imputation uncertainty not propagated).\n');
+
+    % --- DL provenance leakage check (covers outer CV, not just LOOCV) ---
+    if isfield(dl_provenance, 'manifest_loaded') && ~dl_provenance.manifest_loaded && (dtype == 2 || dtype == 3)
+        fprintf('  ⚠️  DL provenance manifest not loaded for %s — leakage guard inactive. Skipping predictive modeling.\n', dtype_label);
+        continue;
+    end
+    if dtype == 2
+        for chk_i = 1:numel(id_list_impute)
+            if any(strcmp(dl_provenance.dncnn_train_ids, id_list_impute{chk_i}))
+                error('DATA LEAKAGE DETECTED: Patient %s was used to train the DnCNN model.', id_list_impute{chk_i});
+            end
+        end
+    elseif dtype == 3
+        for chk_i = 1:numel(id_list_impute)
+            if any(strcmp(dl_provenance.ivimnet_train_ids, id_list_impute{chk_i}))
+                error('DATA LEAKAGE DETECTED: Patient %s was used to train the IVIMnet model.', id_list_impute{chk_i});
+            end
+        end
+    end
 
     rng(42);
     fold_id_en = make_grouped_folds(id_list_impute, y_clean, 5);
@@ -170,21 +189,27 @@ for target_fx = 2:nTp
         % imputation splits.
         X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
 
+        % Apply collinearity filtering to match what was done in CV folds
+        keep_final = filter_collinear_features(X_clean_all, y_clean);
+        X_clean_kept = X_clean_all(:, keep_final);
+        final_feature_indices = original_feature_indices(keep_final);
+
         try
-            [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
+            [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 10000);
 
             coefs_en = B_final;
 
             % Map nonzero coefficient indices to original feature names.
             nz_in_kept = find(coefs_en ~= 0);
-            selected_indices = original_feature_indices(nz_in_kept);
+            selected_indices = final_feature_indices(nz_in_kept);
             
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
         catch
             cv_failed = true;
         end
+        warning(w_state_final);
     end
     
     if cv_failed || isempty(common_Lambda)
@@ -285,7 +310,7 @@ for target_fx = 2:nTp
     is_high_risk_target(impute_mask) = is_high_risk_oof;
 
     all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...
-                      ADC_pct,       D_pct,       f_pct,       Dstar_pct, ...
+                      ADC_pct,       D_pct,       f_delta,       Dstar_pct, ...
                       m_d95_gtvp,    m_v50gy_gtvp, ...
                       d95_adc_sub,   v50_adc_sub, ...
                       d95_d_sub,     v50_d_sub, ...

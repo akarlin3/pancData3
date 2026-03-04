@@ -1,4 +1,4 @@
-function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_pct, Dstar_pct, nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
+function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % METRICS_BASELINE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 1/5 of the metrics step. Compiles baseline measures, cleans outliers,
 % computes relative changes (percent delta), and groups metric sets for later steps.
@@ -264,6 +264,10 @@ if exclude_outliers
     else
         outlier_current = ~non_outlier;
     end
+    outlier_ids = m_id_list(outlier_current);
+    if ~isempty(outlier_ids)
+        fprintf('  ⚠️  Removed %d patients as outliers (IDs: %s)\n', numel(outlier_ids), strjoin(outlier_ids, ', '));
+    end
     m_adc_mean(outlier_current,:,:)             = NaN;
     m_d_mean(outlier_current,:,:)               = NaN;
     m_f_mean(outlier_current,:,:)               = NaN;
@@ -286,7 +290,7 @@ d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
 dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
 ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ (ADC_abs(:,1) + adc_eps)) * 100;
 D_pct   = ((D_abs - D_abs(:,1)) ./ (D_abs(:,1) + d_eps)) * 100;
-f_pct   = (f_abs - f_abs(:,1));
+f_delta = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ (Dstar_abs(:,1) + dstar_eps)) * 100;
 
 valid_pts = isfinite(m_lf);
@@ -295,7 +299,7 @@ lf_group = m_lf(valid_pts);
 % Re-organize metrics into 4 distinct Sets:
 metric_sets = {
     {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1
-    {ADC_pct, D_pct, f_pct, Dstar_pct} ...          % Set 2
+    {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2
 };
 
 set_names = {
