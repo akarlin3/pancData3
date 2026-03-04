@@ -342,9 +342,16 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 % proportional to the actual measurement scale.
 % NOTE: Outlier patients were NaN-ified above (lines 318-324), so the
 % isfinite() filter correctly excludes them from epsilon estimation.
-adc_eps  = max(1e-8, 0.01 * iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1)));
-d_eps    = max(1e-8, 0.01 * iqr(D_abs(isfinite(D_abs(:,1)), 1)));
-dstar_eps = max(1e-8, 0.01 * iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1)));
+adc_iqr_raw  = iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1));
+d_iqr_raw    = iqr(D_abs(isfinite(D_abs(:,1)), 1));
+dstar_iqr_raw = iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1));
+% max(scalar, NaN) returns NaN in MATLAB's two-input form; guard explicitly.
+if isnan(adc_iqr_raw),  adc_iqr_raw  = 0; end
+if isnan(d_iqr_raw),    d_iqr_raw    = 0; end
+if isnan(dstar_iqr_raw), dstar_iqr_raw = 0; end
+adc_eps  = max(1e-8, 0.01 * adc_iqr_raw);
+d_eps    = max(1e-8, 0.01 * d_iqr_raw);
+dstar_eps = max(1e-8, 0.01 * dstar_iqr_raw);
 % Exclude patients with near-zero or negative baselines from percent change
 % computation to avoid sign-flipped or inflated ratios.  These patients get
 % NaN percent change so they are excluded from downstream group comparisons.

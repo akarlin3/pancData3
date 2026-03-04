@@ -95,10 +95,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         if any(adc_valid_idx)
             S_a = dwi_valid(adc_valid_idx, :);
 
-            % Validate that bvalues(1)==0 (S0 reference for log-linear fit)
+            % Validate that bvalues(1)==0 (S0 reference for log-linear fit).
+            % The WLS formula below divides by S(:,1) assuming it is S(b=0).
+            % A non-zero first b-value produces silently wrong ADC estimates.
             if bvalues(1) ~= 0
-                warning('fit_models:noB0', ...
-                    'First b-value is %g, not 0. ADC fit assumes S(b=0) as reference; results may be inaccurate.', bvalues(1));
+                error('fit_models:noB0', ...
+                    'First b-value is %g, not 0. ADC fit requires S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
             end
 
             % Vectorized WLS: weights = S^2 at each b-value

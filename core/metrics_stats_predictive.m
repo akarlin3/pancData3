@@ -512,6 +512,8 @@ for target_fx = 2:nTp
         baseline_sd  = adc_sd(valid_pts, 1, dtype);
         baseline_adc_vals = ADC_abs(valid_pts, 1);
         wcv_vals = baseline_sd ./ baseline_adc_vals;
+        % Guard against Inf from zero/near-zero baseline ADC values
+        wcv_vals(~isfinite(wcv_vals)) = NaN;
         wcv_est = median(wcv_vals, 'omitnan');          % median wCV as fraction
         cor_est = 1.96 * sqrt(2) * wcv_est * 100;       % CoR in percent
         
