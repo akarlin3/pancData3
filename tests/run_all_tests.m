@@ -26,6 +26,13 @@ else
     end
 end
 addpath(repoRoot);
+
+% Save test output to test.out when run standalone (not wrapped by execute_all_workflows)
+standalone_diary = strcmp(get(0, 'Diary'), 'off');
+if standalone_diary
+    diary(fullfile(repoRoot, 'test.out'));
+end
+
 % Add test subdirectories to path, excluding transient mock_data dirs that
 % may be left over from a previous crashed run.  Including them causes
 % spurious "Removed ... from the MATLAB path" warnings when test teardown
@@ -104,5 +111,9 @@ end
 
 % Restore figure visibility
 set(0, 'DefaultFigureVisible', 'on');
+
+if standalone_diary
+    diary off;
+end
 
 disp('All tests passed successfully!');
