@@ -22,6 +22,11 @@ function metrics_stats_comparisons(valid_pts, lf_group, metric_sets, set_names, 
 
 fprintf('  --- SECTION 7: Univariate Analysis ---\n');
 
+% Diary: capture console output to output_folder
+diary_file = fullfile(output_folder, ['metrics_stats_comparisons_output_' dtype_label '.txt']);
+if exist(diary_file, 'file'), delete(diary_file); end
+diary(diary_file);
+
 figure_titles = {
     '1. Absolute DWI/IVIM Metrics vs Local Failure (Wilcoxon Rank-Sum)', ...
     '2. Percent Change Metrics vs Local Failure (Wilcoxon Rank-Sum)', ...
@@ -244,7 +249,7 @@ if sig_count > 0
     disp('----- FDR-Significant Findings (BH q < 0.05) -----');
     disp(sig_results_table);
 
-    export_filename = fullfile(dataloc, 'Significant_LF_Metrics.csv');
+    export_filename = fullfile(output_folder, 'Significant_LF_Metrics.csv');
     writetable(sig_results_table, export_filename);
     fprintf('Saved FDR-significant results to: %s\n', export_filename);
 else
@@ -258,7 +263,7 @@ if total_count > 0
     sig_global = fdr_table(fdr_table.FDR_Q < 0.05, :);
 
     if ~isempty(sig_global)
-        writetable(sig_global, fullfile(dataloc, 'FDR_Sig_Global.csv'));
+        writetable(sig_global, fullfile(output_folder, 'FDR_Sig_Global.csv'));
     end
 
     % Per-timepoint breakdown for readability
@@ -400,4 +405,5 @@ else
     warning('on', 'all');
 end
 
+diary off;
 end

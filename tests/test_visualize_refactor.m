@@ -30,6 +30,8 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             % Setup inputs
             % IMPORTANT: We deliberately do NOT add a trailing separator to test fullfile robustness
             testCase.ConfigStruct.dataloc = testCase.TempDir;
+            testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'saved_figures');
+            testCase.ConfigStruct.dwi_types_to_run = 1;
 
             testCase.SummaryMetrics.id_list = {patID};
             testCase.SummaryMetrics.mrn_list = {'MRN01'};
@@ -55,6 +57,7 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function cleanup(testCase)
+            diary off;  % close any diary opened by the function under test
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
             end

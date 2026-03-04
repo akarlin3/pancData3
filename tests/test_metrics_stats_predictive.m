@@ -27,6 +27,7 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            diary off;  % close any diary opened by the function under test
             close all;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');

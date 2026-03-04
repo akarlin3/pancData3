@@ -16,6 +16,11 @@ function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, 
 
 fprintf('  --- SECTION 5: Longitudinal Metric Plotting ---\n');
 
+% Diary: capture console output to output_folder
+diary_file = fullfile(output_folder, ['metrics_longitudinal_output_' dtype_label '.txt']);
+if exist(diary_file, 'file'), delete(diary_file); end
+diary(diary_file);
+
 % Group data for easy iteration
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
 metrics_pct = {ADC_pct, D_pct, f_pct, Dstar_pct};
@@ -69,6 +74,7 @@ set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
 
+diary off;
 end
 
 function plot_metric_subplot(idx, dat, x_vals, x_labels, nTp, color_spec, marker_style, title_str, y_label, add_zero_line)

@@ -6,6 +6,26 @@ config_file = fullfile(repo_root, 'config.json');
 
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
 if ~exist('OCTAVE_VERSION', 'builtin')
+    % Delete any stale parallel jobs before creating a new pool
+    try
+        allJobs = matlab.internal.parallel.getJobs();
+        if ~isempty(allJobs)
+            delete(allJobs);
+            fprintf('⚙️ Deleted %d stale parallel job(s).\n', numel(allJobs));
+        end
+    catch
+        % Fallback: use the job manager from the default cluster profile
+        try
+            c = parcluster;
+            if ~isempty(c.Jobs)
+                delete(c.Jobs);
+                fprintf('⚙️ Deleted stale parallel jobs from cluster profile.\n');
+            end
+        catch
+            % No jobs to clean up
+        end
+    end
+
     p = gcp('nocreate');
     if ~isempty(p)
         delete(p);
@@ -23,12 +43,26 @@ end
 % sequence starts with a fresh timestamped output directory.
 clear run_dwi_pipeline;
 
+% Create the timestamped output folder now so the diary can live there.
+% run_dwi_pipeline will detect this folder via its persistent variable.
+timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
+eaw_output_folder = fullfile(repo_root, sprintf('saved_files_%s', timestamp_str));
+if ~exist(eaw_output_folder, 'dir'), mkdir(eaw_output_folder); end
+
+% Master diary for execute_all_workflows console output
+eaw_diary_file = fullfile(eaw_output_folder, 'execute_all_workflows.log');
+diary(eaw_diary_file);
+
 % --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
 disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
+diary(test_diary_file);
 try
     run(fullfile(repo_root, 'tests', 'run_all_tests.m'));
     disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+    diary(eaw_diary_file);  % switch back to master diary
 catch ME
+    diary(eaw_diary_file);  % switch back before error
     fprintf('❌ Test failure: %s\n', ME.message);
     error('PipelineAborted:TestFailure', ...
         'Pipeline aborted: test suite did not pass.');
@@ -60,7 +94,8 @@ config_struct.dwi_type = 'Standard';
 config_struct.skip_to_reload = false;
 json_str = jsonencode(config_struct);
 fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline(config_file, steps);
+run_dwi_pipeline(config_file, steps, eaw_output_folder);
+diary(eaw_diary_file);  % restart after pipeline run
 
 % --- 3. RUN dnCNN PIPELINE ---
 disp('====== STARTING dnCNN PIPELINE ======');
@@ -68,7 +103,8 @@ config_struct.dwi_type = 'dnCNN';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
 fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline(config_file, steps);
+run_dwi_pipeline(config_file, steps, eaw_output_folder);
+diary(eaw_diary_file);  % restart after pipeline run
 
 % --- 4. RUN IVIMnet PIPELINE ---
 disp('====== STARTING IVIMnet PIPELINE ======');
@@ -76,9 +112,11 @@ config_struct.dwi_type = 'IVIMnet';
 config_struct.skip_to_reload = true;
 json_str = jsonencode(config_struct);
 fid = fopen(config_file, 'w'); fprintf(fid, '%s', json_str); fclose(fid);
-run_dwi_pipeline(config_file, steps);
+run_dwi_pipeline(config_file, steps, eaw_output_folder);
+diary(eaw_diary_file);  % restart after pipeline run
 
 disp('====== ALL WORKFLOWS COMPLETED ======');
+diary off;
 
 function restore_config_file(config_path, original_str, backup_path)
 % Restore config.json to its original state when the script exits (whether

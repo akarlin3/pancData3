@@ -1,7 +1,7 @@
 % Test script for intelligent correlation filtering logic
 function test_corr_filter()
-    % Setup output directory like the rest of the pipeline
-    output_folder = fullfile(pwd, 'saved_figures');
+    % Setup output directory in temp folder to avoid polluting the project root
+    output_folder = fullfile(tempdir, 'test_corr_filter_output');
     if ~exist(output_folder, 'dir'), mkdir(output_folder); end
     
     % Start diary to log text output

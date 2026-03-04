@@ -1,4 +1,4 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol)
+function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
@@ -13,15 +13,24 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 %   fx_label          - Fraction labels used in logging
 %   dtype_label       - DWI type name used in output
 %   m_gtv_vol         - (Optional) GTV volume matrix (patients x fractions)
+%   output_folder     - (Optional) Directory for diary output
 %
 % Outputs:
 %   None. Outputs printed to console (HR and p-value tables).
 %
 
-% Handle optional GTV volume argument for backward compatibility
+% Handle optional arguments for backward compatibility
 if nargin < 12, m_gtv_vol = []; end
+if nargin < 13, output_folder = ''; end
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
+
+% Diary: capture console output to output_folder
+if ~isempty(output_folder)
+    diary_file = fullfile(output_folder, ['metrics_survival_output_' dtype_label '.txt']);
+    if exist(diary_file, 'file'), delete(diary_file); end
+    diary(diary_file);
+end
 
 td_scan_days = [0, 5, 10, 15, 20, 90];   % update if exact scan dates are available
 
@@ -257,6 +266,10 @@ for hl_idx = 1:length(half_life_grid)
 end
 
 fprintf('\nMetrics module sequence completed successfully.\n');
+
+if ~isempty(output_folder)
+    diary off;
+end
 end
 
 %% ========================================================================

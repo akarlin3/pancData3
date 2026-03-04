@@ -112,7 +112,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         function testHappyPath(testCase)
             [gtvp, gtvn, summary] = testCase.createMockData(2, 3);
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             testCase.verifyTrue(is_valid, 'Happy path should be valid');
             testCase.verifyTrue(contains(msg, 'Passed'), 'Message should indicate success');
@@ -124,7 +124,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Introduce Inf
             gtvp(1,1,1).adc_vector(1) = Inf;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             % Convergence issues are warnings, not failures
             testCase.verifyTrue(is_valid, 'Convergence warnings should not invalidate run');
@@ -137,7 +137,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Make dose vector different length
             gtvp(1,1,1).dose_vector(end+1) = 0.5;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             testCase.verifyFalse(is_valid, 'Alignment mismatch should invalidate run');
             testCase.verifyTrue(contains(msg, 'Failed'), 'Message should indicate failure');
@@ -151,7 +151,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             nVox = numel(gtvp(1,1,1).dose_vector);
             gtvp(1,1,1).dose_vector(1:floor(0.2*nVox)) = NaN;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             % NaN dose coverage is a soft warning (partial RT dose overlap
             % is common), not a hard failure.  Only dimensional mismatches
@@ -170,7 +170,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             summary.adc_mean(5,1,1) = 5.0;
 
             % Capture console output since outliers are just printed to diary/console
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             % Outliers should not invalidate the run, but they should be reported
             testCase.verifyTrue(is_valid, 'Outliers should not invalidate run');
@@ -184,7 +184,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             summary.adc_mean(1,1,1) = NaN;
             summary.d95_gtvp(1,2) = NaN;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
 
             % Missing data should just be summarized
             testCase.verifyTrue(is_valid, 'Missingness should not invalidate run');
@@ -199,8 +199,9 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Should pass and complete
             testCase.verifyTrue(is_valid, 'Fallback defaults should not invalidate run');
 
-            % Cleanup the created default directory
-            default_dir = fullfile(pwd, 'saved_figures');
+            % Cleanup: fallback path is core/../saved_figures (project root)
+            core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
+            default_dir = fullfile(core_dir, '..', 'saved_figures');
             if exist(default_dir, 'dir')
                 rmdir(default_dir, 's');
             end
@@ -212,7 +213,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Introduce a negative value in DnCNN vector
             gtvp(1,1,1).d_vector_dncnn(1) = -1.0;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 2, 'dwi_type_name', 'DnCNN'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 2, 'dwi_type_name', 'DnCNN', 'output_folder', testCase.TempDir));
 
             % Should trigger convergence warning but not invalidate run
             testCase.verifyTrue(is_valid, 'DnCNN convergence warnings should not invalidate run');
@@ -225,7 +226,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Introduce NaN in IvimNET vector
             gtvp(1,1,1).f_vector_ivimnet(1) = NaN;
 
-            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 3, 'dwi_type_name', 'IVIM-NET'));
+            [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 3, 'dwi_type_name', 'IVIM-NET', 'output_folder', testCase.TempDir));
 
             % Should trigger convergence warning but not invalidate run
             testCase.verifyTrue(is_valid, 'IvimNET convergence warnings should not invalidate run');

@@ -17,6 +17,13 @@ function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, 
 
 fprintf('  --- SECTION 6: Target Coverage (Sub-Volume Dose Metrics) ---\n');
 
+% Diary: capture console output to output_folder
+if isfield(config_struct, 'output_folder')
+    diary_file = fullfile(config_struct.output_folder, 'metrics_dosimetry_output.txt');
+    if exist(diary_file, 'file'), delete(diary_file); end
+    diary(diary_file);
+end
+
 adc_thresh   = config_struct.adc_thresh;    
 d_thresh     = config_struct.d_thresh;      
 f_thresh     = config_struct.f_thresh;      
@@ -103,5 +110,10 @@ for j = 1:length(m_id_list)
             
         end
     end
+end
+
+% Close diary for this module
+if isfield(config_struct, 'output_folder')
+    diary off;
 end
 end

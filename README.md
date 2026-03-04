@@ -111,7 +111,7 @@ See [`config.example.json`](config.example.json) for all available fields.
 
 ### Full Pipeline (all DWI types)
 
-Runs Standard, dnCNN, and IVIMnet sequentially with a parallel pool (max 2 workers):
+Runs Standard, dnCNN, and IVIMnet sequentially with a parallel pool (max 2 workers). Creates a timestamped output folder (`saved_files_YYYYMMDD_HHMMSS/`) containing all logs, figures, and results:
 
 ```matlab
 execute_all_workflows
@@ -128,8 +128,26 @@ run_dwi_pipeline('config.json');
 % Run specific steps only
 run_dwi_pipeline('config.json', {'load', 'sanity'});
 
-% Run with a custom output folder
-run_dwi_pipeline('config.json', {'load', 'visualize'}, 'path/to/output');
+% Run with a pre-existing output folder
+run_dwi_pipeline('config.json', {'load', 'visualize'}, 'path/to/saved_files_folder');
+```
+
+The optional 3rd argument specifies a parent output folder. If omitted, a new timestamped folder is created automatically.
+
+### Output Structure
+
+All pipeline output is organized into a single timestamped folder:
+
+```
+saved_files_YYYYMMDD_HHMMSS/
+├── execute_all_workflows.log        # Master workflow log
+├── test_suite_output.log            # Test suite output
+├── Standard/                        # Per-DWI-type results
+│   ├── pipeline_log_Standard.txt    # Pipeline console log
+│   ├── *.txt                        # Per-module logs
+│   └── *.fig / *.png                # Figures
+├── dnCNN/
+└── IVIMnet/
 ```
 
 ---

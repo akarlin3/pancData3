@@ -24,6 +24,7 @@ sfprj/
 
 # Project Specific / PHI Protection
 saved_figures*/
+saved_files*/
 /data/
 /results/figures/
 

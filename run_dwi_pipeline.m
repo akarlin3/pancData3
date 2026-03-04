@@ -79,16 +79,23 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     end
                 end
                 pf_suite = pf_suite(keep);
+                % Capture test output to its own diary file
+                if ~isempty(master_output_folder) && exist(master_output_folder, 'dir')
+                    pf_diary = fullfile(master_output_folder, 'preflight_tests_output.log');
+                    diary(pf_diary);
+                end
                 old_fig_vis = get(0, 'DefaultFigureVisible');
                 set(0, 'DefaultFigureVisible', 'off');
                 pf_results = run(pf_suite);
                 set(0, 'DefaultFigureVisible', old_fig_vis);
+                diary off;
                 if any([pf_results.Failed])
                     error('PreFlight:TestFailure', '%d test(s) failed.', sum([pf_results.Failed]));
                 end
                 tests_passed_this_session = true;
                 fprintf('      ✅ %d unit tests passed.\n', numel(pf_results));
             catch ME
+                diary off;
                 tests_passed_this_session = false;
                 fprintf('❌ Test suite failed: %s\n', ME.message);
                 error('PipelineAborted:TestFailure', ...
@@ -126,6 +133,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     log_fid = -1; % Error log file handle (opened after output folder is determined)
 
+    % Suppress figure windows for the entire pipeline run — all plots are
+    % saved to disk via saveas(), so visible windows are unnecessary.
+    prev_fig_vis = get(0, 'DefaultFigureVisible');
+    set(0, 'DefaultFigureVisible', 'off');
+    cleanup_fig_vis = onCleanup(@() set(0, 'DefaultFigureVisible', prev_fig_vis));
+
     fprintf('=======================================================\n');
     fprintf('🚀 Starting Master DWI Pipeline Orchestrator\n');
     fprintf('=======================================================\n');
@@ -144,7 +157,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
             % First run in this MATLAB session without a specific folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-            master_output_folder = fullfile(pipeline_dir, sprintf('saved_figures_%s', timestamp_str));
+            master_output_folder = fullfile(pipeline_dir, sprintf('saved_files_%s', timestamp_str));
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
@@ -191,6 +204,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     type_output_folder = fullfile(master_output_folder, current_name);
     if ~exist(type_output_folder, 'dir'), mkdir(type_output_folder); end
     config_struct.output_folder = type_output_folder;
+
+    % Master diary: capture orchestrator-level console output.
+    % Each core module runs its own diary (overriding this one), then calls
+    % diary off.  We restart this master diary after every module returns.
+    master_diary_file = fullfile(type_output_folder, sprintf('pipeline_log_%s.txt', current_name));
+    if exist(master_diary_file, 'file'), delete(master_diary_file); end
+    diary(master_diary_file);
 
     % Open error log file in master output folder
     error_log_file = fullfile(master_output_folder, 'error.log');
@@ -311,8 +331,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         validated_data_gtvp = data_vectors_gtvp;
         validated_data_gtvn = data_vectors_gtvn;
     end
-
-
+    diary(master_diary_file);  % restart master diary after sanity_checks
 
     % Step 5: Calculate Metrics
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
@@ -367,6 +386,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     end
+    diary(master_diary_file);  % restart master diary after metrics_baseline
 
     if ismember('metrics_longitudinal', steps_to_run)
         try
@@ -385,8 +405,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
             end
         catch ME
-            fprintf('❌ FAILED.\n');
-            fprintf('❌ Error during metrics_longitudinal: %s\n', ME.message);
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during metrics_longitudinal: %s\n', ME.message);
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_longitudinal failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -398,6 +418,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     else
         fprintf('⏭️ [5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
     end
+    diary(master_diary_file);  % restart master diary after metrics_longitudinal
 
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
@@ -415,8 +436,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
             end
         catch ME
-            fprintf('❌ FAILED.\n');
-            fprintf('❌ Error during metrics_dosimetry: %s\n', ME.message);
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during metrics_dosimetry: %s\n', ME.message);
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_dosimetry failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -448,6 +469,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('⏭️ [5.3/5] [%s] Skipping metrics_dosimetry.\n', current_name);
         end
     end
+    diary(master_diary_file);  % restart master diary after metrics_dosimetry
 
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
@@ -470,8 +492,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
             end
         catch ME
-            fprintf('❌ FAILED.\n');
-            fprintf('❌ Error during metrics_stats_comparisons: %s\n', ME.message);
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during metrics_stats_comparisons: %s\n', ME.message);
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_stats_comparisons failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -483,6 +505,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     else
         fprintf('⏭️ [5.4a/5] [%s] Skipping metrics_stats_comparisons.\n', current_name);
     end
+    diary(master_diary_file);  % restart master diary after metrics_stats_comparisons
 
     if ismember('metrics_stats_predictive', steps_to_run)
         try
@@ -516,8 +539,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
             end
         catch ME
-            fprintf('❌ FAILED.\n');
-            fprintf('❌ Error during metrics_stats_predictive: %s\n', ME.message);
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during metrics_stats_predictive: %s\n', ME.message);
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_stats_predictive failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -543,6 +566,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('⏭️ [5.4b/5] [%s] Skipping metrics_stats_predictive.\n', current_name);
         end
     end
+    diary(master_diary_file);  % restart master diary after metrics_stats_predictive
 
     % Moved Step: Visualize Results (MUST run after calculated_results is prepared)
     if ismember('visualize', steps_to_run)
@@ -583,12 +607,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     else
         fprintf('⏭️ [5.4c/5] [%s] Skipping Visualization.\n', current_name);
     end
+    diary(master_diary_file);  % restart master diary after visualize_results
 
     if ismember('metrics_survival', steps_to_run)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
-                             m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol);
+                             m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol, config_struct.output_folder);
 
             survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
             fid = fopen(survival_results_file, 'w');
@@ -602,8 +627,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
             end
         catch ME
-            fprintf('❌ FAILED.\n');
-            fprintf('❌ Error during metrics_survival: %s\n', ME.message);
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during metrics_survival: %s\n', ME.message);
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_survival failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -615,6 +640,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     else
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
     end
+    diary(master_diary_file);  % restart master diary after metrics_survival
 
     fprintf('=======================================================\n');
     fprintf('🎉 Pipeline Execution Complete for parameter %s\n', current_name);
@@ -625,4 +651,5 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
     end
 
+    diary off;  % close master diary at end of pipeline run
 end

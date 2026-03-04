@@ -25,6 +25,11 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 
 fprintf('  --- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 
+% Diary: capture console output to output_folder
+diary_file = fullfile(output_folder, ['metrics_stats_predictive_output_' dtype_label '.txt']);
+if exist(diary_file, 'file'), delete(diary_file); end
+diary(diary_file);
+
 % Initialize risk outputs to be returned and used by survival
 risk_scores_all = [];
 is_high_risk = [];
@@ -504,11 +509,9 @@ for target_fx = 2:nTp
                 scatter(x_val(group==0), y_val(group==0), 80, 'b', 'filled', 'MarkerEdgeColor', 'k');
                 scatter(x_val(group==1), y_val(group==1), 80, 'r', 'filled', 'MarkerEdgeColor', 'k');
 
-                warning('off', 'stats:glmfit:IterationLimit');
-                warning('off', 'stats:glmfit:PerfectSeparation');
+                w_state = warning('off', 'all');
                 mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 10000));
-                warning('on', 'stats:glmfit:IterationLimit');
-                warning('on', 'stats:glmfit:PerfectSeparation');
+                warning(w_state);
                 coefs = mdl.Coefficients.Estimate;
                 x_range = linspace(min(x_val), max(x_val), 100);
                 y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
@@ -540,4 +543,5 @@ for target_fx = 2:nTp
     is_high_risk = is_high_risk_target;
 end
 
+diary off;
 end

@@ -96,7 +96,7 @@ Key fields:
 execute_all_workflows
 ```
 
-This sets up a parallel pool (max 2 workers), runs Standard → dnCNN → IVIMnet sequentially, modifying `config.json` between runs and skipping reload phases after the first.
+This creates a timestamped output folder (`saved_files_YYYYMMDD_HHMMSS/`), cleans up stale parallel jobs, sets up a parallel pool (max 2 workers), runs Standard → dnCNN → IVIMnet sequentially, modifying `config.json` between runs and skipping reload phases after the first. All console output and logs are saved to the timestamped folder.
 
 ### Single step / targeted run
 
@@ -109,9 +109,11 @@ run_dwi_pipeline('config.json', {'load'});
 % Run load + sanity checks
 run_dwi_pipeline('config.json', {'load', 'sanity'});
 
-% Run with a custom output folder
-run_dwi_pipeline('config.json', {'load', 'visualize'}, 'path/to/output');
+% Run with a pre-existing output folder (used by execute_all_workflows)
+run_dwi_pipeline('config.json', {'load', 'visualize'}, 'path/to/saved_files_folder');
 ```
+
+The optional 3rd argument specifies a parent output folder. If omitted, `run_dwi_pipeline` creates its own timestamped folder. When called from `execute_all_workflows`, the same timestamped folder is reused across all three DWI type runs.
 
 ### Available pipeline steps (in order)
 
@@ -256,14 +258,49 @@ Progress output uses emoji prefixes for clarity:
 - `🚀` — pipeline start
 - `⚙️` — processing step
 - `✅` — success
-- `❌` — failure/halt
+- `❌` — fatal error / pipeline halt
+- `⚠️` — non-fatal warning (module failed but pipeline continues)
 - `📁` — file output
 - `💡` — informational note
+
+### Diary / Console Logging Architecture
+
+All console output is captured to log files via MATLAB's `diary` command. MATLAB only supports one active diary at a time, so the architecture uses a restart pattern:
+
+1. **`execute_all_workflows.m`** opens a master diary (`execute_all_workflows.log`) in the timestamped output folder.
+2. **`run_dwi_pipeline.m`** opens a per-DWI-type diary (`pipeline_log_{type}.txt`) in the type subfolder.
+3. Each **core module** (sanity_checks, visualize_results, metrics_*) opens its own diary, overriding the orchestrator's.
+4. After each module returns, the orchestrator **restarts** its diary to resume capturing.
+
+**Output folder structure:**
+
+```
+saved_files_YYYYMMDD_HHMMSS/
+├── execute_all_workflows.log        # Top-level workflow log
+├── test_suite_output.log            # Full test suite output
+├── preflight_tests_output.log       # Pre-flight test output (run_dwi_pipeline)
+├── error.log                        # Error/warning log
+├── Standard/                        # DWI type subfolder
+│   ├── pipeline_log_Standard.txt    # Orchestrator log
+│   ├── sanity_checks_output.txt
+│   ├── visualize_results_output.txt
+│   ├── metrics_baseline_output_Standard.txt
+│   ├── metrics_longitudinal_output_Standard.txt
+│   ├── metrics_dosimetry_output.txt
+│   ├── metrics_stats_comparisons_output_Standard.txt
+│   ├── metrics_stats_predictive_output_Standard.txt
+│   └── metrics_survival_output_Standard.txt
+├── dnCNN/                           # Same structure as Standard/
+└── IVIMnet/                         # Same structure as Standard/
+```
+
+**Important for tests:** Any test that exercises a core module must call `diary off;` in its `TestMethodTeardown` before calling `rmdir` on temp directories, because the module's diary file will still be open (locked on Windows).
 
 ### Error Handling
 
 - Validate MATLAB toolbox licenses at startup (Statistics + Image Processing).
 - Halt with a clear message on any unrecoverable error.
+- Non-fatal module failures (metrics_longitudinal, dosimetry, stats, survival) log a `⚠️` warning and continue the pipeline.
 - Graceful halting is preferred over silent continuation with bad data.
 
 ---
