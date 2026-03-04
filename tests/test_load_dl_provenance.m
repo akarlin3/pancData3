@@ -82,17 +82,12 @@ classdef test_load_dl_provenance < matlab.unittest.TestCase
         end
 
         function testLoadFromCallerWorkspace(testCase)
-            % Define variable in the caller workspace (this function's scope)
+            % Test explicit parameter passing (replaces old evalin('caller') pattern)
             dl_provenance_workspace.dncnn_train_ids = {'caller_pat1'};
             dl_provenance_workspace.ivimnet_train_ids = {'caller_pat2'};
 
-            % Assign to caller workspace is tricky in matlab tests directly,
-            % but since the function checks evalin('caller', ...), and the test method
-            % itself is the caller, having it as a local variable here works.
-
-            % However, to ensure it works properly as intended by 'caller' evalin,
-            % we create a local helper function
-            loaded_provenance = testCase.callLoadHelper();
+            % Pass provenance struct as explicit second argument
+            loaded_provenance = load_dl_provenance('', dl_provenance_workspace);
 
             % Verify
             testCase.verifyEqual(loaded_provenance.dncnn_train_ids, {'caller_pat1'});
@@ -100,28 +95,16 @@ classdef test_load_dl_provenance < matlab.unittest.TestCase
         end
 
         function testLoadFromBaseWorkspace(testCase)
-            % Define variable in the base workspace
+            % Test explicit parameter passing (replaces old evalin('base') pattern)
             base_provenance.dncnn_train_ids = {'base_pat1'};
             base_provenance.ivimnet_train_ids = {'base_pat2'};
-            assignin('base', 'dl_provenance_workspace', base_provenance);
 
-            % Load using the function
-            loaded_provenance = load_dl_provenance('some_file.mat');
+            % Pass provenance struct as explicit second argument
+            loaded_provenance = load_dl_provenance('some_file.mat', base_provenance);
 
             % Verify
             testCase.verifyEqual(loaded_provenance.dncnn_train_ids, {'base_pat1'});
             testCase.verifyEqual(loaded_provenance.ivimnet_train_ids, {'base_pat2'});
-        end
-    end
-
-    methods(Access=private)
-        function loaded_provenance = callLoadHelper(testCase)
-            % Define the variable in the caller's workspace (this helper's scope)
-            dl_provenance_workspace.dncnn_train_ids = {'caller_pat1'};
-            dl_provenance_workspace.ivimnet_train_ids = {'caller_pat2'};
-
-            % Call the target function, which will look at this workspace
-            loaded_provenance = load_dl_provenance();
         end
     end
 end

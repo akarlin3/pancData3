@@ -42,6 +42,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(fullfile(baseDir, 'core'));
             addpath(fullfile(baseDir, 'utils'));
+            addpath(fullfile(baseDir, 'dependencies'));
         end
     end
 
