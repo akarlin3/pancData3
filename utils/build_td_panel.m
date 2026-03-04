@@ -205,6 +205,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         return;
     end
 
-    fprintf('  [TD Panel] %d patients → %d intervals (%d events)\n', ...
-        n_pts, row, sum(event_td));
+    fprintf('  [TD Panel] %d patients → %d intervals (%d events of interest, %d competing)\n', ...
+        n_pts, row, sum(event_td == 1), sum(event_td == 2));
 end

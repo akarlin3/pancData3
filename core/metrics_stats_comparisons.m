@@ -440,9 +440,17 @@ else
         fprintf('\n--- GLME Interaction: Holm-Bonferroni Correction (%d tests) ---\n', n_glme_tests);
         [p_sort_glme, sort_order] = sort(glme_pvals(valid_glme));
         bm_valid = biomarkers(valid_glme);
+        holm_rejected = false(n_glme_tests, 1);
         for gi = 1:n_glme_tests
             adj_alpha = 0.05 / (n_glme_tests - gi + 1);
-            is_sig = p_sort_glme(gi) < adj_alpha;
+            if gi > 1 && ~holm_rejected(gi-1)
+                % Holm step-down: once a test is not rejected, all
+                % subsequent (larger p-value) tests are also not rejected.
+                is_sig = false;
+            else
+                is_sig = p_sort_glme(gi) < adj_alpha;
+            end
+            holm_rejected(gi) = is_sig;
             if is_sig, sig_str = 'SIGNIFICANT'; else, sig_str = 'not significant'; end
             fprintf('  %s: p=%.4f, adj_alpha=%.4f => %s\n', ...
                 bm_valid{sort_order(gi)}, p_sort_glme(gi), adj_alpha, sig_str);

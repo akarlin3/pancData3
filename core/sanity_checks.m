@@ -303,17 +303,36 @@ fprintf('======================================================\n');
 
 % --- 4. Excessive NaN check: fail if >50% of voxels are NaN across the cohort ---
 % NOTE: diary stays open so the pass/fail result is captured in the log.
+% Use the active DWI type's fields (not always Standard) so that dnCNN/IVIMnet
+% runs validate the correct vectors.
 max_nan_frac = 0.5;
 excessive_nan = false;
-nan_check_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector'};
-nan_check_names  = {'ADC', 'D', 'f', 'D*'};
+if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
+    dtype_nan = config_struct.dwi_types_to_run;
+    if ~isscalar(dtype_nan), dtype_nan = dtype_nan(1); end
+else
+    dtype_nan = 1;
+end
+switch dtype_nan
+    case 2
+        nan_check_fields = {'adc_vector_dncnn', 'd_vector_dncnn', 'f_vector_dncnn', 'dstar_vector_dncnn'};
+        nan_check_names  = {'ADC (DnCNN)', 'D (DnCNN)', 'f (DnCNN)', 'D* (DnCNN)'};
+    case 3
+        nan_check_fields = {'adc_vector', 'd_vector_ivimnet', 'f_vector_ivimnet', 'dstar_vector_ivimnet'};
+        nan_check_names  = {'ADC', 'D (IVIMnet)', 'f (IVIMnet)', 'D* (IVIMnet)'};
+    otherwise
+        nan_check_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector'};
+        nan_check_names  = {'ADC', 'D', 'f', 'D*'};
+end
 for fi = 1:numel(nan_check_fields)
     total_voxels = 0;
     total_nans   = 0;
     for j = 1:nPat
         for k = 1:min(size(data_vectors_gtvp, 2), nTp)
             if j > size(data_vectors_gtvp, 1) || k > size(data_vectors_gtvp, 2), continue; end
-            v = data_vectors_gtvp(j, k, 1).(nan_check_fields{fi});
+            s_nan = data_vectors_gtvp(j, k, 1);
+            if ~isfield(s_nan, nan_check_fields{fi}), continue; end
+            v = s_nan.(nan_check_fields{fi});
             if ~isempty(v)
                 total_voxels = total_voxels + numel(v);
                 total_nans   = total_nans + sum(isnan(v));

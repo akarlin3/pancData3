@@ -23,6 +23,10 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     if nargin < 2, X_te = []; end
     if nargin < 3, k = 5; end
     if nargin < 4, pat_id_tr = []; end
+    if isempty(pat_id_tr)
+        warning('knn_impute_train_test:noPatientIDs', ...
+            'No patient IDs provided. Only self-exclusion applied; same-patient rows may leak information.');
+    end
     if nargin < 5, pat_id_te = []; end
     if nargin < 6, target_cols = []; end
     

@@ -241,9 +241,9 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(adc_vec, bin_edges);
                 end
-                n_valid_adc = sum(isfinite(adc_vec));
-                if n_valid_adc > 0
-                    p1 = c1 / n_valid_adc;
+                n_binned_adc = sum(c1);
+                if n_binned_adc > 0
+                    p1 = c1 / n_binned_adc;
                     p1(p1==0)=eps;
                 else
                     p1 = zeros(size(c1));
@@ -320,9 +320,9 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(d_vec, bin_edges);
                 end
-                n_valid_d = sum(isfinite(d_vec));
-                if n_valid_d > 0
-                    p1 = c1 / n_valid_d;
+                n_binned_d = sum(c1);
+                if n_binned_d > 0
+                    p1 = c1 / n_binned_d;
                     p1(p1==0)=eps;
                 else
                     p1 = zeros(size(c1));
