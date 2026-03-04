@@ -107,7 +107,9 @@ else
     pat_normalized = strrep(T.Pat,'_','-');
     id_list_normalized = strrep(id_list,'_','-');
 
-    for j = 1:length(id_list)
+    n_ids_clinical = length(id_list);
+    for j = 1:n_ids_clinical
+        text_progress_bar(j, n_ids_clinical, 'Matching clinical data');
         i_find = find(~cellfun(@isempty, strfind(pat_normalized, id_list_normalized{j})));
         if ~isempty(i_find)
             i_find = i_find(1);
@@ -169,7 +171,9 @@ if ~exist('nTp', 'var') || isempty(nTp)
 end
 
 fprintf('  --- Baseline Data Completeness Check ---\n');
-for j = 1:length(id_list)
+n_ids_baseline = length(id_list);
+for j = 1:n_ids_baseline
+    text_progress_bar(j, n_ids_baseline, 'Checking baseline completeness');
     baseline_adc = adc_mean(j, 1, 1);
     baseline_vol = gtv_vol(j, 1);
 end
@@ -189,7 +193,9 @@ exclude_outliers = true;
 baseline_metrics_oi   = {adc_mean(:,1,dtype), d_mean(:,1,dtype), f_mean(:,1,dtype), dstar_mean(:,1,dtype)};
 baseline_metric_names = {'ADC', 'D', 'f', 'D*'};
 is_outlier = false(size(lf));
-for metric_idx = 1:numel(baseline_metrics_oi)
+n_baseline_metrics = numel(baseline_metrics_oi);
+for metric_idx = 1:n_baseline_metrics
+    text_progress_bar(metric_idx, n_baseline_metrics, 'Detecting outliers');
     col = baseline_metrics_oi{metric_idx};
     col_clean = col(~isnan(col));
     if numel(col_clean) < 3, continue; end

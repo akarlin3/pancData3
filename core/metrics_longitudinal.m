@@ -32,14 +32,16 @@ x_vals = 1:nTp;
 % Create figure
 figure('Name', ['Longitudinal Mean Metrics — ' dtype_label], 'Position', [100, 100, 1400, 700]);
 
-for i = 1:4
+n_metrics_long = 4;
+for i = 1:n_metrics_long
+    text_progress_bar(i, n_metrics_long, 'Plotting longitudinal metrics');
     % -------------------------------------------------------------------
     % TOP ROW: Absolute Mean Values
     % -------------------------------------------------------------------
     title_str = ['Mean ', metric_names{i}];
     plot_metric_subplot(i, metrics_abs{i}, x_vals, x_labels, nTp, 'k', 'o', ...
         title_str, metric_units{i}, false);
-    
+
     % -------------------------------------------------------------------
     % BOTTOM ROW: Percent Change from Fx1
     % -------------------------------------------------------------------

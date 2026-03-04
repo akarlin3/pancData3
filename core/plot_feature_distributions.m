@@ -22,7 +22,9 @@ metric_units = {'mm^2/s',   'mm^2/s',  '',       'mm^2/s'};
 % the subplot titles, and shift subplots down for extra clearance.
 figure('Name', ['Feature Distributions — Histograms — ' dtype_label], ...
        'Position', [100, 100, 1200, 450]);
-for mi = 1:4
+n_metrics_dist = 4;
+for mi = 1:n_metrics_dist
+    text_progress_bar(mi, n_metrics_dist, 'Generating histograms');
     subplot(1, 4, mi);
     vals = metric_data{mi};
 
@@ -45,7 +47,8 @@ close(gcf);
 % Same height increase and subplot shift applied here.
 figure('Name', ['Feature Distributions — Box Plots — ' dtype_label], ...
        'Position', [100, 500, 1200, 450]);
-for mi = 1:4
+for mi = 1:n_metrics_dist
+    text_progress_bar(mi, n_metrics_dist, 'Generating box plots');
     subplot(1, 4, mi);
     vals = metric_data{mi};
 
