@@ -55,6 +55,7 @@ catch
             % Also log via fprintf so message appears in diary even when
             % callers suppress warnings with warning('off','all').
             fprintf('  ⚠️  make_grouped_folds: Stratified CV with %d folds failed; using %d folds.\n', k, k_try);
+            k = k_try;  % Sync loop bound with actual partition size
         catch
             warning('make_grouped_folds:unstratified', ...
                 'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);

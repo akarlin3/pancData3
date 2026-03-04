@@ -173,9 +173,13 @@ fprintf('\n--- 2. Identify Missingness & Outliers ---\n');
 fprintf('\n  2a. Fraction-level missingness (NaN in summary arrays):\n');
 fprintf('  %-12s  %s\n', 'Metric', strjoin(fx_labels,'   '));
 
-% Evaluate missingness for each of the four summary biomarker arrays
-% (using Standard DWI, dtype index = 1).
-summary_arrs  = {adc_mean(:,:,1), d_mean(:,:,1), f_mean(:,:,1), dstar_mean(:,:,1)};
+% Evaluate missingness using the active DWI type from config, not hardcoded 1.
+if isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
+    dtype_miss = config_struct.dwi_types_to_run;
+else
+    dtype_miss = 1;
+end
+summary_arrs  = {adc_mean(:,:,dtype_miss), d_mean(:,:,dtype_miss), f_mean(:,:,dtype_miss), dstar_mean(:,:,dtype_miss)};
 summary_names = {'ADC_mean', 'D_mean', 'f_mean', 'Dstar_mean'};
 
 for mi = 1:numel(summary_arrs)

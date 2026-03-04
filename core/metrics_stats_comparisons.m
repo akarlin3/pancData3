@@ -389,6 +389,7 @@ else
 
     biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
     n_biomarkers = length(biomarkers);
+    glme_pvals = nan(n_biomarkers, 1);
     warning('off', 'all');
     for b = 1:n_biomarkers
         text_progress_bar(b, n_biomarkers, 'Fitting GLME models');
@@ -422,19 +423,31 @@ else
             row_idx = find(contains(anova_res.Term, 'LF') & contains(anova_res.Term, 'Timepoint') & contains(anova_res.Term, ':'));
             if numel(row_idx) > 1, row_idx = row_idx(1); end
             if ~isempty(row_idx)
-                pval = anova_res.pValue(row_idx);
-                fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', pval);
-                if pval < 0.05
-                    fprintf('  -> SIGNIFICANT DIFFERENCE in trajectory between LC and LF groups.\n');
-                else
-                    fprintf('  -> No significant difference in trajectory between LC and LF groups.\n');
-                end
+                glme_pvals(b) = anova_res.pValue(row_idx);
+                fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', glme_pvals(b));
             else
                 disp(anova_res);
             end
         end
     end
     warning('on', 'all');
+
+    % Apply Holm-Bonferroni correction across the 4 GLME interaction tests
+    % to control family-wise error rate.
+    valid_glme = ~isnan(glme_pvals);
+    n_glme_tests = sum(valid_glme);
+    if n_glme_tests > 0
+        fprintf('\n--- GLME Interaction: Holm-Bonferroni Correction (%d tests) ---\n', n_glme_tests);
+        [p_sort_glme, sort_order] = sort(glme_pvals(valid_glme));
+        bm_valid = biomarkers(valid_glme);
+        for gi = 1:n_glme_tests
+            adj_alpha = 0.05 / (n_glme_tests - gi + 1);
+            is_sig = p_sort_glme(gi) < adj_alpha;
+            if is_sig, sig_str = 'SIGNIFICANT'; else, sig_str = 'not significant'; end
+            fprintf('  %s: p=%.4f, adj_alpha=%.4f => %s\n', ...
+                bm_valid{sort_order(gi)}, p_sort_glme(gi), adj_alpha, sig_str);
+        end
+    end
 end
 
 diary off;

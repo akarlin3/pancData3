@@ -95,10 +95,14 @@ for target_fx = 2:nTp
     original_feature_indices = original_feature_indices(valid_cols);
 
     y_lasso_all = lf_group;
-    % Recode competing risk (lf==2) as censored (lf==0) for binomial model.
-    % Without this, lassoglm treats value 2 as a non-binary outcome, which
-    % is invalid for logistic regression.
-    y_lasso_all(y_lasso_all == 2) = 0;
+    % Exclude competing risk patients (lf==2) from the binomial model.
+    % Previously, competing events were recoded as LC (lf==0), which
+    % misclassifies patients who died of non-cancer causes before LF could
+    % be observed.  This biased the elastic net by diluting the LC group.
+    % Consistent with the GLME approach in metrics_stats_comparisons.m
+    % which also excludes competing risk patients.
+    competing_mask = (y_lasso_all == 2);
+    y_lasso_all(competing_mask) = NaN;  % mark for exclusion below
 
     base_cols = min(8, size(X_lasso_all, 2));
     has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);
@@ -160,7 +164,9 @@ for target_fx = 2:nTp
 
         % Compute collinearity mask per fold from training data only
         keep_fold = filter_collinear_features(X_tr_imp, y_tr);
-        keep_fold_counts = keep_fold_counts + double(keep_fold(:)');
+        keep_mask = false(1, n_features_impute);
+        keep_mask(keep_fold) = true;
+        keep_fold_counts = keep_fold_counts + double(keep_mask);
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
