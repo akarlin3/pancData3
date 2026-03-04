@@ -229,10 +229,58 @@ disp('===================================================');
 disp('   Test Execution Completed                        ');
 disp('===================================================');
 
-% 6. Write failure summary file if any tests failed
-failureSummaryFile = fullfile(repoRoot, 'failure_summary.out');
+% 6. Print a detailed results table to the console
 failedIdx = find([results.Failed]);
+passedIdx = find(~[results.Failed]);
+durations = [results.Duration];
+
+fprintf('\n');
+fprintf('===================================================\n');
+fprintf('   Results by Test Class\n');
+fprintf('===================================================\n');
+
+% Group results by class name for a compact per-class summary
+classNames = cell(1, numel(results));
+for ri = 1:numel(results)
+    tokens = strsplit(results(ri).Name, '/');
+    classNames{ri} = tokens{1};
+end
+[uniqueClasses, ~, classIdx] = unique(classNames, 'stable');
+for ci = 1:numel(uniqueClasses)
+    mask = (classIdx(:)' == ci);
+    nClass = sum(mask);
+    nFailed = sum([results(mask).Failed]);
+    classDur = sum([results(mask).Duration]);
+    if nFailed == 0
+        fprintf('  ✅ %s — %d tests passed (%.1fs)\n', uniqueClasses{ci}, nClass, classDur);
+    else
+        fprintf('  ❌ %s — %d/%d failed (%.1fs)\n', uniqueClasses{ci}, nFailed, nClass, classDur);
+        % List the individual failures within this class
+        classMask = find(mask);
+        for fi = classMask
+            if results(fi).Failed
+                tokens = strsplit(results(fi).Name, '/');
+                methodName = tokens{end};
+                fprintf('       ↳ %s\n', methodName);
+            end
+        end
+    end
+end
+
+fprintf('\n===================================================\n');
+fprintf('   Summary: %d passed, %d failed, %d total (%.1fs)\n', ...
+    numel(passedIdx), numel(failedIdx), numel(results), sum(durations));
+fprintf('===================================================\n');
+
+% 7. Write failure summary file if any tests failed
+failureSummaryFile = fullfile(repoRoot, 'failure_summary.out');
 if ~isempty(failedIdx)
+    fprintf('\n  Failed tests:\n');
+    for fi = 1:numel(failedIdx)
+        fprintf('    ❌ %s\n', results(failedIdx(fi)).Name);
+    end
+    fprintf('\n');
+
     fid = fopen(failureSummaryFile, 'w');
     if fid ~= -1
         fprintf(fid, 'Test Failure Summary — %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
@@ -258,6 +306,17 @@ if ~isempty(failedIdx)
 elseif exist(failureSummaryFile, 'file')
     % Clean up stale summary from a previous failing run
     delete(failureSummaryFile);
+end
+
+% 8. Assert success (Throws an error and returns non-zero exit code if any test fails)
+% In CI environments running MATLAB with -batch, this will fail the step appropriately.
+% assertSuccess(results) was introduced in R2020a, providing backward compatibility
+if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
+    assertSuccess(results);
+else
+    if any([results.Failed])
+        error('One or more tests failed.');
+    end
 end
 
 % Close waitbar

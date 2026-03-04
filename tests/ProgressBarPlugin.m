@@ -1,7 +1,8 @@
 classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
-%PROGRESSBARPLUGIN Displays a dot-style progress bar during test execution.
-%   Prints '.' after each passing test and 'F' after each failing test,
-%   with periodic [count/total] markers for orientation.
+%PROGRESSBARPLUGIN Displays a clear one-line-per-test progress summary.
+%   Prints each test result on its own line with pass/fail status, the
+%   fully-qualified test name, and elapsed time.  At the end of the suite,
+%   prints a summary block with counts and a list of any failures.
 %
 %   Usage:
 %       runner.addPlugin(ProgressBarPlugin(numel(suite)));
@@ -9,6 +10,11 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
     properties (Access = private)
         TotalTests double = 0
         CompletedTests double = 0
+        PassedCount double = 0
+        FailedCount double = 0
+        FailedNames cell = {}
+        TestTimer
+        SuiteTimer
     end
 
     methods
@@ -20,18 +26,59 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
     methods (Access = protected)
         function runTestSuite(plugin, pluginData)
             plugin.CompletedTests = 0;
-            fprintf('\n  Progress [%d tests]: ', plugin.TotalTests);
+            plugin.PassedCount = 0;
+            plugin.FailedCount = 0;
+            plugin.FailedNames = {};
+            plugin.SuiteTimer = tic;
+
+            fprintf('\n');
             runTestSuite@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
-            fprintf(' Done!\n\n');
+
+            elapsed = toc(plugin.SuiteTimer);
+            plugin.printSummary(elapsed);
         end
 
         function runTest(plugin, pluginData)
+            plugin.TestTimer = tic;
             runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
+            testTime = toc(plugin.TestTimer);
+
             plugin.CompletedTests = plugin.CompletedTests + 1;
-            fprintf('.');
-            if mod(plugin.CompletedTests, 50) == 0
-                fprintf(' [%d/%d]\n  ', plugin.CompletedTests, plugin.TotalTests);
+
+            testName = pluginData.Name;
+            passed = ~pluginData.TestResult.Failed;
+
+            if passed
+                plugin.PassedCount = plugin.PassedCount + 1;
+                fprintf('  ✅ PASS  [%3d/%d] %s (%.2fs)\n', ...
+                    plugin.CompletedTests, plugin.TotalTests, testName, testTime);
+            else
+                plugin.FailedCount = plugin.FailedCount + 1;
+                plugin.FailedNames{end+1} = testName;
+                fprintf('  ❌ FAIL  [%3d/%d] %s (%.2fs)\n', ...
+                    plugin.CompletedTests, plugin.TotalTests, testName, testTime);
             end
+        end
+    end
+
+    methods (Access = private)
+        function printSummary(plugin, elapsed)
+            fprintf('\n');
+            fprintf('───────────────────────────────────────────────────\n');
+            fprintf('  Test Suite Summary\n');
+            fprintf('───────────────────────────────────────────────────\n');
+            fprintf('  Total:   %d tests in %.1fs\n', plugin.TotalTests, elapsed);
+            fprintf('  Passed:  %d\n', plugin.PassedCount);
+            if plugin.FailedCount > 0
+                fprintf('  Failed:  %d\n', plugin.FailedCount);
+                fprintf('\n  Failed tests:\n');
+                for k = 1:numel(plugin.FailedNames)
+                    fprintf('    ❌ %s\n', plugin.FailedNames{k});
+                end
+            else
+                fprintf('  Failed:  0\n');
+            end
+            fprintf('───────────────────────────────────────────────────\n\n');
         end
     end
 end
