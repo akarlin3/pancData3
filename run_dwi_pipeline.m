@@ -29,7 +29,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     addpath(fullfile(pipeline_dir, 'core'));
     addpath(fullfile(pipeline_dir, 'utils'));
     if exist('OCTAVE_VERSION', 'builtin')
-        addpath(fullfile(pipeline_dir, 'utils', 'octave_compat'));
+        addpath(fullfile(pipeline_dir, '.octave_compat'));
     end
     addpath(fullfile(pipeline_dir, 'dependencies'));
 

@@ -7,7 +7,7 @@ testsDir  = fileparts(mfilename('fullpath'));
 repoRoot  = fileparts(testsDir);
 
 % Set up paths
-addpath(fullfile(repoRoot, 'utils', 'octave_compat'));
+addpath(fullfile(repoRoot, '.octave_compat'));
 addpath(fullfile(repoRoot, 'core'));
 addpath(fullfile(repoRoot, 'utils'));
 addpath(fullfile(repoRoot, 'dependencies'));

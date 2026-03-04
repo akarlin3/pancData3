@@ -66,4 +66,4 @@ jobs:
 
       - name: Run Octave compatibility test
         run: |
-          octave --eval "addpath('core','utils','utils/octave_compat','dependencies','tests'); test_octave;"
+          octave --eval "addpath('core','utils','.octave_compat','dependencies','tests'); test_octave;"
