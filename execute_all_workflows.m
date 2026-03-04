@@ -55,18 +55,34 @@ eaw_diary_file = fullfile(eaw_output_folder, 'execute_all_workflows.log');
 diary(eaw_diary_file);
 
 % --- 1.5 RUN TEST SUITE BEFORE PIPELINE ---
-disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
-test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
-diary(test_diary_file);
+% Check config for skip_tests option before running the test suite
+eaw_skip_tests = false;
 try
-    run(fullfile(repo_root, 'tests', 'run_all_tests.m'));
-    disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
-    diary(eaw_diary_file);  % switch back to master diary
-catch ME
-    diary(eaw_diary_file);  % switch back before error
-    fprintf('❌ Test failure: %s\n', ME.message);
-    error('PipelineAborted:TestFailure', ...
-        'Pipeline aborted: test suite did not pass.');
+    eaw_raw = fileread(config_file);
+    eaw_cfg = jsondecode(eaw_raw);
+    if isfield(eaw_cfg, 'skip_tests') && eaw_cfg.skip_tests
+        eaw_skip_tests = true;
+    end
+catch
+    % If config can't be read, proceed with tests enabled
+end
+
+if eaw_skip_tests
+    disp('⏭️ Skipping test suite (skip_tests = true in config.json).');
+else
+    disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+    test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
+    diary(test_diary_file);
+    try
+        run(fullfile(repo_root, 'tests', 'run_all_tests.m'));
+        disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+        diary(eaw_diary_file);  % switch back to master diary
+    catch ME
+        diary(eaw_diary_file);  % switch back before error
+        fprintf('❌ Test failure: %s\n', ME.message);
+        error('PipelineAborted:TestFailure', ...
+            'Pipeline aborted: test suite did not pass.');
+    end
 end
 
 % If a backup from a previous crashed run exists, restore it first.

@@ -56,6 +56,17 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % function multiple times.
     persistent tests_passed_this_session;
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
+    if ~skip_preflight
+        try
+            pf_raw = fileread(config_path);
+            pf_cfg = jsondecode(pf_raw);
+            if isfield(pf_cfg, 'skip_tests') && pf_cfg.skip_tests
+                skip_preflight = true;
+            end
+        catch
+            % If config can't be read here, let parse_config handle the error later
+        end
+    end
     if ismember('test', steps_to_run)
         if ~skip_preflight && (isempty(tests_passed_this_session) || ~tests_passed_this_session)
             try
