@@ -234,7 +234,7 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(adc_vec, bin_edges);
                 end
-                n_valid_adc = sum(~isnan(adc_vec));
+                n_valid_adc = sum(isfinite(adc_vec));
                 if n_valid_adc > 0
                     p1 = c1 / n_valid_adc;
                     p1(p1==0)=eps;
@@ -304,7 +304,7 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(d_vec, bin_edges);
                 end
-                n_valid_d = sum(~isnan(d_vec));
+                n_valid_d = sum(isfinite(d_vec));
                 if n_valid_d > 0
                     p1 = c1 / n_valid_d;
                     p1(p1==0)=eps;
@@ -413,7 +413,9 @@ for j=1:n_patients_metrics
                         else
                             adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
                         end
-                        fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+                        if numel(adc_vec) > 0
+                            fx_corrupted_rpt(j,rpi,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+                        end
                         adc_vec_sub = adc_vec(adc_vec<adc_thresh);
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;

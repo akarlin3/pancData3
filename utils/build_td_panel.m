@@ -127,6 +127,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             if use_decay && any(isnan(cov_row))
                 decay_mask = isnan(cov_row) & ~isnan(orig_X);
                 dt_per_feat = day_tp - orig_t;
+                if any(dt_per_feat(decay_mask) < 0)
+                    warning('build_td_panel:nonMonotonicTime', ...
+                        'Negative time delta detected (patient %d, tp %d). Clamping to zero.', j, tp);
+                    dt_per_feat = max(dt_per_feat, 0);
+                end
                 cov_row(decay_mask) = orig_X(decay_mask) .* exp(-lambda_decay * dt_per_feat(decay_mask));
             end
 
