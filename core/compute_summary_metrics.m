@@ -307,10 +307,10 @@ for j=1:n_patients_metrics
                 n_valid_d = sum(~isnan(d_vec));
                 if n_valid_d > 0
                     p1 = c1 / n_valid_d;
+                    p1(p1==0)=eps;
                 else
-                    p1 = c1;
+                    p1 = zeros(size(c1));
                 end
-                p1(p1==0)=eps;
                 d_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal (see ADC comment above).
                 if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
@@ -432,6 +432,11 @@ for j=1:n_patients_metrics
                     end
 
                     if ~isempty(d_vec)
+                        % Count D/f/D* repeats when ADC is absent (e.g.,
+                        % IVIMnet which reuses standard-pipeline ADC).
+                        if isempty(adc_vec)
+                            rp_count = rp_count + 1;
+                        end
                         if exist('OCTAVE_VERSION', 'builtin')
                             tmp = d_vec(~isnan(d_vec));
                             if isempty(tmp)

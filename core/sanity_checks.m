@@ -114,7 +114,7 @@ for j = 1:nPat
                     vectors = struct('ADC', s.adc_vector_dncnn, 'D', s.d_vector_dncnn, 'f', s.f_vector_dncnn, 'Dstar', s.dstar_vector_dncnn);
                     dtype_name = ' (DnCNN)';
                 case 3
-                    vectors = struct('ADC', s.adc_vector_ivimnet, 'D', s.d_vector_ivimnet, 'f', s.f_vector_ivimnet, 'Dstar', s.dstar_vector_ivimnet);
+                    vectors = struct('ADC', s.adc_vector, 'D', s.d_vector_ivimnet, 'f', s.f_vector_ivimnet, 'Dstar', s.dstar_vector_ivimnet);
                     dtype_name = ' (IVIM-NET)';
                 otherwise
                     continue;

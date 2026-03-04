@@ -169,7 +169,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % --- 3. Final Fallback ---
     % Use pre-imputation training means to avoid circular dependency
     tr_mean = mean(X_tr, 1, 'omitnan');
-    tr_mean(isnan(tr_mean)) = 0; % Ultimate fallback if entirely NaN
+    all_nan_cols = isnan(tr_mean);
+    if any(all_nan_cols)
+        warning('knn_impute_train_test:allNaNColumn', ...
+            '%d column(s) are entirely NaN in training data; imputing to 0.', sum(all_nan_cols));
+    end
+    tr_mean(all_nan_cols) = 0;
     
     for m = 1:p
         nan_tr = isnan(X_tr_imp(:, m));
