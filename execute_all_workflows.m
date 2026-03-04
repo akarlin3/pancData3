@@ -154,12 +154,24 @@ function restore_config_file(config_path, original_str, backup_path)
 % by normal completion or error).  Also removes the backup file.
     try
         fid = fopen(config_path, 'w');
+        if fid == -1
+            error('restore:openFailed', 'Cannot open config.json for writing.');
+        end
         fprintf(fid, '%s', original_str);
         fclose(fid);
         if exist(backup_path, 'file')
             delete(backup_path);
         end
     catch
-        fprintf('⚠️  Could not restore config.json. Backup saved at %s\n', backup_path);
+        % Primary restore failed — try copying from backup as fallback.
+        if exist(backup_path, 'file')
+            try
+                copyfile(backup_path, config_path);
+                fprintf('⚠️  Restored config.json from backup file.\n');
+                return;
+            catch
+            end
+        end
+        fprintf('❌ CRITICAL: config.json could not be restored. Manual recovery from %s required.\n', backup_path);
     end
 end

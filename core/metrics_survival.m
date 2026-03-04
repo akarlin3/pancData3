@@ -111,10 +111,11 @@ X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_t
 % only patients still at risk after the last treatment fraction, using
 % covariates measured at or before the landmark.
 % The last element of td_scan_days is the post-treatment scan.
-% Select the last on-treatment fraction (up to Fx5) as the landmark.
+% Select the last on-treatment fraction as the landmark.  This adapts
+% automatically to protocols with fewer or more than 5 fractions.
 n_on_tx = max(length(td_scan_days) - 1, 1);  % exclude post-treatment element
-landmark_idx = min(5, n_on_tx);
-landmark_day = td_scan_days(landmark_idx);  % end of RT (Fx5, day 20 for default timing)
+landmark_idx = n_on_tx;
+landmark_day = td_scan_days(landmark_idx);  % end of RT
 lm_keep = (t_start_td >= landmark_day);
 if any(lm_keep)
     n_before = length(t_start_td);
@@ -247,6 +248,14 @@ try
         'Censoring', is_censored, 'Ties', 'breslow', ...
         'Frequency', ipcw_freq);
     warning(w_temp);
+
+    % Correct variance inflation from the Frequency workaround.
+    % coxphfit's Frequency parameter treats each "replicate" as an
+    % independent observation, inflating effective N by ipcw_scale and
+    % deflating SEs by sqrt(ipcw_scale).  Rescale SEs and recompute
+    % p-values to recover correct inference.
+    stats_td_short.se = stats_td_short.se * sqrt(ipcw_scale);
+    stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
     b_td = zeros(td_n_feat, 1);
