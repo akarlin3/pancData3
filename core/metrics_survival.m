@@ -132,10 +132,16 @@ if has_admin_cens
         is_admin_cens_subset = double(event_td(not_competing) == 0);
         T_cens = [t_start_td(not_competing), t_stop_td(not_competing)];
         X_cens_subset = X_td_global(not_competing, :);
+        [X_cens_clean, keep_ipcw] = remove_constant_columns(X_cens_subset);
+        if size(X_cens_clean, 2) == 0
+            error('IPCW:NoVariableColumns', 'All covariate columns are constant.');
+        end
         w_ipcw = warning('off', 'all');
-        [b_cens, ~, ~, stats_cens] = coxphfit(X_cens_subset, T_cens, ...
+        [b_cens_short, ~, ~, stats_cens] = coxphfit(X_cens_clean, T_cens, ...
             'Censoring', (is_admin_cens_subset == 0), 'Ties', 'breslow');
         warning(w_ipcw);
+        b_cens = zeros(td_n_feat, 1);
+        b_cens(keep_ipcw) = b_cens_short;
 
         % Compute survival function of censoring (Kaplan-Meier-like via Cox)
         % Use the censoring model coefficients (fit on non-competing subset)
@@ -178,16 +184,32 @@ try
     T_td = [t_start_td, t_stop_td];
     is_censored = (event_td_csh == 0);
 
-    % Suppress trivial warnings like Constant Term, but KEEP error triggers for convergence failures
+    % Remove constant columns to prevent DisallowedConstantTerm warning
+    [X_td_clean, keep_main] = remove_constant_columns(X_td_global);
+    if sum(~keep_main) > 0
+        fprintf('  💡 Removed %d constant column(s) before Cox fit: %s\n', ...
+            sum(~keep_main), strjoin(td_feat_names(~keep_main), ', '));
+    end
+    if size(X_td_clean, 2) == 0
+        error('Cox:NoVariableColumns', 'All covariate columns are constant after scaling.');
+    end
+
+    % Suppress trivial warnings, but KEEP error triggers for convergence failures
     w_temp = warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
-    [b_td, logl_td, ~, stats_td_raw] = coxphfit(X_td_global, T_td, ...
+    [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
         'Frequency', round(ipcw_weights * 100));   % integer pseudo-counts
     warning(w_temp);
-    stats_td.se = stats_td_raw.se;
-    stats_td.p  = stats_td_raw.p;
+
+    % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
+    b_td = zeros(td_n_feat, 1);
+    b_td(keep_main) = b_td_short;
+    stats_td.se = nan(td_n_feat, 1);
+    stats_td.p  = nan(td_n_feat, 1);
+    stats_td.se(keep_main) = stats_td_short.se;
+    stats_td.p(keep_main)  = stats_td_short.p;
 catch ME_td
     if exist('w_temp', 'var'), warning(w_temp); end
     if ~isempty(strfind(ME_td.identifier, 'FitWarning')) || ...
@@ -252,9 +274,15 @@ for hl_idx = 1:length(half_life_grid)
     try
         ev_csh = pnl.event; ev_csh(ev_csh == 2) = 0;
         X_hl = scale_td_panel(pnl.X, td_feat_names, pnl.pat_id, pnl.t_start, unique(pnl.pat_id));
+        [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
+        if size(X_hl_clean, 2) == 0
+            error('HalfLife:NoVariableColumns', 'All columns constant for half-life %d.', half_life_grid(hl_idx));
+        end
         w_hl = warning('off', 'all');
-        [b_hl] = coxphfit(X_hl, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
+        [b_hl_short] = coxphfit(X_hl_clean, [pnl.t_start, pnl.t_stop], 'Censoring', ev_csh==0, 'Ties', 'breslow');
         warning(w_hl);
+        b_hl = zeros(td_n_feat, 1);
+        b_hl(keep_hl) = b_hl_short;
         fprintf('  %-6d', half_life_grid(hl_idx));
         for fi = 1:td_n_feat
             fprintf('  %10.3f', exp(b_hl(fi)));
@@ -366,6 +394,15 @@ function [X_panel, t_start_out, t_stop_out, event_out, pat_id_out, frac_out] = b
     event_out   = event_pre(1:row_count);
     pat_id_out  = pat_id_pre(1:row_count);
     frac_out    = frac_pre(1:row_count);
+end
+
+function [X_out, keep_mask] = remove_constant_columns(X_in, tol)
+    % REMOVE_CONSTANT_COLUMNS  Drops columns with range < tol.
+    %   Returns the pruned matrix and a logical mask of retained columns.
+    if nargin < 2, tol = 1e-12; end
+    col_range = max(X_in, [], 1) - min(X_in, [], 1);
+    keep_mask = col_range >= tol;
+    X_out = X_in(:, keep_mask);
 end
 
 function X_scaled = scale_td_panel(X_td, feat_names, pat_id, t_start, train_pids)
