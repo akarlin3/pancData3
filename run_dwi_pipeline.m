@@ -152,24 +152,29 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         % --- Master Output Folder Logic ---
         % Use a persistent variable scoped to this function instead of a
         % global, which can leak across unrelated MATLAB sessions.
+        % Persistent variable is ONLY used when execute_all_workflows
+        % passes an explicit folder (3rd arg) and subsequent calls within
+        % the same multi-DWI-type session need to reuse it.  Direct
+        % manual calls (no 3rd arg) always create a fresh timestamped
+        % folder, avoiding silent reuse of a previous run's directory.
         persistent MASTER_OUTPUT_FOLDER;
 
-        if isempty(master_output_folder) && isempty(MASTER_OUTPUT_FOLDER)
-            % First run in this MATLAB session without a specific folder
+        if ~isempty(master_output_folder)
+            % User/execute_all_workflows explicitly provided a folder
+            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
+            MASTER_OUTPUT_FOLDER = master_output_folder;
+            fprintf('      📁 Using explicitly provided master output folder: %s\n', master_output_folder);
+        elseif ~isempty(MASTER_OUTPUT_FOLDER) && exist(MASTER_OUTPUT_FOLDER, 'dir')
+            % Subsequent call within the same execute_all_workflows session
+            master_output_folder = MASTER_OUTPUT_FOLDER;
+            fprintf('      📁 Reusing EXISTING master output folder: %s\n', master_output_folder);
+        else
+            % Standalone run — always create a fresh folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
             master_output_folder = fullfile(pipeline_dir, sprintf('saved_files_%s', timestamp_str));
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
-        elseif isempty(master_output_folder) && ~isempty(MASTER_OUTPUT_FOLDER)
-            % Subsequent call within the same execute_all_workflows session
-            master_output_folder = MASTER_OUTPUT_FOLDER;
-            fprintf('      📁 Reusing EXISTING master output folder: %s\n', master_output_folder);
-        else
-            % User explicitly provided a folder
-            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
-            MASTER_OUTPUT_FOLDER = master_output_folder;
-            fprintf('      📁 Using explicitly provided master output folder: %s\n', master_output_folder);
         end
 
         config_struct.master_output_folder = master_output_folder;
@@ -328,10 +333,41 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     else
         fprintf('⏭️ [3/5] [%s] Skipping Sanity Checks.\n', current_name);
-        validated_data_gtvp = data_vectors_gtvp;
-        validated_data_gtvn = data_vectors_gtvn;
+        if exist('data_vectors_gtvp', 'var')
+            validated_data_gtvp = data_vectors_gtvp;
+            validated_data_gtvn = data_vectors_gtvn;
+        else
+            % When running visualize alone without load or sanity, try loading
+            % from the DWI vectors file on disk.
+            try
+                fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+                if exist(dwi_vectors_file, 'file')
+                    target_dwi_file = dwi_vectors_file;
+                elseif exist(fallback_dwi_vectors_file, 'file')
+                    target_dwi_file = fallback_dwi_vectors_file;
+                else
+                    target_dwi_file = '';
+                end
+                if ~isempty(target_dwi_file)
+                    tmp_vectors = load(target_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+                    validated_data_gtvp = tmp_vectors.data_vectors_gtvp;
+                    validated_data_gtvn = tmp_vectors.data_vectors_gtvn;
+                    fprintf('      💾 Loaded validated_data_gtvp from disk (%s).\n', target_dwi_file);
+                else
+                    error('Data vectors not found. Please run "load" step first.');
+                end
+            catch ME_load
+                fprintf('❌ Error loading data vectors from disk: %s\n', ME_load.message);
+                if log_fid > 0
+                    fprintf(log_fid, '[%s] [ERROR] Loading data vectors for visualize failed: %s\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME_load.message);
+                end
+                return;
+            end
+        end
     end
     diary(master_diary_file);  % restart master diary after sanity_checks
+    lastwarn('');  % reset warning tracker between steps
 
     % Step 5: Calculate Metrics
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
@@ -378,15 +414,18 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 ADC_abs = tmp_base.ADC_abs; D_abs = tmp_base.D_abs; f_abs = tmp_base.f_abs; Dstar_abs = tmp_base.Dstar_abs; ADC_pct = tmp_base.ADC_pct; D_pct = tmp_base.D_pct; f_delta = tmp_base.f_delta; Dstar_pct = tmp_base.Dstar_pct;
                 nTp = tmp_base.nTp; metric_sets = tmp_base.metric_sets; set_names = tmp_base.set_names; time_labels = tmp_base.time_labels; dtype_label = tmp_base.dtype_label; dl_provenance = tmp_base.dl_provenance;
             else
-                fprintf('      ⚠️ Warning: metrics_baseline results not found. Subsequent metrics steps will fail.\n');
+                fprintf('❌ metrics_baseline results not found at: %s\n', baseline_results_file);
+                fprintf('❌ Downstream metrics steps require baseline results. Halting pipeline.\n');
                 if log_fid > 0
-                    fprintf(log_fid, '[%s] [WARNING] metrics_baseline results not found at: %s\n', ...
+                    fprintf(log_fid, '[%s] [ERROR] metrics_baseline results not found at: %s. Halting pipeline.\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), baseline_results_file);
                 end
+                return;
             end
         end
     end
     diary(master_diary_file);  % restart master diary after metrics_baseline
+    lastwarn('');  % reset warning tracker between steps
 
     if ismember('metrics_longitudinal', steps_to_run)
         try
@@ -419,6 +458,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('⏭️ [5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_longitudinal
+    lastwarn('');  % reset warning tracker between steps
 
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
@@ -458,8 +498,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     fprintf(log_fid, '[%s] [WARNING] metrics_dosimetry results not found at: %s\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), dosimetry_results_file);
                 end
-                % define defaults just to prevent hard crash occasionally
-                if iscell(nTp), nTp_val = nTp{1}; else, nTp_val = nTp; end
+                % define defaults just to prevent hard crash
+                nTp_val = nTp;
                 d95_adc_sub = nan(length(m_id_list), nTp_val); v50_adc_sub = nan(length(m_id_list), nTp_val);
                 d95_d_sub = nan(length(m_id_list), nTp_val); v50_d_sub = nan(length(m_id_list), nTp_val);
                 d95_f_sub = nan(length(m_id_list), nTp_val); v50_f_sub = nan(length(m_id_list), nTp_val);
@@ -470,6 +510,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     diary(master_diary_file);  % restart master diary after metrics_dosimetry
+    lastwarn('');  % reset warning tracker between steps
 
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
@@ -506,6 +547,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('⏭️ [5.4a/5] [%s] Skipping metrics_stats_comparisons.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_stats_comparisons
+    lastwarn('');  % reset warning tracker between steps
 
     if ismember('metrics_stats_predictive', steps_to_run)
         try
@@ -567,6 +609,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         end
     end
     diary(master_diary_file);  % restart master diary after metrics_stats_predictive
+    lastwarn('');  % reset warning tracker between steps
 
     % Moved Step: Visualize Results (MUST run after calculated_results is prepared)
     if ismember('visualize', steps_to_run)
@@ -608,6 +651,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('⏭️ [5.4c/5] [%s] Skipping Visualization.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after visualize_results
+    lastwarn('');  % reset warning tracker between steps
 
     if ismember('metrics_survival', steps_to_run)
         try
@@ -641,6 +685,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_survival
+    lastwarn('');  % reset warning tracker between steps
 
     fprintf('=======================================================\n');
     fprintf('🎉 Pipeline Execution Complete for parameter %s\n', current_name);

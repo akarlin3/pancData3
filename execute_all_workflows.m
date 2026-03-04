@@ -35,8 +35,9 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     pctRunOnAll addpath(fullfile(repo_root, 'core'));
     pctRunOnAll addpath(fullfile(repo_root, 'utils'));
     pctRunOnAll addpath(fullfile(repo_root, 'dependencies'));
+    w_state_before_pct = warning;  % save client warning state before pctRunOnAll clobbers it
     pctRunOnAll warning('off', 'all');
-    warning('on', 'all');  % pctRunOnAll also runs on client — restore client warnings
+    warning(w_state_before_pct);   % restore client warnings (pctRunOnAll also executes on client)
 end
 
 % Reset persistent output folder in run_dwi_pipeline so each full workflow
@@ -68,6 +69,21 @@ catch ME
         'Pipeline aborted: test suite did not pass.');
 end
 
+% If a backup from a previous crashed run exists, restore it first.
+% onCleanup does not fire on kill -9 or MATLAB segfaults, so the .bak
+% file is the only recovery mechanism in those cases.
+config_backup = fullfile(repo_root, 'config.json.bak');
+if exist(config_backup, 'file')
+    fprintf('⚠️  Found config.json.bak from a previous crash. Restoring original config.json.\n');
+    fid_restore = fopen(config_backup, 'r');
+    bak_raw = fread(fid_restore, inf);
+    fclose(fid_restore);
+    fid_restore_w = fopen(config_file, 'w');
+    fwrite(fid_restore_w, bak_raw);
+    fclose(fid_restore_w);
+    delete(config_backup);
+end
+
 % Load the configuration JSON explicitly because we are going to modify it
 fid = fopen(config_file, 'r');
 raw = fread(fid, inf);
@@ -77,7 +93,6 @@ config_struct = jsondecode(str);
 original_config_str = str;  % preserve original for rollback
 
 % Backup config.json so a mid-run crash does not leave it in a modified state
-config_backup = fullfile(repo_root, 'config.json.bak');
 fid_bak = fopen(config_backup, 'w');
 fprintf(fid_bak, '%s', str);
 fclose(fid_bak);

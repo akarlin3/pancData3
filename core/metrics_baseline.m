@@ -186,7 +186,7 @@ else
     output_folder = fullfile(config_struct.dataloc, 'saved_figures');
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
-diary_file = fullfile(output_folder, 'metrics_output.txt');
+diary_file = fullfile(output_folder, ['metrics_baseline_output_' dwi_type_names{dtype} '.txt']);
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
 w_state_baseline = warning('off', 'stats:glmfit:IterationLimit');

@@ -163,7 +163,7 @@ for j=1:n_patients_metrics
             % --- Compute ADC summary metrics for this patient/timepoint ---
             if ~isempty(adc_vec)
                 n_finite_adc = sum(~isnan(adc_vec));
-                gtv_vol(j,k) = numel(adc_vec)*vox_vol;
+                gtv_vol(j,k) = n_finite_adc*vox_vol;
                 if exist('OCTAVE_VERSION', 'builtin')
                     % Octave nanmean might fail if it's a vector of all nans or something else
                     tmp = adc_vec(~isnan(adc_vec));
@@ -253,7 +253,9 @@ for j=1:n_patients_metrics
                 end
 
                 high_adc_sub_vol(j,k,dwi_type) = numel(adc_vec_high_sub)*vox_vol;
-                fx_corrupted(j,k,dwi_type) = numel(adc_vec(adc_vec>adc_max))/numel(adc_vec);
+                if n_finite_adc > 0
+                    fx_corrupted(j,k,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_adc;
+                end
             end
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
@@ -453,7 +455,10 @@ for j=1:n_patients_metrics
                         end
                     end
                 end
-                if dwi_type==1
+                % Record repeat count from any DWI type (first non-zero wins).
+                % Previously only dwi_type==1 populated n_rpt, leaving it
+                % all-NaN for dnCNN/IVIMnet-only runs and breaking wCV.
+                if isnan(n_rpt(j)) || n_rpt(j) == 0
                     n_rpt(j) = rp_count;
                 end
             end

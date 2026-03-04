@@ -388,7 +388,11 @@ else
             fprintf('\n--- %s ---\n', used_formula);
 
             anova_res = anova(glme);
-            row_idx = find(strcmp(anova_res.Term, 'LF:Timepoint'));
+            % MATLAB's fitglme may encode the interaction term with level
+            % suffixes (e.g. 'LF_1:Timepoint_2') depending on categorical
+            % encoding.  Use contains() for robust matching.
+            row_idx = find(contains(anova_res.Term, 'LF') & contains(anova_res.Term, 'Timepoint') & contains(anova_res.Term, ':'));
+            if numel(row_idx) > 1, row_idx = row_idx(1); end
             if ~isempty(row_idx)
                 pval = anova_res.pValue(row_idx);
                 fprintf('Interaction P-Value (LF * Timepoint): %.4f\n', pval);

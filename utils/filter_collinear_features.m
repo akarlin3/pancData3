@@ -61,9 +61,19 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
     % This avoids computing AUC for features that are never involved in a collision
     c_indices = -1 * ones(1, n_feats);
     
-    % Find highly collinear pairs
-    [row_idx, col_idx] = find(abs(tril(R, -1)) > 0.8);
-    
+    % Find highly collinear pairs and sort by descending |rho| so that the
+    % strongest collinearities are resolved first.  This makes the greedy
+    % pruning deterministic regardless of column ordering.
+    R_lower = abs(tril(R, -1));
+    [row_idx, col_idx] = find(R_lower > 0.8);
+    pair_rho = zeros(length(row_idx), 1);
+    for pi = 1:length(row_idx)
+        pair_rho(pi) = R_lower(row_idx(pi), col_idx(pi));
+    end
+    [~, sort_order] = sort(pair_rho, 'descend');
+    row_idx = row_idx(sort_order);
+    col_idx = col_idx(sort_order);
+
     % Process pairs sequentially, dropping the weaker feature
     for idx = 1:length(row_idx)
         fi = row_idx(idx);
