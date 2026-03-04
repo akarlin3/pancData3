@@ -170,21 +170,23 @@ for target_fx = 2:nTp
         % imputation splits.
         X_clean_all = knn_impute_train_test(X_impute, [], 5, id_list_impute);
 
+        w_state_final = warning('off', 'stats:lassoGlm:IterationLimit');
         try
             [B_final, FitInfo_final] = lassoglm(X_clean_all, y_clean, 'binomial', ...
-                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 10000);
+                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 100000);
 
             coefs_en = B_final;
 
             % Map nonzero coefficient indices to original feature names.
             nz_in_kept = find(coefs_en ~= 0);
             selected_indices = original_feature_indices(nz_in_kept);
-            
+
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
         catch
             cv_failed = true;
         end
+        warning(w_state_final);
     end
     
     if cv_failed || isempty(common_Lambda)
