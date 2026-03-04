@@ -6,7 +6,7 @@ function metrics_stats_comparisons(valid_pts, lf_group, metric_sets, set_names, 
 %
 % Inputs:
 %   valid_pts         - Logical mask of patients with valid survival/failure data
-%   lf_group          - Local failure grouping variable (0 or 1)
+%   lf_group          - Local failure grouping variable (0=LC, 1=LF, 2=competing risk)
 %   metric_sets       - Cell array grouped by measurement type (e.g. Abs, Pct)
 %   set_names         - String descriptors for the grouped metrics
 %   time_labels       - String labels for timepoints (Fx1, Fx2, etc.)
@@ -76,7 +76,13 @@ for s = 1:n_metric_sets
             has_data = ~isnan(y_raw);
             y = y_raw(has_data);
             g = lf_group(has_data);
-            
+
+            % Exclude competing risk patients (lf==2) — ranksum requires
+            % exactly 2 groups and silently returns NaN when 3 are present.
+            non_competing = (g <= 1);
+            y = y(non_competing);
+            g = g(non_competing);
+
             p = perform_statistical_test(y, g, 'ranksum');
 
             if ~isnan(p)
@@ -220,6 +226,11 @@ for idx = 1:total_count
         has_data = ~isnan(y_raw);
         y = y_raw(has_data);
         g = lf_group(has_data);
+
+        % Exclude competing risk patients for group summary
+        non_competing = (g <= 1);
+        y = y(non_competing);
+        g = g(non_competing);
 
         mean_LC = mean(y(g == 0), 'omitnan');
         mean_LF = mean(y(g == 1), 'omitnan');

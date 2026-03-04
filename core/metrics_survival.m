@@ -75,9 +75,12 @@ td_n_feat      = numel(td_feat_arrays);
 td_lf       = m_lf(valid_pts);
 td_tot_time = m_total_time(valid_pts);
 
-% Censored patients use follow-up time; events use time-to-event
+% Censored and competing-risk patients use follow-up time; events use
+% time-to-event.  In a Cause-Specific Hazard (CSH) model, competing risk
+% patients (lf==2) are censored at their last follow-up — they did not
+% experience the event of interest (local failure).
 follow_up_valid = m_total_follow_up_time(valid_pts);
-cens_mask_td = (td_lf == 0) & ~isnan(follow_up_valid);
+cens_mask_td = (td_lf == 0 | td_lf == 2) & ~isnan(follow_up_valid);
 td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
