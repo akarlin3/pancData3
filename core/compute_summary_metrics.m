@@ -249,7 +249,10 @@ for j=1:n_patients_metrics
                 % Treat as descriptive, not inferential.
                 if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
                         && any(~isnan(adc_vec)) && any(~isnan(adc_baseline))
-                    [~,p,ks2stat] = kstest2(adc_vec,adc_baseline);
+                    % Remove NaN before kstest2 (required for Octave compatibility)
+                    adc_vec_ks = adc_vec(~isnan(adc_vec));
+                    adc_bl_ks  = adc_baseline(~isnan(adc_baseline));
+                    [~,p,ks2stat] = kstest2(adc_vec_ks, adc_bl_ks);
                     ks_stats_adc(j,k,dwi_type) = ks2stat;
                     ks_pvals_adc(j,k,dwi_type) = p;
                 end

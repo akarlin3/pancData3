@@ -215,7 +215,7 @@ for mi = 1:numel(summary_arrs)
 
         med_val = median(col_clean);
         iqr_val = iqr(col_clean);
-        if iqr_val == 0, continue; end
+        if iqr_val == 0 || isnan(iqr_val), continue; end
 
         lower_fence = med_val - 3 * iqr_val;
         upper_fence = med_val + 3 * iqr_val;

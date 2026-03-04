@@ -355,6 +355,12 @@ else
     % to an existing table (which fails in Octave's old-style class system)
     baseline_idx = long_Timepoint == 1;
 
+    if sum(baseline_idx) < 2
+        fprintf('  ⚠️  Fewer than 2 baseline observations after NaN cleaning — skipping GLME.\n');
+        if ~isempty(output_folder), diary off; end
+        return;
+    end
+
     mean_ADC_base = mean(long_ADC(baseline_idx));
     std_ADC_base = std(long_ADC(baseline_idx));
     mean_D_base = mean(long_D(baseline_idx));
@@ -363,6 +369,11 @@ else
     std_f_base = std(long_f(baseline_idx));
     mean_Dstar_base = mean(long_Dstar(baseline_idx));
     std_Dstar_base = std(long_Dstar(baseline_idx));
+    % Guard against zero std (constant baseline) producing Inf z-scores
+    if std_ADC_base == 0, std_ADC_base = NaN; end
+    if std_D_base == 0, std_D_base = NaN; end
+    if std_f_base == 0, std_f_base = NaN; end
+    if std_Dstar_base == 0, std_Dstar_base = NaN; end
 
     long_ADC_z = (long_ADC - mean_ADC_base) / std_ADC_base;
     long_D_z = (long_D - mean_D_base) / std_D_base;

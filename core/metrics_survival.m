@@ -254,6 +254,11 @@ try
     % independent observation, inflating effective N by ipcw_scale and
     % deflating SEs by sqrt(ipcw_scale).  Rescale SEs and recompute
     % p-values to recover correct inference.
+    % CAVEAT: This sqrt(N) rescaling assumes the Cox information matrix
+    % scales linearly with N.  In practice the partial likelihood
+    % information depends on the risk-set structure, so this is an
+    % approximation.  A custom weighted partial likelihood (or sandwich
+    % variance estimator) would be more rigorous.
     stats_td_short.se = stats_td_short.se * sqrt(ipcw_scale);
     stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
 
