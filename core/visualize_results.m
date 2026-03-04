@@ -65,7 +65,8 @@ fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
 % Build a logical mask identifying patients with usable clinical and
 % imaging data.  Require a finite LF label and a
 % non-NaN baseline ADC value (Standard DWI, Fx1).
-valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,1));
+dtype = config_struct.dwi_types_to_run;
+valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
 % Subset the outcome labels to the valid patients for later grouping
 lf_group = lf(valid_pts);
 

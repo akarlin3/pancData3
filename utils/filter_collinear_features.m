@@ -1,5 +1,5 @@
 function [keep_idx] = filter_collinear_features(X, y, frac_vec)
-% FILTER_COLLINEAR_FEATURES Filters collinear features using Pearson |r| > 0.8.
+% FILTER_COLLINEAR_FEATURES Filters collinear features using Spearman |rho| > 0.8.
 %
 %   [keep_idx] = filter_collinear_features(X, y)
 %   [keep_idx] = filter_collinear_features(X, y, frac_vec)

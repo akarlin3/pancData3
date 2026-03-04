@@ -38,4 +38,11 @@ function dl_provenance = load_dl_provenance(manifest_file)
     if ~isfield(dl_provenance, 'ivimnet_train_ids')
         dl_provenance.ivimnet_train_ids = {};
     end
+
+    % Flag whether the manifest was actually loaded so callers can detect
+    % when the leakage guard is inactive (empty IDs + no manifest = no protection).
+    if ~isfield(dl_provenance, 'manifest_loaded')
+        dl_provenance.manifest_loaded = ~isempty(fieldnames(dl_provenance)) && ...
+            (~isempty(dl_provenance.dncnn_train_ids) || ~isempty(dl_provenance.ivimnet_train_ids));
+    end
 end

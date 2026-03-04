@@ -50,11 +50,11 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
             Dstar_abs = rand(n, nTp) * 0.05;
             ADC_pct   = rand(n, nTp) * 20 - 10;
             D_pct     = rand(n, nTp) * 20 - 10;
-            f_pct     = rand(n, nTp) * 0.1 - 0.05;
+            f_delta     = rand(n, nTp) * 0.1 - 0.05;
             Dstar_pct = rand(n, nTp) * 20 - 10;
 
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                ADC_pct, D_pct, f_pct, Dstar_pct, nTp, dtype_label, testCase.TempDir);
+                ADC_pct, D_pct, f_delta, Dstar_pct, nTp, dtype_label, testCase.TempDir);
 
             expected_file = fullfile(testCase.TempDir, ...
                 ['Longitudinal_Mean_Metrics_' dtype_label '.png']);
@@ -71,11 +71,11 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
             Dstar_abs = rand(1, nTp) * 0.05;
             ADC_pct   = rand(1, nTp) * 10;
             D_pct     = rand(1, nTp) * 10;
-            f_pct     = rand(1, nTp) * 0.05;
+            f_delta     = rand(1, nTp) * 0.05;
             Dstar_pct = rand(1, nTp) * 10;
 
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                ADC_pct, D_pct, f_pct, Dstar_pct, nTp, 'SinglePt', testCase.TempDir);
+                ADC_pct, D_pct, f_delta, Dstar_pct, nTp, 'SinglePt', testCase.TempDir);
             testCase.verifyTrue(true, 'Single-patient case should not throw.');
         end
 
@@ -89,11 +89,11 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
             Dstar_abs = nan(n, nTp);
             ADC_pct   = nan(n, nTp);
             D_pct     = nan(n, nTp);
-            f_pct     = nan(n, nTp);
+            f_delta     = nan(n, nTp);
             Dstar_pct = nan(n, nTp);
 
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                ADC_pct, D_pct, f_pct, Dstar_pct, nTp, 'AllNaN', testCase.TempDir);
+                ADC_pct, D_pct, f_delta, Dstar_pct, nTp, 'AllNaN', testCase.TempDir);
             testCase.verifyTrue(true, 'All-NaN data should not throw.');
         end
 
@@ -109,11 +109,11 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
             Dstar_abs = rand(n, nTp) * 0.05;
             ADC_pct   = rand(n, nTp) * 20 - 10;
             D_pct     = rand(n, nTp) * 20 - 10;
-            f_pct     = rand(n, nTp) * 0.1 - 0.05;
+            f_delta     = rand(n, nTp) * 0.1 - 0.05;
             Dstar_pct = rand(n, nTp) * 20 - 10;
 
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                ADC_pct, D_pct, f_pct, Dstar_pct, nTp, 'SixTp', testCase.TempDir);
+                ADC_pct, D_pct, f_delta, Dstar_pct, nTp, 'SixTp', testCase.TempDir);
 
             expected_file = fullfile(testCase.TempDir, 'Longitudinal_Mean_Metrics_SixTp.png');
             testCase.verifyTrue(exist(expected_file, 'file') > 0, ...

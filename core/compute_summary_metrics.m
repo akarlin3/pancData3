@@ -175,8 +175,11 @@ for j=1:n_patients_metrics
                     adc_mean(j,k,dwi_type) = nanmean(adc_vec);
                 end
                 if numel(adc_vec) >= min_vox_hist
-                    adc_kurt(j,k,dwi_type) = kurtosis(adc_vec);
-                    adc_skew(j,k,dwi_type) = skewness(adc_vec);
+                    adc_vec_finite = adc_vec(~isnan(adc_vec));
+                    if numel(adc_vec_finite) >= min_vox_hist
+                        adc_kurt(j,k,dwi_type) = kurtosis(adc_vec_finite);
+                        adc_skew(j,k,dwi_type) = skewness(adc_vec_finite);
+                    end
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
@@ -210,8 +213,11 @@ for j=1:n_patients_metrics
                     end
                 end
                 if numel(adc_vec_sub) >= min_vox_hist
-                    adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_vec_sub);
-                    adc_sub_skew(j,k,dwi_type) = skewness(adc_vec_sub);
+                    adc_sub_finite = adc_vec_sub(~isnan(adc_vec_sub));
+                    if numel(adc_sub_finite) >= min_vox_hist
+                        adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_sub_finite);
+                        adc_sub_skew(j,k,dwi_type) = skewness(adc_sub_finite);
+                    end
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
@@ -220,7 +226,13 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(adc_vec, bin_edges);
                 end
-                p1 = c1 / numel(adc_vec); p1(p1==0)=eps;
+                n_valid_adc = sum(~isnan(adc_vec));
+                if n_valid_adc > 0
+                    p1 = c1 / n_valid_adc;
+                else
+                    p1 = c1;
+                end
+                p1(p1==0)=eps;
                 adc_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal because within-patient
                 % voxels are spatially autocorrelated (violates independence).
@@ -255,8 +267,11 @@ for j=1:n_patients_metrics
                     d_mean(j,k,dwi_type) = nanmean(d_vec);
                 end
                 if numel(d_vec) >= min_vox_hist
-                    d_kurt(j,k,dwi_type) = kurtosis(d_vec);
-                    d_skew(j,k,dwi_type) = skewness(d_vec);
+                    d_vec_finite = d_vec(~isnan(d_vec));
+                    if numel(d_vec_finite) >= min_vox_hist
+                        d_kurt(j,k,dwi_type) = kurtosis(d_vec_finite);
+                        d_skew(j,k,dwi_type) = skewness(d_vec_finite);
+                    end
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
@@ -276,7 +291,13 @@ for j=1:n_patients_metrics
                 else
                     [c1, ~] = histcounts(d_vec, bin_edges);
                 end
-                p1 = c1 / numel(d_vec); p1(p1==0)=eps;
+                n_valid_d = sum(~isnan(d_vec));
+                if n_valid_d > 0
+                    p1 = c1 / n_valid_d;
+                else
+                    p1 = c1;
+                end
+                p1(p1==0)=eps;
                 d_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal (see ADC comment above).
                 if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
@@ -301,8 +322,11 @@ for j=1:n_patients_metrics
                     end
                 end
                 if numel(d_vec_sub) >= min_vox_hist
-                    d_sub_kurt(j,k,dwi_type) = kurtosis(d_vec_sub);
-                    d_sub_skew(j,k,dwi_type) = skewness(d_vec_sub);
+                    d_sub_finite = d_vec_sub(~isnan(d_vec_sub));
+                    if numel(d_sub_finite) >= min_vox_hist
+                        d_sub_kurt(j,k,dwi_type) = kurtosis(d_sub_finite);
+                        d_sub_skew(j,k,dwi_type) = skewness(d_sub_finite);
+                    end
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
@@ -316,8 +340,11 @@ for j=1:n_patients_metrics
                     f_mean(j,k,dwi_type) = nanmean(f_vec);
                 end
                 if numel(f_vec) >= min_vox_hist
-                    f_kurt(j,k,dwi_type) = kurtosis(f_vec);
-                    f_skew(j,k,dwi_type) = skewness(f_vec);
+                    f_vec_finite = f_vec(~isnan(f_vec));
+                    if numel(f_vec_finite) >= min_vox_hist
+                        f_kurt(j,k,dwi_type) = kurtosis(f_vec_finite);
+                        f_skew(j,k,dwi_type) = skewness(f_vec_finite);
+                    end
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
@@ -331,8 +358,11 @@ for j=1:n_patients_metrics
                     dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
                 end
                 if numel(dstar_vec) >= min_vox_hist
-                    dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec);
-                    dstar_skew(j,k,dwi_type) = skewness(dstar_vec);
+                    dstar_vec_finite = dstar_vec(~isnan(dstar_vec));
+                    if numel(dstar_vec_finite) >= min_vox_hist
+                        dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec_finite);
+                        dstar_skew(j,k,dwi_type) = skewness(dstar_vec_finite);
+                    end
                 end
             end
 
