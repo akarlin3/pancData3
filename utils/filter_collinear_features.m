@@ -104,7 +104,7 @@ end
 function auc_val = compute_auc(feat_col, y_col)
     % Helper function to compute AUC
     valid_idx = ~isnan(feat_col) & ~isnan(y_col);
-    if sum(valid_idx) > 2
+    if sum(valid_idx) >= 10
         y_valid = y_col(valid_idx);
         feat_valid = feat_col(valid_idx);
 

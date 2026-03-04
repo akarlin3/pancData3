@@ -94,10 +94,10 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
 
                 if is_derivative && week_val == 0
                     % Derivatives at baseline are structurally zero.  Use
-                    % training-set statistics so test-set rows are scaled
-                    % consistently (avoids bypassing the train/test split).
-                    train_week_mask = week_mask & is_train_row;
-                    bl_vals = X_td_raw(train_week_mask, fi);
+                    % first-occurrence-per-patient training-set statistics
+                    % to avoid over-weighting patients with duplicate rows.
+                    first_occ = first_occ_indices_cell{fn};
+                    bl_vals = X_td_raw(first_occ, fi);
                     bl_vals = bl_vals(~isnan(bl_vals));
                     if length(bl_vals) > 1
                         mu_col = mean(bl_vals);

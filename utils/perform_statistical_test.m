@@ -43,8 +43,8 @@ function p = perform_statistical_test(data, groups, test_type)
                 y1 = data(groups == g1);
                 y2 = data(groups == g2);
 
-                % Check if we have enough data in both groups to run Wilcoxon rank-sum test
-                if ~isempty(y1) && ~isempty(y2) && (length(y1) + length(y2) > 2)
+                % Require at least 3 observations per group for a meaningful rank-sum test
+                if length(y1) >= 3 && length(y2) >= 3
                     p = ranksum(y1, y2);
                 end
             end
