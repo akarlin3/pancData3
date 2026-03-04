@@ -2,6 +2,11 @@
 % Master test runner for the MATLAB DWI pipeline repository
 % Discovers and runs all tests (class-based and function-based) in the 'tests' directory.
 % Outputs test results and asserts success for CI pipeline compatibility.
+%
+% When the Parallel Computing Toolbox is available (and not in preflight
+% mode), tests that are known to be parallel-safe are executed via
+% runInParallel for faster wall-clock time.  All remaining tests run
+% sequentially as before.
 
 % Define repository root and critical directories
 % This file lives in tests/, so repo root is one level up
@@ -53,46 +58,138 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
+% --- Parallel execution configuration ---
+% Tests listed here are safe to run concurrently: they do not open diary
+% files, do not call core modules that open diary files, and do not share
+% mutable filesystem state.  When adding a new test, include it here ONLY
+% if it satisfies all three criteria.
+parallel_safe_classes = { ...
+    'test_escape_shell_arg', ...
+    'test_init_scan_structs', ...
+    'test_perform_statistical_test', ...
+    'test_source_code_standards', ...
+    'test_statistical_methods', ...
+    'test_build_td_panel', ...
+    'test_scale_td_panel', ...
+    'test_compute_summary_metrics', ...
+    'test_text_progress_bar', ...
+    'test_IVIMmodelfit', ...
+    'test_fit_adc_mono', ...
+    'test_fit_models', ...
+    'test_dvh', ...
+    'test_apply_dir_mask_propagation', ...
+    'test_calculate_subvolume_metrics', ...
+    'test_landmark_cindex', ...
+    'test_landmark_cindex_mock', ...
+    'test_perf_knn', ...
+    'test_fix_verify', ...
+    'test_octave', ...
+    'benchmark_filter_collinear', ...
+    'benchmark_make_grouped_folds', ...
+    'benchmark_metrics_opt', ...
+    'benchmark_scale_td', ...
+    'test_opt', ...
+    'test_opt2', ...
+    'test_perf', ...
+    'test_accumarray', ...
+    'test_make_grouped_folds' ...
+};
+
 % 1. Discover all tests in the tests/ directory (including subdirectories)
 suite = TestSuite.fromFolder(testsDir, 'IncludingSubfolders', true);
 
 if isempty(suite)
     error('No tests found in the %s directory.', testsDir);
-else
-    fprintf('Discovered %d tests.\n\n', numel(suite));
 end
 
-% 2. Create a test runner with text output
-runner = TestRunner.withTextOutput();
+% 2. Partition suite into parallel-safe and serial groups
+is_parallel = false(1, numel(suite));
+for k = 1:numel(suite)
+    % Extract the class name from the test name (format: 'ClassName/MethodName')
+    tokens = strsplit(suite(k).Name, '/');
+    className = tokens{1};
+    % Handle subfolder-qualified names (e.g. 'benchmarks.test_opt')
+    parts = strsplit(className, '.');
+    className = parts{end};
+    is_parallel(k) = ismember(className, parallel_safe_classes);
+end
+parallel_suite = suite(is_parallel);
+serial_suite   = suite(~is_parallel);
 
-% 3. Add dot-style progress bar plugin
-runner.addPlugin(ProgressBarPlugin(numel(suite)));
+fprintf('Discovered %d tests (%d parallel-safe, %d serial).\n\n', ...
+    numel(suite), numel(parallel_suite), numel(serial_suite));
+
+% 3. Check whether parallel execution is available
+is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
+
+can_run_parallel = false;
+if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
+    has_pct = license('test', 'Distrib_Computing_Toolbox');
+    % Check if runInParallel method exists (R2018a+)
+    has_method = false;
+    try
+        m = ?matlab.unittest.TestRunner;
+        method_names = {m.MethodList.Name};
+        has_method = ismember('runInParallel', method_names);
+    catch
+        has_method = false;
+    end
+    can_run_parallel = has_pct && has_method;
+end
 
 % 4. Configure code coverage for core and utils directories
-% Use Cobertura format or standard coverage plugin that outputs to the console/file.
 foldersToCover = {coreDir, utilsDir};
-
-% Add the CodeCoveragePlugin to generate an HTML report or standard coverage.
-% Skip coverage when invoked from run_dwi_pipeline's pre-flight check — the
-% pre-flight only needs pass/fail, and adding coverage during a nested call
-% triggers "Simultaneously generating coverage reports" errors in MATLAB.
-is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
-if is_preflight
-    disp('Pre-flight mode — skipping code coverage plugin.');
-elseif exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
-    coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
-    runner.addPlugin(coveragePlugin);
-    disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
-else
-    disp('CodeCoveragePlugin not available in this MATLAB version.');
-end
 
 disp('===================================================');
 disp('   Running Tests...                                ');
 disp('===================================================');
 
 % 5. Run the test suite
-results = runner.run(suite);
+if can_run_parallel
+    % --- Phase 1: parallel-safe tests via runInParallel ---
+    fprintf('Running %d parallel-safe tests with runInParallel...\n', numel(parallel_suite));
+    par_runner = TestRunner.withTextOutput();
+    parallel_results = par_runner.runInParallel(parallel_suite);
+
+    % --- Phase 2: serial tests sequentially ---
+    fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
+    ser_runner = TestRunner.withTextOutput();
+    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+
+    % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
+    % not compatible with runInParallel.  Serial tests exercise all core
+    % modules, so coverage remains meaningful.
+    if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
+        coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
+        ser_runner.addPlugin(coveragePlugin);
+        disp('Code coverage plugin added (serial tests only).');
+    end
+
+    serial_results = ser_runner.run(serial_suite);
+
+    % Merge results from both phases
+    results = [parallel_results, serial_results];
+else
+    % --- Fallback: fully sequential execution (original behavior) ---
+    if ~isempty(parallel_suite) && ~is_preflight
+        disp('Parallel execution not available; running all tests sequentially.');
+    end
+
+    runner = TestRunner.withTextOutput();
+    runner.addPlugin(ProgressBarPlugin(numel(suite)));
+
+    if is_preflight
+        disp('Pre-flight mode — skipping code coverage plugin.');
+    elseif exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
+        coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
+        runner.addPlugin(coveragePlugin);
+        disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
+    else
+        disp('CodeCoveragePlugin not available in this MATLAB version.');
+    end
+
+    results = runner.run(suite);
+end
 
 disp('===================================================');
 disp('   Test Execution Completed                        ');
