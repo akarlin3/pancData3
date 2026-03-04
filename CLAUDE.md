@@ -361,4 +361,4 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Bypass the temporal leakage safeguards in imputation or cross-validation.
 - Use unsanitized strings in `system()` calls.
 - Hard-code file paths — all paths must flow through `config.json`.
-- Run the test suite (`run_all_tests.m`) or the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) as a verification step. Tests and pipeline runs are initiated by the researcher, not by AI assistants.
+- Run the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) without explicit researcher approval. Pipeline runs are initiated by the researcher, not by AI assistants. Running the test suite (`run_all_tests.m`) for verification is encouraged.
