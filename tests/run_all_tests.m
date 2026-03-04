@@ -260,17 +260,6 @@ elseif exist(failureSummaryFile, 'file')
     delete(failureSummaryFile);
 end
 
-% 7. Assert success (Throws an error and returns non-zero exit code if any test fails)
-% In CI environments running MATLAB with -batch, this will fail the step appropriately.
-% assertSuccess(results) was introduced in R2020a, providing backward compatibility
-if exist('assertSuccess', 'file') || ismethod(results, 'assertSuccess')
-    assertSuccess(results);
-else
-    if any([results.Failed])
-        error('One or more tests failed.');
-    end
-end
-
 % Close waitbar
 if ~isempty(hWaitbar) && isvalid(hWaitbar)
     close(hWaitbar);
@@ -292,4 +281,29 @@ if standalone_diary
     diary off;
 end
 
-disp('All tests passed successfully!');
+% 7. Report results — clean summary for interactive use, error for CI/batch
+num_failed = nnz([results.Failed]);
+if num_failed == 0
+    disp('All tests passed successfully!');
+else
+    % Print a concise failure summary to the console
+    fprintf('\n❌ %d of %d tests FAILED:\n', num_failed, numel(results));
+    failedIdx = find([results.Failed]);
+    for fi = 1:numel(failedIdx)
+        fprintf('    - %s\n', results(failedIdx(fi)).Name);
+    end
+    fprintf('\n');
+
+    % In batch/CI mode, throw an error for non-zero exit code.
+    % In interactive mode, just display the summary — no error wall.
+    % batchStartupOptionUsed() requires R2019a+; fall back to checking
+    % whether the desktop is running.
+    if exist('batchStartupOptionUsed', 'builtin') || exist('batchStartupOptionUsed', 'file')
+        is_batch = batchStartupOptionUsed();
+    else
+        is_batch = ~usejava('desktop');
+    end
+    if is_batch
+        error('pancData3:testFailure', '%d of %d tests failed.', num_failed, numel(results));
+    end
+end
