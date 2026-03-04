@@ -216,7 +216,7 @@ try
     warning('error', 'stats:coxphfit:IterationLimit');
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights * 10)));       % scale by 10 before rounding to preserve weight precision
+        'Frequency', max(1, round(ipcw_weights)));             % IPCW weights are mean-stabilised ~1; round directly to keep effective N ~ actual N
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -255,7 +255,7 @@ try
     cleanupObj = onCleanup(@() warning(w_temp_null));
     [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
         'Censoring', is_censored_null, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights * 10)), ...
+        'Frequency', max(1, round(ipcw_weights)), ...
         'Options', statset('MaxIter', 100));
     LRT_stat = 2 * (logl_td - logl_null_td);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
@@ -348,7 +348,7 @@ for hl_idx = 1:length(half_life_grid)
         w_hl = warning('off', 'all');
         [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
             'Censoring', ev_csh==0, 'Ties', 'breslow', ...
-            'Frequency', max(1, round(ipcw_hl_sens * 10)));
+            'Frequency', max(1, round(ipcw_hl_sens)));
         warning(w_hl);
         b_hl = zeros(td_n_feat, 1);
         b_hl(keep_hl) = b_hl_short;

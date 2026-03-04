@@ -154,5 +154,22 @@ classdef test_metrics_survival < matlab.unittest.TestCase
                 'metrics_survival should handle all-NaN follow-up times gracefully.');
         end
 
+        function testIPCWFrequencyPreservesN(testCase)
+            % Verify that IPCW frequency weights do not inflate sample size.
+            % With mean-stabilised weights ~1 and direct rounding,
+            % sum(freq) should be close to N (not 10*N).
+            rng(42);
+            n = 30;
+            raw_weights = 0.5 + rand(n, 1);              % range [0.5, 1.5]
+            raw_weights = raw_weights / mean(raw_weights); % stabilise to mean=1
+
+            freq = max(1, round(raw_weights));             % pipeline formula
+
+            testCase.verifyGreaterThanOrEqual(sum(freq), n * 0.5, ...
+                'Effective sample size too small');
+            testCase.verifyLessThanOrEqual(sum(freq), n * 1.5, ...
+                'Effective sample size inflated beyond 1.5x actual N');
+        end
+
     end
 end

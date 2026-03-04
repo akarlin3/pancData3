@@ -184,5 +184,27 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
             testCase.verifyEqual(X_td_scaled, expected_vals, 'AbsTol', 1e-4, ...
                 'Single training sample should result in sigma=1');
         end
+        function testDerivativeAtWeek0WithDuplicates(testCase)
+            % Verify that duplicate rows for a patient at week 0 do not
+            % bias derivative feature statistics.  Patient 1 has 3 rows,
+            % patient 2 has 1 row.  First-occurrence values are [10, 50].
+            feat_names = {'DeltaADC'};
+            pat_id_td    = [1; 1; 1; 2];
+            t_start_td   = [0; 0; 0; 0];
+            train_pat_ids = [1; 2];
+
+            X_td_raw = [10; 10; 10; 50];
+
+            X_td_scaled = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids);
+
+            % First-occurrence values: [10, 50] -> mu=30, std=28.2843
+            mu_correct  = mean([10, 50]);
+            sig_correct = std([10, 50]);
+            expected = (X_td_raw - mu_correct) / sig_correct;
+
+            testCase.verifyEqual(X_td_scaled, expected, 'AbsTol', 1e-4, ...
+                'Derivative features at week 0 should use first-occurrence-per-patient stats');
+        end
+
     end
 end

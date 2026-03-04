@@ -56,5 +56,16 @@ classdef test_perform_statistical_test < matlab.unittest.TestCase
 
             testCase.verifyTrue(~isnan(p));
         end
+        function testRanksumTinyGroups(testCase)
+            % Groups with fewer than 3 observations each should return NaN
+            data = [1; 2; 10; 11];
+            groups = [1; 1; 2; 2];   % n1=2, n2=2
+
+            p = perform_statistical_test(data, groups, 'ranksum');
+
+            testCase.verifyTrue(isnan(p), ...
+                'Rank-sum with fewer than 3 per group should return NaN');
+        end
+
     end
 end
