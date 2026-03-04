@@ -230,6 +230,7 @@ for j=1:n_patients_metrics
 
                 if exist('OCTAVE_VERSION', 'builtin')
                     c1 = histc(adc_vec, bin_edges);
+                    c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
                     c1 = c1(1:end-1);
                 else
                     [c1, ~] = histcounts(adc_vec, bin_edges);
@@ -300,6 +301,7 @@ for j=1:n_patients_metrics
 
                 if exist('OCTAVE_VERSION', 'builtin')
                     c1 = histc(d_vec, bin_edges);
+                    c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
                     c1 = c1(1:end-1);
                 else
                     [c1, ~] = histcounts(d_vec, bin_edges);

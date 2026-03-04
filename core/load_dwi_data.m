@@ -589,6 +589,10 @@ datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
 if ~exist(datasave, 'file') && ~isempty(file_prefix)
     % Fallback to the default (un-typed) file when the variant-specific
     % file has not been created yet (e.g. first run before per-type saves).
+    % NOTE: run_dwi_pipeline.m (reload branch, ~line 288) restricts this
+    % fallback to Standard (dtype==1) only, preventing cross-type
+    % contamination.  This path is only reached during the initial 'load'
+    % step or direct calls outside the orchestrator.
     datasave_fallback = fullfile(dataloc, 'dwi_vectors.mat');
     if exist(datasave_fallback, 'file')
         fprintf('💡 %s not found — falling back to %s\n', ...
