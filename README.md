@@ -150,6 +150,23 @@ saved_files_YYYYMMDD_HHMMSS/
 └── IVIMnet/
 ```
 
+### Pre-Pipeline Data Check
+
+Before running the pipeline, you can verify that your patient data directory is properly structured:
+
+```matlab
+report = patient_data_check('config.json');
+```
+
+This scans the file system and reports:
+
+- Missing or inaccessible data directories
+- `dcm2niix` availability
+- Clinical spreadsheet accessibility
+- Per-patient: missing fraction folders, DWI DICOM files, GTV masks, and RT dose folders
+
+Issues are classified as errors (must fix before running), warnings (may affect results), or informational. The returned `report` struct contains a summary table for programmatic use.
+
 ---
 
 ## Pipeline Steps
@@ -197,6 +214,7 @@ Tests generate a code coverage report for `core/` and `utils/`.
 pancData3/
 ├── run_dwi_pipeline.m          # Main orchestrator entry point
 ├── execute_all_workflows.m     # Sequential multi-type runner
+├── patient_data_check.m       # Pre-pipeline data validation
 ├── config.example.json         # Configuration template
 ├── core/                       # Pipeline modules (17 files)
 │   ├── load_dwi_data.m         #   Data loading & model fitting

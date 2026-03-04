@@ -209,6 +209,7 @@ for target_fx = 2:nTp
         catch
             cv_failed = true;
         end
+        warning(w_state_final);
     end
     
     if cv_failed || isempty(common_Lambda)
