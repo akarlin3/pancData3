@@ -95,6 +95,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         if any(adc_valid_idx)
             S_a = dwi_valid(adc_valid_idx, :);
 
+            % Validate that bvalues(1)==0 (S0 reference for log-linear fit)
+            if bvalues(1) ~= 0
+                warning('fit_models:noB0', ...
+                    'First b-value is %g, not 0. ADC fit assumes S(b=0) as reference; results may be inaccurate.', bvalues(1));
+            end
+
             % Vectorized WLS: weights = S^2 at each b-value
             % For a single-predictor model y = A*adc where A = -b, y = ln(S/S0):
             %   adc = sum(w * A * y) / sum(w * A^2)

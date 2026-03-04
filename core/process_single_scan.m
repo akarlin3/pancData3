@@ -136,8 +136,17 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             end
         end
 
-        if size(dwi,4)~=4
-            fprintf('DWI does not have expected dimensions found: %s skipping\n',mat2str(size(dwi)))
+        % Validate that the number of DWI volumes matches the b-value count.
+        % Previously this was hardcoded to 4; now it adapts to the protocol.
+        if ~isempty(bvalues) && size(dwi, 4) ~= numel(bvalues)
+            fprintf('DWI volume count (%d) does not match b-value count (%d). Found: %s — skipping\n', ...
+                size(dwi, 4), numel(bvalues), mat2str(size(dwi)));
+            havedwi = 0;
+            if bad_dwi_found==0
+                bad_list{end+1} = ctx.dicomloc; %#ok<AGROW>
+            end
+        elseif isempty(bvalues) && size(dwi, 4) < 2
+            fprintf('DWI does not have enough volumes: %s — skipping\n', mat2str(size(dwi)));
             havedwi = 0;
             if bad_dwi_found==0
                 bad_list{end+1} = ctx.dicomloc; %#ok<AGROW>

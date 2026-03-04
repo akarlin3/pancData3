@@ -78,10 +78,12 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
 
         for fi = 1:n_feat
             name_fi = feat_names{fi};
+            % Use word-boundary matching (\b) for 'diff' to avoid false
+            % positives on feature names like 'diffusion_coefficient'.
             is_derivative = contains(name_fi, 'Delta', 'IgnoreCase', true) || ...
                             contains(name_fi, 'Change', 'IgnoreCase', true) || ...
                             contains(name_fi, 'pct', 'IgnoreCase', true) || ...
-                            contains(name_fi, 'diff', 'IgnoreCase', true);
+                            ~isempty(regexp(name_fi, '\bdiff\b', 'once', 'ignorecase'));
 
             for fn = 1:n_weeks
                 week_val = unique_weeks(fn);

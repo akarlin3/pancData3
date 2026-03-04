@@ -35,6 +35,7 @@ risk_scores_all = [];
 is_high_risk = [];
 times_km = [];
 events_km = [];
+best_risk_fx = Inf;  % track the earliest timepoint with significant features
 
 for target_fx = 2:nTp
     fx_label = x_labels{target_fx};
@@ -572,9 +573,15 @@ for target_fx = 2:nTp
         fprintf('Skipping 2D scatter plots: requires at least 2 significant variables.\n');
     end
 
-    % Track values to pass to metrics_survival
-    risk_scores_all = risk_scores_all_target;
-    is_high_risk = is_high_risk_target;
+    % Keep the earliest timepoint with significant features so that
+    % survival analysis uses the most clinically actionable (early) risk
+    % scores rather than silently overwriting with the last timepoint.
+    if target_fx < best_risk_fx
+        risk_scores_all = risk_scores_all_target;
+        is_high_risk = is_high_risk_target;
+        best_risk_fx = target_fx;
+        fprintf('  Retaining risk scores from %s (earliest significant timepoint so far).\n', fx_label);
+    end
 end
 
 diary off;

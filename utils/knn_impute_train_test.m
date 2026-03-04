@@ -20,12 +20,11 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 %       X_tr_imp    - [n_train x p] Imputed training feature matrix.
 %       X_te_imp    - [n_test  x p] Imputed testing feature matrix.
 %
-    if nargin < 6, target_cols = []; end
-
-    if nargin < 3, k = 5; end
     if nargin < 2, X_te = []; end
+    if nargin < 3, k = 5; end
     if nargin < 4, pat_id_tr = []; end
     if nargin < 5, pat_id_te = []; end
+    if nargin < 6, target_cols = []; end
     
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;

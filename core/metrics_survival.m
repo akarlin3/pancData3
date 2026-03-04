@@ -109,6 +109,16 @@ if any(lm_keep)
     frac_td     = frac_td(lm_keep);
     fprintf('  Landmark at day %d: %d → %d intervals (%d patients, %d events)\n', ...
         landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td > 0));
+
+    % Re-validate event count after landmark subsetting — the pre-landmark
+    % check (line 76) may have passed, but removing early intervals can
+    % reduce event count below the minimum for reliable Cox estimation.
+    n_events_post_lm = sum(event_td > 0);
+    if n_events_post_lm < 3 || size(X_td, 1) <= td_n_feat + 1
+        fprintf('  Insufficient events (%d) or intervals after landmark subsetting for Cox model.\n', n_events_post_lm);
+        if ~isempty(output_folder), diary off; end
+        return;
+    end
 end
 
 % Scale AFTER landmark subsetting so that standardisation statistics are
@@ -206,7 +216,7 @@ try
     warning('error', 'stats:coxphfit:IterationLimit');
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
         'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', max(1, round(ipcw_weights)));           % integer pseudo-counts (1x, not inflated)
+        'Frequency', max(1, round(ipcw_weights * 10)));      % scale by 10x before rounding to reduce discretization bias
     warning(w_temp);
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -290,16 +300,54 @@ for hl_idx = 1:length(half_life_grid)
         ev_csh = pnl_event; ev_csh(ev_csh == 2) = 0;
         X_hl = scale_td_panel(pnl_X, td_feat_names, pnl_pid, pnl_tstart, unique(pnl_pid), 'baseline');
         [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
-        % Use IPCW weights consistent with primary analysis
-        ipcw_hl = ipcw_weights(lm_keep);
-        ipcw_hl_sens = ipcw_hl(1:sum(lm_keep_hl));
-        if length(ipcw_hl_sens) ~= size(X_hl_clean, 1)
-            ipcw_hl_sens = ones(size(X_hl_clean, 1), 1);
+        % Recompute IPCW weights for this sensitivity panel independently.
+        % The primary ipcw_weights are indexed by lm_keep (from the default
+        % half-life panel), NOT lm_keep_hl.  Slicing ipcw_weights(lm_keep)
+        % then taking the first sum(lm_keep_hl) elements silently assigns
+        % wrong weights when the two panels select different rows.
+        ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
+        if has_admin_cens
+            try
+                not_comp_hl = (pnl_event ~= 2);
+                is_cens_hl = double(pnl_event(not_comp_hl) == 0);
+                T_cens_hl = [pnl_tstart(not_comp_hl), pnl_tstop(not_comp_hl)];
+                X_cens_hl = X_hl(not_comp_hl, :);
+                [X_cens_hl_clean, keep_ipcw_hl] = remove_constant_columns(X_cens_hl);
+                if size(X_cens_hl_clean, 2) > 0
+                    w_ipcw_hl = warning('off', 'all');
+                    [b_cens_hl_short] = coxphfit(X_cens_hl_clean, T_cens_hl, ...
+                        'Censoring', (is_cens_hl == 0), 'Ties', 'breslow');
+                    warning(w_ipcw_hl);
+                    b_cens_hl_full = zeros(td_n_feat, 1);
+                    b_cens_hl_full(keep_ipcw_hl) = b_cens_hl_short;
+                    lp_cens_hl = X_hl * b_cens_hl_full;
+                    lp_cens_hl_sub = X_cens_hl * b_cens_hl_full;
+                    t_start_hl_sub = pnl_tstart(not_comp_hl);
+                    t_stop_hl_sub = pnl_tstop(not_comp_hl);
+                    uniq_t_hl = unique(t_stop_hl_sub);
+                    G_hl = ones(size(pnl_tstop));
+                    for ui_hl = 1:length(uniq_t_hl)
+                        t_u_hl = uniq_t_hl(ui_hl);
+                        ar_sub = (t_start_hl_sub < t_u_hl) & (t_stop_hl_sub >= t_u_hl);
+                        ev_sub = ar_sub & (t_stop_hl_sub == t_u_hl) & (is_cens_hl == 1);
+                        if any(ev_sub) && any(ar_sub)
+                            h0_hl = sum(ev_sub) / sum(exp(lp_cens_hl_sub(ar_sub)));
+                            ar_full = (pnl_tstart < t_u_hl) & (pnl_tstop >= t_u_hl);
+                            G_hl(ar_full) = G_hl(ar_full) .* exp(-h0_hl * exp(lp_cens_hl(ar_full)));
+                        end
+                    end
+                    G_hl = max(G_hl, 0.05);
+                    ipcw_hl_sens = 1 ./ G_hl;
+                    ipcw_hl_sens = ipcw_hl_sens / mean(ipcw_hl_sens);
+                end
+            catch
+                ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
+            end
         end
         w_hl = warning('off', 'all');
         [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
             'Censoring', ev_csh==0, 'Ties', 'breslow', ...
-            'Frequency', max(1, round(ipcw_hl_sens)));
+            'Frequency', max(1, round(ipcw_hl_sens * 10)));
         warning(w_hl);
         b_hl = zeros(td_n_feat, 1);
         b_hl(keep_hl) = b_hl_short;

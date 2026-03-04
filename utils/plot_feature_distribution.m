@@ -96,9 +96,11 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
         
-        % Annotate with a one-way ANOVA p-value comparing LC vs LF
+        % Annotate with Wilcoxon rank-sum p-value (non-parametric) for
+        % consistency with metrics_stats_comparisons formal analysis.
+        % ANOVA assumes normality which is violated by skewed IVIM distributions.
         if sum(has_data) > 2 && numel(unique(lf_clean)) > 1
-            p = anova1(vals_clean, lf_clean, 'off');
+            p = perform_statistical_test(vals_clean, lf_clean, 'ranksum');
             yl = ylim;
             text(1.5, yl(2)*0.95, format_p_value(p), ...
                 'HorizontalAlignment', 'center', 'FontSize', 10);
