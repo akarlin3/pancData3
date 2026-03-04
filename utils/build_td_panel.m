@@ -72,6 +72,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     frac_buf    = nan(max_rows, 1);
 
     % Exponential decay imputation parameters
+    if decay_half_life_months <= 0
+        warning('build_td_panel:invalidHalfLife', ...
+            'decay_half_life_months = %.2f is not positive. Decay imputation will be disabled.', ...
+            decay_half_life_months);
+    end
     use_decay = (decay_half_life_months > 0);
     if use_decay
         hl_days      = decay_half_life_months * 30.44;

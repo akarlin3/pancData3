@@ -48,8 +48,14 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 sig = std(base_vals);
             end
 
-            if sig == 0 || isnan(sig), sig = 1; end
-            X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) / sig;
+            if sig == 0 || isnan(sig)
+                % Zero-variance feature carries no discriminative information.
+                % Setting to 0 prevents artificial importance in downstream
+                % models that weight features by post-standardization magnitude.
+                X_td_scaled(:, fi) = 0;
+            else
+                X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) / sig;
+            end
         end
     else
         % --- Per-week scaling (default): independent mu/sigma per temporal week ---
@@ -90,7 +96,7 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 week_mask = week_masks_cell{fn};
 
                 mu_col = 0;
-                sd_col = 1;
+                sd_col = 0;  % default: zero out (no valid training data for this week)
 
                 if is_derivative && week_val == 0
                     % Derivatives at baseline are structurally zero.  Use
@@ -102,9 +108,9 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     if length(bl_vals) > 1
                         mu_col = mean(bl_vals);
                         sd_col = std(bl_vals);
-                        if sd_col == 0, sd_col = 1; end
+                        if sd_col == 0, sd_col = 0; end  % zero-variance → zeroed at division guard
                     end
-                    % else: keep defaults mu_col=0, sd_col=1
+                    % else: keep defaults mu_col=0, sd_col=0 (single value → zeroed)
                 else
                     first_occurrence_indices = first_occ_indices_cell{fn};
                     vals = X_td_raw(first_occurrence_indices, fi);
@@ -115,16 +121,20 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                         mu_col = mean(unique_vals);
                         sd_col = std(unique_vals);
                         if sd_col == 0
-                            sd_col = 1;
+                            sd_col = 0;  % zero-variance → zero out
                         end
                     elseif valid_cnt == 1
                         mu_col = unique_vals(1);
-                        sd_col = 1;
+                        sd_col = 0;  % single value → zero out
                     end
                 end
 
                 cols_to_scale = X_td_raw(week_mask, fi);
-                X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
+                if sd_col == 0
+                    X_td_scaled(week_mask, fi) = 0;
+                else
+                    X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
+                end
             end
         end
     end

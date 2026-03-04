@@ -39,6 +39,11 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     end
 
     if has_3d
+        n_gtv_voxels = sum(gtv_mask_3d(:) == 1);
+        assert(n_gtv_voxels == numel(mask_1d), ...
+            'calculate_subvolume_metrics:dimMismatch', ...
+            'mask_1d length (%d) does not match GTV voxel count (%d).', ...
+            numel(mask_1d), n_gtv_voxels);
         vol_3d = false(size(gtv_mask_3d));
         vol_3d(gtv_mask_3d == 1) = mask_1d;
         vol_3d = imclose(imopen(vol_3d, se), se);

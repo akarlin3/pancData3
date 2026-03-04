@@ -109,11 +109,10 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
         end
     else
         warning('apply_dir_mask_propagation:noDemons', ...
-            'imregdemons not available. Using identity transform (no deformation).');
-        sz = size(b0_moving);
-        D_forward = zeros([sz, 3]);
-        ref3d = struct('ImageSize', sz);
-        mask_warped_float = double(gtv_mask_fixed);
+            'imregdemons not available. Returning NaN mask to prevent downstream analysis on misaligned data.');
+        gtv_mask_warped = [];
+        D_forward = [];
+        return;
     end
 
 

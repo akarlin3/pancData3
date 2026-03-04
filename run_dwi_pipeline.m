@@ -285,7 +285,17 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             if exist(dwi_vectors_file, 'file')
                 target_dwi_file = dwi_vectors_file;
             elseif exist(fallback_dwi_vectors_file, 'file')
-                target_dwi_file = fallback_dwi_vectors_file;
+                % Legacy file without DWI-type suffix exists.  Only allow
+                % fallback for Standard (type 1) to prevent silently loading
+                % data from a different DWI processing method.
+                if current_dtype == 1
+                    fprintf('  💡 Using legacy dwi_vectors.mat (no type suffix) for Standard.\n');
+                    target_dwi_file = fallback_dwi_vectors_file;
+                else
+                    fprintf('  ❌ Type-specific file %s not found and legacy dwi_vectors.mat cannot be used for %s (risk of cross-contamination).\n', ...
+                        dwi_vectors_file, current_name);
+                    target_dwi_file = '';
+                end
             else
                 target_dwi_file = '';
             end
