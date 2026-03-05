@@ -68,7 +68,7 @@ for target_fx = 2:nTp
 
     original_feature_indices = 1:22;
 
-    if target_fx == nTp
+    if target_fx == nTp || target_fx == 6
         % Post-treatment: no dose features, keep baseline + imaging only
         X_lasso_all = X_lasso_all(:, 1:12);
         feat_names_lasso = feat_names_lasso(1:12);
@@ -112,6 +112,11 @@ for target_fx = 2:nTp
 
     id_list_valid = id_list(valid_pts);
     id_list_impute = id_list_valid(impute_mask);
+
+    if isempty(X_impute)
+        fprintf('  No patients with any imaging data at %s. Skipping predictive modeling.\n', fx_label);
+        continue;
+    end
 
     % LIMITATION: KNN imputation produces a single completed dataset.
     % Confidence intervals and p-values may be anti-conservative because

@@ -20,6 +20,9 @@ patients_plotted = 0;
 % Maximum number of patient rows per figure panel
 pats_per_fig     = 5;
 
+% Expected b-value protocol for validation
+expected_bvals = [0; 30; 150; 550];
+
 % Diagnostic counters for skip reasons
 diag_out_of_range = 0;
 diag_empty_adc    = 0;
@@ -93,6 +96,15 @@ for j = 1:nPat
     % Read b-values from the accompanying text file (one line, space-delimited)
     fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
     bvals = bvals(:);
+
+    % Protocol deviation check: skip patients whose b-values do not match
+    % the expected acquisition protocol.
+    if ~isequal(sort(bvals), sort(expected_bvals))
+        diag_bad_bval = diag_bad_bval + 1;
+        fprintf('  ⚠️  Pt %d (%s): Protocol Deviation — b-values %s do not match expected %s — skipping\n', ...
+            j, id_list{j}, mat2str(bvals'), mat2str(expected_bvals'));
+        continue;
+    end
 
     % Validate that the 4-D volume has one frame per b-value and that
     % a b=0 image is present (required for monoexponential ADC fitting).
