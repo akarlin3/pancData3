@@ -39,8 +39,8 @@ classdef test_parse_config < matlab.unittest.TestCase
             config = parse_config(testCase.TempConfigFile);
 
             % Verify defaults are assigned
-            testCase.verifyEqual(config.adc_thresh, 0.00115);
-            testCase.verifyEqual(config.high_adc_thresh, 0.001);
+            testCase.verifyEqual(config.adc_thresh, 0.001);
+            testCase.verifyEqual(config.high_adc_thresh, 0.00115);
             testCase.verifyEqual(config.d_thresh, 0.001);
             testCase.verifyEqual(config.f_thresh, 0.1);
             testCase.verifyEqual(config.dstar_thresh, 0.01);

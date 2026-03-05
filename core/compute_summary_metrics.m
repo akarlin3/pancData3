@@ -424,7 +424,7 @@ for j=1:n_patients_metrics
                             f_vec = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
                             dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
                         case 3
-                            adc_vec = [];
+                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector;
                             d_vec = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
                             f_vec = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
                             dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
