@@ -608,16 +608,22 @@ for target_fx = 2:nTp
                 mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 10000));
                 warning(w_state);
                 coefs = mdl.Coefficients.Estimate;
-                x_range = linspace(min(x_val), max(x_val), 100);
-                y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
-                plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
+                if numel(coefs) >= 3 && coefs(3) ~= 0
+                    x_range = linspace(min(x_val), max(x_val), 100);
+                    y_boundary = -(coefs(1) + coefs(2)*x_range) / coefs(3);
+                    plot(x_range, y_boundary, 'k--', 'LineWidth', 2);
+                end
 
                 if sig_is_abs(fi), xl = sprintf('%s at %s (%s)', sig_names{fi}, fx_label, sig_units{fi}); else, xl = sprintf('\\Delta %s at %s (%s)', sig_names{fi}, fx_label, sig_units{fi}); end
                 if sig_is_abs(fj), yl = sprintf('%s at %s (%s)', sig_names{fj}, fx_label, sig_units{fj}); else, yl = sprintf('\\Delta %s at %s (%s)', sig_names{fj}, fx_label, sig_units{fj}); end
                 xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
                 ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
                 title(sprintf('Biomarker Interaction: Separation of LC vs LF (%s, %s)', fx_label, dtype_label), 'FontSize', 14);
-                legend({'Local Control', 'Local Failure', 'Logistic Boundary (illustrative, not CV)'}, 'Location', 'NorthWest');
+                if numel(coefs) >= 3 && coefs(3) ~= 0
+                    legend({'Local Control', 'Local Failure', 'Logistic Boundary (illustrative, not CV)'}, 'Location', 'NorthWest');
+                else
+                    legend({'Local Control', 'Local Failure'}, 'Location', 'NorthWest');
+                end
                 
                 grid on; box on;
                 xline(0, 'k-', 'Alpha', 0.2); yline(0, 'k-', 'Alpha', 0.2);
