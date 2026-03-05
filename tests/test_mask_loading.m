@@ -1,6 +1,7 @@
 % Test 3D mask loading
-if ~exist('saved_figures', 'dir'), mkdir('saved_figures'); end
-diary(fullfile('saved_figures', 'test_mask_loading_output.txt'));
+test_output_dir = fullfile(tempdir, 'test_mask_loading_output');
+if ~exist(test_output_dir, 'dir'), mkdir(test_output_dir); end
+diary(fullfile(test_output_dir, 'test_mask_loading_output.txt'));
 diary on;
 
 config_file = fullfile(fileparts(mfilename('fullpath')), '..', 'config.json');

@@ -199,11 +199,14 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % Should pass and complete
             testCase.verifyTrue(is_valid, 'Fallback defaults should not invalidate run');
 
-            % Cleanup: fallback path is core/../saved_figures (project root)
+            % Cleanup: fallback path is core/../saved_files_* (project root)
             core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
-            default_dir = fullfile(core_dir, '..', 'saved_figures');
-            if exist(default_dir, 'dir')
-                rmdir(default_dir, 's');
+            project_root = fullfile(core_dir, '..');
+            fallback_dirs = dir(fullfile(project_root, 'saved_files_*'));
+            for fi = 1:numel(fallback_dirs)
+                if fallback_dirs(fi).isdir
+                    rmdir(fullfile(project_root, fallback_dirs(fi).name), 's');
+                end
             end
         end
 

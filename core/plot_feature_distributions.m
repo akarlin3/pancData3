@@ -6,7 +6,7 @@ function plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar
 %        for each of the four baseline (Fx1) diffusion biomarkers.
 %    2b. Box plots  — side-by-side LC vs LF boxes with one-way ANOVA
 %        p-values annotated on each panel.
-%  The resulting figures are saved as PNG files in saved_figures/.
+%  The resulting figures are saved as PNG files in the output folder.
 
 % Collect baseline (Fx1) biomarker values for the valid patient subset.
 % Each cell element is an [nValid x 1] vector for one metric.

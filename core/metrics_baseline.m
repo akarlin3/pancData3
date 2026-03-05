@@ -199,7 +199,8 @@ dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 if isfield(config_struct, 'output_folder')
     output_folder = config_struct.output_folder;
 else
-    output_folder = fullfile(config_struct.dataloc, 'saved_figures');
+    timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
+    output_folder = fullfile(config_struct.dataloc, sprintf('saved_files_%s', timestamp_str));
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 dtype = config_struct.dwi_types_to_run;
