@@ -46,7 +46,8 @@ dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 if isfield(config_struct, 'output_folder')
     output_folder = config_struct.output_folder;
 else
-    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', 'saved_figures');
+    timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
+    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', sprintf('saved_files_%s', timestamp_str));
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 
@@ -92,7 +93,7 @@ fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
 %        for each of the four baseline (Fx1) diffusion biomarkers.
 %    2b. Box plots  — side-by-side LC vs LF boxes with one-way ANOVA
 %        p-values annotated on each panel.
-%  The resulting figures are saved as PNG files in saved_figures/.
+%  The resulting figures are saved as PNG files in the output folder.
 % -----------------------------------------------------------------------
 fprintf('\n--- 2. Distributions of Extracted Features ---\n');
 

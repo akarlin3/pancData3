@@ -30,7 +30,7 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             % Setup inputs
             % IMPORTANT: We deliberately do NOT add a trailing separator to test fullfile robustness
             testCase.ConfigStruct.dataloc = testCase.TempDir;
-            testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'saved_figures');
+            testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'output');
             testCase.ConfigStruct.dwi_types_to_run = 1;
 
             testCase.SummaryMetrics.id_list = {patID};
@@ -100,8 +100,8 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             % 1. It successfully read empty files (unlikely for niftiread)
             % 2. It skipped the patient (path check failed)
 
-            % Check the diary output
-            outputDir = fullfile(pwd, 'saved_figures');
+            % Check the diary output in the configured output folder
+            outputDir = testCase.ConfigStruct.output_folder;
             diaryFile = fullfile(outputDir, 'visualize_results_output.txt');
 
             if exist(diaryFile, 'file')

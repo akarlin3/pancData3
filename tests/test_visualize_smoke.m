@@ -47,7 +47,7 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
 
             % Setup inputs
             testCase.ConfigStruct.dataloc = testCase.TempDir;
-            testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'saved_figures');
+            testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'output');
             testCase.ConfigStruct.dwi_types_to_run = 1; % Run 'Standard'
 
             testCase.SummaryMetrics.id_list = {patID};
