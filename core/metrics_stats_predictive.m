@@ -387,15 +387,23 @@ for target_fx = 2:nTp
     sig_is_pct_imaging = false(1, n_sig);
     sig_disp_names    = cell(1, n_sig);
     sig_units         = cell(1, n_sig);
-    
+    sig_col_idx       = zeros(1, n_sig);  % which column to plot for each feature
+
     for si = 1:n_sig
-        fi = selected_indices(si);              
+        fi = selected_indices(si);
         sig_data_selected{si} = all_feat_data{fi};
         sig_names{si}         = all_feat_names{fi};
         sig_is_abs(si)        = all_feat_is_abs(fi);
         sig_is_pct_imaging(si) = (fi >= 9 && fi <= 12);
         sig_disp_names{si}    = all_feat_disp{fi};
         sig_units{si}         = all_feat_units{fi};
+        % Baseline features (indices 1-4) used column 1 in the model;
+        % all other features used column target_fx.
+        if fi <= 4
+            sig_col_idx(si) = 1;
+        else
+            sig_col_idx(si) = target_fx;
+        end
 
         if fi <= 4
             % Baseline covariates: use baseline as abs, pair with pct at fi+8
@@ -541,7 +549,7 @@ for target_fx = 2:nTp
         x_scatter = ones(sum(scatter_mask), 1);
         x_scatter(lf_group(scatter_mask)==1) = 2;
         x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
-        scatter_vals = curr_sig_pct_full(valid_pts, target_fx);
+        scatter_vals = curr_sig_pct_full(valid_pts, sig_col_idx(vi));
         scatter(x_scatter, scatter_vals(scatter_mask), 50, 'filled', 'MarkerEdgeColor', 'k');
         
         base_idx = mod(selected_indices(vi)-1, 4) + 1;
@@ -582,8 +590,8 @@ for target_fx = 2:nTp
                 figure('Name', sprintf('2D Feature Space %s vs %s %s — %s', sig_names{fi}, sig_names{fj}, fx_label, dtype_label), 'Position', [100, 100, 800, 600]);
                 hold on;
                 
-                x_val = sig_data_selected{fi}(valid_pts, target_fx);
-                y_val = sig_data_selected{fj}(valid_pts, target_fx);
+                x_val = sig_data_selected{fi}(valid_pts, sig_col_idx(fi));
+                y_val = sig_data_selected{fj}(valid_pts, sig_col_idx(fj));
                 % Exclude competing risk patients (lf==2) from scatter plots
                 group = lf_group;
                 scatter_mask = (group <= 1);

@@ -354,7 +354,15 @@ parfor j = 1:length(mrn_list)
     basefolder_contents = clean_dir_command(basefolder);
 
     % --- Loop over fractions (fi) and repeat acquisitions (rpi) ---
+    n_rp_dim = size(dwi_locations, 3);
     for fi=1:size(dwi_locations,2)
+        % Collect DVH metrics across repeats for correct averaging
+        dvh_dmean_gtvp_rp  = nan(1, n_rp_dim);
+        dvh_dmean_gtvn_rp  = nan(1, n_rp_dim);
+        dvh_d95_gtvp_rp    = nan(1, n_rp_dim);
+        dvh_d95_gtvn_rp    = nan(1, n_rp_dim);
+        dvh_v50gy_gtvp_rp  = nan(1, n_rp_dim);
+        dvh_v50gy_gtvn_rp  = nan(1, n_rp_dim);
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
         fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
         fxtmp = basefolder_contents(fxtmp_idx);
@@ -429,16 +437,21 @@ parfor j = 1:length(mrn_list)
             pat_d_kurtosis(1,fi,rpi) = scan_result.d_kurtosis;
             pat_d_mean_dncnn(1,fi,rpi) = scan_result.d_mean_dncnn;
             pat_d_mean_ivimnet(1,fi,rpi) = scan_result.d_mean_ivimnet;
-            % Accumulate DVH metrics across repeats via nanmean.
-            % Previous code silently overwrote with the last repeat's values,
-            % losing dose information for multi-repeat fractions.
-            pat_dmean_gtvp(1,fi) = nanmean([pat_dmean_gtvp(1,fi), scan_result.dmean_gtvp]);
-            pat_dmean_gtvn(1,fi) = nanmean([pat_dmean_gtvn(1,fi), scan_result.dmean_gtvn]);
-            pat_d95_gtvp(1,fi) = nanmean([pat_d95_gtvp(1,fi), scan_result.d95_gtvp]);
-            pat_d95_gtvn(1,fi) = nanmean([pat_d95_gtvn(1,fi), scan_result.d95_gtvn]);
-            pat_v50gy_gtvp(1,fi) = nanmean([pat_v50gy_gtvp(1,fi), scan_result.v50gy_gtvp]);
-            pat_v50gy_gtvn(1,fi) = nanmean([pat_v50gy_gtvn(1,fi), scan_result.v50gy_gtvn]);
+            % Collect DVH metrics for this repeat (averaged after loop)
+            dvh_dmean_gtvp_rp(rpi)  = scan_result.dmean_gtvp;
+            dvh_dmean_gtvn_rp(rpi)  = scan_result.dmean_gtvn;
+            dvh_d95_gtvp_rp(rpi)    = scan_result.d95_gtvp;
+            dvh_d95_gtvn_rp(rpi)    = scan_result.d95_gtvn;
+            dvh_v50gy_gtvp_rp(rpi)  = scan_result.v50gy_gtvp;
+            dvh_v50gy_gtvn_rp(rpi)  = scan_result.v50gy_gtvn;
         end
+        % Average DVH metrics across repeats (nanmean ignores missing repeats)
+        pat_dmean_gtvp(1,fi)  = nanmean(dvh_dmean_gtvp_rp);
+        pat_dmean_gtvn(1,fi)  = nanmean(dvh_dmean_gtvn_rp);
+        pat_d95_gtvp(1,fi)    = nanmean(dvh_d95_gtvp_rp);
+        pat_d95_gtvn(1,fi)    = nanmean(dvh_d95_gtvn_rp);
+        pat_v50gy_gtvp(1,fi)  = nanmean(dvh_v50gy_gtvp_rp);
+        pat_v50gy_gtvn(1,fi)  = nanmean(dvh_v50gy_gtvn_rp);
     end
     bad_dwi_list_j = bad_dwi_list_j(1:bad_dwi_idx_j);
     bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
