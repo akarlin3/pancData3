@@ -142,8 +142,8 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
             end
 
             % Handle test-only weeks not seen in training: use the
-            % nearest training week's statistics (already computed above
-            % in the per-week loop, stored in mu/sd arrays below).
+            % nearest training week's statistics (recomputed from the
+            % nearest training week's first-occurrence data below).
         end
 
         % Scale any rows whose temporal week was not in the training set

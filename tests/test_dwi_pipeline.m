@@ -29,8 +29,8 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             testCase.ConfigStruct.ivim_bthr = 100;
             testCase.ConfigStruct.dataloc = fullfile(tempname, 'mock_data');
             testCase.ConfigStruct.dcm2nii_call = 'dummy_dcm2niix';
-            testCase.ConfigStruct.adc_thresh = 0.00115;
-            testCase.ConfigStruct.high_adc_thresh = 0.001;
+            testCase.ConfigStruct.adc_thresh = 0.001;
+            testCase.ConfigStruct.high_adc_thresh = 0.00115;
             testCase.ConfigStruct.d_thresh = 0.001;
             testCase.ConfigStruct.f_thresh = 0.1;
             testCase.ConfigStruct.dstar_thresh = 0.01;

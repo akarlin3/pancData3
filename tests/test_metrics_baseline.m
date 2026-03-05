@@ -72,11 +72,11 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
 
             % Repeatability fields
             testCase.SummaryMetrics.n_rpt          = 2 * ones(nPat, 1);
-            testCase.SummaryMetrics.adc_mean_rpt   = rand(nPat, 2);
-            testCase.SummaryMetrics.adc_sub_rpt    = rand(nPat, 2);
-            testCase.SummaryMetrics.d_mean_rpt     = rand(nPat, 2);
-            testCase.SummaryMetrics.f_mean_rpt     = rand(nPat, 2);
-            testCase.SummaryMetrics.dstar_mean_rpt = rand(nPat, 2);
+            testCase.SummaryMetrics.adc_mean_rpt   = rand(nPat, 2, 3);
+            testCase.SummaryMetrics.adc_sub_rpt    = rand(nPat, 2, 3);
+            testCase.SummaryMetrics.d_mean_rpt     = rand(nPat, 2, 3);
+            testCase.SummaryMetrics.f_mean_rpt     = rand(nPat, 2, 3);
+            testCase.SummaryMetrics.dstar_mean_rpt = rand(nPat, 2, 3);
 
             % Fields accessed by some metric modules
             testCase.SummaryMetrics.gtv_locations  = {};

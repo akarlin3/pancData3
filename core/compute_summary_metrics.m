@@ -265,7 +265,9 @@ for j=1:n_patients_metrics
                 % NOTE: KS-test p-values are liberal because within-patient
                 % voxels are spatially autocorrelated (violates independence).
                 % Treat as descriptive, not inferential.
-                if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
+                % Skip k==1: adc_vec and adc_baseline are the same data,
+                % so the KS test trivially returns stat=0, p=1.
+                if k > 1 && ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
                         && any(~isnan(adc_vec)) && any(~isnan(adc_baseline))
                     % Remove NaN before kstest2 (required for Octave compatibility)
                     adc_vec_ks = adc_vec(~isnan(adc_vec));
@@ -288,10 +290,13 @@ for j=1:n_patients_metrics
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
             if ~isempty(d_vec)
-                % Exclude only exact-zero f values that co-occur with failed D*
+                % Exclude exact-zero f values that co-occur with failed D*
                 % fits (D* == 0 or NaN), preserving genuine zero perfusion.
+                % Both f AND D* must be set to NaN for failed fits:
+                % leaving D*=0 in the data biases dstar_mean downward.
                 failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
                 f_vec(failed_fit) = nan;
+                dstar_vec(failed_fit) = nan;
 
                 f_vec_sub = f_vec(f_vec<f_thresh);
                 f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;
@@ -343,7 +348,8 @@ for j=1:n_patients_metrics
                 end
                 d_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal (see ADC comment above).
-                if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
+                % Skip k==1: d_vec and d_baseline are the same data.
+                if k > 1 && ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
                         && any(~isnan(d_vec)) && any(~isnan(d_baseline))
                     % Remove NaN before kstest2 (consistent with ADC path)
                     d_vec_ks = d_vec(~isnan(d_vec));
@@ -433,6 +439,13 @@ for j=1:n_patients_metrics
                             f_vec = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
                             dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
                     end
+
+                    % Apply the same failed-fit filter used in the main
+                    % metrics path (lines 297-299) so that repeatability
+                    % wCV for f and D* is not biased by spurious zeros.
+                    failed_fit_rpt = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
+                    f_vec(failed_fit_rpt) = nan;
+                    dstar_vec(failed_fit_rpt) = nan;
 
                     if ~isempty(adc_vec)
                         rp_count = rp_count+1;
