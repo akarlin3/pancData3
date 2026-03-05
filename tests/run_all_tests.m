@@ -336,6 +336,15 @@ for k = 1:numel(stray_dirs)
     end
 end
 
+% Shut down parallel pool when running standalone (not under execute_all_workflows)
+if standalone_diary && ~exist('OCTAVE_VERSION', 'builtin')
+    p = gcp('nocreate');
+    if ~isempty(p)
+        delete(p);
+        disp('Parallel pool shut down.');
+    end
+end
+
 if standalone_diary
     diary off;
 end
