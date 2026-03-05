@@ -90,6 +90,13 @@ end
 fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 
+% Determine cause-of-death column name from config (default: 'CauseOfDeath')
+if isfield(config_struct, 'cause_of_death_column')
+    cod_column = config_struct.cause_of_death_column;
+else
+    cod_column = 'CauseOfDeath';
+end
+
 if exist('OCTAVE_VERSION', 'builtin')
     warning('Skipping actual readtable for clinical data in Octave mock environment.');
     T = struct();
@@ -101,15 +108,20 @@ if exist('OCTAVE_VERSION', 'builtin')
     T.RegionalFailureDateOfRegionalFailureOrCensor = zeros(size(id_list));
     T.RTStartDate = zeros(size(id_list));
     T.RTStopDate = zeros(size(id_list));
+    T.CauseOfDeath = repmat({''}, size(id_list));
 
     T_prop = struct();
-    T_prop.VariableNames = {'Pat', 'MRN', 'LocalOrRegionalFailure', 'LocoregionalFailureDateOfLocalOrRegionalFailure', 'LocalFailureDateOfLocalFailureOrCensor', 'RegionalFailureDateOfRegionalFailureOrCensor', 'RTStartDate', 'RTStopDate'};
+    T_prop.VariableNames = {'Pat', 'MRN', 'LocalOrRegionalFailure', 'LocoregionalFailureDateOfLocalOrRegionalFailure', 'LocalFailureDateOfLocalFailureOrCensor', 'RegionalFailureDateOfRegionalFailureOrCensor', 'RTStartDate', 'RTStopDate', 'CauseOfDeath'};
     T.Properties = T_prop;
 else
     if isfield(config_struct, 'clinical_sheet_name')
         T = readtable(clinical_data_sheet,'Sheet', config_struct.clinical_sheet_name);
     else
         T = readtable(clinical_data_sheet);
+    end
+    % Rename the configured cause-of-death column to the canonical name
+    if ~strcmp(cod_column, 'CauseOfDeath') && ismember(cod_column, T.Properties.VariableNames)
+        T.Properties.VariableNames{strcmp(T.Properties.VariableNames, cod_column)} = 'CauseOfDeath';
     end
 end
 
@@ -192,7 +204,7 @@ end
 % are treated as administrative censoring, which inflates the CSH estimate.
 if ~exist('OCTAVE_VERSION', 'builtin') && ~ismember('CauseOfDeath', T.Properties.VariableNames)
     warning('metrics_baseline:noCauseOfDeath', ...
-        'CauseOfDeath column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased.');
+        '%s column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased.', cod_column);
 end
 
 if exist('OCTAVE_VERSION', 'builtin')
