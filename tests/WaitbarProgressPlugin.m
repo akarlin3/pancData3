@@ -19,6 +19,20 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
         FailedTests double = 0
     end
 
+    methods (Access = private, Static)
+        function centerWaitbarText(hWaitbar)
+        %CENTERWAITBARTEXT Re-center text objects after waitbar updates.
+            if ~isvalid(hWaitbar); return; end
+            hText = findobj(hWaitbar, 'Type', 'text');
+            for ti = 1:numel(hText)
+                set(hText(ti), 'Units', 'normalized', ...
+                    'Position', [0.5, 0.5, 0], ...
+                    'HorizontalAlignment', 'center', ...
+                    'VerticalAlignment', 'middle');
+            end
+        end
+    end
+
     methods
         function plugin = WaitbarProgressPlugin(hWaitbar, totalTests, offset)
             plugin.WaitbarHandle = hWaitbar;
@@ -36,6 +50,7 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
                 waitbar(frac, plugin.WaitbarHandle, ...
                     sprintf('%.1f%% — Running serial tests... (%d/%d)', ...
                     pct, plugin.Offset, plugin.TotalTests));
+                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
             end
 
             runTestSuite@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
@@ -49,6 +64,7 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
                     waitbar(1, plugin.WaitbarHandle, ...
                         sprintf('100.0%% — Done: %d passed', plugin.PassedTests));
                 end
+                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
             end
         end
 
@@ -67,6 +83,7 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
                 waitbar(frac, plugin.WaitbarHandle, ...
                     sprintf('%.1f%% (%d/%d) — %s', ...
                     pct, total_done, plugin.TotalTests, displayName));
+                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
             end
 
             runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
@@ -92,6 +109,7 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
                         sprintf('%.1f%% (%d/%d) — %d passed', ...
                         pct, total_done, plugin.TotalTests, plugin.PassedTests));
                 end
+                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
             end
         end
     end
