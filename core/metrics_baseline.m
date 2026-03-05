@@ -120,54 +120,56 @@ if exist('OCTAVE_VERSION', 'builtin')
     % shape.  squeeze() collapses a [1 x 1 x 3] result to [3 x 1] when
     % nPatients==1, causing dimension mismatches with the [nPatients x 1]
     % masking vectors (n_rpt, denom floors).
-    nPat_rpt_oct = size(adc_mean_rpt, 1);
-    nDwi_rpt_oct = size(adc_mean_rpt, 3);
-    adc_denom = reshape(nanmean(adc_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    % Derive reshape dimensions from each array individually to avoid
+    % element-count mismatches when arrays have inconsistent shapes
+    % (e.g., from stale checkpoint files).
+    adc_denom = reshape(nanmean(adc_mean_rpt,2), size(adc_mean_rpt,1), []);
     adc_denom(abs(adc_denom) < wcv_denom_floor) = nan;
-    adc_wCV = reshape(nanstd(adc_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ adc_denom;
+    adc_wCV = reshape(nanstd(adc_mean_rpt,0,2), size(adc_mean_rpt,1), []) ./ adc_denom;
     adc_wCV(n_rpt<2, :) = nan;
-    adc_sub_denom = reshape(nanmean(adc_sub_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    adc_sub_denom = reshape(nanmean(adc_sub_rpt,2), size(adc_sub_rpt,1), []);
     adc_sub_denom(abs(adc_sub_denom) < wcv_denom_floor) = nan;
-    adc_wCV_sub = reshape(nanstd(adc_sub_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ adc_sub_denom;
+    adc_wCV_sub = reshape(nanstd(adc_sub_rpt,0,2), size(adc_sub_rpt,1), []) ./ adc_sub_denom;
     adc_wCV_sub(n_rpt<2, :) = nan;
-    d_denom = reshape(nanmean(d_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    d_denom = reshape(nanmean(d_mean_rpt,2), size(d_mean_rpt,1), []);
     d_denom(abs(d_denom) < wcv_denom_floor) = nan;
-    d_wCV = reshape(nanstd(d_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ d_denom;
+    d_wCV = reshape(nanstd(d_mean_rpt,0,2), size(d_mean_rpt,1), []) ./ d_denom;
     d_wCV(n_rpt<2, :) = nan;
-    f_denom = reshape(nanmean(f_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    f_denom = reshape(nanmean(f_mean_rpt,2), size(f_mean_rpt,1), []);
     f_denom(abs(f_denom) < wcv_denom_floor) = nan;
-    f_wCV = reshape(nanstd(f_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ f_denom;
+    f_wCV = reshape(nanstd(f_mean_rpt,0,2), size(f_mean_rpt,1), []) ./ f_denom;
     f_wCV(n_rpt<2, :) = nan;
-    dstar_denom = reshape(nanmean(dstar_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    dstar_denom = reshape(nanmean(dstar_mean_rpt,2), size(dstar_mean_rpt,1), []);
     dstar_denom(abs(dstar_denom) < wcv_denom_floor) = nan;
-    dstar_wCV = reshape(nanstd(dstar_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ dstar_denom;
+    dstar_wCV = reshape(nanstd(dstar_mean_rpt,0,2), size(dstar_mean_rpt,1), []) ./ dstar_denom;
     dstar_wCV(n_rpt<2, :) = nan;
 else
     % Use reshape instead of squeeze to preserve [nPatients x nDwiTypes]
     % shape.  squeeze() collapses a [1 x 1 x 3] result to [3 x 1] when
     % nPatients==1, causing dimension mismatches with the [nPatients x 1]
     % masking vectors (n_rpt, denom floors).
-    nPat_rpt = size(adc_mean_rpt, 1);
-    nDwi_rpt = size(adc_mean_rpt, 3);
-    adc_denom = reshape(mean(adc_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    % Derive reshape dimensions from each array individually to avoid
+    % element-count mismatches when arrays have inconsistent shapes
+    % (e.g., from stale checkpoint files).
+    adc_denom = reshape(mean(adc_mean_rpt,2,'omitnan'), size(adc_mean_rpt,1), []);
     adc_denom(abs(adc_denom) < wcv_denom_floor) = nan;
-    adc_wCV = reshape(std(adc_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ adc_denom;
+    adc_wCV = reshape(std(adc_mean_rpt,0,2,'omitnan'), size(adc_mean_rpt,1), []) ./ adc_denom;
     adc_wCV(n_rpt<2, :) = nan;
-    adc_sub_denom = reshape(mean(adc_sub_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    adc_sub_denom = reshape(mean(adc_sub_rpt,2,'omitnan'), size(adc_sub_rpt,1), []);
     adc_sub_denom(abs(adc_sub_denom) < wcv_denom_floor) = nan;
-    adc_wCV_sub = reshape(std(adc_sub_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ adc_sub_denom;
+    adc_wCV_sub = reshape(std(adc_sub_rpt,0,2,'omitnan'), size(adc_sub_rpt,1), []) ./ adc_sub_denom;
     adc_wCV_sub(n_rpt<2, :) = nan;
-    d_denom = reshape(mean(d_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    d_denom = reshape(mean(d_mean_rpt,2,'omitnan'), size(d_mean_rpt,1), []);
     d_denom(abs(d_denom) < wcv_denom_floor) = nan;
-    d_wCV = reshape(std(d_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ d_denom;
+    d_wCV = reshape(std(d_mean_rpt,0,2,'omitnan'), size(d_mean_rpt,1), []) ./ d_denom;
     d_wCV(n_rpt<2, :) = nan;
-    f_denom = reshape(mean(f_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    f_denom = reshape(mean(f_mean_rpt,2,'omitnan'), size(f_mean_rpt,1), []);
     f_denom(abs(f_denom) < wcv_denom_floor) = nan;
-    f_wCV = reshape(std(f_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ f_denom;
+    f_wCV = reshape(std(f_mean_rpt,0,2,'omitnan'), size(f_mean_rpt,1), []) ./ f_denom;
     f_wCV(n_rpt<2, :) = nan;
-    dstar_denom = reshape(mean(dstar_mean_rpt,2,'omitnan'), [nPat_rpt, nDwi_rpt]);
+    dstar_denom = reshape(mean(dstar_mean_rpt,2,'omitnan'), size(dstar_mean_rpt,1), []);
     dstar_denom(abs(dstar_denom) < wcv_denom_floor) = nan;
-    dstar_wCV = reshape(std(dstar_mean_rpt,0,2,'omitnan'), [nPat_rpt, nDwi_rpt]) ./ dstar_denom;
+    dstar_wCV = reshape(std(dstar_mean_rpt,0,2,'omitnan'), size(dstar_mean_rpt,1), []) ./ dstar_denom;
     dstar_wCV(n_rpt<2, :) = nan;
 end
 

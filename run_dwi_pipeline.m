@@ -361,6 +361,44 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
     results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
+    % --- Clear cached files if requested ---
+    % When clear_cache is true, remove all pipeline-generated .mat files
+    % from the data directory so the pipeline recomputes everything from
+    % scratch.  This is a one-time operation on the first DWI type run;
+    % subsequent types in the same execute_all_workflows session reuse
+    % freshly generated caches.
+    persistent cache_cleared_this_session;
+    if isfield(config_struct, 'clear_cache') && config_struct.clear_cache
+        if isempty(cache_cleared_this_session) || ~cache_cleared_this_session
+            dataloc = config_struct.dataloc;
+            cache_patterns = {
+                fullfile(dataloc, 'dwi_vectors*.mat'), ...
+                fullfile(dataloc, 'summary_metrics*.mat'), ...
+                fullfile(dataloc, 'adc_vectors.mat')
+            };
+            n_deleted = 0;
+            for cp = 1:numel(cache_patterns)
+                cached = dir(cache_patterns{cp});
+                for cf = 1:numel(cached)
+                    delete(fullfile(cached(cf).folder, cached(cf).name));
+                    n_deleted = n_deleted + 1;
+                end
+            end
+            % Remove per-patient checkpoint directory
+            checkpoint_dir = fullfile(dataloc, 'processed_patients');
+            if isfolder(checkpoint_dir)
+                rmdir(checkpoint_dir, 's');
+                fprintf('  🗑️ Removed per-patient checkpoint directory.\n');
+            end
+            if n_deleted > 0
+                fprintf('  🗑️ Cleared %d cached .mat file(s) from %s\n', n_deleted, dataloc);
+            else
+                fprintf('  💡 No cached files found to clear.\n');
+            end
+            cache_cleared_this_session = true;
+        end
+    end
+
     % Step 2: Load DWI Data
     % [ANALYTICAL RATIONALE — DATA LOADING AND MODEL FITTING]:
     % This is the computationally dominant step. For each patient and each
