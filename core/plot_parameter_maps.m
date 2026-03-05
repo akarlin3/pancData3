@@ -19,7 +19,7 @@ function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_f
 %
 %   3. PROTOCOL COMPLIANCE — B-value validation ensures each patient was
 %      scanned with the expected protocol (b = 0, 30, 150, 550 s/mm^2).
-%      Protocol deviations invalidate the monoexponential ADC fit because
+%      Deviating protocols invalidate the monoexponential ADC fit because
 %      the b-value range determines the sensitivity to diffusion vs.
 %      perfusion contributions (low b < 200 captures perfusion effects).
 %
