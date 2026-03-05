@@ -69,8 +69,6 @@ fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
 % Use the first DWI type for baseline validity check (dtype may be a vector)
 dtype_first = config_struct.dwi_types_to_run(1);
 valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,dtype_first));
-% Subset the outcome labels to the valid patients for later grouping
-lf_group = lf(valid_pts);
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');

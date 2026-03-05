@@ -92,9 +92,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         T_j   = total_time_vec(j);
         lf_j  = lf_vec(j);
 
-        last_valid_row = -1;
-        last_X = nan(1, n_feat);
-        last_t = 0;
         % Track original (non-imputed) observations and their times for
         % decay imputation.  Using the already-imputed last_X would cause
         % compounding decay across consecutive missing scans, making values
@@ -179,9 +176,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 event_buf(row) = 0;
             end
 
-            last_valid_row      = row;
-            last_X = cov_row;
-            last_t = day_tp;
             % Update per-feature original observation tracking: only for
             % features that were actually observed (not decay-imputed).
             observed = ~isnan(cov_row_raw);
