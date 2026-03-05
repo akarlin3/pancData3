@@ -99,7 +99,7 @@ if isfield(config_struct, 'patient_ids') && ~isempty(config_struct.patient_ids)
     if ~isempty(keep_idx)
         id_list = id_list(keep_idx);
         mrn_list = mrn_list(keep_idx);
-        fx_dates = fx_dates(keep_idx);
+        fx_dates = fx_dates(keep_idx, :);
         dwi_locations = dwi_locations(keep_idx, :, :);
         if ~isempty(rtdose_locations)
             rtdose_locations = rtdose_locations(keep_idx, :);
@@ -364,7 +364,8 @@ parfor j = 1:length(mrn_list)
         dvh_v50gy_gtvp_rp  = nan(1, n_rp_dim);
         dvh_v50gy_gtvn_rp  = nan(1, n_rp_dim);
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
-        fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
+        % Use regexp with word-boundary to prevent 'Fx1' matching 'Fx10'
+        fxtmp_idx = ~cellfun(@isempty, regexp({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)

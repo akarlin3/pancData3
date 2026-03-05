@@ -104,8 +104,11 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
 end
 
 function auc_val = compute_auc(feat_col, y_col)
-    % Helper function to compute AUC
-    valid_idx = ~isnan(feat_col) & ~isnan(y_col);
+    % Helper function to compute AUC (event y==1 vs censored y==0).
+    % Exclude competing-risk rows (y==2) so they do not bias the
+    % rank-sum denominator.
+    binary_mask = (y_col == 0 | y_col == 1);
+    valid_idx = binary_mask & ~isnan(feat_col) & ~isnan(y_col);
     if sum(valid_idx) >= 10
         y_valid = y_col(valid_idx);
         feat_valid = feat_col(valid_idx);

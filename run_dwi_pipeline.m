@@ -338,6 +338,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
              return;
         end
     end
+    diary(master_diary_file);  % restart master diary after load step
 
     % Step 3: Sanity Checks
     if ismember('sanity', steps_to_run)
@@ -401,6 +402,14 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     validated_data_gtvp = tmp_vectors.data_vectors_gtvp;
                     validated_data_gtvn = tmp_vectors.data_vectors_gtvn;
                     fprintf('      💾 Loaded validated_data_gtvp from disk (%s).\n', target_dwi_file);
+
+                    % Also load summary_metrics which is needed by
+                    % visualize_results and metrics_baseline downstream.
+                    if ~exist('summary_metrics', 'var') && exist(summary_metrics_file, 'file')
+                        tmp_metrics = load(summary_metrics_file, 'summary_metrics');
+                        summary_metrics = tmp_metrics.summary_metrics;
+                        fprintf('      💾 Loaded summary_metrics from disk (%s).\n', summary_metrics_file);
+                    end
                 else
                     error('Data vectors not found. Please run "load" step first.');
                 end

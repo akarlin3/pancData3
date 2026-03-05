@@ -68,7 +68,7 @@ for target_fx = 2:nTp
 
     original_feature_indices = 1:22;
 
-    if target_fx == 6
+    if target_fx == nTp
         % Post-treatment: no dose features, keep baseline + imaging only
         X_lasso_all = X_lasso_all(:, 1:12);
         feat_names_lasso = feat_names_lasso(1:12);

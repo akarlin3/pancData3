@@ -64,7 +64,9 @@ for j=1:n_pat_discover
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
 
-        fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_search{fi}));
+        % Use regexp with a word-boundary anchor to prevent substring
+        % false positives (e.g., 'Fx1' matching 'Fx10' or 'Fx11').
+        fxtmp_idx = ~cellfun(@isempty, regexp({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         if isempty(fxtmp)

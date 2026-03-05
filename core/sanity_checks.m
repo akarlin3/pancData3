@@ -75,7 +75,7 @@ fprintf('======================================================\n');
 % Cohort dimensions
 nPat = length(id_list);            % total number of patients
 nTp  = size(adc_mean, 2);         % number of timepoints (typically 6: Fx1–Fx5 + Post)
-fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
+fx_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 1: Verify Convergence ---\n');
