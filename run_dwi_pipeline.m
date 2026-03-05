@@ -729,10 +729,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     if ismember('metrics_survival', steps_to_run)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
-            % Pass actual scan days from config if available; otherwise
-            % metrics_survival uses defaults and emits a warning.
+            % Derive actual scan days from DICOM StudyDate headers stored
+            % in summary_metrics.fx_dates (patients x fractions cell matrix
+            % of 'YYYYMMDD' strings).  Fall back to config.json td_scan_days
+            % if fx_dates are unavailable, then to built-in defaults in
+            % metrics_survival (which emits an immortal-time-bias warning).
             td_scan_days_cfg = [];
-            if isfield(config_struct, 'td_scan_days') && ~isempty(config_struct.td_scan_days)
+            if isfield(summary_metrics, 'fx_dates') && ~isempty(summary_metrics.fx_dates)
+                td_scan_days_cfg = compute_scan_days_from_dates(summary_metrics.fx_dates);
+            end
+            if isempty(td_scan_days_cfg) && isfield(config_struct, 'td_scan_days') && ~isempty(config_struct.td_scan_days)
                 td_scan_days_cfg = config_struct.td_scan_days;
             end
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...

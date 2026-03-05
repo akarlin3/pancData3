@@ -651,7 +651,7 @@ end % if ~skip_to_reload
 fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
 
-summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp);
+summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp, fx_dates);
 
 end
 
