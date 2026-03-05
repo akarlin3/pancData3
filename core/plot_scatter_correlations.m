@@ -58,17 +58,18 @@ for di = 1:n_diff_metrics
 
         % Overlay per-group linear trend lines to avoid pooled Simpson's paradox
         warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
-        x_line = linspace(min(x_vals(clean)), max(x_vals(clean)), 50);
         lc_mask = clean & lf_group_col==0;
         lf_mask = clean & lf_group_col==1;
         if sum(lc_mask) >= 2
+            x_line_lc = linspace(min(x_vals(lc_mask)), max(x_vals(lc_mask)), 50);
             p_fit_lc = polyfit(x_vals(lc_mask), y_vals(lc_mask), 1);
-            plot(x_line, polyval(p_fit_lc, x_line), '--', 'Color', [0 0.4470 0.7410], ...
+            plot(x_line_lc, polyval(p_fit_lc, x_line_lc), '--', 'Color', [0 0.4470 0.7410], ...
                 'LineWidth', 1.5, 'DisplayName', 'LC trend');
         end
         if sum(lf_mask) >= 2
+            x_line_lf = linspace(min(x_vals(lf_mask)), max(x_vals(lf_mask)), 50);
             p_fit_lf = polyfit(x_vals(lf_mask), y_vals(lf_mask), 1);
-            plot(x_line, polyval(p_fit_lf, x_line), '--', 'Color', [0.8500 0.3250 0.0980], ...
+            plot(x_line_lf, polyval(p_fit_lf, x_line_lf), '--', 'Color', [0.8500 0.3250 0.0980], ...
                 'LineWidth', 1.5, 'DisplayName', 'LF trend');
         end
         warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');

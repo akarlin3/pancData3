@@ -33,7 +33,8 @@ for j = 1:nPat
     if j > size(data_vectors_gtvp, 1)
         continue;
     end
-    s = data_vectors_gtvp(j, 1, min(dtype, size(data_vectors_gtvp, 3)));
+    if dtype > size(data_vectors_gtvp, 3), continue; end
+    s = data_vectors_gtvp(j, 1, dtype);
     if isempty(s.adc_vector), continue; end
     basefolder = fullfile(dataloc, id_list{j});
     nii_path   = fullfile(basefolder, 'nii');
@@ -53,8 +54,14 @@ for j = 1:nPat
         fprintf('  💡 Pt %d: index exceeds data_vectors_gtvp rows (%d)\n', j, size(data_vectors_gtvp, 1));
         continue;
     end
+    % Skip patients whose data lacks the requested DWI type
+    if dtype > size(data_vectors_gtvp, 3)
+        diag_empty_adc = diag_empty_adc + 1;
+        fprintf('  💡 Pt %d (%s): dtype %d unavailable (max %d) — skipping\n', j, id_list{j}, dtype, size(data_vectors_gtvp, 3));
+        continue;
+    end
     % Skip patients without extracted ADC data at Fx1
-    s = data_vectors_gtvp(j, 1, min(dtype, size(data_vectors_gtvp, 3)));
+    s = data_vectors_gtvp(j, 1, dtype);
     if isempty(s.adc_vector)
         diag_empty_adc = diag_empty_adc + 1;
         fprintf('  💡 Pt %d (%s): empty adc_vector at Fx1 — skipping\n', j, id_list{j});
