@@ -97,7 +97,7 @@ for j = 1:nPat
     fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
     bvals = bvals(:);
 
-    % Protocol deviation check: skip patients whose b-values do not match
+    % B-value validation: skip patients whose b-values do not match
     % the expected acquisition protocol.
     if ~isequal(sort(bvals), sort(expected_bvals))
         diag_bad_bval = diag_bad_bval + 1;
