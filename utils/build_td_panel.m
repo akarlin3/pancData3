@@ -62,6 +62,14 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     scan_days = scan_days(1:nTp);  % trim to available timepoints
 
+    % Remove NaN entries (fractions with no valid scan dates) while
+    % preserving the mapping between scan_days indices and feature
+    % array columns via tp_map.
+    valid_sd = ~isnan(scan_days);
+    tp_map   = find(valid_sd);       % tp_map(k) = original column in feat_arrays
+    scan_days = scan_days(valid_sd);
+    nTp = length(scan_days);
+
     % Validate scan_days is strictly increasing
     assert(all(diff(scan_days) > 0), 'build_td_panel:scanDays', 'scan_days must be strictly increasing');
 
@@ -117,11 +125,14 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             end
 
             % Extract covariates for this patient at this timepoint
+            % tp_map translates the scan_days index back to the
+            % original feature-array column (handles NaN-dropped fractions).
+            orig_tp = tp_map(tp);
             cov_row = nan(1, n_feat);
             for fi = 1:n_feat
                 arr = feat_arrays{fi};
-                if tp <= size(arr, 2)
-                    cov_row(fi) = arr(j, tp);
+                if orig_tp <= size(arr, 2)
+                    cov_row(fi) = arr(j, orig_tp);
                 end
             end
 
@@ -168,11 +179,12 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 % Look ahead for the next non-missing timepoint
                 day_next = T_j;
                 for t_next = (tp+1):nTp
+                    orig_t_next = tp_map(t_next);
                     next_row = nan(1, n_feat);
                     for fi = 1:n_feat
                         arr = feat_arrays{fi};
-                        if t_next <= size(arr, 2)
-                            next_row(fi) = arr(j, t_next);
+                        if orig_t_next <= size(arr, 2)
+                            next_row(fi) = arr(j, orig_t_next);
                         end
                     end
                     if ~all(isnan(next_row))
@@ -195,7 +207,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             t_start_buf(row)    = day_tp;
             t_stop_buf(row)     = day_next;
             pat_buf(row)        = j;
-            frac_buf(row)       = tp;
+            frac_buf(row)       = orig_tp;
 
             if is_terminal
                 event_buf(row) = lf_j;

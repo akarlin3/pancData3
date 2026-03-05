@@ -54,15 +54,21 @@ for k = 1:nFx
     end
 end
 
-% Keep only fractions with valid medians
+% Return the full vector preserving positional correspondence with
+% feature array columns.  Filtering out NaN entries here would shift
+% the mapping (e.g., fraction 4's features paired with fraction 3's
+% scan day), so we keep NaN for missing fractions and let the caller
+% handle them.
 valid_fx = ~isnan(median_days);
 if sum(valid_fx) < 2
     return;
 end
-scan_days = median_days(valid_fx);
+scan_days = median_days;
 
-% Ensure strictly increasing (required by build_td_panel)
-if any(diff(scan_days) <= 0)
+% Ensure the valid (non-NaN) entries are strictly increasing
+% (required by build_td_panel after NaN removal).
+valid_days = median_days(valid_fx);
+if any(diff(valid_days) <= 0)
     warning('compute_scan_days_from_dates:notIncreasing', ...
         'Computed scan days are not strictly increasing. Falling back to defaults.');
     scan_days = [];

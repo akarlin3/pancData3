@@ -64,7 +64,10 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
         pos_mask = t_start_td > 0;
         temporal_week_td(pos_mask) = ceil(t_start_td(pos_mask) / 7);
 
-        unique_weeks = unique(temporal_week_td(~isnan(temporal_week_td)));
+        % Discover weeks from training rows only to avoid information
+        % leakage (knowing which weeks exist in test data).  Test rows
+        % with weeks not seen in training are handled after the loop.
+        unique_weeks = unique(temporal_week_td(is_train_row & ~isnan(temporal_week_td)));
 
         % Pre-compute week masks and first occurrence indices outside the feature loop
         n_weeks = length(unique_weeks);
@@ -136,6 +139,47 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     sd_col = 1;
                 end
                 X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) ./ sd_col;
+            end
+
+            % Handle test-only weeks not seen in training: use the
+            % nearest training week's statistics (already computed above
+            % in the per-week loop, stored in mu/sd arrays below).
+        end
+
+        % Scale any rows whose temporal week was not in the training set
+        % (these remain at their raw values after the loop above).
+        all_weeks = unique(temporal_week_td(~isnan(temporal_week_td)));
+        unseen_weeks = setdiff(all_weeks, unique_weeks);
+        if ~isempty(unseen_weeks) && ~isempty(unique_weeks)
+            for fi = 1:n_feat
+                for uw = 1:length(unseen_weeks)
+                    wk = unseen_weeks(uw);
+                    % Find nearest training week
+                    [~, nearest_idx] = min(abs(unique_weeks - wk));
+                    nearest_wk = unique_weeks(nearest_idx);
+                    nearest_mask = (temporal_week_td == nearest_wk) & is_train_row;
+
+                    % Compute mu/sd from nearest training week
+                    [~, u_idx] = unique(pat_id_td(nearest_mask), 'first');
+                    near_indices = find(nearest_mask);
+                    near_first = near_indices(u_idx);
+                    vals = X_td_raw(near_first, fi);
+                    vals = vals(~isnan(vals));
+                    if length(vals) > 1
+                        mu_nn = mean(vals);
+                        sd_nn = std(vals);
+                        if sd_nn == 0, sd_nn = 1; end
+                    elseif length(vals) == 1
+                        mu_nn = vals(1);
+                        sd_nn = 1;
+                    else
+                        mu_nn = 0;
+                        sd_nn = 1;
+                    end
+
+                    unseen_mask = (temporal_week_td == wk);
+                    X_td_scaled(unseen_mask, fi) = (X_td_raw(unseen_mask, fi) - mu_nn) ./ sd_nn;
+                end
             end
         end
     end
