@@ -168,6 +168,16 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'cause_of_death_column')
             config_struct.cause_of_death_column = 'CauseOfDeath';
         end
+
+        % clear_cache: When true, deletes all cached .mat files from the
+        % data directory before pipeline execution (dwi_vectors_*.mat,
+        % summary_metrics_*.mat, per-patient checkpoints).  Useful when
+        % the cohort, GTV contours, or pipeline code have changed and
+        % stale cached data would produce incorrect results.  Default
+        % false preserves existing caches for incremental re-runs.
+        if ~isfield(config_struct, 'clear_cache')
+            config_struct.clear_cache = false;
+        end
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % Any JSON syntax error or field-access failure is caught here.

@@ -153,5 +153,27 @@ classdef test_parse_config < matlab.unittest.TestCase
             config = parse_config(testCase.TempConfigFile);
             testCase.verifyEqual(config.dwi_types_to_run, 1:3);
         end
+
+        function testClearCacheDefaultsFalse(testCase)
+            % clear_cache should default to false when not specified
+            cfg = struct('dataloc', '/tmp');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyFalse(config.clear_cache);
+        end
+
+        function testClearCachePreservedWhenSet(testCase)
+            % clear_cache should be preserved when explicitly set to true
+            cfg = struct('dataloc', '/tmp', 'clear_cache', true);
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyTrue(config.clear_cache);
+        end
     end
 end
