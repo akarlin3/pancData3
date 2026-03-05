@@ -26,6 +26,7 @@ sfprj/
 saved_files*/
 /data/
 /results/figures/
+*.bak
 
 # OS Specific
 .DS_Store
