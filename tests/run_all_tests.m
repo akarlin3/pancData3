@@ -136,8 +136,8 @@ if has_display
         'Visible', 'on');
     % Expand the default waitbar window and center it on screen
     fig_pos = get(hWaitbar, 'Position');
-    new_w = fig_pos(3) + 150;
-    new_h = fig_pos(4) + 50;
+    new_w = fig_pos(3) + 80;
+    new_h = fig_pos(4) + 30;
     screen_sz = get(0, 'ScreenSize');
     new_x = (screen_sz(3) - new_w) / 2;
     new_y = (screen_sz(4) - new_h) / 2;
@@ -146,7 +146,9 @@ if has_display
     hAxes = findobj(hWaitbar, 'Type', 'axes');
     if ~isempty(hAxes)
         ax_pos = get(hAxes, 'Position');
-        set(hAxes, 'Position', [(1 - ax_pos(3)) / 2, ax_pos(2), ax_pos(3), ax_pos(4)]);
+        new_ax_x = (1 - ax_pos(3)) / 2;
+        new_ax_y = (1 - ax_pos(4)) / 2 - 0.05;
+        set(hAxes, 'Position', [new_ax_x, new_ax_y, ax_pos(3), ax_pos(4)]);
     end
 end
 
