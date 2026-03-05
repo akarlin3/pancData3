@@ -131,6 +131,24 @@ skip_to_reload = config_struct.skip_to_reload;
 ivim_bthr = config_struct.ivim_bthr;
 
 %% ========================================================================
+% Pre-check: if skip_to_reload is requested for a specific DWI type
+% (dnCNN, IVIMnet) but the type-specific .mat file does not exist yet
+% (e.g., first run from execute_all_workflows), fall through to the full
+% load path instead of erroring out later.  This only applies when
+% dwi_type_name is set — for untyped/Standard runs, a missing file with
+% skip_to_reload=true is still a genuine error (the user explicitly
+% requested reload).
+if skip_to_reload && isfield(config_struct, 'dwi_type_name') && ~isempty(config_struct.dwi_type_name)
+    dataloc_check = config_struct.dataloc;
+    file_prefix_check = ['_' config_struct.dwi_type_name];
+    datasave_check = fullfile(dataloc_check, ['dwi_vectors' file_prefix_check '.mat']);
+    if ~exist(datasave_check, 'file')
+        fprintf('  💡 skip_to_reload requested but %s not found. Running full load for %s.\n', ...
+            ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
+        skip_to_reload = false;
+    end
+end
+
 fprintf('\n--- SECTION 1: File Discovery ---\n');
 %  SECTION 1 — FILE DISCOVERY
 

@@ -60,14 +60,17 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
     is_train_row = ismember(pat_id_td, train_pat_ids);
 
     if strcmp(scaling_mode, 'baseline')
-        % --- Baseline-only scaling: use t_start==0 training rows ---
-        % This mode normalizes all timepoints using pre-treatment (Fx1)
-        % statistics.  It is appropriate when the analysis goal is to
-        % detect absolute change from baseline (e.g., "ADC increased by
-        % 2 SD from pre-RT").  However, it does not account for the
-        % natural temporal shift in parameter distributions during RT,
-        % so per-week scaling is preferred for time-dependent Cox models.
-        is_train_base_mask = is_train_row & (t_start_td == 0);
+        % --- Baseline-only scaling: use earliest training rows ---
+        % This mode normalizes all timepoints using the earliest available
+        % observation per patient.  When called before landmark subsetting,
+        % this is the pre-treatment (Fx1, t_start==0) scan.  When called
+        % after landmark subsetting (metrics_survival), t_start==0 rows no
+        % longer exist, so the minimum t_start among training rows serves
+        % as the effective baseline.  This avoids the noBaseline warning
+        % and the fallback to all-row statistics that would defeat the
+        % purpose of baseline-referenced scaling.
+        baseline_t = min(t_start_td(is_train_row));
+        is_train_base_mask = is_train_row & (t_start_td == baseline_t);
 
         for fi = 1:n_feat
             is_train_base = is_train_base_mask & ~isnan(X_td_raw(:, fi));
@@ -75,7 +78,7 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
 
             if isempty(base_vals)
                 warning('scale_td_panel:noBaseline', ...
-                    'No baseline (t_start==0) training data for feature %s. Using all training rows.', feat_names{fi});
+                    'No baseline (t_start==%g) training data for feature %s. Using all training rows.', baseline_t, feat_names{fi});
                 mu  = mean(X_td_raw(is_train_row, fi), 'omitnan');
                 sig = std(X_td_raw(is_train_row, fi), 0, 'omitnan');
             else
