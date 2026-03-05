@@ -163,13 +163,24 @@ event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
 % We therefore exclude competing-event rows from the IPCW censoring
 % model and only model the probability of true administrative censoring.
 ipcw_weights = ones(size(event_td));   % default: unweighted
-has_admin_cens = any(event_td == 0);
+% Identify terminal intervals (last row per patient).  In the counting-
+% process representation, non-terminal intervals have event_td==0 but are
+% NOT censoring events — the patient simply transitions to the next
+% interval.  Only the terminal interval with event_td==0 is a true
+% administrative censoring event.
+is_terminal_td = false(size(event_td));
+[~, last_idx_td] = unique(pat_id_td, 'last');
+is_terminal_td(last_idx_td) = true;
+is_admin_cens_event = is_terminal_td & (event_td == 0);
+has_admin_cens = any(is_admin_cens_event);
 if has_admin_cens
     try
         % Restrict IPCW model to rows that are NOT competing events.
-        % In this subset: event_td==0 is admin censored, event_td==1 is the event.
+        % In this subset, the censoring "event" occurs only at the terminal
+        % interval of admin-censored patients; all other rows (non-terminal
+        % and LF-terminal) are right-censored in the censoring model.
         not_competing = (event_td ~= 2);
-        is_admin_cens_subset = double(event_td(not_competing) == 0);
+        is_admin_cens_subset = double(is_admin_cens_event(not_competing));
         T_cens = [t_start_td(not_competing), t_stop_td(not_competing)];
         X_cens_subset = X_td_global(not_competing, :);
         [X_cens_clean, keep_ipcw] = remove_constant_columns(X_cens_subset);
@@ -379,10 +390,15 @@ for hl_idx = 1:length(half_life_grid)
         % then taking the first sum(lm_keep_hl) elements silently assigns
         % wrong weights when the two panels select different rows.
         ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
-        if has_admin_cens
+        % Identify terminal intervals for this sensitivity panel
+        is_terminal_hl = false(size(pnl_event));
+        [~, last_idx_hl] = unique(pnl_pid, 'last');
+        is_terminal_hl(last_idx_hl) = true;
+        is_admin_cens_hl = is_terminal_hl & (pnl_event == 0);
+        if any(is_admin_cens_hl)
             try
                 not_comp_hl = (pnl_event ~= 2);
-                is_cens_hl = double(pnl_event(not_comp_hl) == 0);
+                is_cens_hl = double(is_admin_cens_hl(not_comp_hl));
                 T_cens_hl = [pnl_tstart(not_comp_hl), pnl_tstop(not_comp_hl)];
                 X_cens_hl = X_hl(not_comp_hl, :);
                 [X_cens_hl_clean, keep_ipcw_hl] = remove_constant_columns(X_cens_hl);
