@@ -42,20 +42,26 @@ fprintf('  --- SECTION 1: Repeatability Analysis ---\n');
 % Guard against division by near-zero denominators (especially for f, D*).
 wcv_denom_floor = 1e-10;
 if exist('OCTAVE_VERSION', 'builtin')
-    adc_denom = squeeze(nanmean(adc_mean_rpt,2));
-    adc_wCV = squeeze(nanstd(adc_mean_rpt,0,2)) ./ adc_denom;
+    % Use reshape instead of squeeze to preserve [nPatients x nDwiTypes]
+    % shape.  squeeze() collapses a [1 x 1 x 3] result to [3 x 1] when
+    % nPatients==1, causing dimension mismatches with the [nPatients x 1]
+    % masking vectors (n_rpt, denom floors).
+    nPat_rpt_oct = size(adc_mean_rpt, 1);
+    nDwi_rpt_oct = size(adc_mean_rpt, 3);
+    adc_denom = reshape(nanmean(adc_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    adc_wCV = reshape(nanstd(adc_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ adc_denom;
     adc_wCV(n_rpt<2 | abs(adc_denom) < wcv_denom_floor, :) = nan;
-    adc_sub_denom = squeeze(nanmean(adc_sub_rpt,2));
-    adc_wCV_sub = squeeze(nanstd(adc_sub_rpt,0,2)) ./ adc_sub_denom;
+    adc_sub_denom = reshape(nanmean(adc_sub_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    adc_wCV_sub = reshape(nanstd(adc_sub_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ adc_sub_denom;
     adc_wCV_sub(n_rpt<2 | abs(adc_sub_denom) < wcv_denom_floor, :) = nan;
-    d_denom = squeeze(nanmean(d_mean_rpt,2));
-    d_wCV = squeeze(nanstd(d_mean_rpt,0,2)) ./ d_denom;
+    d_denom = reshape(nanmean(d_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    d_wCV = reshape(nanstd(d_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ d_denom;
     d_wCV(n_rpt<2 | abs(d_denom) < wcv_denom_floor, :) = nan;
-    f_denom = squeeze(nanmean(f_mean_rpt,2));
-    f_wCV = squeeze(nanstd(f_mean_rpt,0,2)) ./ f_denom;
+    f_denom = reshape(nanmean(f_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    f_wCV = reshape(nanstd(f_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ f_denom;
     f_wCV(n_rpt<2 | abs(f_denom) < wcv_denom_floor, :) = nan;
-    dstar_denom = squeeze(nanmean(dstar_mean_rpt,2));
-    dstar_wCV = squeeze(nanstd(dstar_mean_rpt,0,2)) ./ dstar_denom;
+    dstar_denom = reshape(nanmean(dstar_mean_rpt,2), [nPat_rpt_oct, nDwi_rpt_oct]);
+    dstar_wCV = reshape(nanstd(dstar_mean_rpt,0,2), [nPat_rpt_oct, nDwi_rpt_oct]) ./ dstar_denom;
     dstar_wCV(n_rpt<2 | abs(dstar_denom) < wcv_denom_floor, :) = nan;
 else
     % Use reshape instead of squeeze to preserve [nPatients x nDwiTypes]

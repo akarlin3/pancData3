@@ -167,8 +167,12 @@ for j=1:n_patients_metrics
                 % Only set gtv_vol from the first dwi_type to avoid
                 % overwriting with pipeline-specific voxel counts.  GTV
                 % volume is a geometric property independent of DWI type.
+                % Use numel(adc_vec), not n_finite_adc, because the GTV
+                % mask defines the anatomical volume — NaN voxels (from
+                % failed ADC fits or artefacts) are still part of the
+                % tumour contour and should contribute to volume.
                 if isnan(gtv_vol(j,k))
-                    gtv_vol(j,k) = n_finite_adc*vox_vol;
+                    gtv_vol(j,k) = numel(adc_vec)*vox_vol;
                 end
                 if exist('OCTAVE_VERSION', 'builtin')
                     % Octave nanmean might fail if it's a vector of all nans or something else
@@ -235,16 +239,21 @@ for j=1:n_patients_metrics
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
-                    c1 = histc(adc_vec, bin_edges);
+                    adc_vec_hist = adc_vec(~isnan(adc_vec));
+                    c1 = histc(adc_vec_hist, bin_edges);
                     c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
                     c1 = c1(1:end-1);
                 else
                     [c1, ~] = histcounts(adc_vec, bin_edges);
                 end
                 n_binned_adc = sum(c1);
+                nbins_adc = length(c1);
                 if n_binned_adc > 0
-                    p1 = c1 / n_binned_adc;
-                    p1(p1==0)=eps;
+                    % Laplace (add-one) smoothing avoids zero-probability
+                    % bins that would cause log(0) in KL divergence or
+                    % other distribution distance metrics.  Machine epsilon
+                    % (eps) is too small and distorts such measures.
+                    p1 = (c1 + 1) / (n_binned_adc + nbins_adc);
                 else
                     p1 = zeros(size(c1));
                 end
@@ -314,16 +323,17 @@ for j=1:n_patients_metrics
                 end
 
                 if exist('OCTAVE_VERSION', 'builtin')
-                    c1 = histc(d_vec, bin_edges);
+                    d_vec_hist = d_vec(~isnan(d_vec));
+                    c1 = histc(d_vec_hist, bin_edges);
                     c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
                     c1 = c1(1:end-1);
                 else
                     [c1, ~] = histcounts(d_vec, bin_edges);
                 end
                 n_binned_d = sum(c1);
+                nbins_d = length(c1);
                 if n_binned_d > 0
-                    p1 = c1 / n_binned_d;
-                    p1(p1==0)=eps;
+                    p1 = (c1 + 1) / (n_binned_d + nbins_d);
                 else
                     p1 = zeros(size(c1));
                 end

@@ -58,8 +58,9 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
 
     if ~isempty(dose_sub) && n_valid >= min_subvol_voxels
         d95 = prctile(dose_sub, 5);
-        % V50 uses all subvolume voxels as denominator (NaN = unknown dose,
-        % not "no dose") to avoid inflating coverage estimates.
+        % V50 uses all subvolume voxels (including NaN) as denominator so
+        % that unknown-dose voxels conservatively deflate coverage.  Using
+        % only valid voxels would inflate V50 when dose data is sparse.
         v50 = sum(dose_sub >= 50) / max(n_total, 1) * 100;
         nan_frac = 1 - n_valid / max(n_total, 1);
         if nan_frac > 0.2
