@@ -134,6 +134,9 @@ if has_display
     hWaitbar = waitbar(0, 'Initializing test suite...', ...
         'Name', 'Test Suite Progress', ...
         'Visible', 'on');
+    % Expand the default waitbar window for better readability
+    fig_pos = get(hWaitbar, 'Position');
+    set(hWaitbar, 'Position', [fig_pos(1)-75, fig_pos(2)-25, fig_pos(3)+150, fig_pos(4)+50]);
 end
 
 % 3. Check whether parallel execution is available
