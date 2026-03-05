@@ -263,5 +263,48 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
             testCase.verifyEqual(m_lf(1), 2, ...
                 'Custom column name should be recognized for competing risk classification.');
         end
+
+        function testCaseInsensitiveCauseOfDeathColumn(testCase)
+            % When the spreadsheet column has different casing (e.g.,
+            % readtable alters casing), the column should still be found.
+            if exist('OCTAVE_VERSION', 'builtin')
+                testCase.assumeFail('Test requires MATLAB readtable/writetable.');
+            end
+            nPat = 8;
+            id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+            lf_vals     = [0; 0; 0; 0; 1; 1; 1; 1];
+            dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
+            cod_vals    = {'lung cancer'; ''; ''; ''; ''; ''; ''; ''};
+            % Use mismatched casing in the column name
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
+                dt_rtstart, dt_rtstop, cod_vals, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate', 'causeofdeath'});
+            writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
+
+            testCase.SummaryMetrics.lf = lf_vals;
+
+            % Config uses default 'CauseOfDeath' but spreadsheet has 'causeofdeath'
+            lastwarn('', '');
+            [m_lf, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~] = ...
+             metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+            [~, warnId] = lastwarn;
+
+            % Patient 1: no LF + non-pancreatic death => competing risk (2)
+            testCase.verifyEqual(m_lf(1), 2, ...
+                'Case-insensitive column match should enable competing risk classification.');
+            testCase.verifyNotEqual(warnId, 'metrics_baseline:noCauseOfDeath', ...
+                'No noCauseOfDeath warning should be emitted with case-insensitive match.');
+        end
     end
 end

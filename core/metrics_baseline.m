@@ -219,9 +219,18 @@ else
     else
         T = readtable(clinical_data_sheet);
     end
-    % Rename the configured cause-of-death column to the canonical name
-    if ~strcmp(cod_column, 'CauseOfDeath') && ismember(cod_column, T.Properties.VariableNames)
-        T.Properties.VariableNames{strcmp(T.Properties.VariableNames, cod_column)} = 'CauseOfDeath';
+    % Rename the configured cause-of-death column to the canonical name.
+    % First try exact match; if not found, fall back to case-insensitive
+    % match (readtable may alter casing depending on VariableNamingRule).
+    if ismember(cod_column, T.Properties.VariableNames)
+        if ~strcmp(cod_column, 'CauseOfDeath')
+            T.Properties.VariableNames{strcmp(T.Properties.VariableNames, cod_column)} = 'CauseOfDeath';
+        end
+    else
+        ci_idx = find(strcmpi(T.Properties.VariableNames, cod_column));
+        if ~isempty(ci_idx)
+            T.Properties.VariableNames{ci_idx(1)} = 'CauseOfDeath';
+        end
     end
 end
 

@@ -146,14 +146,23 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
                 ?MException, 'Should throw an error when dwi_vectors.mat is missing');
         end
 
-        function testSkipToReloadMissingSpecificError(testCase)
-            % Verifies that if specific variant is requested, AND fallback is missing,
-            % it errors out completely.
+        function testSkipToReloadMissingSpecificFallthrough(testCase)
+            % Verifies that if a specific DWI type variant is requested with
+            % skip_to_reload=true but the .mat file doesn't exist, the code
+            % falls through to the full load path (skip_to_reload overridden
+            % to false).  The full load will fail downstream for other
+            % reasons (no clinical sheet, etc.), but NOT with the
+            % load_dwi_data:fileNotFound error.
 
             testCase.ConfigStruct.dwi_type_name = 'IVIMnet';
 
-            testCase.verifyError(@() load_dwi_data(testCase.ConfigStruct), ...
-                ?MException, 'Should throw error when both specific and fallback are missing');
+            try
+                load_dwi_data(testCase.ConfigStruct);
+                testCase.verifyFail('Expected an error from the full load path');
+            catch ME
+                testCase.verifyNotEqual(ME.identifier, 'load_dwi_data:fileNotFound', ...
+                    'Should NOT get fileNotFound error — should fall through to full load');
+            end
         end
 
         function testDiscoverFilesEmpty(testCase)

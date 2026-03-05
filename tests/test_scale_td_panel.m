@@ -211,5 +211,48 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
                 'Derivative features at week 0 should use first-occurrence-per-patient stats');
         end
 
+        function testBaselineModePostLandmark(testCase)
+            % After landmark subsetting, t_start==0 rows are removed.
+            % Baseline mode should use the minimum t_start among training
+            % rows as the effective baseline (e.g., t_start==20 after
+            % landmark at day 20).
+            feat_names = {'ADC'};
+            pat_id_td = [1; 2; 1; 2];
+            t_start_td = [20; 20; 90; 90];  % post-landmark, no t_start==0
+            train_pat_ids = [1; 2];
+
+            X_td_raw = [10; 20; 100; 200];
+
+            % Should use t_start==20 rows as baseline: [10, 20]
+            X_td_scaled = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids, 'baseline');
+
+            mu = mean([10, 20]);
+            sig = std([10, 20]);
+            expected = (X_td_raw - mu) / sig;
+
+            testCase.verifyEqual(X_td_scaled, expected, 'AbsTol', 1e-4, ...
+                'Baseline mode should use minimum t_start when t_start==0 absent');
+        end
+
+        function testBaselineModeWithTStartZero(testCase)
+            % When t_start==0 rows exist, baseline mode should still use
+            % them (min(t_start) == 0, same behavior as before).
+            feat_names = {'ADC'};
+            pat_id_td = [1; 2; 1; 2];
+            t_start_td = [0; 0; 20; 20];
+            train_pat_ids = [1; 2];
+
+            X_td_raw = [10; 20; 100; 200];
+
+            X_td_scaled = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids, 'baseline');
+
+            mu = mean([10, 20]);
+            sig = std([10, 20]);
+            expected = (X_td_raw - mu) / sig;
+
+            testCase.verifyEqual(X_td_scaled, expected, 'AbsTol', 1e-4, ...
+                'Baseline mode with t_start==0 rows should behave as before');
+        end
+
     end
 end

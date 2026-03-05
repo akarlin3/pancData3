@@ -171,6 +171,42 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
                 'events_km must be numeric or logical.');
         end
 
+        function testNaNRiskScoresDoNotCauseLogicalError(testCase)
+            % Regression test for the bug where NaN risk scores could not
+            % be assigned into a logical array (is_high_risk_oof).
+            % After the fix, is_high_risk_oof is initialised with zeros()
+            % instead of false(), allowing NaN assignment for invalid folds.
+            %
+            % This test exercises the exact logic from lines 417-429 of
+            % metrics_stats_predictive.m in isolation to verify that NaN
+            % values in risk_scores_oof are handled without error.
+            risk_scores_oof = [0.3; NaN; 0.7; NaN; 0.5];
+            valid_oof = ~isnan(risk_scores_oof);
+            oof_median = median(risk_scores_oof(valid_oof));
+            is_high_risk_oof = zeros(size(risk_scores_oof));
+            is_high_risk_oof(valid_oof) = risk_scores_oof(valid_oof) > oof_median;
+            is_high_risk_oof(~valid_oof) = NaN;
+
+            % NaN entries must survive assignment
+            testCase.verifyTrue(isnan(is_high_risk_oof(2)), ...
+                'Patient 2 (NaN risk score) should have NaN high-risk flag.');
+            testCase.verifyTrue(isnan(is_high_risk_oof(4)), ...
+                'Patient 4 (NaN risk score) should have NaN high-risk flag.');
+
+            % Valid entries must be 0 or 1 (double, not logical)
+            testCase.verifyTrue(all(is_high_risk_oof(valid_oof) == 0 | ...
+                                    is_high_risk_oof(valid_oof) == 1), ...
+                'Valid patients should have binary (0/1) high-risk flags.');
+
+            % Downstream target array must accept these values
+            valid_pts = true(8, 1);
+            impute_mask = [true; false; true; true; false; true; false; true];
+            is_high_risk_target = nan(sum(valid_pts), 1);
+            is_high_risk_target(impute_mask) = is_high_risk_oof;
+            testCase.verifyEqual(sum(isnan(is_high_risk_target)), 5, ...
+                'Target array should have NaN for non-imputed and invalid patients.');
+        end
+
         function testLeakageDetectionDnCNN(testCase)
             % dtype = 2 (DnCNN): if a patient is in dncnn_train_ids and the
             % LOOCV loop reaches that patient, an error must be thrown.
