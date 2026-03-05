@@ -197,7 +197,9 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
             dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
             dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
             dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
-            cod_vals    = repmat({''}, nPat, 1);
+            % Use at least one non-empty value so readtable preserves the
+            % column (all-empty text columns may be dropped by readtable).
+            cod_vals    = [{'pancreatic cancer'}; repmat({''}, nPat-1, 1)];
             T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
                 dt_rtstart, dt_rtstop, cod_vals, ...
                 'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
