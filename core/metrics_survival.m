@@ -3,6 +3,48 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
 %
+% ANALYTICAL OVERVIEW:
+%   This module fits a time-dependent Cox Proportional Hazards (Cox PH) model
+%   using the Andersen-Gill counting process formulation.  This is the most
+%   sophisticated analysis in the pipeline because it addresses several
+%   challenges unique to longitudinal imaging biomarker studies:
+%
+%   1. TIME-VARYING COVARIATES — Standard Cox regression assumes covariates
+%      are fixed at baseline.  In this study, diffusion parameters are
+%      measured at each treatment fraction and evolve over time.  The
+%      counting-process formulation splits each patient's follow-up into
+%      intervals [t_start, t_stop], with covariates updated at each scan.
+%      This allows the model to use the most recent biomarker values when
+%      estimating instantaneous hazard of local failure.
+%
+%   2. COMPETING RISKS (CAUSE-SPECIFIC HAZARDS) — Pancreatic cancer patients
+%      may die from systemic disease, treatment toxicity, or unrelated causes
+%      before local failure can be observed.  The Cause-Specific Hazard (CSH)
+%      approach treats these competing events as censored observations when
+%      modelling the hazard of local failure.  This is preferred over the
+%      subdistribution hazard (Fine-Gray) for aetiological questions because
+%      CSH estimates the actual biological hazard rate, not the cumulative
+%      incidence accounting for competing events.
+%
+%   3. INVERSE PROBABILITY OF CENSORING WEIGHTING (IPCW) — Administrative
+%      censoring (patients lost to follow-up) may be informative if sicker
+%      patients are more likely to drop out.  IPCW models the censoring
+%      probability as a function of covariates and upweights observations
+%      from patients similar to those who were censored, reducing bias.
+%      Competing events are NOT included in the IPCW model because they
+%      are not uninformative censoring — they are a distinct endpoint.
+%
+%   4. LANDMARK ANALYSIS — Only intervals AFTER the end of radiotherapy
+%      are included in the primary analysis.  Using covariates from scans
+%      that occurred after the event they predict would violate the temporal
+%      ordering assumption.  The landmark ensures all patients in the
+%      analysis were still at risk at the time of the last treatment scan.
+%
+%   5. IMPUTATION HALF-LIFE SENSITIVITY — The time-dependent panel uses
+%      exponential decay imputation for missing inter-scan values (via
+%      build_td_panel).  The sensitivity analysis varies the decay half-life
+%      to assess robustness of hazard ratio estimates to imputation assumptions.
+%
 % Inputs:
 %   valid_pts         - Logical mask of patients mapped to LF/LC groups
 %   ADC_abs, D_abs, f_abs, Dstar_abs - Baseline covariate values matrices
@@ -52,7 +94,18 @@ else
     fprintf('      or as the 14th argument to avoid immortal time bias.\n');
 end
 
-% Covariates: all four IVIM parameters (absolute, all fractions)
+% Covariates: all four diffusion/IVIM parameters (absolute values across
+% all treatment fractions).  These are the time-varying covariates whose
+% trajectories are hypothesised to predict local failure hazard.
+% Interpretation of hazard ratios:
+%   HR(ADC) > 1 → higher ADC associated with INCREASED failure risk
+%                 (counterintuitive: high ADC usually = good response)
+%   HR(ADC) < 1 → higher ADC associated with DECREASED failure risk
+%                 (expected: radiation-induced cell death → higher ADC)
+%   HR(D)   — same interpretation as ADC (reflects cellularity)
+%   HR(f)   — higher perfusion fraction may indicate better oxygenation
+%             and thus better radiation response (HR < 1 expected)
+%   HR(D*)  — physiologically noisy, interpretation less reliable
 td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
                    f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
@@ -83,6 +136,12 @@ follow_up_valid = m_total_follow_up_time(valid_pts);
 cens_mask_td = (td_lf == 0 | td_lf == 2) & ~isnan(follow_up_valid);
 td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 
+% Build the counting-process panel: each patient's follow-up is split into
+% intervals [t_start, t_stop] aligned to scan times.  Covariates are
+% constant within each interval and updated at each scan boundary.
+% The default half-life of 18 months controls exponential decay imputation
+% for covariate values between scans (e.g., if a scan is missing at Fx3,
+% the Fx2 value decays towards the population mean with this half-life).
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
 
@@ -91,6 +150,14 @@ td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 % statistics used to standardise the post-landmark analysis set.
 td_ok = (sum(event_td_def == 1) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
+% Sensitivity analysis: vary the imputation half-life to assess robustness.
+% Short half-lives (3 months) assume biomarker values revert quickly to
+% the population mean between scans (conservative — discounts old data).
+% Long half-lives (24 months) assume biomarker values persist over time
+% (aggressive — may carry forward outdated measurements).
+% If hazard ratios are stable across the grid, the results are robust to
+% imputation assumptions.  Large variation indicates sensitivity to
+% missing data handling and warrants caution in interpretation.
 half_life_grid = [3, 6, 12, 18, 24];
 n_halflife = length(half_life_grid);
 td_panels = cell(n_halflife, 1);
@@ -145,14 +212,28 @@ if any(lm_keep)
     end
 end
 
+% Z-SCORE STANDARDISATION (post-landmark only)
 % Scale AFTER landmark subsetting so that standardisation statistics are
 % computed exclusively on post-landmark intervals, preventing pre-landmark
 % covariate distributions from leaking into the primary analysis.
+% Using 'baseline' mode: z-scores are computed from each patient's first
+% post-landmark observation, so that coefficients represent hazard per
+% SD change from the patient's own post-treatment baseline.  This makes
+% hazard ratios interpretable in clinical units: HR=2.0 means a 1-SD
+% increase in the biomarker doubles the instantaneous failure hazard.
 X_td_global = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, unique(pat_id_td), 'baseline');
 
-% ---- Compute IPCW weights for informative censoring correction --------
-% Cause-Specific Hazards: competing events (event=2) are treated as
-% censored when modelling the cause of interest (event=1).
+% ---- Cause-Specific Hazard (CSH) Event Recoding ----------------------
+% In the CSH framework for local failure analysis:
+%   event=1 → local/regional failure (the event of interest)
+%   event=2 → competing risk (non-cancer death without prior LF)
+%   event=0 → administratively censored (still alive, no LF, lost to follow-up)
+%
+% For the CSH model, competing events are recoded as censored (event=0).
+% This means the CSH estimates the hazard of local failure among patients
+% who have NOT yet experienced any event — the "cause-specific" hazard
+% rate.  This is the correct estimand when asking "does this biomarker
+% predict local failure?" (aetiological question).
 event_td_csh = event_td;
 event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
 
@@ -250,8 +331,16 @@ if has_admin_cens
     end
 end
 
-% ---- Fit the time-dependent Cox model --------------------------------
-% coxphfit accepts a two-column [t_start t_stop] matrix for start-stop data.
+% ---- Fit the time-dependent Cox PH model ------------------------------
+% The Cox PH model estimates the hazard function:
+%   h(t|X) = h0(t) * exp(beta * X(t))
+% where h0(t) is the unspecified baseline hazard (semi-parametric) and
+% beta * X(t) is the linear predictor from time-varying covariates.
+%
+% coxphfit accepts a two-column [t_start t_stop] matrix for counting-
+% process (start-stop) data, with each row representing one interval
+% for one patient.  The Breslow method handles tied event times (common
+% when events are recorded to the nearest day).
 warning('error', 'stats:coxphfit:FitWarning');
 warning('error', 'stats:coxphfit:IterationLimit');
 try
@@ -329,7 +418,13 @@ end
 warning('on', 'stats:coxphfit:FitWarning');
 warning('on', 'stats:coxphfit:IterationLimit');
 
-% ---- Likelihood-ratio test vs. null model (no covariates) -----------
+% ---- Likelihood-ratio test (LRT) vs. null model (no covariates) ------
+% The LRT tests the global null hypothesis H0: all beta = 0 (no covariate
+% has any association with failure hazard).  If the LRT p-value is
+% significant, at least one diffusion biomarker is associated with local
+% failure risk.  This is a more powerful omnibus test than examining
+% individual covariate p-values, especially with correlated predictors.
+%
 % Compute both log-likelihoods manually using the original (unscaled)
 % IPCW weights to avoid the inflation/deflation approximation inherent
 % in dividing by mean(ipcw_freq).  The Frequency workaround inflates
@@ -380,6 +475,13 @@ catch
 end
 
 % ---- Print results table -------------------------------------------
+% Hazard Ratio (HR) interpretation:
+%   HR > 1: higher covariate value → increased failure hazard
+%   HR < 1: higher covariate value → decreased failure hazard
+%   HR = 1: no association
+%   95% CI not crossing 1.0 → significant at alpha=0.05
+% Clinical expectation: HR(ADC) < 1 and HR(D) < 1 because higher
+% diffusion (less cellularity) should be protective against local failure.
 fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'HR ', 'CI_lo', 'CI_hi', 'p');
 fprintf('  %s\n', repmat('-', 1, 52));
 for fi = 1:td_n_feat

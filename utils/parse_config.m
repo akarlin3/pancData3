@@ -170,6 +170,9 @@ function config_struct = parse_config(json_path)
         end
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
+        % Any JSON syntax error or field-access failure is caught here.
+        % Re-throwing as a specific error ID allows callers to distinguish
+        % config parsing failures from other errors in their try/catch blocks.
         error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
     end
 

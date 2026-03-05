@@ -4,6 +4,36 @@ function metrics_stats_comparisons(valid_pts, lf_group, metric_sets, set_names, 
 % Performs univariate hypothesis testing (Wilcoxon Rank-Sum) to compare parameter
 % distributions between Local Control (LC) and Local Failure (LF) groups.
 %
+% ANALYTICAL OVERVIEW:
+%   This module performs two complementary statistical analyses:
+%
+%   1. WILCOXON RANK-SUM TESTS (univariate, per-timepoint)
+%      Tests whether the distribution of each diffusion biomarker differs
+%      between patients who achieved local control (LC) vs. those who
+%      experienced local failure (LF).  Wilcoxon rank-sum (Mann-Whitney U)
+%      is used instead of the t-test because:
+%        - Diffusion parameters are often non-normally distributed
+%          (right-skewed ADC, bimodal f in heterogeneous tumours)
+%        - Small sample sizes make normality assumptions unreliable
+%        - Rank-based tests are robust to outliers
+%      The clinical hypothesis: patients whose tumours show smaller ADC/D
+%      increases during RT (reflecting persistent cellularity) are more
+%      likely to experience local failure.
+%
+%   2. GENERALISED LINEAR MIXED-EFFECTS MODEL (GLME, longitudinal)
+%      Models the LF*Timepoint interaction to test whether LC and LF groups
+%      have divergent biomarker trajectories over the course of treatment.
+%      The random intercept/slope per patient accounts for within-patient
+%      correlation across repeated measures.  A significant interaction
+%      means the treatment response curves differ between groups — the key
+%      biological signal for early response prediction.
+%
+%   Multiple comparison correction is critical: with ~48 rank-sum tests
+%   (4 metrics x 2 sets x 6 timepoints), Benjamini-Hochberg FDR controls
+%   the expected proportion of false discoveries.  The 4 GLME interaction
+%   tests use the more conservative Holm-Bonferroni step-down procedure
+%   to control family-wise error rate.
+%
 % Inputs:
 %   valid_pts         - Logical mask of patients with valid survival/failure data
 %   lf_group          - Local failure grouping variable (0=LC, 1=LF, 2=competing risk)
@@ -77,12 +107,19 @@ for s = 1:n_metric_sets
             y = y_raw(has_data);
             g = lf_group(has_data);
 
-            % Exclude competing risk patients (lf==2) — ranksum requires
-            % exactly 2 groups and silently returns NaN when 3 are present.
+            % Exclude competing risk patients (lf==2) from the two-group
+            % comparison.  These patients died of non-cancer causes before
+            % local failure could be assessed — they are neither LC nor LF,
+            % and including them in either group would bias the comparison.
+            % Wilcoxon rank-sum requires exactly two groups; competing risk
+            % patients are handled separately in the survival analysis
+            % (metrics_survival.m) via the CSH framework.
             non_competing = (g <= 1);
             y = y(non_competing);
             g = g(non_competing);
 
+            % Wilcoxon rank-sum test: non-parametric comparison of biomarker
+            % distributions between LC and LF groups at this timepoint.
             p = perform_statistical_test(y, g, 'ranksum');
 
             if ~isnan(p)
@@ -101,6 +138,10 @@ for s = 1:n_metric_sets
                     boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
                 end
                 title_str = sprintf('%s - %s\np = %.3f', current_names{m}, time_labels{tp}, p);
+                % Highlight nominally significant results in red for visual
+                % screening.  Note: these are uncorrected p-values — FDR
+                % correction is applied globally in Section 8 below to
+                % determine which results survive multiple testing.
                 if p < 0.05
                     title(title_str, 'Color', 'r', 'FontWeight', 'bold');
                 else
@@ -187,17 +228,27 @@ if total_count > 0
     all_set_idx = all_set_idx(1:total_count);
     all_met_idx = all_met_idx(1:total_count);
 
-    % Benjamini-Hochberg on the full family
+    % Benjamini-Hochberg FDR procedure on the full family of comparisons.
+    % BH controls the expected proportion of false discoveries (FDR) at
+    % alpha=0.05, which is less conservative than Bonferroni but more
+    % appropriate for exploratory biomarker screening where some false
+    % positives are acceptable as long as the overall discovery rate is
+    % controlled.  The step-up procedure assigns q-values (adjusted p)
+    % that can be interpreted as the minimum FDR at which each test
+    % would be called significant.
     n_all = length(all_pvals);
     [p_sort, sort_id] = sort(all_pvals);
     q_all = zeros(n_all, 1);
-    q_all(n_all) = p_sort(n_all);
+    q_all(n_all) = p_sort(n_all);  % largest p-value: q = p
     for ii = n_all-1:-1:1
+        % Step-up: q(i) = min(q(i+1), p(i) * n/i)
+        % The n/i scaling adjusts for the rank position — earlier ranks
+        % (smaller p) get less aggressive correction.
         q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
     end
-    q_all = min(q_all, 1);
+    q_all = min(q_all, 1);  % cap at 1.0
     q_unsorted = zeros(n_all, 1);
-    q_unsorted(sort_id) = q_all;
+    q_unsorted(sort_id) = q_all;  % map q-values back to original order
 
     fprintf('  Global family size = %d comparisons\n', n_all);
 end
@@ -362,8 +413,13 @@ else
     long_Dstar = long_Dstar(clean_idx);
     long_LF = long_LF(clean_idx);
 
-    % Compute z-scores before table construction to avoid adding new fields
-    % to an existing table (which fails in Octave's old-style class system)
+    % Z-SCORE STANDARDISATION FOR GLME
+    % Biomarkers are z-scored using BASELINE (Fx1) mean and SD to make
+    % coefficient magnitudes comparable across parameters with different
+    % physiological scales (ADC ~0.001 mm^2/s vs f ~0.1).  Using baseline-
+    % only statistics (rather than pooling all timepoints) prevents
+    % treatment-induced changes from contaminating the standardisation,
+    % which would attenuate the LF*Timepoint interaction effect.
     baseline_idx = long_Timepoint == 1;
 
     if sum(baseline_idx) < 2
@@ -405,6 +461,13 @@ else
         'VariableNames', {'PatientID', 'Timepoint', 'ADC', 'D', 'f', 'Dstar', 'LF', ...
                           'ADC_z', 'D_z', 'f_z', 'Dstar_z'});
 
+    % Fit one GLME per biomarker rather than a multivariate model because:
+    %   1. Collinearity between ADC and D (both reflect cellularity) would
+    %      make multivariate coefficient interpretation unreliable
+    %   2. Missing data patterns differ across biomarkers (IVIM parameters
+    %      have more missingness than ADC due to bi-exponential fit failures)
+    %   3. Separate models allow direct comparison of which biomarker's
+    %      trajectory most strongly discriminates LC vs LF
     biomarkers = {'ADC_z', 'D_z', 'f_z', 'Dstar_z'};
     n_biomarkers = length(biomarkers);
     glme_pvals = nan(n_biomarkers, 1);
@@ -412,9 +475,28 @@ else
     for b = 1:n_biomarkers
         text_progress_bar(b, n_biomarkers, 'Fitting GLME models');
         bm = biomarkers{b};
-        % Try random intercept + slope first (captures patient-specific
-        % trajectories); fall back to random intercept only if the richer
-        % model fails to converge (common with small N).
+        % GLME Formula: Biomarker ~ 1 + LF * Timepoint + (1 + Timepoint|PatientID)
+        %
+        % Fixed effects:
+        %   1           — global intercept (mean baseline biomarker value)
+        %   LF          — baseline difference between LC and LF groups
+        %   Timepoint   — overall time trend (average treatment response)
+        %   LF*Timepoint — THE KEY INTERACTION: does the treatment response
+        %                  trajectory differ between LC and LF?  A significant
+        %                  interaction means the groups diverge over time,
+        %                  e.g., LC patients show rising ADC while LF patients
+        %                  show stable ADC — the biological basis for early
+        %                  treatment response prediction.
+        %
+        % Random effects:
+        %   (1 + Timepoint|PatientID) — random intercept (each patient starts
+        %     at a different baseline) AND random slope (each patient's
+        %     trajectory over time differs).  This accounts for within-patient
+        %     correlation across repeated DWI scans.
+        %
+        % Fall back to random intercept only if the richer model fails to
+        % converge (common with small N where the covariance matrix of
+        % random effects becomes singular).
         formula_rs = sprintf('%s ~ 1 + LF * Timepoint + (1 + Timepoint|PatientID)', bm);
         formula_ri = sprintf('%s ~ 1 + LF * Timepoint + (1|PatientID)', bm);
         glme = [];
@@ -451,7 +533,12 @@ else
     warning('on', 'all');
 
     % Apply Holm-Bonferroni correction across the 4 GLME interaction tests
-    % to control family-wise error rate.
+    % to control family-wise error rate (FWER).  Holm-Bonferroni is used
+    % here instead of BH-FDR because the GLME tests are confirmatory
+    % (testing a specific biological hypothesis about trajectory divergence)
+    % rather than exploratory, so stronger FWER control is appropriate.
+    % The step-down procedure is uniformly more powerful than Bonferroni
+    % while maintaining the same FWER guarantee.
     valid_glme = ~isnan(glme_pvals);
     n_glme_tests = sum(valid_glme);
     if n_glme_tests > 0

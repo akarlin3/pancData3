@@ -503,11 +503,28 @@ if exclude_outliers
     m_v50gy_gtvp(outlier_current,:)             = NaN;
 end
 
+% =========================================================================
+% EXTRACT ABSOLUTE PARAMETER ARRAYS FOR THE CURRENT DWI TYPE
+% =========================================================================
+% Select the current processing pipeline slice (Standard=1, dnCNN=2,
+% IVIMnet=3).  From this point forward, all downstream analysis operates
+% on a single DWI denoising strategy at a time.
 ADC_abs = m_adc_mean(:,:,dtype);
 D_abs   = m_d_mean(:,:,dtype);
 f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
+% =========================================================================
+% COMPUTE TREATMENT-INDUCED CHANGES FROM BASELINE (PERCENT DELTA)
+% =========================================================================
+% Percent change = (value_at_timepoint - baseline) / baseline * 100
+% This normalises for inter-patient variation in baseline values, making
+% changes comparable across patients with different starting tumour
+% characteristics.  In radiotherapy response assessment, a 20% increase
+% in ADC after treatment suggests treatment-induced cell death (reduced
+% cellularity allows greater water diffusion), regardless of whether the
+% patient started at ADC=1.2 or ADC=1.8 mm^2/s.
+%
 % Use fixed, physiologically motivated epsilon values to prevent inflated
 % percent changes when baseline values are near zero.  Fixed thresholds
 % improve reproducibility across cohorts (previously used data-adaptive
@@ -530,19 +547,36 @@ d_bl   = D_abs(:,1);    d_bl(d_bl < d_eps) = NaN;
 dstar_bl = Dstar_abs(:,1); dstar_bl(dstar_bl < dstar_eps) = NaN;
 ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
 D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
+% f uses ABSOLUTE delta instead of percent change because:
+%   1. Baseline f values are often near zero (0.05-0.15 in pancreatic tumours)
+%   2. Percent change from a baseline of 0.05 can be 200% from a tiny absolute
+%      shift of 0.10, creating misleadingly large values
+%   3. The physiological range of f is bounded [0,1], so absolute changes
+%      are directly interpretable (e.g., delta_f = 0.05 means 5% more
+%      blood volume fraction)
 f_delta = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
 
-% Winsorize percent changes at ±500% to limit influence of near-zero
+% Winsorize percent changes at +/-500% to limit influence of near-zero
 % baselines that passed the epsilon filter but still produce extreme ratios.
+% Without winsorization, a single patient with baseline ADC=0.00002 and
+% follow-up ADC=0.001 would produce a 4900% change, dominating group means
+% and inflating standard errors.  The 500% threshold is generous enough to
+% preserve clinically plausible large changes while capping artifacts.
 pct_clip = 500;
 ADC_pct(ADC_pct < -pct_clip) = -pct_clip;  ADC_pct(ADC_pct > pct_clip) = pct_clip;
 D_pct(D_pct < -pct_clip) = -pct_clip;      D_pct(D_pct > pct_clip) = pct_clip;
 Dstar_pct(Dstar_pct < -pct_clip) = -pct_clip;  Dstar_pct(Dstar_pct > pct_clip) = pct_clip;
 
+% Patients with valid (non-NaN) local failure status can be used in
+% downstream group comparisons and survival models.  Patients with NaN
+% status had no matching clinical record and must be excluded.
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);
 
+% =========================================================================
+% ORGANIZE METRICS INTO ANALYSIS SETS
+% =========================================================================
 % Re-organize metrics into distinct Sets:
 % NOTE: f_delta is absolute change (f range [0,1]), not percent change.
 % It is grouped with percent-change metrics for convenience in downstream
@@ -550,15 +584,25 @@ lf_group = m_lf(valid_pts);
 % models (Cox, GLME), scale_td_panel z-scores all features to comparable
 % scales, so the raw-scale difference does not affect model coefficients.
 % The set_names label already distinguishes it as '\Delta f (abs)'.
+% Set 1 (Absolute values): Used to compare pre-treatment tumour
+%   characteristics between outcome groups.  Lower baseline ADC/D may
+%   indicate denser, more treatment-resistant tumour tissue.
+% Set 2 (Change metrics): Capture treatment response magnitude.
+%   Rising ADC/D during RT suggests radiation-induced cell death
+%   (increased extracellular water).  Falling f may indicate vascular
+%   disruption from radiation damage to tumour microvasculature.
 metric_sets = {
-    {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1
-    {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2
+    {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1: absolute values
+    {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2: treatment-induced changes
 };
 
 set_names = {
     {'ADC Absolute', 'D Absolute', 'f Absolute', 'D* Absolute'}, ...
     {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (abs)', '\Delta D* (%)'} ...
 };
+% Time labels: Fx1 = baseline (pre- or early-treatment), Fx2-FxN = on-treatment
+% fractions (typically weekly during 5-fraction SBRT or daily during
+% conventional RT), Post = post-treatment follow-up scan (typically 3 months).
 time_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 % Restore global state modified at the top of this function

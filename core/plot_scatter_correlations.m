@@ -1,17 +1,52 @@
 function plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts, lf_group, dtype, output_folder)
 % PLOT_SCATTER_CORRELATIONS
 %
-%  For each diffusion metric (ADC, D, f) plot it against two dose
-%  endpoints — Mean GTV Dose and D95 — to explore potential dose–response
-%  relationships.  Each scatter panel is coloured by clinical outcome
-%  (blue = LC, red = LF), with a linear trend-line and Spearman
-%  correlation coefficient annotated.
+% ANALYTICAL OVERVIEW:
+%   Explores the relationship between baseline tumour diffusion properties
+%   and the radiation dose delivered to the GTV.  This analysis tests a
+%   key hypothesis in adaptive radiotherapy: do tumours with restricted
+%   diffusion (low ADC/D = dense cellularity) receive adequate radiation
+%   dose, or are there systematic dose-response patterns that could inform
+%   treatment planning?
+%
+%   Two dose endpoints are examined:
+%     Mean GTV Dose — Average dose across the entire tumour volume.
+%       A surrogate for overall treatment intensity.
+%     D95 — Minimum dose to 95% of the GTV volume.
+%       Clinically more relevant than mean dose because it reflects the
+%       WORST-COVERED region of the tumour.  A low D95 means part of the
+%       GTV is underdosed, which is a known risk factor for local failure.
+%
+%   Spearman (rank) correlation is used instead of Pearson because:
+%     1. Dose-diffusion relationships may be non-linear
+%     2. Spearman is robust to outliers (important with noisy DWI data)
+%     3. Rank correlation captures monotonic trends without assuming
+%        a specific functional form
+%
+%   Per-group (LC/LF) trend lines and correlations avoid Simpson's paradox:
+%   the pooled correlation across all patients could be misleading if LC
+%   and LF groups have different dose distributions (e.g., LF patients
+%   received lower doses AND had lower ADC, creating a spurious positive
+%   correlation in the pooled data).
+%
+%  Each scatter panel is coloured by clinical outcome (blue = LC, red = LF),
+%  with per-group linear trend-lines and Spearman correlation coefficients.
 
-% Extract Fx1 dose metrics for the valid patient subset
+% Extract Fx1 (baseline) dose metrics for the valid patient subset.
+% Baseline dose metrics reflect the planned dose distribution before any
+% adaptive replanning.  In standard practice, the RT plan is designed
+% once and delivered across all fractions, so Fx1 dose approximates the
+% cumulative planned dose.
 dose_mean_vec = dmean_gtvp(valid_pts, 1);   % mean dose inside GTV (Gy)
 dose_d95_vec  = d95_gtvp(valid_pts, 1);     % D95 = dose to 95 % of GTV (Gy)
 
-% Diffusion biomarkers to correlate with dose
+% Diffusion biomarkers to correlate with dose.
+% D* is excluded from this analysis because its high physiological noise
+% would produce meaningless correlations with dose metrics.
+% ADC and D reflect cellularity (lower = denser tumour = potentially
+% needs higher dose for local control).
+% f reflects perfusion/oxygenation (lower = more hypoxic = more
+% radioresistant, may need dose escalation).
 diff_metrics = {adc_mean(valid_pts,1,dtype), d_mean(valid_pts,1,dtype), f_mean(valid_pts,1,dtype)};
 diff_names   = {'Mean ADC', 'Mean D', 'Mean f'};
 diff_units   = {'mm^2/s',   'mm^2/s',  ''};
@@ -56,7 +91,10 @@ for di = 1:n_diff_metrics
         scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
             50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
-        % Overlay per-group linear trend lines to avoid pooled Simpson's paradox
+        % Overlay per-group linear trend lines to avoid pooled Simpson's paradox.
+        % If LC and LF groups show opposite trends (e.g., LC: higher dose →
+        % higher ADC; LF: higher dose → lower ADC), the pooled trend would
+        % be meaningless and could mask the group-specific biology.
         warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         lc_mask = clean & lf_group_col==0;
         lf_mask = clean & lf_group_col==1;
@@ -77,6 +115,8 @@ for di = 1:n_diff_metrics
 
         % Compute per-group Spearman correlations to match the per-group
         % trend lines and avoid Simpson's paradox inflating pooled r_s.
+        % A minimum of 3 points per group is required for a meaningful
+        % correlation estimate (fewer points produce unreliable p-values).
         r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
         if sum(lc_mask) >= 3
             if exist('OCTAVE_VERSION', 'builtin')

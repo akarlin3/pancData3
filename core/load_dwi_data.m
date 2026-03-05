@@ -583,7 +583,14 @@ parfor j = 1:length(mrn_list)
     fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
 end
 
-% Reconstruct global arrays from checkpoints
+% Reconstruct global arrays from per-patient checkpoints.
+% Each checkpoint contains one patient's complete processing results
+% (all fractions, all repeats). This reconstruction step assembles the
+% individual patient results into cohort-wide arrays that downstream
+% analysis expects. The separation between per-patient checkpointing
+% (during parfor) and global reconstruction (sequential) is necessary
+% because parfor does not support direct assignment to shared struct arrays
+% with dynamic field sets.
 n_reconstruct = length(mrn_list);
 for j = 1:n_reconstruct
     text_progress_bar(j, n_reconstruct, 'Reconstructing checkpoints');
@@ -743,12 +750,24 @@ end % if ~skip_to_reload
 %% ========================================================================
 fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  SECTION 5 — LONGITUDINAL SUMMARY METRICS
+%  This section bridges the gap between raw voxel-level data (thousands of
+%  values per patient per timepoint) and the patient-level summary statistics
+%  needed for clinical correlation analysis. compute_summary_metrics
+%  aggregates voxel distributions into mean, kurtosis, skewness, SD,
+%  sub-volume fractions, and KS-test statistics — the feature set used by
+%  downstream modules (metrics_baseline, metrics_longitudinal, survival).
 
 summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp, fx_dates);
 
 end
 
 function parsave_checkpoint(fname, data, lock_file)
+    % Parallel-safe checkpoint writer with lock-file protocol.
+    % In a parfor loop, multiple workers may finish near-simultaneously.
+    % The .lock file acts as a write-ahead indicator: if the pipeline
+    % crashes between lock creation and .mat completion, the recovery
+    % logic in the main function detects the orphaned .lock and re-processes
+    % the patient. This ensures data integrity even after unclean shutdowns.
     % Create lock sentinel BEFORE writing to prevent race conditions.
     % The lock is removed only after the .mat write completes successfully.
     if nargin >= 3 && ~isempty(lock_file)
@@ -763,6 +782,12 @@ end
 
 function global_struct = align_and_assign_struct(global_struct, new_struct, index)
     % ALIGN_AND_ASSIGN_STRUCT Helper to assign struct arrays with potentially missing fields
+    %   Different patients may have different sets of available data (e.g.,
+    %   one patient has DnCNN results while another does not), resulting in
+    %   struct arrays with different field sets. MATLAB requires all elements
+    %   of a struct array to have identical fields. This helper reconciles
+    %   field differences by adding empty placeholders for missing fields in
+    %   both the global and new structs before performing the assignment.
 
     % Per-patient checkpoint data is stored as nFx × nRp (no patient dim).
     % Reshape to 1 × nFx × nRp so it can be slotted into the global

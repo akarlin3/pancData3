@@ -236,6 +236,14 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     % Suppress figure windows for the entire pipeline run — all plots are
     % saved to disk via saveas(), so visible windows are unnecessary.
+    % [RATIONALE]: On headless cluster nodes (common in hospital HPC
+    % environments), creating visible figure windows causes MATLAB to
+    % crash or hang. Even on workstations, a full pipeline run generates
+    % hundreds of parameter maps, distribution plots, and survival curves
+    % — spawning that many figure windows would overwhelm the desktop.
+    % The onCleanup guard restores the original visibility setting even
+    % if the pipeline errors out, preventing side effects on subsequent
+    % interactive MATLAB use.
     prev_fig_vis = get(0, 'DefaultFigureVisible');
     set(0, 'DefaultFigureVisible', 'off');
     cleanup_fig_vis = onCleanup(@() set(0, 'DefaultFigureVisible', prev_fig_vis));
@@ -287,6 +295,15 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         return; % Halt pipeline
     end
 
+    % [DWI TYPE RESOLUTION]:
+    % dwi_types_to_run is a numeric index (1=Standard, 2=dnCNN, 3=IVIMnet)
+    % parsed from the config.json dwi_type string by parse_config.m.
+    % When called from execute_all_workflows, this is always a scalar
+    % because the outer script sets dwi_type explicitly for each run.
+    % The scalar enforcement below is a safety check for direct calls
+    % where a user might accidentally set dwi_type to an array — in that
+    % case, only the first type is processed (the orchestrator pattern
+    % expects one type per run_dwi_pipeline invocation).
     current_dtype = config_struct.dwi_types_to_run;
     % Ensure it's a scalar for single-pass mode
     if ~isscalar(current_dtype)
@@ -294,6 +311,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         config_struct.dwi_types_to_run = current_dtype;
     end
 
+    % Map numeric index to human-readable name used in output folder names,
+    % filenames, plot titles, and log messages.
     dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
     current_name = dwi_type_names{current_dtype};
 
@@ -325,12 +344,44 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     lastwarn(''); % Reset MATLAB warning tracker
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
-    % Set isolated file names
+    % [TYPE-ISOLATED FILE NAMING]:
+    % Each DWI processing method produces its own set of output files, suffixed
+    % with the method name (e.g., dwi_vectors_Standard.mat, dwi_vectors_dnCNN.mat).
+    % This prevents cross-contamination: loading Standard diffusion parameters
+    % when the pipeline is configured for dnCNN would produce meaningless results,
+    % since the underlying voxel-wise IVIM fits are completely different.
+    %
+    % dwi_vectors_*.mat contains per-voxel fitted IVIM/ADC parameters within the
+    % GTV mask for every patient and fraction. This is the primary data artifact.
+    % summary_metrics_*.mat contains per-patient aggregated metrics (mean ADC,
+    % mean D, etc.) derived from the voxel distributions.
+    % calculated_results_*.mat contains predictive model outputs (risk scores,
+    % high-risk classification) for downstream survival analysis and visualization.
     dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
     summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
     results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
     % Step 2: Load DWI Data
+    % [ANALYTICAL RATIONALE — DATA LOADING AND MODEL FITTING]:
+    % This is the computationally dominant step. For each patient and each
+    % treatment fraction (Fx1-Fx5 + post-treatment), load_dwi_data:
+    %   1. Converts DICOM to NIFTI via dcm2niix (standardizes orientation/headers)
+    %   2. Loads GTV mask (GTVp = primary tumor, GTVn = nodal disease)
+    %   3. Optionally applies DnCNN denoising (if dwi_type = 'dnCNN')
+    %   4. Fits IVIM model: S(b) = S0*((1-f)*exp(-b*D) + f*exp(-b*D*))
+    %      where D = true tissue diffusion (~1e-3 mm^2/s in pancreatic tissue),
+    %      f = perfusion fraction (blood volume fraction, typically 5-30%),
+    %      D* = pseudo-diffusion from capillary blood flow (~10x D)
+    %   5. Fits ADC model: S(b) = S0*exp(-b*ADC) using only high b-values
+    %      (above ivim_bthr, typically b > 100 s/mm^2) to minimize perfusion
+    %      contamination in the diffusion estimate
+    %   6. Extracts voxel-wise parameters within the GTV mask
+    %
+    % The output separates GTVp and GTVn because primary tumor and nodal
+    % disease may show different diffusion characteristics and treatment
+    % responses — collapsing them would obscure potentially distinct
+    % biological behaviors. GTVp is the primary analysis target for
+    % pancreatic cancer response assessment.
     if ismember('load', steps_to_run)
         try
             fprintf('⚙️ [2/5] [%s] Loading DWI data... \n', current_name);
@@ -366,6 +417,17 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             return; % Halt pipeline
         end
     else
+        % [CHECKPOINT RECOVERY]:
+        % When the load step is skipped (e.g., rerunning only metrics after
+        % fixing a downstream bug), we must reload the previously computed
+        % voxel-wise parameter vectors from disk. The type-specific filename
+        % ensures we load parameters from the correct processing method.
+        % The legacy fallback (dwi_vectors.mat without type suffix) exists
+        % for backward compatibility with older pipeline runs that predated
+        % the multi-type architecture, but is ONLY allowed for Standard to
+        % prevent the dangerous scenario of loading Standard-fitted parameters
+        % when running a dnCNN or IVIMnet analysis — this would silently
+        % invalidate all downstream results.
         fprintf('⏭️ [2/5] [%s] Skipping Load Step. Loading from disk...\n', current_name);
         try
             fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
@@ -411,6 +473,25 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after load step
 
     % Step 3: Sanity Checks
+    % [ANALYTICAL RATIONALE — PARAMETER VALIDATION]:
+    % After model fitting, sanity_checks validates that the fitted diffusion
+    % parameters are physically and biologically plausible:
+    %   - D (true diffusion) should be ~0.5-3.0 x 10^-3 mm^2/s for pancreatic
+    %     tissue. Values outside this range indicate fitting failure (local
+    %     minimum), corrupt input data, or misregistered GTV masks where
+    %     voxels outside the tumor (e.g., bowel gas, ducts) are included.
+    %   - f (perfusion fraction) must be in [0, 1]. Negative values or f > 1
+    %     are nonphysical and indicate the bi-exponential IVIM fit diverged.
+    %   - D* (pseudo-diffusion) should be ~5-100 x 10^-3 mm^2/s. Very large
+    %     values suggest the optimizer hit the upper bound constraint.
+    %   - ADC should be positive and typically ~1-2 x 10^-3 mm^2/s.
+    %   - NaN/Inf values indicate voxels where the fit failed entirely.
+    %
+    % Sanity check FAILURE halts the pipeline entirely (return, not continue).
+    % This is deliberate: if a significant fraction of voxels have implausible
+    % parameters, all downstream metrics (mean ADC, percent change, survival
+    % correlations) would be scientifically invalid. It is better to halt and
+    % investigate than to produce misleading results.
     if ismember('sanity', steps_to_run)
         try
             fprintf('⚙️ [3/5] [%s] Running sanity checks...\n', current_name);
@@ -497,6 +578,31 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     lastwarn('');  % reset warning tracker between steps
 
     % Step 5: Calculate Metrics
+    % [ANALYTICAL RATIONALE — METRICS BASELINE]:
+    % metrics_baseline is the analytical foundation. It:
+    %   1. Reads the clinical spreadsheet to obtain outcome data (local failure,
+    %      overall survival, follow-up time) and clinical covariates (GTV volume,
+    %      dose coverage D95/V50) for each patient.
+    %   2. Aggregates voxel-wise IVIM/ADC parameter distributions within each
+    %      patient's GTV into summary statistics (mean, median, percentiles).
+    %      This voxel-to-patient reduction is necessary because survival analysis
+    %      operates at the patient level, not the voxel level.
+    %   3. Computes ABSOLUTE values at each timepoint (Fx1-Fx5, post) and
+    %      PERCENT CHANGE relative to baseline (Fx1). Percent change in ADC
+    %      during the first week of RT is a candidate early-response biomarker:
+    %      increases in ADC may reflect tumor cell kill (reduced cellularity
+    %      increases water diffusivity).
+    %   4. For the perfusion fraction f, ABSOLUTE DELTA (not percent change)
+    %      is used because f values near zero make percent change numerically
+    %      unstable and clinically uninterpretable.
+    %   5. Identifies "valid_pts" — patients with complete baseline data needed
+    %      for downstream analysis. Patients missing Fx1 data are excluded
+    %      because percent change and longitudinal metrics require a baseline.
+    %   6. Loads DL provenance to flag any overlap between IVIMnet training
+    %      patients and analysis patients (data leakage check).
+    %
+    % The large number of output variables reflects the comprehensive set of
+    % features extracted for subsequent statistical and predictive modeling.
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
 
     if ismember('metrics_baseline', steps_to_run)
@@ -555,6 +661,27 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_baseline
     lastwarn('');  % reset warning tracker between steps
 
+    % [ANALYTICAL RATIONALE — LONGITUDINAL METRICS]:
+    % metrics_longitudinal analyzes how diffusion parameters change across
+    % treatment fractions (Fx1 through Fx5 and post-treatment). In pancreatic
+    % cancer RT, the temporal trajectory of diffusion parameters carries
+    % biological information:
+    %   - Rising ADC/D during early fractions (Fx2-Fx3) suggests tumor cell
+    %     death and reduced cellularity — a favorable treatment response signal.
+    %   - Stable or decreasing ADC may indicate treatment resistance.
+    %   - Changes in f (perfusion fraction) may reflect vascular damage or
+    %     normalization from RT.
+    %   - D* changes are the noisiest and least reliable but may capture
+    %     microvascular flow alterations.
+    %
+    % This module generates temporal trajectory plots and computes paired
+    % statistical tests (e.g., Fx2 vs Fx1) to identify significant early
+    % changes that could serve as decision points for adaptive RT.
+    %
+    % Non-fatal: if longitudinal analysis fails (e.g., too few patients with
+    % multiple fractions), the pipeline continues because downstream modules
+    % (dosimetry, predictive modeling, survival) can still operate on
+    % baseline and absolute metrics alone.
     if ismember('metrics_longitudinal', steps_to_run)
         try
             fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
@@ -589,6 +716,29 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_longitudinal
     lastwarn('');  % reset warning tracker between steps
 
+    % [ANALYTICAL RATIONALE — DOSIMETRY METRICS]:
+    % metrics_dosimetry bridges the gap between diffusion MRI and radiation
+    % therapy dose distributions. It computes dose coverage metrics within
+    % DIFFUSION-DEFINED tumor sub-volumes rather than the conventional
+    % whole-GTV approach. The key innovation:
+    %
+    %   Traditional dosimetry: D95 and V50 are computed over the entire GTV
+    %   contour drawn by the radiation oncologist.
+    %
+    %   Diffusion sub-volume dosimetry: The GTV is partitioned into sub-regions
+    %   based on diffusion parameter thresholds (e.g., voxels with ADC below
+    %   median = "restricted diffusion" sub-volume, potentially more cellular/
+    %   aggressive tissue). D95 and V50 are then computed within each sub-volume.
+    %
+    % This tests the hypothesis that dose coverage of the most biologically
+    % aggressive tumor sub-regions (identified by diffusion characteristics)
+    % is a better predictor of local control than whole-GTV dose coverage.
+    %
+    % D95 = minimum dose covering 95% of the sub-volume (Gy)
+    % V50 = fraction of sub-volume receiving >= 50 Gy
+    %
+    % Output: 8 matrices (patients x timepoints), one per combination of
+    % {D95, V50} x {ADC, D, f, D*} sub-volume definitions.
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
         try
@@ -642,10 +792,24 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_dosimetry
     lastwarn('');  % reset warning tracker between steps
 
+    % [METRIC SET ASSEMBLY FOR STATISTICAL ANALYSIS]:
     % Append dosimetry sub-volume metrics to metric_sets for univariate
-    % analysis.  metrics_baseline creates sets 1-2 (absolute + percent
-    % change); sets 3-4 (D95 + V50 dose coverage) require dosimetry
-    % results which are only available after metrics_dosimetry completes.
+    % analysis.  metrics_baseline creates sets 1-2 (absolute diffusion values
+    % + percent change from baseline); sets 3-4 (D95 + V50 dose coverage
+    % within diffusion-defined sub-volumes) require dosimetry results which
+    % are only available after metrics_dosimetry completes.
+    %
+    % The metric_sets cell array organizes all candidate features into
+    % thematic groups for systematic univariate testing:
+    %   Set 1: Absolute diffusion parameter values at each timepoint
+    %   Set 2: Percent change in diffusion parameters from baseline
+    %   Set 3: D95 dose coverage — whole GTV and each diffusion sub-volume
+    %   Set 4: V50 dose coverage — whole GTV and each diffusion sub-volume
+    %
+    % Including both whole-GTV and sub-volume dose metrics in the same
+    % analysis framework allows direct comparison of their predictive value.
+    % If sub-volume D95 outperforms whole-GTV D95, it supports the hypothesis
+    % that diffusion-guided tumor characterization adds value to RT planning.
     if exist('d95_adc_sub', 'var') && exist('metric_sets', 'var')
         metric_sets{3} = {m_d95_gtvp, d95_adc_sub, d95_d_sub, d95_f_sub, d95_dstar_sub};
         metric_sets{4} = {m_v50gy_gtvp, v50_adc_sub, v50_d_sub, v50_f_sub, v50_dstar_sub};
@@ -655,6 +819,20 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
+    % [ANALYTICAL RATIONALE — STATISTICAL GROUP COMPARISONS]:
+    % metrics_stats_comparisons performs univariate hypothesis testing to
+    % identify which diffusion-derived features differ significantly between
+    % clinical outcome groups (e.g., local failure vs. no local failure).
+    % Uses non-parametric Wilcoxon rank-sum (Mann-Whitney U) tests because:
+    %   (a) Diffusion parameter distributions in pancreatic tumors are
+    %       typically non-Gaussian (skewed by necrotic/cystic regions).
+    %   (b) Sample sizes in pancreatic cancer studies are small (N ~ 30-60),
+    %       making parametric assumptions unreliable.
+    %   (c) The rank-sum test is robust to outliers from fitting artifacts.
+    %
+    % This step is exploratory/descriptive — it identifies promising features
+    % for subsequent multivariate predictive modeling (metrics_stats_predictive).
+    % Multiple comparison correction is applied to control false discovery rate.
     if ismember('metrics_stats_comparisons', steps_to_run)
         try
             fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
@@ -691,6 +869,32 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_stats_comparisons
     lastwarn('');  % reset warning tracker between steps
 
+    % [ANALYTICAL RATIONALE — PREDICTIVE MODELING]:
+    % metrics_stats_predictive builds multivariate predictive models for
+    % clinical outcomes (e.g., local failure prediction) using the full
+    % feature set: diffusion parameters (absolute + change), dosimetric
+    % features (D95/V50 for whole-GTV and sub-volumes), and clinical
+    % covariates (GTV volume, ADC heterogeneity via adc_sd).
+    %
+    % Key methodological safeguards:
+    %   - Patient-stratified cross-validation (make_grouped_folds): ensures
+    %     no patient appears in both train and test sets, preventing
+    %     intra-patient data leakage from longitudinal measurements.
+    %   - KNN imputation with temporal bounds (knn_impute_train_test):
+    %     missing timepoint data is imputed from other patients' same-
+    %     timepoint data only, never from the same patient's other
+    %     timepoints (which would leak temporal information).
+    %   - Collinearity filtering (filter_collinear_features): removes
+    %     highly correlated features before model fitting to stabilize
+    %     coefficient estimates in the small-N, high-p regime typical of
+    %     pancreatic cancer cohorts.
+    %   - DL provenance checking: for IVIMnet runs, ensures analysis
+    %     patients were not in the neural network's training set.
+    %
+    % The adc_sd (standard deviation of ADC within the GTV) is included as
+    % a tumor heterogeneity feature — more heterogeneous tumors (higher
+    % intra-tumoral ADC variance) may indicate mixed cellularity/necrosis
+    % and different treatment response patterns.
     if ismember('metrics_stats_predictive', steps_to_run)
         try
             fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive...\n', current_name);
@@ -711,7 +915,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             save(predictive_results_file, 'risk_scores_all', 'is_high_risk', 'times_km', 'events_km');
 
-            % Build a calculated_results struct for any downstream visualize_results steps
+            % Build a calculated_results struct for any downstream visualize_results
+            % steps. This struct packages the predictive model outputs so that
+            % visualization can overlay risk stratification on parameter maps —
+            % e.g., highlighting high-risk patients' diffusion trajectories in
+            % red and low-risk in blue on longitudinal plots, or annotating
+            % Kaplan-Meier curves with model-predicted risk groups.
             calculated_results = struct();
             calculated_results.risk_scores_all = risk_scores_all;
             calculated_results.is_high_risk = is_high_risk;
@@ -762,7 +971,15 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_stats_predictive
     lastwarn('');  % reset warning tracker between steps
 
-    % Moved Step: Visualize Results (MUST run after calculated_results is prepared)
+    % [ANALYTICAL RATIONALE — VISUALIZATION AFTER PREDICTION]:
+    % Visualization is intentionally placed AFTER predictive modeling rather
+    % than in its traditional position after sanity checks. This ordering
+    % enables the visualization module to incorporate risk stratification
+    % overlays from the predictive model — for example, coloring patient
+    % trajectories by predicted risk group or annotating parameter maps
+    % with model confidence scores. Without the calculated_results struct,
+    % visualize_results falls back to basic parameter distributions without
+    % risk annotations (using an empty struct).
     if ismember('visualize', steps_to_run)
         try
             fprintf('\n⚙️ [5.4c/5] [%s] Visualizing results...\n', current_name);
@@ -805,6 +1022,33 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after visualize_results
     lastwarn('');  % reset warning tracker between steps
 
+    % [ANALYTICAL RATIONALE — SURVIVAL ANALYSIS]:
+    % metrics_survival performs time-to-event analysis for pancreatic cancer
+    % patients using diffusion parameters as candidate prognostic biomarkers.
+    %
+    % Key analytical components:
+    %   - Cox proportional hazards regression: tests whether baseline or
+    %     early-change diffusion parameters are independently associated with
+    %     overall survival or local failure time after adjusting for known
+    %     clinical prognostic factors (GTV volume, dose coverage).
+    %   - Competing risks modeling via Cause-Specific Hazards (CSH): pancreatic
+    %     cancer patients can experience local failure, distant metastasis, or
+    %     death from other causes. Standard Cox models treat competing events
+    %     as censored, which biases the hazard estimate. CSH models each
+    %     event type separately while properly accounting for the competing
+    %     events, yielding unbiased cause-specific hazard ratios.
+    %   - Kaplan-Meier survival curves stratified by risk group (from
+    %     metrics_stats_predictive) with log-rank tests.
+    %
+    % [SCAN DAY RESOLUTION — AVOIDING IMMORTAL TIME BIAS]:
+    % The td_scan_days variable specifies the actual calendar days (relative to
+    % treatment start) when each fraction's MRI was acquired. This is critical
+    % for time-dependent Cox models: using assumed/default scan days (e.g.,
+    % Fx1=day 0, Fx2=day 7, etc.) when actual scan dates differ introduces
+    % "immortal time bias" — a well-known pitfall where the time window between
+    % a covariate measurement and the event is misspecified, systematically
+    % biasing hazard ratio estimates. The three-level fallback (DICOM dates ->
+    % config -> defaults with warning) reflects decreasing data quality.
     if ismember('metrics_survival', steps_to_run)
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
