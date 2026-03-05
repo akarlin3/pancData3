@@ -146,9 +146,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     continue;
                 end
                 
+                % Use training search_space for reference coordinates
+                % (neighbors are always training rows), but compute
+                % distances in the shared Z-score space.
                 Y_coords = search_space(ref_idx, valid_feat);
-                X_coord = query_pt(valid_feat);
-                
+                X_coord = search_space_te(i, valid_feat);
+
                 dists = sum((Y_coords - X_coord).^2, 2);
                 [~, sort_idx] = sort(dists);
 

@@ -45,9 +45,9 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 
         % Restructure output back to strictly 1D and snip padding
         ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
-        d_vec = squeeze(ivim_out_flat(1:n_valid, 1));
-        f_vec = squeeze(ivim_out_flat(1:n_valid, 3));
-        dstar_vec = squeeze(ivim_out_flat(1:n_valid, 4));
+        d_vec = reshape(ivim_out_flat(1:n_valid, 1), [n_valid, 1]);
+        f_vec = reshape(ivim_out_flat(1:n_valid, 3), [n_valid, 1]);
+        dstar_vec = reshape(ivim_out_flat(1:n_valid, 4), [n_valid, 1]);
 
         % Replace zero-fit voxels with NaN (failed fits)
         zero_mask = (d_vec == 0);

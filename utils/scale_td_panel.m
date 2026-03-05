@@ -55,7 +55,7 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 % from the constant training value.
                 sig = 1;
             end
-            X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) / sig;
+            X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) ./ sig;
         end
     else
         % --- Per-week scaling (default): independent mu/sigma per temporal week ---
@@ -135,7 +135,7 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     % observations.
                     sd_col = 1;
                 end
-                X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
+                X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) ./ sd_col;
             end
         end
     end

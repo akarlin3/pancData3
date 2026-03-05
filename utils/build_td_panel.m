@@ -144,8 +144,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 dt_per_feat = day_tp - orig_t;
                 if any(dt_per_feat(decay_mask) < 0)
                     warning('build_td_panel:nonMonotonicTime', ...
-                        'Negative time delta detected (patient %d, tp %d). Clamping to zero.', j, tp);
-                    dt_per_feat = max(dt_per_feat, 0);
+                        'Negative time delta detected (patient %d, tp %d). Clamping affected features to zero.', j, tp);
+                    dt_per_feat(decay_mask) = max(dt_per_feat(decay_mask), 0);
                 end
                 % Decay toward baseline: baseline + (last_obs - baseline) * exp(-lambda * dt)
                 bl = baseline_X(decay_mask);
