@@ -94,25 +94,45 @@ for j = 1:nPat
     fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
     bvals = bvals(:);
 
-    % Validate b-values against expected study protocol (tolerance-based
-    % comparison to handle floating-point representation differences)
-    expected_bvals = [0; 30; 150; 550];
-    bval_tol = 1;  % tolerance of 1 s/mm^2
-    if size(dwi_img, 4) ~= length(bvals) || ...
-       numel(bvals) ~= numel(expected_bvals) || ...
-       any(abs(sort(bvals) - expected_bvals) > bval_tol)
+    % Validate that the 4-D volume has one frame per b-value and that
+    % a b=0 image is present (required for monoexponential ADC fitting).
+    if size(dwi_img, 4) ~= length(bvals)
         diag_bad_bval = diag_bad_bval + 1;
-        fprintf('  💡 Pt %d (%s): protocol deviation — b-values %s (expected %s)\n', ...
-            j, id_list{j}, mat2str(bvals'), mat2str(expected_bvals'));
+        fprintf('  💡 Pt %d (%s): DWI volume has %d frames but %d b-values — skipping\n', ...
+            j, id_list{j}, size(dwi_img, 4), length(bvals));
+        continue;
+    end
+    if ~any(bvals == 0)
+        diag_bad_bval = diag_bad_bval + 1;
+        fprintf('  💡 Pt %d (%s): no b=0 image found (b-values: %s) — skipping\n', ...
+            j, id_list{j}, mat2str(bvals'));
         continue;
     end
 
-    % Compute a voxel-wise ADC map using a monoexponential fit:
-    %   S(b) = S0 * exp(-b * ADC)
+    % Compute a voxel-wise ADC map using the same WLS monoexponential fit
+    % as the main pipeline (fit_models.m) for consistency.
+    %   S(b) = S0 * exp(-b * ADC),  weights = S^2
     % Clamp non-physical values to the range [0, 3e-3] mm^2/s.
-    adc_map = fit_adc_mono(dwi_img, bvals);
-    adc_map(adc_map < 0)    = 0;
-    adc_map(adc_map > 3e-3) = 3e-3;
+    [~, b0_idx] = min(bvals);
+    sz_dwi = size(dwi_img);
+    dwi_flat = reshape(dwi_img, [prod(sz_dwi(1:3)), sz_dwi(4)]);
+    all_pos = all(dwi_flat > 0, 2);
+    adc_map = nan(sz_dwi(1:3));
+    if any(all_pos)
+        S_a = dwi_flat(all_pos, :);
+        non_b0 = true(1, length(bvals)); non_b0(b0_idx) = false;
+        A_b = -bvals(non_b0);
+        Y = log(S_a(:, non_b0) ./ S_a(:, b0_idx));
+        W = S_a(:, non_b0).^2;
+        numer = sum(W .* Y .* A_b', 2);
+        denom = sum(W .* (A_b'.^2), 2);
+        adc_vals = numer ./ denom;
+        adc_vals(adc_vals < 0 | ~isfinite(adc_vals)) = 0;
+        adc_vals(adc_vals > 3e-3) = 3e-3;
+        adc_map_flat = zeros(prod(sz_dwi(1:3)), 1);
+        adc_map_flat(all_pos) = adc_vals;
+        adc_map = reshape(adc_map_flat, sz_dwi(1:3));
+    end
 
     % Pick the axial slice containing the largest cross-sectional GTV area
     gtv_areas = squeeze(sum(sum(gtv_img, 1), 2));

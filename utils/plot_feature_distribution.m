@@ -112,7 +112,7 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         if sum(has_data) > 2 && numel(unique(lf_clean)) > 1
             p = perform_statistical_test(vals_clean, lf_clean, 'ranksum');
             yl = ylim;
-            text(1.5, yl(2)*0.95, format_p_value(p), ...
+            text(1.5, yl(1) + 0.95*(yl(2) - yl(1)), format_p_value(p), ...
                 'HorizontalAlignment', 'center', 'FontSize', 10);
         end
     else
