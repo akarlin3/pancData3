@@ -17,5 +17,6 @@
     "use_checkpoints": true,
     "patient_ids": [],
     "dwi_type": "Standard",
-    "td_scan_days": []
+    "td_scan_days": [],
+    "cause_of_death_column": "CauseOfDeath"
 }

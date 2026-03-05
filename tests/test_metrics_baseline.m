@@ -127,5 +127,129 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
             % Other elements should be intact
             testCase.verifyFalse(isnan(ADC_abs(2, 1)));
         end
+
+        function testCauseOfDeathCompetingRisk(testCase)
+            % When CauseOfDeath column is present, non-pancreatic-cancer
+            % deaths without LF should be coded as competing risks (lf==2).
+            if exist('OCTAVE_VERSION', 'builtin')
+                testCase.assumeFail('Test requires MATLAB readtable/writetable.');
+            end
+            nPat = 8;
+            id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+            % Patient 1-4: no LF, Patient 5-8: have LF
+            lf_vals     = [0; 0; 0; 0; 1; 1; 1; 1];
+            dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
+            % Patient 1: lung cancer death (competing risk, no LF)
+            % Patient 2: pancreatic cancer death (not competing)
+            % Patient 3: unknown cause (not competing)
+            % Patient 4: empty cause (not competing)
+            % Patient 5: lung cancer death WITH LF (should stay lf==1)
+            % Patient 6-8: empty cause
+            cod_vals    = {'lung cancer'; 'pancreatic cancer'; 'unknown'; ''; ...
+                           'lung cancer'; ''; ''; ''};
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
+                dt_rtstart, dt_rtstop, cod_vals, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate', 'CauseOfDeath'});
+            writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
+
+            testCase.SummaryMetrics.lf = lf_vals;
+
+            [m_lf, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~] = ...
+             metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            % Patient 1: no LF + non-pancreatic death => competing risk (2)
+            testCase.verifyEqual(m_lf(1), 2, ...
+                'Non-pancreatic-cancer death without LF should be coded as competing risk.');
+            % Patient 2: no LF + pancreatic cancer death => stays 0
+            testCase.verifyEqual(m_lf(2), 0, ...
+                'Pancreatic cancer death should not be coded as competing risk.');
+            % Patient 3: unknown cause => stays 0
+            testCase.verifyEqual(m_lf(3), 0, ...
+                'Unknown cause of death should not be coded as competing risk.');
+            % Patient 5: LF + non-pancreatic death => stays 1 (LF overrides)
+            testCase.verifyEqual(m_lf(5), 1, ...
+                'Patient with LF should stay coded as event regardless of cause of death.');
+        end
+
+        function testCauseOfDeathNoWarningWhenPresent(testCase)
+            % When CauseOfDeath column is present, no noCauseOfDeath
+            % warning should be emitted.
+            if exist('OCTAVE_VERSION', 'builtin')
+                testCase.assumeFail('Test requires MATLAB readtable/writetable.');
+            end
+            nPat = 8;
+            id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+            lf_vals     = repmat([0; 1], nPat/2, 1);
+            dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
+            cod_vals    = repmat({''}, nPat, 1);
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
+                dt_rtstart, dt_rtstop, cod_vals, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate', 'CauseOfDeath'});
+            writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
+
+            testCase.verifyWarningFree(@() ...
+                metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                    testCase.SummaryMetrics, testCase.ConfigStruct), ...
+                'No noCauseOfDeath warning should be emitted when column is present.');
+        end
+
+        function testCustomCauseOfDeathColumnName(testCase)
+            % When cause_of_death_column is set to a custom name in the
+            % config, the column should be recognized and renamed internally.
+            if exist('OCTAVE_VERSION', 'builtin')
+                testCase.assumeFail('Test requires MATLAB readtable/writetable.');
+            end
+            nPat = 8;
+            id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+            lf_vals     = [0; 0; 0; 0; 1; 1; 1; 1];
+            dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
+            cod_vals    = {'lung cancer'; ''; ''; ''; ''; ''; ''; ''};
+            % Use a non-standard column name
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
+                dt_rtstart, dt_rtstop, cod_vals, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate', 'DeathCause'});
+            writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
+
+            testCase.SummaryMetrics.lf = lf_vals;
+            cfg = testCase.ConfigStruct;
+            cfg.cause_of_death_column = 'DeathCause';
+
+            [m_lf, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~] = ...
+             metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                testCase.SummaryMetrics, cfg);
+
+            % Patient 1: no LF + non-pancreatic death => competing risk (2)
+            testCase.verifyEqual(m_lf(1), 2, ...
+                'Custom column name should be recognized for competing risk classification.');
+        end
     end
 end
