@@ -139,9 +139,60 @@ Two related issues:
 
 ---
 
+### 10. ROC Analysis Includes Competing-Risk Patients as Negatives
+**File:** `core/metrics_stats_predictive.m`, lines 432-436
+
+```matlab
+labels = lf_group; % 0 = LC, 1 = LF
+valid_roc = ~isnan(risk_scores_all_target) & ~isnan(labels);
+[roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), risk_scores_all_target(valid_roc), 1);
+```
+
+The elastic net correctly excludes competing-risk patients (lf==2) from model training (line 104-105), but the ROC analysis uses the original `lf_group` which still contains 2s. `perfcurve` with `PositiveClass=1` treats both lf==0 and lf==2 as negatives. Competing-risk patients who died before local failure could be observed are lumped with genuine local-control patients.
+
+**Impact:** AUC is inflated because competing-risk patients may be easily separable from LF patients, creating an artificially favorable ROC curve. All derived metrics (sensitivity, specificity, Youden threshold) are affected.
+
+**Recommendation:** Filter to `labels <= 1` before calling `perfcurve`.
+
+---
+
+### 11. Warning Messages Silently Swallowed Throughout Pipeline
+**File:** `run_dwi_pipeline.m`, lines 270, 353, 431, 483, 515, 572, 620, 676, 716
+
+```matlab
+[warn_msg, warn_id] = lastwarn('');
+if ~isempty(warn_msg) && log_fid > 0
+    fprintf(log_fid, ...);
+end
+```
+
+`lastwarn('')` simultaneously sets the warning to `''` and returns that empty string. So `warn_msg` is always `''`, the `if` never fires, and warnings from every pipeline step are silently discarded instead of being written to `error.log`. The correct pattern is:
+
+```matlab
+[warn_msg, warn_id] = lastwarn;   % read
+lastwarn('');                       % then clear
+```
+
+**Impact:** All pipeline warnings are lost. Researchers cannot review non-fatal issues after a run completes.
+
+---
+
+### 12. Parameter Maps Always Show Standard DWI Type
+**File:** `core/plot_parameter_maps.m`, line 32
+
+```matlab
+s = data_vectors_gtvp(j, 1, 1);  % 3rd index = 1 = Standard
+```
+
+When the pipeline runs dnCNN or IVIMnet, parameter maps still display Standard ADC data. The function is called once outside the DWI type loop in `visualize_results.m`, so it never adapts to the current pipeline type. Output appears in the dnCNN/IVIMnet subfolder but shows Standard data.
+
+**Impact:** Misleading visualization — parameter maps labeled as dnCNN/IVIMnet actually show Standard pipeline results.
+
+---
+
 ## Moderate Findings (Impact: May Affect Statistical Power or Interpretation)
 
-### 10. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
+### 13. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
 **File:** `utils/calculate_subvolume_metrics.m`, lines 49-51
 
 ```matlab
@@ -155,7 +206,7 @@ The morphological open-close and connected component filter removes small cluste
 
 ---
 
-### 11. f_delta Uses Absolute Change While Other Parameters Use Percent Change
+### 14. f_delta Uses Absolute Change While Other Parameters Use Percent Change
 **File:** `core/metrics_baseline.m`, line 373
 
 ```matlab
@@ -170,7 +221,7 @@ This computes absolute change for f (perfusion fraction, range 0-1), while ADC, 
 
 ---
 
-### 12. In-Sample KNN Imputation for Final Elastic Net Model
+### 15. In-Sample KNN Imputation for Final Elastic Net Model
 **File:** `core/metrics_stats_predictive.m`, line 210
 
 ```matlab
@@ -183,7 +234,7 @@ The final model uses the entire dataset as both reference and target for KNN imp
 
 ---
 
-### 13. Competing Risk Patients Excluded Inconsistently Across Modules
+### 16. Competing Risk Patients Excluded Inconsistently Across Modules
 **Files:** Multiple
 
 - `metrics_stats_predictive.m` line 104: sets lf==2 to NaN (exclusion)
@@ -197,7 +248,7 @@ The handling is correct for each model type (exclusion for binomial, CSH censori
 
 ---
 
-### 14. Scan Day Assumption Creates Immortal Time Bias Risk
+### 17. Scan Day Assumption Creates Immortal Time Bias Risk
 **File:** `core/metrics_survival.m`, lines 44-53, `utils/build_td_panel.m` line 54
 
 The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day intervals. In practice, scans may be irregularly spaced. The warning on line 47-52 correctly flags this, but if the researcher doesn't provide actual scan days, the counting-process intervals will be misaligned with reality.
@@ -208,7 +259,7 @@ The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day inter
 
 ## Minor Findings
 
-### 15. CLAUDE.md Documents Wrong Default for `adc_thresh`
+### 18. CLAUDE.md Documents Wrong Default for `adc_thresh`
 **File:** `CLAUDE.md` config section
 
 CLAUDE.md shows `"adc_thresh": 0.00115` but both `config.example.json` and `parse_config.m` use `0.001`. The `0.00115` value is actually the `high_adc_thresh` default.
@@ -217,7 +268,7 @@ CLAUDE.md shows `"adc_thresh": 0.00115` but both `config.example.json` and `pars
 
 ---
 
-### 16. No Validation of `adc_thresh <= high_adc_thresh` Ordering
+### 19. No Validation of `adc_thresh <= high_adc_thresh` Ordering
 **File:** `utils/parse_config.m`, lines 28-33
 
 The comments state `adc_thresh` "must be <= high_adc_thresh" but this constraint is never enforced. A misconfigured `adc_thresh > high_adc_thresh` would produce empty or overlapping sub-volume selections.
@@ -226,7 +277,7 @@ The comments state `adc_thresh` "must be <= high_adc_thresh" but this constraint
 
 ---
 
-### 17. Data-Adaptive Epsilon for Percent Change Reduces Reproducibility
+### 20. Data-Adaptive Epsilon for Percent Change Reduces Reproducibility
 **File:** `core/metrics_baseline.m`, lines 352-361
 
 The epsilon threshold for percent change denominators is `max(1e-8, 0.01 * iqr(baseline))`. Since IQR varies with cohort composition, different cohorts (or the same cohort with different outlier exclusions) will use different epsilon values, potentially filtering different patients.
@@ -239,17 +290,20 @@ The epsilon threshold for percent change denominators is `max(1e-8, 0.01 * iqr(b
 
 | Severity | Count | Key Concerns |
 |----------|-------|-------------|
-| Critical | 9 | IPCW bias, LOOCV feature inconsistency, lambda path mismatch, decay-to-zero, zero-variance scaling inconsistency, uniform decay half-life, landmark selection, DVH overwrite, dose resampling crash |
+| Critical | 12 | IPCW bias, LOOCV feature inconsistency, lambda path mismatch, decay-to-zero, zero-variance scaling, uniform decay half-life, landmark selection, DVH overwrite, dose resampling crash, ROC competing-risk inflation, lastwarn bug, parameter map DWI type |
 | Moderate | 5 | Morphological filtering, f_delta mislabeling, in-sample imputation, competing risk documentation, immortal time bias |
 | Minor | 3 | CLAUDE.md threshold docs, threshold ordering validation, epsilon reproducibility |
 
 ### Top Priority Fixes
-1. **Guard dose resampling inputs** (`process_single_scan.m`) — Add `if b0count > 0 && ~isempty(rtdosefile)` before calling `sample_rtdose_on_image`; init `b0list = cell(0,1)`
-2. **Fix DVH repeat indexing** (`load_dwi_data.m`) — Add `rpi` dimension to `pat_dmean_gtvp`, `pat_d95_gtvp`, `pat_v50gy_gtvp` (and GTVn counterparts)
-3. **Fix zero-variance scaling inconsistency** (`scale_td_panel.m`) — Zero out constant features in both modes
-4. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all LOOCV folds
-5. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes across folds
-6. **Fix decay-to-zero imputation** — Decay toward patient baseline, not zero
-7. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
-8. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
-9. **Add threshold ordering validation** — Enforce `adc_thresh <= high_adc_thresh` in `parse_config.m`
+1. **Fix ROC competing-risk inflation** (`metrics_stats_predictive.m:432`) — Filter `labels <= 1` before `perfcurve`
+2. **Fix lastwarn bug** (`run_dwi_pipeline.m`) — Split `[w,id] = lastwarn; lastwarn('');` into two calls
+3. **Guard dose resampling inputs** (`process_single_scan.m`) — Add `if b0count > 0 && ~isempty(rtdosefile)` guard; init `b0list = cell(0,1)`
+4. **Fix DVH repeat indexing** (`load_dwi_data.m`) — Add `rpi` dimension to DVH metric arrays
+5. **Fix parameter map DWI type** (`plot_parameter_maps.m`) — Pass dtype and index correct pipeline vectors
+6. **Fix zero-variance scaling inconsistency** (`scale_td_panel.m`) — Zero out constant features in both modes
+7. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all folds
+8. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes
+9. **Fix decay-to-zero imputation** — Decay toward patient baseline, not zero
+10. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
+11. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
+12. **Add threshold ordering validation** — Enforce `adc_thresh <= high_adc_thresh` in `parse_config.m`
