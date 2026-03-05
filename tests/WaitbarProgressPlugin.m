@@ -61,8 +61,8 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
                 pct = frac * 100;
                 % Truncate long test names to fit the waitbar
                 displayName = testName;
-                if length(displayName) > 50
-                    displayName = ['...' displayName(end-46:end)];
+                if length(displayName) > 80
+                    displayName = ['...' displayName(end-76:end)];
                 end
                 waitbar(frac, plugin.WaitbarHandle, ...
                     sprintf('%.1f%% (%d/%d) — %s', ...
