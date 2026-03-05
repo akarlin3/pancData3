@@ -348,7 +348,9 @@ try
             logl_null_td = logl_null_td - d_events * log(R_t);
         end
     end
-    LRT_stat = 2 * (logl_td - logl_null_td);
+    % Deflate by ipcw_scale: the Frequency workaround inflates both
+    % log-likelihoods by ~ipcw_scale, so the raw LRT is ~100x too large.
+    LRT_stat = 2 * (logl_td - logl_null_td) / ipcw_scale;
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
     LRT_p    = 1 - chi2cdf(LRT_stat, LRT_df);
 catch
