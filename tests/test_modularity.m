@@ -41,8 +41,7 @@ classdef test_modularity < matlab.unittest.TestCase
             fclose(fid);
 
             % Add repo root to path so run_dwi_pipeline is found
-            % `pwd` might be inside `tests/`, so use fileparts
-            [testCase.RepoRoot, ~, ~] = fileparts(pwd);
+            testCase.RepoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(testCase.RepoRoot);
         end
     end
