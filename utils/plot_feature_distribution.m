@@ -86,7 +86,13 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                     set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
                 end
             else
-                boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+                n_groups = numel(unique(lf_clean));
+                if n_groups == 2
+                    boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+                else
+                    % Single group present: omit Labels to avoid MATLAB error
+                    boxplot(vals_clean, lf_clean);
+                end
             end
         else
             % Just plot a single point if only 1 patient
