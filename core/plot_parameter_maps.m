@@ -160,7 +160,7 @@ for j = 1:nPat
 
     % --- Column 2: ADC map with GTV contour (white) ---
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 2);
-    imagesc(adc_slice, [0 2.5e-3]); axis image; axis off;
+    imagesc(adc_slice, [0 3e-3]); axis image; axis off;
     hold on;
     contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
     hold off;
@@ -178,7 +178,7 @@ for j = 1:nPat
     % Mask ADC outside the GTV to NaN so only tumour voxels are coloured
     adc_overlay = adc_slice;
     adc_overlay(gtv_slice < 0.5) = NaN;
-    h_ov = imagesc(adc_overlay, [0 2.5e-3]);
+    h_ov = imagesc(adc_overlay, [0 3e-3]);
     % Use 60 % opacity for the colour overlay
     set(h_ov, 'AlphaData', ~isnan(adc_overlay) * 0.6);
     contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);

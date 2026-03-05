@@ -380,11 +380,18 @@ else
     std_f_base = std(long_f(baseline_idx));
     mean_Dstar_base = mean(long_Dstar(baseline_idx));
     std_Dstar_base = std(long_Dstar(baseline_idx));
-    % Guard against zero std (constant baseline) producing Inf z-scores
-    if std_ADC_base == 0, std_ADC_base = NaN; end
-    if std_D_base == 0, std_D_base = NaN; end
-    if std_f_base == 0, std_f_base = NaN; end
-    if std_Dstar_base == 0, std_Dstar_base = NaN; end
+    % Guard against zero std (constant baseline) producing Inf z-scores.
+    % When std is zero, z-scoring is undefined — set to NaN so the GLME
+    % for that biomarker is skipped, and log which biomarkers are affected.
+    zero_std_names = {};
+    if std_ADC_base == 0, std_ADC_base = NaN; zero_std_names{end+1} = 'ADC'; end
+    if std_D_base == 0, std_D_base = NaN; zero_std_names{end+1} = 'D'; end
+    if std_f_base == 0, std_f_base = NaN; zero_std_names{end+1} = 'f'; end
+    if std_Dstar_base == 0, std_Dstar_base = NaN; zero_std_names{end+1} = 'Dstar'; end
+    if ~isempty(zero_std_names)
+        fprintf('  ⚠️  Zero baseline std for: %s — z-scoring undefined, GLME will be skipped for these.\n', ...
+            strjoin(zero_std_names, ', '));
+    end
 
     long_ADC_z = (long_ADC - mean_ADC_base) / std_ADC_base;
     long_D_z = (long_D - mean_D_base) / std_D_base;
