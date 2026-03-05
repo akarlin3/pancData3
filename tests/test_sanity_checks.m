@@ -61,7 +61,7 @@ classdef test_sanity_checks < matlab.unittest.TestCase
                        'dstar_vector', [], 'dose_vector', [], ...
                        'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
                        'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
-                       'adc_vector_ivimnet', [], 'd_vector_ivimnet', [], ...
+                       'd_vector_ivimnet', [], ...
                        'f_vector_ivimnet', [], 'dstar_vector_ivimnet', []);
             gtvp = repmat(s, nPat, nTp, 1);
             gtvn = repmat(s, nPat, nTp, 1);
@@ -82,7 +82,6 @@ classdef test_sanity_checks < matlab.unittest.TestCase
                     gtvp(j,k,1).f_vector_dncnn = rand(nVox, 1);
                     gtvp(j,k,1).dstar_vector_dncnn = rand(nVox, 1);
 
-                    gtvp(j,k,1).adc_vector_ivimnet = rand(nVox, 1);
                     gtvp(j,k,1).d_vector_ivimnet = rand(nVox, 1);
                     gtvp(j,k,1).f_vector_ivimnet = rand(nVox, 1);
                     gtvp(j,k,1).dstar_vector_ivimnet = rand(nVox, 1);
@@ -99,7 +98,6 @@ classdef test_sanity_checks < matlab.unittest.TestCase
                     gtvn(j,k,1).f_vector_dncnn = rand(nVox, 1);
                     gtvn(j,k,1).dstar_vector_dncnn = rand(nVox, 1);
 
-                    gtvn(j,k,1).adc_vector_ivimnet = rand(nVox, 1);
                     gtvn(j,k,1).d_vector_ivimnet = rand(nVox, 1);
                     gtvn(j,k,1).f_vector_ivimnet = rand(nVox, 1);
                     gtvn(j,k,1).dstar_vector_ivimnet = rand(nVox, 1);
