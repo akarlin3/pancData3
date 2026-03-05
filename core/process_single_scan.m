@@ -444,8 +444,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
 
     % --- DVH for GTVn ---
     % Always use the same mask for dose as for biomarkers (mirrors GTVp).
+    % Only use warped dose when the GTVn mask is also in Fx1 space;
+    % otherwise fall back to native dose to avoid spatial mismatch.
     dvh_mask_n = biomarker_mask_n;
-    dvh_dose_n = dose_map;
+    dvh_dose_n = dose_map_dvh;
+    if can_warp && havedose && ~isempty(ctx.gtvn_mask_fx1_ref)
+        dvh_dose_n = dose_map;
+    end
     if havedose && havegtvn
         result.dmean_gtvn = nanmean(dvh_dose_n(dvh_mask_n==1));
         [dvhparams, dvh_values] = dvh(dvh_dose_n, dvh_mask_n, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
