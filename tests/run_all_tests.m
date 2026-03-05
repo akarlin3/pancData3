@@ -142,6 +142,12 @@ if has_display
     new_x = (screen_sz(3) - new_w) / 2;
     new_y = (screen_sz(4) - new_h) / 2;
     set(hWaitbar, 'Position', [new_x, new_y, new_w, new_h]);
+    % Re-center the progress bar axes within the resized figure
+    hAxes = findobj(hWaitbar, 'Type', 'axes');
+    if ~isempty(hAxes)
+        ax_pos = get(hAxes, 'Position');
+        set(hAxes, 'Position', [(1 - ax_pos(3)) / 2, ax_pos(2), ax_pos(3), ax_pos(4)]);
+    end
 end
 
 % 3. Check whether parallel execution is available
