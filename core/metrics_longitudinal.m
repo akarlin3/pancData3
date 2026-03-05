@@ -3,6 +3,30 @@ function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, 
 % Part 2/5 of the metrics step. Visualizes longitudinal evolution of absolute
 % parameters and their relative percent changes.
 %
+% ANALYTICAL OVERVIEW:
+%   Generates "spaghetti plots" showing individual patient trajectories
+%   overlaid with population mean +/- SEM for each diffusion biomarker
+%   across treatment fractions.  This visualization serves two purposes:
+%
+%   1. TREATMENT RESPONSE CHARACTERIZATION — Expected biological patterns:
+%      - ADC/D should increase during RT as radiation kills tumour cells,
+%        reducing cellularity and increasing extracellular water diffusion.
+%      - f may decrease if radiation damages tumour microvasculature,
+%        reducing the perfusion fraction.
+%      - D* is physiologically noisy and may not show consistent trends.
+%      Deviations from expected patterns may indicate treatment resistance
+%      or inadequate dose delivery.
+%
+%   2. OUTLIER AND DATA QUALITY ASSESSMENT — Individual patient trajectories
+%      (grey lines) reveal measurement artifacts (sudden spikes/drops from
+%      poor image quality), protocol deviations, or genuinely unusual
+%      biological responses that warrant clinical review.
+%
+%   The top row shows absolute parameter values (physiological scale),
+%   while the bottom row shows changes from baseline (normalised scale),
+%   making inter-patient response patterns comparable despite different
+%   starting values.
+%
 % Inputs:
 %   *_abs             - Matrices of absolute values for ADC, D, f, D*
 %   *_pct             - Matrices of percent change values for ADC, D, f, D*
@@ -21,7 +45,11 @@ diary_file = fullfile(output_folder, ['metrics_longitudinal_output_' dtype_label
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
 
-% Group data for easy iteration
+% Group data for easy iteration.
+% Order: ADC first (most clinically established biomarker), then IVIM
+% parameters in order of decreasing reliability (D > f > D*).
+% D* is the least reliable due to the ill-conditioned bi-exponential fit
+% and high sensitivity to motion artifacts in the pancreatic bed.
 metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
 metrics_pct = {ADC_pct, D_pct, f_delta, Dstar_pct};
 metric_names = {'ADC', 'D', 'f', 'D*'};
@@ -43,8 +71,12 @@ for i = 1:n_metrics_long
         title_str, metric_units{i}, false);
 
     % -------------------------------------------------------------------
-    % BOTTOM ROW: Percent Change from Fx1
+    % BOTTOM ROW: Percent Change from Fx1 (or absolute change for f)
     % -------------------------------------------------------------------
+    % f uses absolute change because its near-zero baseline values
+    % (typical range 0.05-0.15) make percent change numerically unstable
+    % and clinically uninterpretable.  All other parameters use percent
+    % change to normalise for inter-patient baseline variation.
     if strcmp(metric_names{i}, 'f')
         title_str_pct = ['\Delta ', metric_names{i}, ' (abs)'];
         ylabel_pct = 'Absolute Change';
@@ -97,7 +129,12 @@ function plot_metric_subplot(idx, dat, x_vals, x_labels, nTp, color_spec, marker
 subplot(2, 4, idx);
 hold on;
 
-% Calculate population mean and standard error of the mean (SEM)
+% Calculate population mean and standard error of the mean (SEM).
+% SEM (not SD) is used for error bars because we want to characterise
+% uncertainty in the population mean trajectory, not individual patient
+% variability.  In RT response assessment, the question is "does the
+% average tumour respond?" (requires SEM), not "how variable are
+% individual responses?" (requires SD).
 if exist('OCTAVE_VERSION', 'builtin')
     valid_mask = ~isnan(dat);
     N = sum(valid_mask, 1);
@@ -116,7 +153,13 @@ else
     pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
 end
 
-% Plot individual patient trajectories (spaghetti plot)
+% Plot individual patient trajectories (spaghetti plot).
+% Light grey lines show each patient's evolution over treatment fractions.
+% This reveals heterogeneous response patterns: some patients may show
+% early ADC increases (responding), while others show stable or
+% decreasing ADC (potentially resistant).  Divergent trajectories between
+% responders and non-responders are the biological signal this pipeline
+% aims to quantify.
 plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
 
 % Plot population average with error bars
@@ -130,7 +173,11 @@ else
 end
 
 if add_zero_line
-    % Add a baseline reference line at 0% change
+    % Add a baseline reference line at 0% change.  Points above this line
+    % indicate an increase from baseline (e.g., rising ADC = cell death),
+    % while points below indicate a decrease (e.g., falling f = vascular
+    % disruption).  The line helps quickly identify the fraction at which
+    % treatment effects become detectable above measurement noise.
     if exist('OCTAVE_VERSION', 'builtin')
         % Fallback for yline in Octave
         xl = xlim;

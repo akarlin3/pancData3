@@ -4,6 +4,47 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 % Performs multivariate feature selection via Elastic Net logistic regression
 % and generates out-of-fold risk scores via nested Leave-One-Out Cross-Validation.
 %
+% ANALYTICAL OVERVIEW:
+%   This module builds a multivariate predictive model to identify patients
+%   at high risk of local failure using combined imaging and dosimetric
+%   features.  The analysis pipeline is:
+%
+%   1. FEATURE ASSEMBLY — Combines 22 candidate features per timepoint:
+%      - 4 baseline covariates (Fx1 absolute ADC, D, f, D*)
+%      - 4 absolute values at the target fraction
+%      - 4 change metrics (percent delta or absolute delta)
+%      - 2 whole-GTV dose metrics (D95, V50)
+%      - 8 sub-volume dose metrics (D95 and V50 for each of 4 diffusion-
+%        defined resistant sub-volumes)
+%      Baseline covariates are always included to adjust for pre-existing
+%      differences in tumour characteristics.
+%
+%   2. ELASTIC NET FEATURE SELECTION (alpha=0.5) — Elastic net combines
+%      L1 (lasso, promotes sparsity) and L2 (ridge, handles collinearity)
+%      penalties.  Alpha=0.5 is a balanced mixture appropriate for correlated
+%      imaging features.  The optimal regularisation lambda is selected via
+%      5-fold grouped CV (patient-stratified to prevent leakage).
+%
+%   3. NESTED LOOCV FOR UNBIASED RISK SCORES — Each patient is held out
+%      in turn; a complete inner 5-fold CV selects lambda, fits elastic net,
+%      and predicts the held-out patient's risk score.  This nested design
+%      prevents optimistic bias from using the same data for both feature
+%      selection and performance estimation.
+%
+%   4. ROC ANALYSIS — Out-of-fold risk scores are evaluated via ROC curve
+%      and AUC to quantify discriminative ability.  The Youden index
+%      identifies the optimal operating point for clinical decision-making.
+%
+%   5. SANITY CHECKS — Volume change, ADC heterogeneity (SD), and
+%      signal-vs-noise floor scatter plots verify that selected biomarkers
+%      are not confounded by tumour size changes or measurement noise.
+%
+%   Data leakage prevention is enforced at multiple levels:
+%     - Patient-stratified CV folds (no intra-patient leakage)
+%     - KNN imputation with same-patient distance blocking
+%     - DL provenance checks (dnCNN/IVIMnet training set exclusion)
+%     - Collinearity filtering computed per-fold on training data only
+%
 % Inputs:
 %   valid_pts         - Logical mask of patients mapped to LF/LC groups
 %   lf_group          - Outcome variable arrays (0=LC, 1=LF)
@@ -35,15 +76,27 @@ risk_scores_all = [];
 is_high_risk = [];
 times_km = [];
 events_km = [];
-best_risk_fx = Inf;  % track the earliest timepoint with significant features
+% Track the earliest timepoint with significant features.  Earlier timepoints
+% are clinically more actionable — if treatment resistance can be detected
+% at Fx2 (after 1 week) rather than Fx5 (after 5 weeks), there is more
+% time to adapt the treatment plan (e.g., dose escalation, change in
+% chemotherapy regimen, or surgical intervention).
+best_risk_fx = Inf;
 
+% Iterate from Fx2 onwards (Fx1 is baseline — no change to analyse).
+% Each timepoint is analysed independently to identify the earliest
+% fraction at which treatment response prediction becomes feasible.
 for target_fx = 2:nTp
     fx_label = x_labels{target_fx};
     fprintf('\n=== Analyzing %s ===\n', fx_label);
 
     %% --- Elastic Net Feature Selection ---
+    % Assemble the feature matrix with 22 candidate predictors.
     % Include baseline (Fx1) absolute values as covariates to adjust for
     % pre-existing differences in tumor burden and diffusion properties.
+    % Without baseline adjustment, observed differences in change metrics
+    % could be confounded by baseline tumour characteristics (e.g., larger
+    % tumours may show smaller percent changes due to dilution effects).
     X_lasso_all = [ADC_abs(valid_pts, 1), D_abs(valid_pts, 1), ...
                    f_abs(valid_pts, 1),   Dstar_abs(valid_pts, 1), ...
                    ADC_abs(valid_pts, target_fx), D_abs(valid_pts, target_fx), ...
@@ -69,7 +122,12 @@ for target_fx = 2:nTp
     original_feature_indices = 1:22;
 
     if target_fx == nTp || target_fx == 6
-        % Post-treatment: no dose features, keep baseline + imaging only
+        % Post-treatment timepoint: exclude dose features (columns 13-22).
+        % Dose metrics are only meaningful during active treatment when the
+        % dose is being delivered.  At the post-treatment scan (typically
+        % 3 months after RT), the full dose has been delivered and there is
+        % no additional dose to correlate with — the therapeutic window for
+        % dose-response analysis has closed.
         X_lasso_all = X_lasso_all(:, 1:12);
         feat_names_lasso = feat_names_lasso(1:12);
         original_feature_indices = original_feature_indices(1:12);
@@ -145,10 +203,15 @@ for target_fx = 2:nTp
         end
     end
 
+    % Fix random seed for reproducibility of fold assignments.
+    % make_grouped_folds ensures patient-stratified folds: all scans from
+    % one patient are in the same fold to prevent intra-patient data leakage
+    % (where the model could memorise patient-specific patterns from training
+    % data and exploit them when the same patient appears in the test fold).
     rng(42);
     fold_id_en = make_grouped_folds(id_list_impute, y_clean, 5);
     n_folds_en = max(fold_id_en);
-    n_lambdas = 10;
+    n_lambdas = 10;  % lambda grid size for elastic net regularisation path
 
     common_Lambda = [];
     cv_failed = false;
@@ -186,11 +249,16 @@ for target_fx = 2:nTp
                     'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 10000);
             end
             
+            % Compute test-fold predicted probabilities via logistic sigmoid
             eta = X_te_kept * B_fold + FitInfo_fold.Intercept;
-            p = 1 ./ (1 + exp(-eta));
-            p = max(min(p, 1 - 1e-10), 1e-10); 
+            p = 1 ./ (1 + exp(-eta));       % logistic transform: log-odds → probability
+            p = max(min(p, 1 - 1e-10), 1e-10);  % clamp to avoid log(0) in deviance
             y_te_mat = repmat(y_te, 1, length(common_Lambda));
-            
+
+            % Binomial deviance = -2 * log-likelihood.  This is the CV loss
+            % function for selecting the optimal lambda: the lambda that
+            % minimises mean deviance across folds provides the best
+            % bias-variance tradeoff for prediction.
             dev_val = -2 * sum(y_te_mat .* log(p) + (1 - y_te_mat) .* log(1 - p), 1);
             all_deviance(:, cv_i) = dev_val';
         catch
@@ -245,6 +313,18 @@ for target_fx = 2:nTp
     end
 
     %% --- LOOCV For Risk Scores ---
+    % NESTED LEAVE-ONE-OUT CROSS-VALIDATION (LOOCV)
+    % For each patient i:
+    %   Outer loop: hold out patient i as test
+    %   Inner loop: 5-fold CV on remaining N-1 patients to select lambda
+    %   Fit elastic net with optimal lambda on N-1 patients
+    %   Predict risk score for held-out patient i
+    %
+    % This produces truly out-of-fold risk scores: no patient's data
+    % influences its own risk prediction.  LOOCV is used instead of k-fold
+    % because the small cohort size (typical N=30-60 in pancreatic DWI
+    % studies) means k-fold would have very small test sets, and LOOCV
+    % maximises training set size for stable coefficient estimation.
     n_pts_impute = size(X_impute, 1);
     risk_scores_oof = nan(n_pts_impute, 1);
     is_high_risk_oof = false(n_pts_impute, 1);
@@ -327,8 +407,13 @@ for target_fx = 2:nTp
         risk_scores_oof(loo_i) = X_te_kept * coefs_loo + intercept_loo;
     end
     
-    % Compute high-risk threshold from the full set of out-of-fold scores
-    % AFTER the LOOCV loop completes, avoiding the circular per-fold median.
+    % Stratify patients into high/low risk groups using the median of all
+    % out-of-fold risk scores.  The median is computed AFTER all LOOCV
+    % iterations complete — computing it per-fold would be circular
+    % (each fold's threshold would depend on which patient was left out).
+    % Median-based stratification creates balanced groups for Kaplan-Meier
+    % analysis downstream, which maximises statistical power for detecting
+    % survival differences.
     valid_oof = ~isnan(risk_scores_oof);
     oof_median = median(risk_scores_oof(valid_oof));
     is_high_risk_oof = false(size(risk_scores_oof));
@@ -457,8 +542,17 @@ for target_fx = 2:nTp
     valid_roc = roc_eligible & ~isnan(risk_scores_all_target) & ~isnan(labels);
 
     if sum(valid_roc) > 0
+        % ROC curve from out-of-fold risk scores.  Because these scores
+        % were generated via nested LOOCV (no patient influenced its own
+        % prediction), the resulting AUC is an unbiased estimate of the
+        % model's discriminative ability for new patients.
         [roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), risk_scores_all_target(valid_roc), 1);
-        
+
+        % Youden's J statistic = Sensitivity + Specificity - 1
+        % The optimal threshold maximises the sum of sensitivity and
+        % specificity, balancing the cost of missing true failures (false
+        % negatives) against incorrectly flagging controlled patients
+        % (false positives).
         [~, roc_opt_idx] = max(roc_Y - roc_X);
         roc_opt_thresh = roc_T(roc_opt_idx);
         
@@ -495,6 +589,17 @@ for target_fx = 2:nTp
     end
 
     %% ---------- 5. Sanity Checks & Scatter Plots ----------
+    % These plots verify that selected biomarkers are not confounded:
+    %   Panel 1 (Volume): If GTV volume change differs between LC/LF,
+    %     diffusion changes could be an artifact of partial-volume effects
+    %     (smaller tumours have more edge voxels contaminated by normal tissue).
+    %   Panel 2 (ADC SD): Changes in intra-tumour heterogeneity (texture)
+    %     may provide independent prognostic information beyond mean values.
+    %   Panel 3 (Signal vs Noise): Overlays the Coefficient of
+    %     Reproducibility (CoR) band on the scatter plot.  Data points
+    %     falling within the CoR band cannot be distinguished from
+    %     measurement noise — only changes exceeding CoR represent real
+    %     biological signal.
     for vi = 1:n_sig
         curr_sig_pct_full = sig_data_selected{vi};
         curr_sig_name = sig_names{vi};
@@ -593,6 +698,15 @@ for target_fx = 2:nTp
         close(gcf);
     end
 
+    % 2D FEATURE SPACE SCATTER PLOTS
+    % When 2+ features are selected, pairwise scatter plots show how
+    % combinations of biomarkers separate LC from LF in feature space.
+    % A logistic decision boundary is overlaid for visualisation (fitted
+    % on the full dataset, NOT cross-validated — see legend disclaimer).
+    % Clinically, if two features together provide better separation than
+    % either alone, this suggests a multivariate signature that captures
+    % complementary aspects of treatment resistance (e.g., cellularity
+    % via D + vascular damage via f).
     if n_sig >= 2
         for fi = 1:(n_sig-1)
             for fj = (fi+1):n_sig

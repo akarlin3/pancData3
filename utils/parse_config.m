@@ -1,6 +1,6 @@
 function config_struct = parse_config(json_path)
 % PARSE_CONFIG Reads a JSON config file into a MATLAB struct.
-% 
+%
 % Usage:
 %   config_struct = parse_config('config.json')
 %
@@ -10,59 +10,193 @@ function config_struct = parse_config(json_path)
 % Outputs:
 %   config_struct - A struct containing all parsed fields with defaults populated
 %
+% Analytical Notes:
+%   This function centralizes all configuration for the pancreatic DWI
+%   analysis pipeline.  Every threshold and parameter default encodes a
+%   domain-specific decision rooted in the physics of diffusion-weighted
+%   MRI and the clinical characteristics of pancreatic tumors.  The
+%   isfield-plus-fallback pattern ensures backwards compatibility: older
+%   config.json files that lack newer fields continue to work unchanged,
+%   which is critical when re-analyzing historical patient cohorts with
+%   updated code.
+%
+%   The threshold values below collectively define a biophysical model of
+%   pancreatic tumor tissue: ADC and D thresholds delineate cellularity
+%   (restricted diffusion), f and D* thresholds characterize the
+%   hypovascular desmoplastic stroma typical of pancreatic adenocarcinoma,
+%   and the IVIM b-value threshold separates perfusion-contaminated from
+%   diffusion-dominated signal regimes.  Together, these thresholds enable
+%   voxel-level classification of tumor biology from DWI data.
+%
+%
+    % Fail early if the config file is missing.  The pipeline cannot
+    % proceed without site-specific paths (dataloc, dcm2nii_call) that
+    % vary across institutions and cannot be safely defaulted.
     if ~isfile(json_path)
 
         error('parse_config:fileNotFound', 'Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
+        % Read and parse the JSON config in one step.  jsondecode converts
+        % JSON objects to MATLAB structs, arrays to matrices, and strings
+        % to char arrays — the native MATLAB types used downstream.
         raw_json = fileread(json_path);
         config_struct = jsondecode(raw_json);
 
+        % ================================================================
+        % Default value assignments for optional configuration fields.
+        %
+        % Each default is chosen based on domain conventions in pancreatic
+        % DWI / IVIM analysis.  The isfield guard ensures that config files
+        % from earlier pipeline versions (which lack these fields) still
+        % parse correctly — a strict backwards-compatibility requirement
+        % for reproducibility of published analyses.
+        % ================================================================
+
         % Assign defaults for missing fields
+
+        % skip_tests: When true, bypasses the pre-flight test suite before
+        % pipeline execution.  Default false ensures data integrity checks
+        % always run, catching regressions before processing patient data.
         if ~isfield(config_struct, 'skip_tests')
             config_struct.skip_tests = false;
         end
+
+        % use_checkpoints: Enables per-patient caching of intermediate
+        % results (DICOM conversion, model fits).  Essential for large
+        % cohorts where a single patient failure should not require
+        % reprocessing the entire dataset.  Default false for simplicity
+        % in small-cohort or development runs.
         if ~isfield(config_struct, 'use_checkpoints')
             config_struct.use_checkpoints = false;
         end
+
+        % adc_thresh: ADC threshold (mm^2/s) for defining restricted
+        % diffusion sub-volumes.  In pancreatic cancer, ADC values below
+        % ~1.0 x 10^-3 mm^2/s indicate highly cellular (viable tumor)
+        % tissue.  This threshold separates tumor-like from normal
+        % parenchyma in the mono-exponential diffusion model.
         if ~isfield(config_struct, 'adc_thresh')
             config_struct.adc_thresh = 0.001;
         end
+
+        % high_adc_thresh: Upper ADC threshold (mm^2/s) for identifying
+        % regions with elevated diffusivity, which may indicate treatment
+        % response (cell death / edema).  The 1.15 x 10^-3 mm^2/s value
+        % sits above the typical viable-tumor range but below free water,
+        % capturing the early cellular breakdown signal seen during RT.
         if ~isfield(config_struct, 'high_adc_thresh')
             config_struct.high_adc_thresh = 0.00115;
         end
+
+        % d_thresh: IVIM true diffusion coefficient (D) threshold (mm^2/s).
+        % D represents tissue diffusivity after removing the perfusion
+        % contribution.  In IVIM theory, D < 1.0 x 10^-3 mm^2/s indicates
+        % restricted diffusion consistent with dense tumor cellularity,
+        % similar to ADC but corrected for perfusion contamination at low
+        % b-values.
         if ~isfield(config_struct, 'd_thresh')
             config_struct.d_thresh = 0.001;
         end
+
+        % f_thresh: IVIM perfusion fraction (f) threshold (dimensionless,
+        % 0-1 range).  f represents the fraction of the DWI signal
+        % attributable to microvascular perfusion (capillary blood flow)
+        % rather than true Brownian diffusion.  Pancreatic tumors are
+        % typically hypovascular, so f < 0.10 (10%) indicates poor
+        % perfusion characteristic of desmoplastic pancreatic stroma.
         if ~isfield(config_struct, 'f_thresh')
             config_struct.f_thresh = 0.1;
         end
+
+        % dstar_thresh: IVIM pseudo-diffusion coefficient (D*) threshold
+        % (mm^2/s).  D* models the fast signal decay from incoherent
+        % capillary blood flow.  Values below 0.01 mm^2/s suggest reduced
+        % microvascular flow velocity, consistent with the hypoperfused
+        % microenvironment of pancreatic adenocarcinoma.
         if ~isfield(config_struct, 'dstar_thresh')
             config_struct.dstar_thresh = 0.01;
         end
+
+        % ivim_bthr: b-value threshold (s/mm^2) separating the perfusion-
+        % sensitive regime (b < bthr) from the diffusion-dominated regime
+        % (b >= bthr).  At b = 100 s/mm^2, the fast pseudo-diffusion
+        % component (D* ~ 10-100 x 10^-3 mm^2/s) has largely decayed,
+        % so signal above this threshold reflects primarily true tissue
+        % diffusivity.  This is the standard cutoff in segmented IVIM
+        % fitting (Le Bihan et al.).
         if ~isfield(config_struct, 'ivim_bthr')
             config_struct.ivim_bthr = 100;
         end
+
+        % min_vox_hist: Minimum number of voxels within a GTV required to
+        % generate reliable histograms and summary statistics.  With fewer
+        % than ~100 voxels, histogram-derived metrics (skewness, kurtosis,
+        % percentiles) become unreliable due to sampling noise, and the
+        % spatial heterogeneity measures lose meaning.  This threshold also
+        % prevents small partial-volume contaminated ROIs (e.g., a GTV
+        % that is mostly outside the DWI field-of-view) from producing
+        % misleading summary statistics that would bias downstream
+        % predictive models.
         if ~isfield(config_struct, 'min_vox_hist')
             config_struct.min_vox_hist = 100;
         end
+
+        % adc_max: Upper physiological bound for ADC (mm^2/s).  ADC values
+        % above 3.0 x 10^-3 mm^2/s approach free water diffusivity (~3.0
+        % at 37C) and indicate non-tissue signal (CSF contamination, cystic
+        % regions, or fitting artifacts).  Voxels exceeding this are
+        % excluded from tumor characterization.
         if ~isfield(config_struct, 'adc_max')
             config_struct.adc_max = 0.003;
         end
+
+        % td_scan_days: Override for the scan-day schedule used in time-
+        % dependent panel construction (build_td_panel).  Empty means use
+        % the default schedule [0 5 10 15 20 90] corresponding to
+        % fractions 1-5 plus post-RT follow-up.  Sites with non-standard
+        % RT schedules can specify their actual scan days here.
         if ~isfield(config_struct, 'td_scan_days')
             config_struct.td_scan_days = [];
         end
+
+        % cause_of_death_column: Column name in the clinical spreadsheet
+        % that encodes cause of death for competing-risk survival analysis.
+        % Distinguishing cancer-specific death from other causes (e.g.,
+        % cardiovascular) is essential for Cause-Specific Hazard modeling
+        % in pancreatic cancer where non-cancer mortality is non-negligible.
         if ~isfield(config_struct, 'cause_of_death_column')
             config_struct.cause_of_death_column = 'CauseOfDeath';
         end
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
+        % Any JSON syntax error or field-access failure is caught here.
+        % Re-throwing as a specific error ID allows callers to distinguish
+        % config parsing failures from other errors in their try/catch blocks.
         error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
     end
 
-    % Validate dwi_type AFTER the JSON parsing try/catch so that an
-    % unrecognized type produces a specific error rather than being
-    % swallowed by the generic "Failed to parse JSON" catch block.
+    % ================================================================
+    % DWI type validation and mapping to numeric run indices.
+    %
+    % The pipeline supports three analysis modes that differ in how the
+    % raw DWI signal is preprocessed before IVIM/ADC model fitting:
+    %   1 = Standard: conventional voxel-wise fitting on raw DWI data.
+    %   2 = dnCNN:    DnCNN deep-learning denoiser applied to each b-value
+    %                 image before fitting, reducing thermal noise while
+    %                 preserving diffusion contrast.
+    %   3 = IVIMnet:  Neural-network-based IVIM parameter estimation that
+    %                 jointly learns D, f, D* from the full b-value series,
+    %                 avoiding the two-step segmented fitting bias.
+    %
+    % When dwi_type is omitted, all three modes run sequentially via
+    % execute_all_workflows, enabling head-to-head comparison of
+    % denoising strategies on the same patient cohort.
+    %
+    % Validation is intentionally placed AFTER the try/catch so that an
+    % unrecognized type produces a specific, actionable error rather than
+    % being swallowed by the generic "Failed to parse JSON" catch block.
+    % ================================================================
     if isfield(config_struct, 'dwi_type')
         switch lower(config_struct.dwi_type)
             case 'standard', config_struct.dwi_types_to_run = 1;
@@ -74,6 +208,11 @@ function config_struct = parse_config(json_path)
                     config_struct.dwi_type);
         end
     else
+        % No dwi_type specified: run all three modes sequentially.
+        % This is the typical research workflow — comparing Standard vs
+        % dnCNN vs IVIMnet on the same cohort to assess whether DL
+        % denoising improves IVIM parameter precision and downstream
+        % predictive performance.
         config_struct.dwi_types_to_run = 1:3;
     end
 end

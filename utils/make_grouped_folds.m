@@ -17,19 +17,55 @@ function fold_id = make_grouped_folds(id_list_cell, y, n_folds)
 %   Output
 %   ------
 %   fold_id - (n_rows x 1) integer column vector, values in 1..k.
+%
+%   Analytical Rationale — Why Patient-Grouped Folds are Essential:
+%   ---------------------------------------------------------------
+%   In longitudinal DWI studies, each patient contributes multiple rows
+%   to the time-dependent panel (one per scan interval from build_td_panel).
+%   If rows from the same patient appear in both train and test folds, the
+%   model can memorize patient-specific patterns (e.g., baseline ADC) and
+%   appear to generalize when it is actually recognizing the same patient.
+%   This is intra-patient data leakage — the most common and most
+%   damaging form of leakage in longitudinal oncology studies.
+%
+%   Patient-grouped folds guarantee that ALL rows from a given patient are
+%   in the same fold, so the model is always evaluated on truly unseen
+%   patients.  This yields honest estimates of how the model would perform
+%   on a new patient walking into the clinic.
+%
+%   Stratification preserves the event rate across folds.  In pancreatic
+%   cancer with ~30-40% local failure rate, unstratified random splits
+%   could produce folds with 0 events, making it impossible to estimate
+%   hazard ratios or concordance indices for that fold.
 
+% Map each row to its unique patient index.  ic(row) gives the index
+% into unique_ids, allowing us to propagate the patient-level fold
+% assignment back to every row belonging to that patient.
 [unique_ids, ~, ic] = unique(id_list_cell);
 n_unique   = numel(unique_ids);
 
-% Derive patient-level event status. A patient is an "event" if ANY of
-% their longitudinal rows contains a local failure (y == 1).
-% Competing risk patients (y == 2) are NOT counted as events for
-% stratification; they are grouped with censored patients (y == 0) to
-% ensure folds are balanced by the event of interest (local failure).
-% Optimized: vectorized string grouping and any() evaluation via accumarray
+% Derive patient-level event status for stratification.  A patient is
+% classified as an "event" if ANY of their longitudinal rows contains a
+% local failure (y == 1).  This reflects the clinical reality that a
+% patient either experienced local failure or did not — the event is a
+% patient-level outcome, not a row-level outcome.
+%
+% Competing risk patients (y == 2, e.g., death from non-cancer causes)
+% are NOT counted as events for stratification purposes.  In the
+% Cause-Specific Hazard framework used downstream, competing events are
+% treated as censored for the cause of interest (local failure).
+% Grouping them with truly censored patients (y == 0) for fold balancing
+% ensures each fold has a representative mix of local failures vs.
+% non-failures, which is what the Cox model needs to estimate stable
+% hazard ratios.
+%
+% accumarray with @any efficiently computes "did this patient have any
+% local failure?" across all their rows without an explicit loop.
 pt_y = double(accumarray(ic, double(y == 1), [n_unique, 1], @any));
 
-% Safety check: don't request more folds than we have unique patients
+% Safety check: don't request more folds than we have unique patients.
+% With k > n_unique, some folds would be empty, and leave-one-patient-out
+% CV (k = n_unique) is the maximum meaningful granularity for grouped CV.
 k = min(n_folds, n_unique);
 
 if k <= 1
@@ -39,8 +75,13 @@ if k <= 1
 end
 
 % Attempt stratified partition; fall back to unstratified if the
-% minority class is too small for k folds.
+% minority class is too small for k folds.  cvpartition requires at
+% least one member of each class per fold; with rare events (e.g., 3
+% local failures out of 50 patients), 5-fold stratified CV is impossible
+% and we gracefully degrade to fewer folds or unstratified partitioning.
 try
+    % Suppress MATLAB's internal warning about missing groups in folds,
+    % since we handle the failure explicitly in the catch block.
     warnState = warning('off', 'stats:cvpartition:KFoldMissingGrp');
     restoreWarn = onCleanup(@() warning(warnState));
     cvp = cvpartition(pt_y, 'KFold', k);
@@ -73,10 +114,16 @@ catch
     end
 end
 
+% Convert cvpartition's test-set indicator back to fold labels.
+% cvpartition stores fold membership as binary test indicators; we need
+% integer fold labels (1..k) for downstream indexing.
 pt_fold = zeros(n_unique, 1);
 for f = 1:k
     pt_idx = find(test(cvp, f));
     pt_fold(pt_idx) = f;
 end
+% Propagate patient-level fold labels to every row.  ic maps each row
+% to its patient index, so pt_fold(ic) gives each row the fold label
+% of its parent patient — guaranteeing grouped assignment.
 fold_id = pt_fold(ic);
 end

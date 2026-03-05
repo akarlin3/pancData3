@@ -14,6 +14,29 @@ function [is_valid, validation_msg, data_vectors_gtvp, data_vectors_gtvn] = sani
 %   data_vectors_gtvp - Primary GTV parameter map (passed through un-modified or corrected)
 %   data_vectors_gtvn - Nodal GTV parameter map (passed through un-modified or corrected)
 %
+% ANALYTICAL RATIONALE — DATA QUALITY ASSURANCE
+%   Before any visualization or statistical analysis, data must be validated
+%   to ensure that model fitting succeeded and that spatial registrations
+%   are consistent. In diffusion MRI analysis, common failure modes include:
+%
+%   1. Model fitting failures: IVIM biexponential fitting is numerically
+%      unstable, especially for D* estimation. Failed fits produce Inf, NaN,
+%      or negative parameter values that would corrupt summary statistics.
+%
+%   2. Missing data: Pancreatic DWI acquisitions are frequently incomplete
+%      (patient discomfort, scanner errors, motion rejection). Understanding
+%      the pattern of missingness (random vs systematic) is essential for
+%      choosing appropriate statistical methods (complete-case vs imputation).
+%
+%   3. Spatial misalignment: RT dose maps and DWI volumes must be spatially
+%      co-registered for dose-response analysis. A dimensional mismatch
+%      between dose and ADC vectors indicates that the dose resampling or
+%      DIR registration failed, making voxel-level correlations invalid.
+%
+%   4. Excessive NaN: If >50% of voxels across the cohort are NaN, the
+%      data is too sparse for reliable statistical analysis. This gate
+%      prevents downstream modules from producing misleading results.
+%
 
 validation_msg = 'Passed';
 
@@ -89,6 +112,16 @@ fprintf('\n--- 1. Verify Convergence ---\n');
 
 conv_issues = 0;   % running count of flagged patient-timepoint-metric tuples
 
+% Iterate over every patient x timepoint and check for non-physical values.
+% In the IVIM model, all parameters must be physically non-negative:
+%   D >= 0 (diffusion coefficient cannot be negative)
+%   f in [0, 1] (perfusion fraction is a volume fraction)
+%   D* >= 0 (pseudo-diffusion coefficient cannot be negative)
+%   ADC >= 0 (apparent diffusion coefficient cannot be negative)
+% Inf values indicate numerical overflow (typically from division by near-zero
+% signal). NaN values indicate fitting did not converge or input data was
+% invalid. Negative values indicate the fit converged to a non-physical
+% solution (e.g., signal increasing with b-value due to motion artifacts).
 for j = 1:nPat
     text_progress_bar(j, nPat, 'Checking convergence');
     for k = 1:nTp
@@ -207,8 +240,14 @@ for k = 1:min(nDoseCols, 5)
 end
 
 % --- 2b. Outlier detection (values > 3 IQR from median) ---
-% The 3 × IQR fence is more conservative than the standard 1.5 × IQR
-% box-plot whiskers, so only truly extreme observations are flagged.
+% The 3 x IQR fence is deliberately more conservative than the standard
+% 1.5 x IQR box-plot whiskers, so only truly extreme observations are
+% flagged. In diffusion MRI of pancreatic tumors, moderate outliers are
+% expected due to biological heterogeneity (e.g., cystic vs solid tumors,
+% varying degrees of necrosis). Only values beyond 3 x IQR are likely
+% to represent technical failures (mis-segmentation capturing normal
+% bowel, severe motion artifacts, or fitting failures not caught in
+% Step 1) rather than biological variation.
 fprintf('\n  2b. Outlier detection (>3 IQR from cohort median):\n');
 
 outlier_count = 0;
@@ -305,6 +344,13 @@ fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');
 
 % --- 4. Excessive NaN check: fail if >50% of voxels are NaN across the cohort ---
+% This is the final go/no-go gate before visualization and statistical
+% analysis. If more than half of all voxels across the entire cohort are
+% NaN, the data is too sparse for reliable analysis — summary statistics
+% would be dominated by the few remaining non-NaN values, and group
+% comparisons would lack statistical power. The 50% threshold is a
+% pragmatic balance: some NaN is expected (missing fractions, failed fits),
+% but >50% indicates a systematic pipeline failure that requires investigation.
 % NOTE: diary stays open so the pass/fail result is captured in the log.
 % Use the active DWI type's fields (not always Standard) so that dnCNN/IVIMnet
 % runs validate the correct vectors.

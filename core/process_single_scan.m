@@ -7,6 +7,34 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     %   ctx — struct with all scan context (see caller for fields)
     %   b0_ref_out / gtvp_ref_out / gtvn_ref_out — updated Fx1 references
     %     (non-empty only when fi==1)
+    %
+    % ANALYTICAL RATIONALE — PER-SCAN PROCESSING PIPELINE
+    %   This function encapsulates the complete processing chain for a single
+    %   DWI acquisition (one patient, one fraction, one repeat). The pipeline
+    %   proceeds through five stages:
+    %
+    %   Stage 1: DICOM Conversion — Raw scanner output (DICOM) is converted
+    %     to NIfTI for standardized spatial metadata and multi-b-value volume
+    %     organization. GTV masks (physician-drawn tumor contours) and RT dose
+    %     maps are also converted/resampled to the DWI coordinate system.
+    %
+    %   Stage 2: Volume Loading — NIfTI DWI volumes are loaded along with
+    %     b-value metadata. DnCNN-denoised and IVIMnet results (pre-computed
+    %     externally) are loaded when available. B-values are sorted ascending
+    %     to ensure consistent array indexing across all patients.
+    %
+    %   Stage 3: Model Fitting — IVIM biexponential and ADC monoexponential
+    %     models are fit to the signal decay curves within the combined GTV mask.
+    %     Fitting is restricted to mask voxels for computational efficiency.
+    %
+    %   Stage 4: Deformable Image Registration (DIR) — For fractions 2-5 and
+    %     post-RT, the parameter maps and dose maps are warped to the Fx1
+    %     (baseline) anatomy using displacement fields from imregdemons.
+    %     This ensures voxel-level longitudinal comparisons are spatially valid.
+    %
+    %   Stage 5: Biomarker Extraction — Voxel-level parameter values within
+    %     the GTV mask are extracted as 1D vectors for downstream statistical
+    %     analysis (summary metrics, distributions, survival modeling).
 
     fi = ctx.fi;
     rpi = ctx.rpi;
@@ -57,6 +85,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Save GTVp mask as NIfTI for consistency with DWI volumes ---
+    % GTV masks are stored as .mat files (from contour export) and must be
+    % converted to NIfTI to match the DWI coordinate system. The rot90
+    % inverse rotation (-1) converts from MATLAB's display convention back
+    % to the NIfTI storage convention, ensuring spatial alignment when the
+    % mask is later loaded alongside the DWI volume (which undergoes rot90
+    % forward rotation at load time). safe_load_mask prevents arbitrary
+    % code execution from untrusted .mat files by validating variable types.
     if ~isempty(ctx.struct_file)
         if ~exist(fullfile(outloc, [gtvname '.nii.gz']),'file')
             gtv_mask_raw = safe_load_mask(ctx.struct_file, 'Stvol3d');
@@ -69,6 +104,11 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Save GTVn (nodal) mask as NIfTI, if present ---
+    % Nodal GTV masks (GTVn) are handled identically to primary (GTVp).
+    % Not all patients have nodal disease involvement, so this is conditional.
+    % When present, GTVn allows separate analysis of nodal vs primary tumor
+    % diffusion response to RT, which may differ due to different tissue
+    % composition and vascularity of lymph nodes vs pancreatic parenchyma.
     if ~isempty(ctx.struct_file_gtvn)
         if ~exist(fullfile(outloc, [gtvn_name '.nii.gz']),'file')
             gtvn_mask_raw = safe_load_mask(ctx.struct_file_gtvn, 'Stvol3d');
@@ -81,8 +121,20 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Resample RT dose onto DWI geometry and save as NIfTI ---
+    % The RT dose map is computed on the treatment planning CT grid, which
+    % has different resolution, orientation, and field-of-view than the DWI
+    % MRI. To enable voxel-level dose-diffusion correlation (e.g., "does
+    % higher local dose at a voxel correlate with greater ADC increase?"),
+    % the dose must be resampled onto the DWI geometry. This is done using
+    % the b=0 DWI DICOM headers, which contain the spatial metadata (image
+    % position, orientation, pixel spacing) needed to define the DWI grid.
+    % b=0 images are used because they have the highest SNR and most
+    % faithful spatial encoding (no diffusion-related geometric distortion).
     if ~isempty(ctx.dicomdoseloc) && ~isempty(ctx.dicomloc)
         if ~exist(fullfile(outloc, [dosename '.nii.gz']),'file')
+            % Identify b=0 DICOM slices by reading the DiffusionBValue tag.
+            % These slices define the spatial coordinate system for dose
+            % resampling via sample_rtdose_on_image().
             dicom_files = dir(fullfile(ctx.dicomloc, '*.dcm'));
             b0list = cell(0, 1);
             b0count = 0;
@@ -122,6 +174,10 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Load NIfTI DWI volume and extract b-values ---
+    % The 4D DWI volume has dimensions (x, y, z, b-value). rot90 converts
+    % from NIfTI storage convention (radiological) to MATLAB display
+    % convention. Voxel volume is computed in cm^3 (dimensions in mm / 10)
+    % for consistency with clinical reporting of GTV volumes in cc.
     havedwi = 0;
     dwi = [];
     bvalues = [];
@@ -131,11 +187,19 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     if exist(fullfile(outloc, [scanID '.nii.gz']),'file')
         dwi_info = niftiinfo(fullfile(outloc, [scanID '.nii.gz']));
         dwi = rot90(niftiread(dwi_info));
-        dwi_dims = dwi_info.PixelDimensions(1:3);
-        dwi_vox_vol = prod(dwi_dims*0.1);
+        dwi_dims = dwi_info.PixelDimensions(1:3);  % voxel dimensions in mm
+        dwi_vox_vol = prod(dwi_dims*0.1);           % convert mm to cm, then volume in cm^3
         fprintf('...Loaded %s. ',fullfile(outloc, [scanID '.nii.gz']));
         havedwi = 1;
 
+        % Load b-values from the sidecar file generated by dcm2niix.
+        % B-values are sorted ascending because the IVIM segmented fit
+        % assumes ordered b-values to separate low-b (perfusion-sensitive)
+        % from high-b (diffusion-dominated) data points. The same sort
+        % order is applied to the 4th dimension of the DWI volume so that
+        % dwi(:,:,:,1) always corresponds to b=0 (the S0 reference for
+        % ADC fitting) and dwi(:,:,:,end) corresponds to the highest
+        % b-value (most diffusion-weighted, most sensitive to cellularity).
         bval_file = fullfile(outloc, [scanID '.bval']);
         if exist(bval_file,'file')
             fid = fopen(bval_file);
@@ -174,6 +238,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Load DnCNN-denoised DWI (deep learning denoising) ---
+    % DnCNN (Denoising Convolutional Neural Network) reduces Rician noise
+    % in DWI images before conventional IVIM model fitting. Pancreatic DWI
+    % has inherently low SNR due to: (1) small organ size, (2) respiratory
+    % and peristaltic motion, (3) signal attenuation at high b-values.
+    % Denoising improves parameter estimation stability, especially for
+    % the highly variable D* parameter. The denoised volumes are either
+    % pre-computed (cached as NIfTI) or computed on-the-fly as a fallback.
     havedenoised = 0;
     dwi_dncnn = [];
     if havedwi==1
@@ -201,6 +272,14 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Load IVIMnet deep-learning fit results (pre-computed) ---
+    % IVIMnet is a neural network trained to estimate IVIM parameters (D, f, D*)
+    % directly from multi-b-value signal curves, bypassing the ill-conditioned
+    % nonlinear fitting that makes conventional D* estimation unreliable.
+    % IVIMnet results are pre-computed externally (Python/TensorFlow) and
+    % stored as .mat files containing 3D parameter maps. Unlike DnCNN (which
+    % denoises the raw DWI before conventional fitting), IVIMnet replaces
+    % the fitting step entirely, providing an alternative estimation approach
+    % for methodological comparison.
     haveivimnet = 0;
     D_ivimnet = []; f_ivimnet = []; Dstar_ivimnet = [];
     if havedwi==1
@@ -247,6 +326,17 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Fit ADC and IVIM models ---
+    % Model fitting is performed on the UNION of GTVp and GTVn masks.
+    % Using the union ensures that both primary tumor and nodal disease
+    % voxels receive fitted parameters in a single pass, avoiding redundant
+    % computation. The combined mask is passed to fit_models() which
+    % restricts fitting to only masked voxels for efficiency (~100-2000
+    % tumor voxels out of ~1.3M total volume voxels).
+    %
+    % Models are fit independently on:
+    %   1. Standard (raw) DWI — baseline comparison
+    %   2. DnCNN-denoised DWI — noise-reduced estimation
+    % IVIMnet parameters are pre-computed externally and loaded above.
     d_map = []; f_map = []; dstar_map = []; adc_map = [];
     d_map_dncnn = []; f_map_dncnn = []; dstar_map_dncnn = []; adc_map_dncnn = [];
     if havedwi && (havegtvn || havegtvp)
@@ -255,23 +345,42 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         if havegtvn, mask_ivim = logical(mask_ivim + logical(gtvn_mask)); end
 
         opts = [];
-        opts.bthr = ctx.ivim_bthr;
+        opts.bthr = ctx.ivim_bthr;  % b-value threshold separating perfusion from diffusion regimes
 
         [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim, opts);
         if havedenoised==1
+            % Fit the same models on denoised data. This produces a matched
+            % set of parameter maps that can be directly compared to standard
+            % maps to quantify the effect of denoising on parameter estimates.
             [d_map_dncnn, f_map_dncnn, dstar_map_dncnn, adc_map_dncnn] = fit_models(dwi_dncnn, bvalues, mask_ivim, opts);
         end
     end
 
     % --- Deformable Image Registration (DIR) ---
+    % DIR warps later-fraction (Fx2-Fx5, post) images to the Fx1 baseline
+    % coordinate system using the b=0 images as anatomical references.
+    % This is critical because:
+    %   1. Patient setup varies between fractions (different table position,
+    %      organ filling, respiratory phase)
+    %   2. The tumor may deform, shrink, or shift during the treatment course
+    %   3. Voxel-level longitudinal comparisons (e.g., "did ADC at voxel X
+    %      increase between Fx1 and Fx3?") require spatial correspondence
+    %
+    % The displacement field (D_forward) maps each voxel in Fx1 space to its
+    % corresponding location in the current fraction's space. Warping
+    % parameter maps by -D_forward brings them INTO Fx1 space. The GTV mask
+    % is also warped to define the tumor boundary in later fractions, which
+    % may differ from the original Fx1 contour due to tumor deformation.
     gtv_mask_for_dvh = gtv_mask;
     dose_map_dvh     = dose_map;
     D_forward_cur    = [];
 
     if havedwi && havegtvp
-        b0_current = dwi(:,:,:,1);
+        b0_current = dwi(:,:,:,1);  % b=0 volume: highest-SNR anatomical reference
         if fi == 1
-            % Return Fx1 references to caller
+            % At Fx1 (baseline), save the b=0 volume and GTV masks as
+            % reference images for subsequent fraction registrations.
+            % No warping is needed at baseline — it IS the reference frame.
             b0_ref_out = b0_current;
             gtvp_ref_out = gtv_mask;
             if havegtvn
@@ -301,11 +410,16 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Warp native-space parameter maps to baseline geometry -----------
-    % All DWI types are warped consistently so longitudinal comparisons
-    % use the same spatial reference frame.
+    % All DWI types (Standard, DnCNN, IVIMnet) are warped using the SAME
+    % displacement field so longitudinal comparisons across methods use
+    % identical spatial correspondence. Linear interpolation is used for
+    % continuous parameter maps (ADC, D, f, D*) to avoid step artifacts
+    % from nearest-neighbor. NaN fill values mark voxels that map outside
+    % the native field-of-view, preventing extrapolated values from
+    % contaminating summary statistics.
     can_warp = (fi > 1) && ~isempty(D_forward_cur) && ~isempty(ctx.b0_fx1_ref);
     if can_warp
-        % Standard maps
+        % Standard maps — warp from native FxN space to Fx1 baseline space
         adc_map = imwarp(adc_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
         d_map   = imwarp(d_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
         f_map   = imwarp(f_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
@@ -411,11 +525,18 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         end
     end
 
-    % --- DVH for GTVp ---
-    % Always use the same mask for dose as for biomarkers so that
-    % dose_vector and adc_vector have identical lengths.  When maps are
-    % warped to Fx1 the dose map is already in that frame; otherwise the
-    % native dose map is resampled onto the native biomarker mask.
+    % --- DVH (Dose-Volume Histogram) for GTVp ---
+    % DVH analysis quantifies how radiation dose is distributed within
+    % the tumor volume. Key metrics:
+    %   - D95: dose received by 95% of the GTV (coverage metric). Low D95
+    %     indicates cold spots that may correlate with local failure.
+    %   - V50Gy: fraction of GTV receiving >= 50 Gy (high-dose coverage).
+    %     Relevant for dose escalation studies in pancreatic SBRT.
+    %   - dmean: mean dose across all GTV voxels (overall dose intensity).
+    %
+    % The mask used for DVH MUST match the biomarker extraction mask so
+    % that dose_vector and adc_vector have identical lengths, enabling
+    % voxel-level dose-response correlation analysis.
     dvh_mask_p = biomarker_mask_p;
     dvh_dose   = dose_map_dvh;
     if can_warp && havedose
@@ -423,6 +544,10 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
     if havedose && havegtvp
         result.dmean_gtvp = nanmean(dvh_dose(dvh_mask_p==1));
+        % Compute DVH with 2000 bins for smooth dose-volume curves.
+        % 'Normalize' = true reports volumes as percentages rather than
+        % absolute cc, making DVH metrics comparable across patients with
+        % different GTV sizes.
         [dvhparams, dvh_values] = dvh(dvh_dose, dvh_mask_p, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
         result.d95_gtvp = dvhparams.("D95% (Gy)");
         result.v50gy_gtvp = dvhparams.("V50Gy (%)");
@@ -472,12 +597,19 @@ end
 
 function [have_mask, mask_data] = load_nifti_mask(filepath, dwi_size, message_prefix, mask_name)
     % LOAD_NIFTI_MASK Helper function to load a NIfTI mask and validate dimensions
+    %   Spatial dimension validation is critical: if the mask and DWI volumes
+    %   have different matrix sizes (e.g., due to different reconstruction
+    %   settings or protocol changes between scans), applying the mask would
+    %   extract voxels from wrong spatial locations, invalidating all
+    %   downstream parameter analysis. A size mismatch is treated as a hard
+    %   failure (mask excluded) rather than attempting interpolation, which
+    %   could introduce artifacts in binary contour masks.
     have_mask = 0;
     mask_data = [];
 
     if exist(filepath, 'file')
         info = niftiinfo(filepath);
-        mask_data = rot90(niftiread(info));
+        mask_data = rot90(niftiread(info));  % rot90: NIfTI-to-MATLAB convention
         fprintf('...%sLoaded %s\n', message_prefix, filepath);
         have_mask = 1;
 
@@ -493,6 +625,17 @@ end
 function bio = extract_biomarkers(mask, maps, meta, dncnn_maps, dncnn_mask, ivimnet_maps)
     % EXTRACT_BIOMARKERS Extract voxel-level biomarkers within a GTV mask
     %   Returns a struct with all fields matching init_scan_structs layout.
+    %
+    %   This function converts 3D parameter maps into 1D voxel vectors by
+    %   applying the GTV mask as a boolean index. The resulting vectors
+    %   contain one value per tumor voxel, enabling:
+    %     - Summary statistics (mean, kurtosis, skewness) of the parameter
+    %       distribution within the tumor
+    %     - Sub-volume analysis (e.g., fraction of tumor with ADC < threshold)
+    %     - Voxel-level dose-parameter correlation
+    %     - Histogram-based distribution comparison across timepoints (KS test)
+    %   All three DWI pipeline variants (Standard, DnCNN, IVIMnet) are
+    %   extracted in a single call to ensure consistent mask application.
 
     % Start from template to ensure all fields exist
     [tmp, ~] = init_scan_structs(1, 1);
@@ -531,6 +674,13 @@ end
 
 function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask, gtvn_mask)
     % COMPUTE_DNCNN_FALLBACK On-the-fly DnCNN denoising when cache is missing
+    %   When pre-computed denoised volumes are not available (e.g., first run
+    %   or cache cleared), this fallback applies DnCNN denoising on the CPU.
+    %   Denoising is applied independently per b-value volume because noise
+    %   characteristics differ across b-values (higher b = lower SNR = more
+    %   noise). The GTV mask focuses denoising on the tumor region. This is
+    %   significantly slower than loading cached results (~minutes vs seconds)
+    %   but ensures the DnCNN pipeline can always produce results.
     havedenoised = 0;
     dwi_dncnn = [];
     fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on CPU...\n');

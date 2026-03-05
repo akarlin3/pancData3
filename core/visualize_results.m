@@ -11,17 +11,35 @@ function visualize_results(data_vectors_gtvp, summary_metrics, calculated_result
 % Outputs:
 %   None. Generates and saves figures in the defined directory.
 %
-
-% This function generates three families of visualizations:
+% ANALYTICAL RATIONALE — VISUALIZATION STRATEGY
+%   This function generates three complementary visualization families that
+%   address different aspects of the diffusion biomarker analysis:
+%
 %   1. Parameter Maps overlaid on Anatomy
-%      – ADC maps computed from the Fx1 DWI volume, overlaid on the b=0
-%        anatomical image with the GTV contour
-%   2. Distributions of Extracted Features (histograms & box plots)
-%      – Baseline (Fx1) ADC and IVIM parameters grouped by clinical
-%        outcome (Local Control vs Local Failure)
-%   3. Scatter Plots for Dose–Diffusion Correlation
-%      – RT Dose (mean GTV dose and D95) plotted against diffusion
-%        metrics to identify clusters, thresholds, or linear trends
+%      Spatial visualization of ADC within the tumor contour on the b=0
+%      anatomical image. This allows the physicist to:
+%        - Verify that GTV contours are correctly positioned on the anatomy
+%        - Identify spatial patterns (e.g., necrotic core with high ADC
+%          surrounded by viable rim with low ADC)
+%        - Detect artifacts (e.g., geometric distortion at tissue-air
+%          boundaries near the pancreas)
+%
+%   2. Distributions of Extracted Features (histograms and box plots)
+%      Baseline (Fx1) ADC and IVIM parameter distributions grouped by
+%      clinical outcome (Local Control vs Local Failure). These reveal
+%      whether pre-treatment diffusion characteristics differ between
+%      patients who eventually fail locally vs those who achieve local
+%      control — the fundamental hypothesis of predictive biomarker research.
+%      ANOVA p-values are annotated to guide clinical significance assessment.
+%
+%   3. Scatter Plots for Dose-Diffusion Correlation
+%      RT dose metrics (mean GTV dose, D95) plotted against diffusion
+%      parameters to explore dose-response relationships. In pancreatic
+%      SBRT, higher delivered dose may produce greater changes in tumor
+%      cellularity (reflected by ADC/D changes). Identifying such
+%      correlations can inform dose escalation strategies. Spearman
+%      correlation is used because dose-diffusion relationships may be
+%      monotonic but not necessarily linear.
 
 % Extract required variables
 id_list = summary_metrics.id_list;
@@ -39,7 +57,10 @@ fprintf('\n======================================================\n');
 fprintf('  VISUALIZE RESULTS — Generating Plots\n');
 fprintf('======================================================\n');
 
-% Define human-readable labels for the three DWI processing pipelines
+% Define human-readable labels for the three DWI processing pipelines.
+% Each pipeline produces its own set of diffusion parameters, and
+% visualizations are generated per-pipeline to enable methodological
+% comparison of parameter estimation approaches.
 dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 
 % Create output directory for saved figures (ignored by .gitignore)
@@ -56,7 +77,10 @@ diary_file = fullfile(output_folder, 'visualize_results_output.txt');
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
 
-% Suppress figure windows so plots are only saved to disk
+% Suppress figure windows so plots are only saved to disk.
+% This is essential for batch/headless execution (e.g., on a compute server
+% or within parfor workers) where no display is available. All figures are
+% saved as PNG files for inclusion in manuscripts and reports.
 set(0, 'DefaultFigureVisible', 'off');
 
 % Total number of patients and fraction (timepoint) labels
@@ -65,9 +89,14 @@ nTp  = size(adc_mean, 2);
 fx_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 % Build a logical mask identifying patients with usable clinical and
-% imaging data.  Require a finite LF label and a
-% non-NaN baseline ADC value (Standard DWI, Fx1).
-% Use the first DWI type for baseline validity check (dtype may be a vector)
+% imaging data. Two requirements:
+%   1. Finite LF (local failure) label: patients without clinical follow-up
+%      cannot be classified as LC/LF and must be excluded from outcome-
+%      stratified visualizations.
+%   2. Non-NaN baseline ADC: patients without a valid Fx1 DWI acquisition
+%      have no baseline reference for longitudinal analysis.
+% This filter prevents plotting artifacts from missing data and ensures
+% that group comparisons (LC vs LF) use only patients with complete data.
 dtype_first = config_struct.dwi_types_to_run(1);
 valid_pts = isfinite(lf) & ~isnan(adc_mean(:,1,dtype_first));
 

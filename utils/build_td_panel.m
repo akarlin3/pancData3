@@ -50,32 +50,93 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %
 %   Requires: Statistics and Machine Learning Toolbox (for z-scoring only;
 %   the core construction uses only base MATLAB).
+%
+%   Analytical Background:
+%   ----------------------
+%   Standard Cox proportional hazards regression assumes covariates are
+%   fixed at baseline.  In pancreatic RT, DWI parameters (ADC, D, f, D*)
+%   change throughout the 5-week treatment course as radiation induces
+%   tumor cell death, edema, and vascular disruption.  Ignoring these
+%   intra-treatment changes would bias hazard ratio estimates toward
+%   baseline tumor biology and miss the prognostic signal carried by
+%   treatment-induced diffusion changes.
+%
+%   The counting-process (start-stop) representation splits each patient's
+%   follow-up into intervals aligned with scan dates.  Within each
+%   interval, the covariates are held constant at the most recent scan
+%   values — a piecewise-constant approximation to the continuously
+%   evolving tumor microenvironment.  This is the standard Anderson-Gill
+%   extension for time-dependent covariates in survival analysis.
+%
+%   The event indicator uses a competing-risk encoding (0/1/2) rather
+%   than simple binary, because pancreatic cancer patients face
+%   substantial non-cancer mortality that must be modeled separately
+%   to avoid upward bias in cancer-specific hazard estimates.
 
+    % ================================================================
+    % PANEL CONSTRUCTION: Anderson-Gill counting-process representation
+    %
+    % The key insight is that DWI parameters (ADC, D, f, D*) measured at
+    % each MRI scan reflect the instantaneous state of the tumor
+    % microenvironment at that timepoint.  Between scans, we assume these
+    % values remain constant (piecewise-constant hazard model).  This is
+    % a reasonable approximation because radiation-induced changes in
+    % tissue cellularity and vascularity evolve over days-to-weeks, which
+    % is comparable to our inter-scan interval.
+    %
+    % Each patient contributes multiple rows (one per scan interval),
+    % enabling the Cox model to estimate how changes in diffusion
+    % parameters during treatment predict subsequent clinical outcomes
+    % (local failure vs. competing risks like distant metastasis).
+    % ================================================================
     n_pts  = length(lf_vec);
     n_feat = length(feat_arrays);
 
     % --- Default scan-day schedule (fraction days from RT start) ---
+    % The default [0, 5, 10, 15, 20, 90] corresponds to weekly scans
+    % during a standard 5-fraction SBRT course (Fx1 on day 0 through Fx5
+    % on day 20) plus a ~3-month post-RT follow-up scan (day 90).  This
+    % schedule captures the acute radiation response (first 3 weeks) and
+    % the early subacute recovery phase.
     if nargin < 6 || isempty(scan_days)
         scan_days = [0, 5, 10, 15, 20, 90];
     end
     if nargin < 7 || isempty(decay_half_life_months)
-        decay_half_life_months = 18;  % Default half-life of 18 months
+        % 18-month half-life: empirical estimate for how quickly the
+        % radiation-induced diffusion signal reverts toward pre-treatment
+        % baseline.  Used for exponential decay imputation when scans are
+        % missing — models the biological washout of treatment effect on
+        % tissue microstructure (e.g., fibrosis replacing acute edema).
+        decay_half_life_months = 18;
     end
-    scan_days = scan_days(1:nTp);  % trim to available timepoints
+    % Trim scan_days to the number of timepoints actually available in the
+    % data.  Some cohorts may have fewer scans than the full schedule.
+    scan_days = scan_days(1:nTp);
 
     % Remove NaN entries (fractions with no valid scan dates) while
     % preserving the mapping between scan_days indices and feature
-    % array columns via tp_map.
+    % array columns via tp_map.  NaN scan days arise when a fraction
+    % was scheduled but the MRI scan was not acquired (e.g., patient
+    % too sick, scanner unavailable).  The tp_map allows us to index
+    % back into the original feat_arrays columns after NaN removal.
     valid_sd = ~isnan(scan_days);
     tp_map   = find(valid_sd);       % tp_map(k) = original column in feat_arrays
     scan_days = scan_days(valid_sd);
     nTp = length(scan_days);
 
-    % Validate scan_days is strictly increasing
+    % Validate scan_days is strictly increasing — the counting-process
+    % representation requires non-overlapping intervals with t_start <
+    % t_stop.  Non-monotonic scan days would create degenerate intervals
+    % that violate the Cox model likelihood assumptions.
     assert(all(diff(scan_days) > 0), 'build_td_panel:scanDays', 'scan_days must be strictly increasing');
 
     % --- Vectorized Generation of General Intervals ---
-    % Preallocate arrays safely overestimating bounds
+    % Preallocate arrays with an upper bound of n_pts * nTp rows.  In
+    % practice, most patients contribute fewer rows because: (a) their
+    % event/censoring time falls before the last scan, and (b) some
+    % timepoints have all-NaN covariates (missed scans).  Over-allocation
+    % followed by trimming is faster than dynamic resizing for typical
+    % cohort sizes (50-200 patients x 6 timepoints).
     max_rows = n_pts * nTp;
     X_buf       = nan(max_rows, n_feat);
     t_start_buf = nan(max_rows, 1);
@@ -84,7 +145,24 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     pat_buf     = zeros(max_rows, 1);
     frac_buf    = nan(max_rows, 1);
 
-    % Exponential decay imputation parameters.
+    % ================================================================
+    % EXPONENTIAL DECAY IMPUTATION
+    %
+    % When a scan is missing (patient too ill for MRI, scanner down), we
+    % impute the covariate value using exponential decay from the last
+    % observed value back toward the patient's own baseline.  This models
+    % the biological reality that acute radiation effects (edema causing
+    % elevated ADC, vascular disruption reducing f) gradually resolve
+    % post-treatment as fibrosis replaces acute inflammation.
+    %
+    % Per-feature half-lives allow different decay rates for different
+    % IVIM parameters: perfusion fraction (f) and pseudo-diffusion (D*)
+    % may recover faster than true diffusion (D) because vascular
+    % remodeling precedes structural tissue reorganization.
+    %
+    % The decay target is the patient's own baseline (not a population
+    % mean) to respect inter-patient heterogeneity in tumor biology.
+    % ================================================================
     % Support per-feature half-lives: expand scalar to vector if needed.
     if isscalar(decay_half_life_months)
         decay_half_life_months = repmat(decay_half_life_months, 1, n_feat);
@@ -97,12 +175,20 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     use_decay = any(decay_half_life_months > 0);
     if use_decay
+        % Convert months to days (30.44 days/month average) for consistent
+        % time units with scan_days (which are in days from RT start).
         hl_days      = decay_half_life_months * 30.44;
+        % Exponential decay rate: lambda = ln(2) / half-life, so the
+        % imputed value at time dt after last observation is:
+        %   baseline + (last_obs - baseline) * exp(-lambda * dt)
         lambda_decay = log(2) ./ hl_days;
         lambda_decay(decay_half_life_months <= 0) = 0;  % disable decay for non-positive half-lives
     end
 
-    % Find valid patients (T_j and lf_j not NaN)
+    % Find valid patients: those with known event time AND known event
+    % status.  Patients with NaN event time or NaN event indicator cannot
+    % contribute to the Cox partial likelihood — including them would
+    % introduce undefined terms in the risk set computation.
     valid_pts = find(~isnan(total_time_vec) & ~isnan(lf_vec));
 
     row = 0;
@@ -114,13 +200,21 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         % Track original (non-imputed) observations and their times for
         % decay imputation.  Using the already-imputed last_X would cause
         % compounding decay across consecutive missing scans, making values
-        % decay faster than the intended biological half-life.
+        % decay faster than the intended biological half-life.  By always
+        % decaying from the last *actually observed* value, we ensure the
+        % imputed trajectory follows a single exponential from each real
+        % measurement — matching the biological model of monotonic recovery
+        % from radiation-induced changes.
         orig_X = nan(1, n_feat);   % last observed (non-NaN) value per feature
         orig_t = zeros(1, n_feat); % day of that observation
         baseline_X = nan(1, n_feat);  % patient's baseline (tp=1) values for decay target
 
         for tp = 1:nTp
             day_tp = scan_days(tp);
+            % A patient can only contribute intervals while they are still
+            % at risk (alive and uncensored).  Once scan_day >= event/
+            % censoring time, no further intervals are generated — the
+            % patient has already exited the risk set.
             if day_tp >= T_j
                 break;
             end
@@ -175,7 +269,13 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 continue;
             end
 
-            % Compute interval end: next observed scan or event/censoring time
+            % Compute interval end: the interval extends from the current scan
+            % day to the next scan day (or event/censoring time, whichever
+            % comes first).  The covariates are held constant throughout
+            % this interval — the piecewise-constant assumption.  We look
+            % ahead for the next *non-missing* timepoint because extending
+            % an interval across a gap (missed scan) is more appropriate
+            % than creating a zero-length interval for the missing scan.
             if tp < nTp
                 % Look ahead for the next non-missing timepoint
                 day_next = T_j;
@@ -201,6 +301,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 continue;
             end
 
+            % A "terminal" interval is the patient's last interval, where
+            % the event/censoring occurs.  Only terminal intervals carry
+            % the event indicator; all preceding intervals are coded as
+            % censored (event = 0).  This is the counting-process convention:
+            % the event can only happen once, at the end of follow-up.
             is_terminal = (day_next == T_j);
 
             row = row + 1;

@@ -1,20 +1,44 @@
 function plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts, lf_group, dtype, output_folder)
 % PLOT_FEATURE_DISTRIBUTIONS
 %
-%  For each DWI processing pipeline (Standard, dnCNN, IVIMnet):
-%    2a. Histograms — overlay Local-Control vs Local-Failure distributions
-%        for each of the four baseline (Fx1) diffusion biomarkers.
-%    2b. Box plots  — side-by-side LC vs LF boxes with one-way ANOVA
-%        p-values annotated on each panel.
+% ANALYTICAL OVERVIEW:
+%   Visualises the baseline (pre-treatment, Fx1) distribution of each
+%   diffusion biomarker, stratified by clinical outcome (LC vs LF).
+%   This is the most fundamental exploratory analysis: if a biomarker's
+%   baseline distribution does not differ between outcome groups, it is
+%   unlikely to be useful as a pre-treatment predictor of local failure.
+%
+%   Two complementary visualisations are generated:
+%     2a. Histograms — Show the full distributional shape (skewness,
+%         bimodality, overlap between groups).  Overlapping distributions
+%         indicate limited discriminative power.  Bimodal distributions
+%         may suggest distinct tumour subtypes with different prognoses.
+%     2b. Box plots  — Summarise location (median), spread (IQR), and
+%         outliers.  Annotated with one-way ANOVA p-values to quantify
+%         whether group means differ.  Note: ANOVA assumes normality;
+%         the non-parametric Wilcoxon test in metrics_stats_comparisons
+%         is the definitive test.
+%
+%   Expected biological patterns at baseline:
+%     - ADC/D: LF tumours may have LOWER values (denser cellularity,
+%       more treatment-resistant tissue).
+%     - f: LF tumours may have LOWER perfusion (hypoxic, less radiosensitive).
+%     - D*: Often too noisy for reliable pre-treatment prediction.
+%
 %  The resulting figures are saved as PNG files in the output folder.
 
 % Collect baseline (Fx1) biomarker values for the valid patient subset.
 % Each cell element is an [nValid x 1] vector for one metric.
+% Only Fx1 (column 1) is used because this analysis characterises
+% pre-treatment tumour properties — before radiation has induced any changes.
+% The third index selects the DWI processing pipeline (1=Standard, etc.).
 metric_data  = {adc_mean(valid_pts,1,dtype), ...
                 d_mean(valid_pts,1,dtype), ...
                 f_mean(valid_pts,1,dtype), ...
                 dstar_mean(valid_pts,1,dtype)};
 metric_names = {'Mean ADC', 'Mean D', 'Mean f', 'Mean D*'};
+% f is dimensionless (volume fraction [0,1]), so no unit is displayed.
+% ADC, D, and D* are all in mm^2/s (diffusion coefficient units).
 metric_units = {'mm^2/s',   'mm^2/s',  '',       'mm^2/s'};
 
 % --- 2a. Histograms ---

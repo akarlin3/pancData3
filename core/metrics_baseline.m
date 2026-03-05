@@ -3,6 +3,35 @@ function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d
 % Part 1/5 of the metrics step. Compiles baseline measures, cleans outliers,
 % computes relative changes (percent delta), and groups metric sets for later steps.
 %
+% ANALYTICAL OVERVIEW:
+%   This function serves as the data preparation gateway for all downstream
+%   statistical and survival analyses.  It performs four critical tasks:
+%
+%   1. REPEATABILITY ANALYSIS — Quantifies measurement noise via within-patient
+%      coefficient of variation (wCV) from same-day repeat scans.  This establishes
+%      the minimum detectable change (Coefficient of Reproducibility) for each
+%      biomarker, which is essential for distinguishing real treatment-induced
+%      changes from random measurement fluctuation in pancreatic DWI (where
+%      respiratory motion and susceptibility artifacts at the pancreas-air
+%      interface are substantial noise sources).
+%
+%   2. CLINICAL OUTCOME LINKAGE — Matches imaging biomarkers to clinical
+%      endpoints (locoregional failure, competing risks) from the clinical
+%      spreadsheet.  The competing risk framework is critical because pancreatic
+%      cancer patients frequently die of systemic disease or treatment
+%      complications before local failure can be observed.  Ignoring competing
+%      risks inflates the Cause-Specific Hazard estimate for local failure.
+%
+%   3. OUTLIER REMOVAL AND COHORT FILTERING — Applies outcome-blinded IQR
+%      fencing to remove biophysically implausible measurements before they
+%      can distort group comparisons.  Patients missing baseline imaging are
+%      excluded because percent-change metrics require a reference value.
+%
+%   4. PERCENT DELTA COMPUTATION — Computes treatment-induced changes relative
+%      to baseline.  ADC, D, and D* use percent change; f uses absolute change
+%      because f values near zero (typical range 0.05-0.15) make percent change
+%      numerically unstable and clinically uninterpretable.
+%
 % Inputs:
 %   data_vectors_gtvp - Struct array containing primary GTV parameter maps (by iter)
 %   data_vectors_gtvn - Struct array containing nodal GTV parameter maps
@@ -10,12 +39,38 @@ function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d
 %   config_struct     - Configuration struct
 %
 % Outputs:
-%   [Multiple Arrays] - Includes logical masks for valid_pts, clean arrays for 
+%   [Multiple Arrays] - Includes logical masks for valid_pts, clean arrays for
 %                       ADC_abs, D_abs, f_abs, and their delta percent variations,
 %                       as well as organized sets (metric_sets) for downstream analysis.
 %
 
-% Extract parameters
+% =========================================================================
+% EXTRACT PRE-COMPUTED SUMMARY METRICS
+% =========================================================================
+% These arrays were aggregated during the 'load' step by compute_summary_metrics.m.
+% Each metric is stored as [nPatients x nTimepoints x nDwiTypes], where DWI
+% types are 1=Standard, 2=dnCNN, 3=IVIMnet.  The third dimension allows the
+% same patient cohort to be analysed under different denoising pipelines
+% without re-running the expensive DICOM loading and model fitting steps.
+%
+% Key diffusion parameters:
+%   ADC  — Apparent Diffusion Coefficient from mono-exponential fit.
+%          Reflects total water mobility (cellularity + perfusion).
+%   D    — True tissue diffusion from IVIM bi-exponential fit.
+%          Isolates cellularity by separating out the perfusion component.
+%   f    — Perfusion fraction from IVIM.  Represents the volume fraction of
+%          capillary blood flow.  Ranges [0,1] and is often very small (~0.05-0.15).
+%   D*   — Pseudo-diffusion coefficient from IVIM.  Reflects the speed of
+%          microcirculatory blood flow.  Physiologically noisy and highly variable.
+%
+% Dose metrics:
+%   d95_gtvp   — Minimum dose (Gy) to 95% of the primary GTV volume.
+%   v50gy_gtvp — Fraction of the primary GTV receiving >= 50 Gy.
+%   dmean_gtvp — Mean dose to the primary GTV.
+%
+% Repeatability arrays (*_rpt):
+%   Same-day repeat scans used to quantify measurement reproducibility.
+%   Stored as [nPatients x nRepeats x nDwiTypes].
 dataloc = config_struct.dataloc;
 adc_mean = summary_metrics.adc_mean;
 adc_sd = summary_metrics.adc_sd;
@@ -38,8 +93,27 @@ gtv_locations = summary_metrics.gtv_locations;
 dwi_locations = summary_metrics.dwi_locations;
 
 fprintf('  --- SECTION 1: Repeatability Analysis ---\n');
-% Within-patient coefficient of variation (wCV = SD / mean).
-% Guard against division by near-zero denominators (especially for f, D*).
+% =========================================================================
+% REPEATABILITY ANALYSIS: Within-Patient Coefficient of Variation (wCV)
+% =========================================================================
+% Quantifies measurement reproducibility from same-day repeat DWI scans.
+% wCV = SD(repeats) / mean(repeats) for each patient and DWI type.
+%
+% Clinical rationale: wCV establishes a "noise floor" for each biomarker.
+% A treatment-induced change must exceed the Coefficient of Reproducibility
+% (CoR ≈ 1.96 * sqrt(2) * wCV) to be considered a real biological signal
+% rather than measurement noise.  This is critical for pancreatic DWI
+% because respiratory motion and susceptibility artifacts at the
+% pancreas-air interface inflate measurement variability.
+%
+% Patients with fewer than 2 repeat scans (n_rpt < 2) cannot have wCV
+% computed and are set to NaN.  The denominator floor (1e-10) prevents
+% division by zero for biomarkers with near-zero means (f and D* can be
+% very small in poorly perfused pancreatic tumours).
+%
+% wCV is computed per-patient (not pooled) because inter-patient variation
+% in tumor composition would inflate a pooled wCV, making the noise floor
+% appear artificially high.
 wcv_denom_floor = 1e-10;
 if exist('OCTAVE_VERSION', 'builtin')
     % Use reshape instead of squeeze to preserve [nPatients x nDwiTypes]
@@ -98,6 +172,20 @@ else
 end
 
 fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
+% =========================================================================
+% LOAD CLINICAL OUTCOME DATA FROM SPREADSHEET
+% =========================================================================
+% Links imaging biomarkers to clinical endpoints.  The primary endpoint is
+% locoregional failure (LF) — confirmed progression of disease at or near
+% the treated pancreatic tumour site.  This is the most clinically relevant
+% endpoint for evaluating whether DWI biomarkers can predict treatment
+% response to radiation therapy.
+%
+% The spreadsheet provides:
+%   - Local/regional failure status (binary: 0=local control, 1=failure)
+%   - Dates for failure, censoring, RT start/stop (used to compute
+%     time-to-event in days from end of RT)
+%   - Cause of death (for competing risk classification)
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 
 % Determine cause-of-death column name from config (default: 'CauseOfDeath')
@@ -222,6 +310,17 @@ if ~exist('OCTAVE_VERSION', 'builtin') && ~ismember('CauseOfDeath', T.Properties
         '%s column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased.', cod_column);
 end
 
+% =========================================================================
+% COMPUTE TIME-TO-EVENT RELATIVE TO END OF RADIATION THERAPY
+% =========================================================================
+% Time origin is the RT end date (not start date) because:
+%   1. Diffusion changes are expected to evolve after the last RT fraction
+%   2. Using RT-end as time zero makes time-to-event comparable across
+%      patients regardless of RT duration (e.g., 5-fraction SBRT vs 25-fraction)
+%   3. Events before RT-end would have negative times, which are nonsensical
+%
+% total_time: days from RT-end to local/regional failure date (for LF patients)
+% total_follow_up_time: days from RT-end to last known follow-up (for censored patients)
 if exist('OCTAVE_VERSION', 'builtin')
     total_time = m_total_time;
     total_follow_up_time = m_total_follow_up_time;
@@ -231,6 +330,17 @@ else
 end
 
 fprintf('  --- DEEP LEARNING RIGOR AUDIT ---\n');
+% =========================================================================
+% DEEP LEARNING PROVENANCE CHECK
+% =========================================================================
+% When using DL-denoised data (dnCNN or IVIMnet), patients used to TRAIN
+% the DL model must be excluded from the ANALYSIS cohort.  If a patient's
+% images were used to train the denoiser, the denoised output for that
+% patient benefits from having "seen" itself — an insidious form of data
+% leakage that inflates apparent biomarker precision and downstream AUC.
+% The provenance manifest records which patient IDs were in each DL
+% training set.  This is checked again at the LOOCV level in
+% metrics_stats_predictive.m for defense-in-depth.
 manifest_file = fullfile(config_struct.dataloc, 'dl_validation_manifest.mat');
 dl_provenance = load_dl_provenance(manifest_file);
 
@@ -254,8 +364,16 @@ if ~exist('nTp', 'var') || isempty(nTp)
     nTp = size(adc_mean, 2);
 end
 
+% =========================================================================
+% DEFINE COHORT INCLUSION CRITERIA AND OUTLIER POLICY
+% =========================================================================
 % Set up common variables for the next scripts
 dtype_label = dwi_type_names{dtype};
+
+% Exclude patients missing baseline (Fx1) imaging.  A valid baseline
+% requires both a segmented GTV volume and a measurable ADC value.
+% Without baseline data, percent-change metrics are undefined and
+% survival models cannot adjust for pre-treatment tumour characteristics.
 exclude_missing_baseline = true;
 valid_baseline = ~isnan(gtv_vol(:,1)) & ~isnan(adc_mean(:,1,dtype));
 exclude_outliers = true;
@@ -297,6 +415,12 @@ if n_total_outliers > 0
 end
 non_outlier = ~is_outlier;
 
+% =========================================================================
+% PREPARE OUTPUT ARRAYS (PREFIX m_ = "metrics-stage" working copies)
+% =========================================================================
+% Create mutable copies of all arrays.  These will be filtered by
+% valid_baseline and outlier masks below.  The m_ prefix distinguishes
+% these working copies from the raw summary_metrics inputs.
 m_lf                   = lf;
 m_total_time           = total_time;
 m_total_follow_up_time = total_follow_up_time;
@@ -311,6 +435,10 @@ m_d95_gtvp             = d95_gtvp;
 m_v50gy_gtvp           = v50gy_gtvp;
 m_data_vectors_gtvp    = data_vectors_gtvp;
 
+% Pad arrays with NaN columns if fewer timepoints were collected than the
+% maximum expected.  This ensures consistent matrix dimensions across
+% patients with differing scan schedules (e.g., patients who missed late
+% fractions or whose post-RT scan was not acquired).
 if size(m_gtv_vol, 2) < nTp, m_gtv_vol = [m_gtv_vol, nan(size(m_gtv_vol, 1), nTp - size(m_gtv_vol, 2))]; end
 if size(m_d95_gtvp, 2) < nTp, m_d95_gtvp = [m_d95_gtvp, nan(size(m_d95_gtvp, 1), nTp - size(m_d95_gtvp, 2))]; end
 if size(m_v50gy_gtvp, 2) < nTp, m_v50gy_gtvp = [m_v50gy_gtvp, nan(size(m_v50gy_gtvp, 1), nTp - size(m_v50gy_gtvp, 2))]; end
@@ -375,11 +503,28 @@ if exclude_outliers
     m_v50gy_gtvp(outlier_current,:)             = NaN;
 end
 
+% =========================================================================
+% EXTRACT ABSOLUTE PARAMETER ARRAYS FOR THE CURRENT DWI TYPE
+% =========================================================================
+% Select the current processing pipeline slice (Standard=1, dnCNN=2,
+% IVIMnet=3).  From this point forward, all downstream analysis operates
+% on a single DWI denoising strategy at a time.
 ADC_abs = m_adc_mean(:,:,dtype);
 D_abs   = m_d_mean(:,:,dtype);
 f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
+% =========================================================================
+% COMPUTE TREATMENT-INDUCED CHANGES FROM BASELINE (PERCENT DELTA)
+% =========================================================================
+% Percent change = (value_at_timepoint - baseline) / baseline * 100
+% This normalises for inter-patient variation in baseline values, making
+% changes comparable across patients with different starting tumour
+% characteristics.  In radiotherapy response assessment, a 20% increase
+% in ADC after treatment suggests treatment-induced cell death (reduced
+% cellularity allows greater water diffusion), regardless of whether the
+% patient started at ADC=1.2 or ADC=1.8 mm^2/s.
+%
 % Use fixed, physiologically motivated epsilon values to prevent inflated
 % percent changes when baseline values are near zero.  Fixed thresholds
 % improve reproducibility across cohorts (previously used data-adaptive
@@ -402,19 +547,36 @@ d_bl   = D_abs(:,1);    d_bl(d_bl < d_eps) = NaN;
 dstar_bl = Dstar_abs(:,1); dstar_bl(dstar_bl < dstar_eps) = NaN;
 ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
 D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
+% f uses ABSOLUTE delta instead of percent change because:
+%   1. Baseline f values are often near zero (0.05-0.15 in pancreatic tumours)
+%   2. Percent change from a baseline of 0.05 can be 200% from a tiny absolute
+%      shift of 0.10, creating misleadingly large values
+%   3. The physiological range of f is bounded [0,1], so absolute changes
+%      are directly interpretable (e.g., delta_f = 0.05 means 5% more
+%      blood volume fraction)
 f_delta = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
 
-% Winsorize percent changes at ±500% to limit influence of near-zero
+% Winsorize percent changes at +/-500% to limit influence of near-zero
 % baselines that passed the epsilon filter but still produce extreme ratios.
+% Without winsorization, a single patient with baseline ADC=0.00002 and
+% follow-up ADC=0.001 would produce a 4900% change, dominating group means
+% and inflating standard errors.  The 500% threshold is generous enough to
+% preserve clinically plausible large changes while capping artifacts.
 pct_clip = 500;
 ADC_pct(ADC_pct < -pct_clip) = -pct_clip;  ADC_pct(ADC_pct > pct_clip) = pct_clip;
 D_pct(D_pct < -pct_clip) = -pct_clip;      D_pct(D_pct > pct_clip) = pct_clip;
 Dstar_pct(Dstar_pct < -pct_clip) = -pct_clip;  Dstar_pct(Dstar_pct > pct_clip) = pct_clip;
 
+% Patients with valid (non-NaN) local failure status can be used in
+% downstream group comparisons and survival models.  Patients with NaN
+% status had no matching clinical record and must be excluded.
 valid_pts = isfinite(m_lf);
 lf_group = m_lf(valid_pts);
 
+% =========================================================================
+% ORGANIZE METRICS INTO ANALYSIS SETS
+% =========================================================================
 % Re-organize metrics into distinct Sets:
 % NOTE: f_delta is absolute change (f range [0,1]), not percent change.
 % It is grouped with percent-change metrics for convenience in downstream
@@ -422,15 +584,25 @@ lf_group = m_lf(valid_pts);
 % models (Cox, GLME), scale_td_panel z-scores all features to comparable
 % scales, so the raw-scale difference does not affect model coefficients.
 % The set_names label already distinguishes it as '\Delta f (abs)'.
+% Set 1 (Absolute values): Used to compare pre-treatment tumour
+%   characteristics between outcome groups.  Lower baseline ADC/D may
+%   indicate denser, more treatment-resistant tumour tissue.
+% Set 2 (Change metrics): Capture treatment response magnitude.
+%   Rising ADC/D during RT suggests radiation-induced cell death
+%   (increased extracellular water).  Falling f may indicate vascular
+%   disruption from radiation damage to tumour microvasculature.
 metric_sets = {
-    {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1
-    {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2
+    {ADC_abs, D_abs, f_abs, Dstar_abs}, ...          % Set 1: absolute values
+    {ADC_pct, D_pct, f_delta, Dstar_pct} ...          % Set 2: treatment-induced changes
 };
 
 set_names = {
     {'ADC Absolute', 'D Absolute', 'f Absolute', 'D* Absolute'}, ...
     {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (abs)', '\Delta D* (%)'} ...
 };
+% Time labels: Fx1 = baseline (pre- or early-treatment), Fx2-FxN = on-treatment
+% fractions (typically weekly during 5-fraction SBRT or daily during
+% conventional RT), Post = post-treatment follow-up scan (typically 3 months).
 time_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 % Restore global state modified at the top of this function

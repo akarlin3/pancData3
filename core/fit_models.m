@@ -4,19 +4,56 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 %   [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim, opts)
 %   Flattens the 3D masked volume to 1D, calls IVIMmodelfit, and calculates
 %   monoexponential ADC using vectorized OLS. Reconstructs outputs to 3D.
+%
+% ANALYTICAL RATIONALE — TWO-MODEL APPROACH
+%   This function fits two complementary diffusion models to multi-b-value
+%   DWI data within the GTV mask:
+%
+%   1. IVIM biexponential model (segmented fit):
+%      S(b) = S0 * [f * exp(-b*D*) + (1-f) * exp(-b*D)]
+%      Separates true tissue diffusion (D) from pseudo-diffusion (D*) and
+%      perfusion fraction (f). In pancreatic tumors, D reflects cellular
+%      density (restricted diffusion = high cellularity = low D), while f
+%      and D* reflect microvasculature and capillary blood flow. Changes in
+%      these parameters during RT can indicate tumor response before
+%      morphological changes are visible.
+%
+%   2. ADC monoexponential model (weighted least-squares):
+%      S(b) = S0 * exp(-b*ADC)
+%      A simpler model that combines diffusion and perfusion into a single
+%      "apparent" coefficient. While less physically specific than IVIM, ADC
+%      is more robust and widely used clinically. ADC < ~1.0e-3 mm^2/s in
+%      pancreatic tissue suggests restricted diffusion (high cellularity).
+%
+%   Both models are fit only within the GTV mask to avoid wasting compute
+%   on background voxels and to prevent normal tissue from contaminating
+%   tumor-specific parameter distributions.
 
+    %% ---- IVIM MODEL FITTING (Segmented Biexponential) ----
     % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
     % Flatten 3D volume to a 1D array of strictly non-zero mask voxels
     % to bypass thousands of empty space computations within the dependency.
+    % The GTV mask typically covers only ~100-2000 voxels out of a
+    % ~256x256x20 volume (~1.3M voxels), so masking provides a ~1000x speedup.
     sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];
     valid_voxels_idx = find(mask_ivim);
     n_valid = length(valid_voxels_idx);
 
-    % Preallocate output 1D arrays
+    % Preallocate output 1D arrays with NaN so that voxels where fitting
+    % fails (convergence failure, non-physical result) naturally propagate
+    % as missing data through nanmean/nanstd in downstream summary metrics.
     d_vec = nan(n_valid, 1);
     f_vec = nan(n_valid, 1);
     dstar_vec = nan(n_valid, 1);
 
+    % The segmented IVIM fit requires:
+    %   - At least 2 b-values >= bthr (typically 100 s/mm^2) for the high-b
+    %     linear fit that estimates D (Stage 1 of segmented approach)
+    %   - At least 1 b-value < bthr to separate the perfusion component
+    %     (Stage 2 estimates f and D*)
+    % Without these, the model is underdetermined. Typical pancreatic DWI
+    % protocols use b = [0, 30, 100, 150, 550] which gives 3 high-b and
+    % 2 low-b values — sufficient for segmented fitting.
     has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2 && sum(bvalues < opts.bthr) >= 1;
     if has_sufficient_bvalues && n_valid > 0
         fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
@@ -27,29 +64,48 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         dwi_valid = dwi_flat(valid_voxels_idx, :);
 
         % [MODULARIZATION STAGE 3]: Masked 1D Flattening
-        % Pad to even number of elements to ensure 3rd dimension > 1
-        % so MATLAB doesn't drop it in size() checks inside dependency.
+        % The IVIMmodelfit dependency expects a 4D volume (x,y,z,b) as input.
+        % We reshape our 1D valid-voxel array into a minimal 3D volume with
+        % shape [N/2, 1, 2] to satisfy the dependency's dimensionality checks.
+        % Padding to even length ensures the 3rd dimension is exactly 2;
+        % MATLAB's size() would drop a trailing singleton dimension of 1,
+        % causing the dependency to misinterpret the data layout.
         pad_len = mod(2 - mod(n_valid, 2), 2);
         dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
         n_padded = n_valid + pad_len;
 
-        % We must pass a 3D volume to the dependency, [N, 1, 2, bval]
+        % Reshape into a pseudo-3D volume for the dependency interface
         dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
         mask_1d_vol = true(n_padded/2, 1, 2);
         if pad_len > 0
             mask_1d_vol(n_padded/2, 1, 2) = false;  % exclude padded voxel from fit
         end
 
-        % Execute the untouched dependency on the flattened array
+        % Execute the segmented IVIM fit on the flattened masked array.
+        % "seg" = segmented fitting strategy:
+        %   Stage 1: High-b log-linear fit to isolate D
+        %   Stage 2: Full-model fit with D fixed to estimate f and D*
+        % This avoids the ill-conditioning of simultaneous 3-parameter
+        % nonlinear fitting, which is especially problematic for D* because
+        % the pseudo-diffusion signal decays rapidly and has low SNR.
         ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
 
-        % Restructure output back to strictly 1D and snip padding
+        % Restructure output back to strictly 1D and snip padding.
+        % IVIMmodelfit returns a 4-column output: [D, S0, f, D*].
+        % Column 2 (S0) is discarded — it is the signal at b=0, which is
+        % already available from the raw DWI data and not a diffusion parameter.
         ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
         d_vec = reshape(ivim_out_flat(1:n_valid, 1), [n_valid, 1]);
         f_vec = reshape(ivim_out_flat(1:n_valid, 3), [n_valid, 1]);
         dstar_vec = reshape(ivim_out_flat(1:n_valid, 4), [n_valid, 1]);
 
-        % Replace zero-fit voxels with NaN (failed fits)
+        % Replace zero-fit voxels with NaN (failed fits).
+        % The segmented IVIM fitter returns D=0 when the log-linear
+        % regression yields a non-positive slope (physically impossible for
+        % diffusion). These represent voxels where noise dominates the
+        % signal decay — common in low-SNR regions of pancreatic DWI.
+        % Setting to NaN ensures they are excluded from nanmean-based
+        % summary statistics rather than biasing the mean downward.
         zero_mask = (d_vec == 0);
         d_vec(zero_mask) = nan;
         f_vec(zero_mask) = nan;
@@ -58,7 +114,11 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
     end
 
-    % Safely reconstruct 1D outputs back into 3D volume geometry
+    % Reconstruct 1D fitted parameters back into 3D volume geometry.
+    % Background voxels (outside GTV mask) remain NaN, creating parameter
+    % maps where only tumor voxels carry fitted values. This spatial
+    % correspondence between mask and parameter maps is essential for
+    % subsequent overlay visualization and voxel-level dose-response analysis.
     d_map = nan(sz3);
     f_map = nan(sz3);
     dstar_map = nan(sz3);
@@ -89,7 +149,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             dwi_valid = dwi_flat(valid_voxels_idx, :);
         end
 
-        % Filter to voxels with all-positive signal to prevent log() issues
+        % Filter to voxels with all-positive signal across ALL b-values.
+        % The log-linear fit requires ln(S), so any zero or negative signal
+        % intensity would produce -Inf or complex values. Zero signal at
+        % high b-values occurs when tissue diffusivity is very high (signal
+        % fully attenuated) or due to noise floor effects in magnitude DWI
+        % images. These voxels cannot produce meaningful ADC estimates.
         adc_valid_idx = all(dwi_valid > 0, 2);
 
         if any(adc_valid_idx)
@@ -103,9 +168,23 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
                     'First b-value is %g, not 0. ADC fit requires S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
             end
 
-            % Vectorized WLS: weights = S^2 at each b-value
-            % For a single-predictor model y = A*adc where A = -b, y = ln(S/S0):
-            %   adc = sum(w * A * y) / sum(w * A^2)
+            % Vectorized WLS: weights = S^2 at each b-value.
+            %
+            % MATHEMATICAL DERIVATION:
+            % The monoexponential model S(b) = S0 * exp(-b * ADC) becomes
+            % linear after taking logarithms: ln(S/S0) = -b * ADC.
+            % However, ln() transforms Gaussian noise into heteroscedastic
+            % noise with variance ~ 1/S^2 (via delta method). Weighted
+            % Least Squares with w = S^2 restores homoscedasticity, giving
+            % more weight to high-SNR (high-signal) measurements and
+            % reducing the influence of noisy high-b-value data points.
+            %
+            % The closed-form WLS solution for a single predictor is:
+            %   ADC = sum(w * A * y) / sum(w * A^2)
+            % where A = -b (design matrix), y = ln(S/S0), w = S^2.
+            %
+            % b=0 is excluded from the regression (used only as S0 reference)
+            % because ln(S0/S0) = 0 provides no information about ADC.
             A_b = -bvalues(2:end);                             % [n_b x 1]
             Y = log(S_a(:,2:end) ./ S_a(:,1));                % [n_vox x n_b]
             W = S_a(:,2:end).^2;                               % [n_vox x n_b]
@@ -115,7 +194,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             denom = sum(W .* (A_b'.^2), 2);                   % [n_vox x 1]
             adc_vals = numer ./ denom;
 
-            adc_vals(adc_vals < 0 | ~isfinite(adc_vals)) = nan;  % clamp negative and Inf ADC estimates
+            % Negative ADC values are physically impossible (diffusion cannot
+            % be negative). They arise from noise-dominated signal where
+            % signal increases with b-value (e.g., due to fat contamination,
+            % T2 shine-through, or severe motion artifacts). Setting to NaN
+            % excludes these from downstream analysis.
+            adc_vals(adc_vals < 0 | ~isfinite(adc_vals)) = nan;
 
             % Prepare a temporary 1D vector for all valid mask voxels
             adc_vec_out = nan(n_valid, 1);

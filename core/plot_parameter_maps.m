@@ -1,6 +1,34 @@
 function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype)
 % PLOT_PARAMETER_MAPS — "Parameter Maps overlaid on Anatomy"
 %
+% ANALYTICAL OVERVIEW:
+%   Generates spatial visualisations of the ADC map overlaid on anatomical
+%   DWI images for quality assurance and clinical interpretation.  These
+%   maps show WHERE within the tumour diffusion is restricted (low ADC =
+%   dark blue) vs. unrestricted (high ADC = warm colours), enabling:
+%
+%   1. QUALITY ASSURANCE — Verify that the GTV contour correctly delineates
+%      the tumour on the b=0 image.  Misregistration between the contour
+%      and anatomy indicates a segmentation or co-registration error that
+%      would corrupt all downstream voxel-level analyses.
+%
+%   2. SPATIAL HETEROGENEITY ASSESSMENT — Tumours with spatially uniform
+%      ADC may respond differently to RT than those with focal low-ADC
+%      regions (potential treatment-resistant subclones).  The overlay
+%      (panel c) reveals this heterogeneity within anatomical context.
+%
+%   3. PROTOCOL COMPLIANCE — B-value validation ensures each patient was
+%      scanned with the expected protocol (b = 0, 30, 150, 550 s/mm^2).
+%      Protocol deviations invalidate the monoexponential ADC fit because
+%      the b-value range determines the sensitivity to diffusion vs.
+%      perfusion contributions (low b < 200 captures perfusion effects).
+%
+%   The ADC map is computed via weighted least squares (WLS) monoexponential
+%   fit: S(b) = S0 * exp(-b * ADC), consistent with fit_models.m.  WLS
+%   weights by S^2 to account for the heteroscedastic noise in the log-
+%   transformed signal (Rician noise becomes heteroscedastic after log
+%   transformation).
+%
 %  For each patient with Fx1 data available, load the DWI volume, compute
 %  the ADC map via monoexponential fit, and display three panels per
 %  patient:
@@ -20,7 +48,14 @@ patients_plotted = 0;
 % Maximum number of patient rows per figure panel
 pats_per_fig     = 5;
 
-% Expected b-value protocol for validation
+% Expected b-value protocol for validation.
+% This 4-point protocol is designed for IVIM analysis:
+%   b=0    — reference image (no diffusion weighting), provides S0
+%   b=30   — low b-value, captures perfusion (pseudo-diffusion) contribution
+%   b=150  — intermediate b-value, transition region between perfusion and diffusion
+%   b=550  — high b-value, dominated by true tissue diffusion (f contribution negligible)
+% The ratio of high-to-low b-values determines the sensitivity of the
+% IVIM fit to separate D (true diffusion) from f*D* (perfusion).
 expected_bvals = [0; 30; 150; 550];
 
 % Diagnostic counters for skip reasons
@@ -123,8 +158,13 @@ for j = 1:nPat
 
     % Compute a voxel-wise ADC map using the same WLS monoexponential fit
     % as the main pipeline (fit_models.m) for consistency.
-    %   S(b) = S0 * exp(-b * ADC),  weights = S^2
-    % Clamp non-physical values to the range [0, 3e-3] mm^2/s.
+    %   Model: S(b) = S0 * exp(-b * ADC)
+    %   Log-linearised: ln(S/S0) = -b * ADC
+    %   WLS weights: W = S^2 (accounts for Rician noise heteroscedasticity)
+    % Clamp non-physical values to the range [0, 3e-3] mm^2/s:
+    %   0 mm^2/s      = no diffusion (solid tissue / bone)
+    %   3e-3 mm^2/s   = free water at body temperature (upper physiological limit)
+    %   Values outside this range indicate fitting artifacts (noise, motion).
     [~, b0_idx] = min(bvals);
     sz_dwi = size(dwi_img);
     dwi_flat = reshape(dwi_img, [prod(sz_dwi(1:3)), sz_dwi(4)]);
@@ -146,7 +186,11 @@ for j = 1:nPat
         adc_map = reshape(adc_map_flat, sz_dwi(1:3));
     end
 
-    % Pick the axial slice containing the largest cross-sectional GTV area
+    % Pick the axial slice containing the largest cross-sectional GTV area.
+    % This is the most representative slice for visual inspection because
+    % it shows the widest extent of the tumour, maximising the number of
+    % intra-tumoural voxels visible and reducing partial-volume effects
+    % from tumour edges.
     gtv_areas = squeeze(sum(sum(gtv_img, 1), 2));
     [~, z_slice] = max(gtv_areas);
 
@@ -183,6 +227,9 @@ for j = 1:nPat
     end
 
     % --- Column 1: b=0 anatomy with GTV contour (red) ---
+    % The b=0 image provides the best soft-tissue contrast for anatomical
+    % localisation (no diffusion weighting = T2-weighted contrast).
+    % Red GTV contour enables verification of tumour delineation accuracy.
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 1);
     imagesc(b0_slice); axis image; axis off; colormap(gca, gray);
     hold on;
@@ -191,6 +238,9 @@ for j = 1:nPat
     title(sprintf('%s — b0 (GTV contour)', id_list{j}), 'Interpreter', 'none', 'FontSize', 9);
 
     % --- Column 2: ADC map with GTV contour (white) ---
+    % Full-slice ADC map (fixed colour scale [0, 3e-3] mm^2/s) shows
+    % diffusion properties across all tissues.  White GTV contour used
+    % because red would be invisible against warm-coloured high-ADC regions.
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 2);
     imagesc(adc_slice, [0 3e-3]); axis image; axis off;
     hold on;
@@ -199,6 +249,11 @@ for j = 1:nPat
     title('ADC map', 'FontSize', 9);
 
     % --- Column 3: ADC overlaid on anatomy (inside GTV only) ---
+    % This fusion view is the most clinically useful: it shows the spatial
+    % distribution of ADC within the tumour in anatomical context.  Regions
+    % of low ADC (cool colours) within the GTV may represent dense,
+    % treatment-resistant tumour tissue that could benefit from dose
+    % escalation in an adaptive RT strategy.
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 3);
     % Normalise b=0 image to [0,1] and make it an RGB TrueColor image
     % so that the figure's colormap does not apply to it

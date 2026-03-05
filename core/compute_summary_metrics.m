@@ -21,6 +21,46 @@ function summary_metrics = compute_summary_metrics(config_struct, data_vectors_g
 %   summary_metrics   - Struct containing computed mean, kurtosis, skewness,
 %                       SD, subsets, histogram features, predictability, etc.
 %
+% ANALYTICAL RATIONALE — VOXEL-TO-SUMMARY AGGREGATION
+%   Voxel-level parameter maps contain thousands of values per patient per
+%   timepoint, which are too granular for patient-level statistical modeling
+%   (e.g., survival analysis, group comparisons). This function aggregates
+%   voxel distributions into summary statistics that capture different
+%   aspects of the intra-tumoral parameter distribution:
+%
+%   - Mean: Central tendency of the distribution. ADC_mean reflects overall
+%     tumor cellularity; D_mean isolates true tissue diffusion from perfusion.
+%
+%   - Kurtosis: Tail heaviness of the distribution. High kurtosis indicates
+%     a heterogeneous tumor with a mix of very high and very low diffusivity
+%     regions — potentially indicating regions of necrosis (high D) coexisting
+%     with dense viable tumor (low D).
+%
+%   - Skewness: Asymmetry of the distribution. Positive skew (tail toward
+%     high values) may indicate emerging necrotic regions during treatment.
+%     Negative skew (tail toward low values) may indicate therapy-resistant
+%     dense tumor foci.
+%
+%   - Standard deviation: Spread of the distribution, directly reflecting
+%     intra-tumoral heterogeneity. Heterogeneity is an independent prognostic
+%     factor in many cancers.
+%
+%   - Sub-volume metrics: Volume of tumor below an ADC/D threshold
+%     (restricted diffusion sub-volume) or above a threshold (high-ADC
+%     sub-volume). These capture the proportion of the tumor that is
+%     highly cellular vs necrotic/edematous.
+%
+%   - KS test statistics: Kolmogorov-Smirnov two-sample test comparing
+%     each timepoint's voxel distribution to the baseline (Fx1) distribution.
+%     The KS statistic quantifies the magnitude of distributional shift
+%     during treatment, which may be more sensitive to treatment response
+%     than mean changes alone.
+%
+%   - Repeatability metrics: Within-session repeat scans at Fx1 enable
+%     calculation of within-subject coefficient of variation (wCV), which
+%     defines the measurement noise floor. Only longitudinal changes
+%     exceeding wCV can be confidently attributed to treatment effects.
+%
 
 if nargin < 12, fx_dates = {}; end
 
@@ -47,32 +87,57 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     end
 end
 
-% ADC threshold for identifying "restricted diffusion" sub-volume
+% ADC threshold for identifying "restricted diffusion" sub-volume.
+% Voxels with ADC <= adc_thresh (typically ~1.0e-3 mm^2/s) represent
+% regions of restricted diffusion, which in pancreatic tumors indicates
+% high cellular density (viable tumor tissue). The restricted sub-volume
+% is a candidate biomarker for treatment response: successful RT should
+% kill tumor cells, reducing cellularity and increasing ADC, thereby
+% shrinking the restricted sub-volume over time.
 adc_thresh = config_struct.adc_thresh;
 
-% Secondary ADC threshold for identifying "high ADC" sub-volume
+% Secondary ADC threshold for identifying "high ADC" sub-volume.
+% Voxels with ADC > high_adc_thresh represent regions of high diffusivity
+% (e.g., necrosis, edema, cystic change). Growth of this sub-volume
+% during treatment may indicate tumor necrosis (positive response) or
+% radiation-induced edema (confounding effect).
 high_adc_thresh = config_struct.high_adc_thresh;
 
-% IVIM thresholds for sub-volume identification
+% IVIM-specific thresholds for sub-volume identification.
+% d_thresh: true diffusion threshold (analogous to adc_thresh but for
+%   the IVIM D parameter, which excludes perfusion contributions)
+% f_thresh: perfusion fraction threshold — voxels with f < f_thresh
+%   have low microvascularity, potentially indicating avascular necrotic
+%   regions or hypoxic tumor zones resistant to RT
 d_thresh = config_struct.d_thresh;
 f_thresh = config_struct.f_thresh;
 
-% Minimum voxel threshold for higher-order histogram metrics
+% Minimum number of finite voxels required to compute higher-order
+% statistics (kurtosis, skewness). With too few voxels, these statistics
+% are unreliable and highly sensitive to individual outlier voxels.
+% kurtosis requires >= 4 data points by definition; the threshold is
+% set higher for practical stability.
 min_vox_hist = config_struct.min_vox_hist;
 
 nTp = size(data_vectors_gtvp, 2);   % number of timepoints (Fx1–Fx5 + post)
 nRpt = size(data_vectors_gtvp, 3);  % max number of repeat scans at Fx1
 
-% --- Pre-allocate sub-volume metric arrays (patient × timepoint × pipeline) ---
-adc_sub_vol_pc = nan(length(id_list),nTp,3);
-adc_sub_vol = nan(length(id_list),nTp,3);
-adc_sub_mean = nan(length(id_list),nTp,3);
-adc_sub_kurt = nan(length(id_list),nTp,3);
-adc_sub_skew = nan(length(id_list),nTp,3);
-high_adc_sub_vol = nan(length(id_list),nTp,3);
-high_adc_sub_vol_pc = nan(length(id_list),nTp,3);
-f_sub_vol = nan(length(id_list),nTp,3);
-gtv_vol = nan(length(id_list),nTp);
+% --- Pre-allocate sub-volume metric arrays (patient x timepoint x pipeline) ---
+% The 3rd dimension indexes the DWI processing pipeline:
+%   1 = Standard (raw DWI + conventional fitting)
+%   2 = DnCNN (denoised DWI + conventional fitting)
+%   3 = IVIMnet (raw DWI + neural network fitting)
+% NaN initialization ensures missing data propagates correctly through
+% nanmean/nanstd without corrupting calculations with zeros.
+adc_sub_vol_pc = nan(length(id_list),nTp,3);   % restricted sub-volume as % of GTV
+adc_sub_vol = nan(length(id_list),nTp,3);       % restricted sub-volume in cm^3
+adc_sub_mean = nan(length(id_list),nTp,3);       % mean ADC within restricted sub-volume
+adc_sub_kurt = nan(length(id_list),nTp,3);       % kurtosis of restricted sub-volume ADC
+adc_sub_skew = nan(length(id_list),nTp,3);       % skewness of restricted sub-volume ADC
+high_adc_sub_vol = nan(length(id_list),nTp,3);   % high-ADC sub-volume in cm^3
+high_adc_sub_vol_pc = nan(length(id_list),nTp,3); % high-ADC sub-volume as % of GTV
+f_sub_vol = nan(length(id_list),nTp,3);           % low-perfusion sub-volume in cm^3
+gtv_vol = nan(length(id_list),nTp);               % total GTV volume in cm^3 (pipeline-independent)
 
 % --- Whole-GTV summary statistics for ADC ---
 adc_mean = nan(length(id_list),nTp,3);
@@ -102,27 +167,53 @@ dstar_kurt = nan(length(id_list),nTp,3);
 dstar_skew = nan(length(id_list),nTp,3);
 
 % --- Histogram and KS-test arrays for longitudinal distribution comparison ---
+% Histogram bin edges span the physiological range of diffusion coefficients
+% in soft tissue: 0 to 3.0e-3 mm^2/s in steps of 0.5e-4 mm^2/s (60 bins).
+% This range covers both highly restricted tumor tissue (~0.5e-3) and
+% free water/necrosis (~2.5e-3). The bin width of 0.5e-4 provides
+% sufficient resolution to detect subtle distributional shifts during RT.
 bin_edges = 0:0.5e-4:3e-3;
-adc_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);
+adc_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);  % smoothed probability distributions
 d_histograms = nan(length(id_list),nTp,length(bin_edges)-1,3);
+
+% KS (Kolmogorov-Smirnov) test statistics compare each timepoint's
+% voxel distribution to the Fx1 baseline. The KS statistic (0-1) measures
+% the maximum difference between cumulative distribution functions.
+% A large KS statistic at Fx3 vs Fx1 indicates the tumor's diffusion
+% profile has shifted substantially during treatment — potentially a
+% more sensitive response indicator than comparing means alone, because
+% it captures changes in distribution shape (not just location).
 ks_stats_adc = nan(length(id_list),nTp,3);
 ks_pvals_adc = nan(length(id_list),nTp,3);
 ks_stats_d = nan(length(id_list),nTp,3);
 ks_pvals_d = nan(length(id_list),nTp,3);
 
 % --- Motion corruption flag ---
+% Fraction of voxels with ADC > adc_max (an unrealistically high value,
+% typically > 3.0e-3 mm^2/s, approaching free water diffusivity).
+% High ADC values at many voxels indicate bulk patient motion during the
+% DWI acquisition, which causes signal averaging across tissue boundaries
+% and artificially inflated apparent diffusion. Pancreatic DWI is
+% particularly susceptible to respiratory motion artifacts.
 fx_corrupted = nan(length(id_list),nTp,3);
 adc_max = config_struct.adc_max;
 
 % --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
-adc_mean_rpt = nan(length(id_list),nRpt,3);
-adc_sub_rpt = nan(length(id_list),nRpt,3);
-fx_corrupted_rpt = nan(length(id_list),nRpt,3);
-d_mean_rpt = nan(length(id_list),nRpt,3);
-f_mean_rpt = nan(length(id_list),nRpt,3);
-dstar_mean_rpt = nan(length(id_list),nRpt,3);
+% Within-session repeat scans at Fx1 allow computation of within-subject
+% coefficient of variation (wCV = SD_within / mean), which quantifies
+% the inherent measurement variability of each diffusion parameter.
+% This is critical for interpreting longitudinal changes: only changes
+% exceeding wCV can be attributed to treatment effects with confidence.
+% For example, if ADC wCV is 5%, a 3% change between Fx1 and Fx2 is
+% within noise, but a 15% change is likely a true biological effect.
+adc_mean_rpt = nan(length(id_list),nRpt,3);     % mean ADC per repeat scan
+adc_sub_rpt = nan(length(id_list),nRpt,3);       % mean ADC in restricted sub-volume per repeat
+fx_corrupted_rpt = nan(length(id_list),nRpt,3);   % motion corruption flag per repeat
+d_mean_rpt = nan(length(id_list),nRpt,3);         % mean D per repeat scan
+f_mean_rpt = nan(length(id_list),nRpt,3);         % mean f per repeat scan
+dstar_mean_rpt = nan(length(id_list),nRpt,3);     % mean D* per repeat scan
 
-% --- Pooled voxel vectors across all patients (for population-level analysis) ---
+% Count of available repeat scans per patient (for wCV denominator)
 n_rpt = nan(length(id_list),1);
 
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
@@ -166,6 +257,9 @@ for j=1:n_patients_metrics
             end
 
             % --- Compute ADC summary metrics for this patient/timepoint ---
+            % ADC aggregation follows a hierarchy: whole-GTV statistics first,
+            % then sub-volume decomposition. This captures both the overall
+            % tumor diffusion state and the spatial heterogeneity within it.
             if ~isempty(adc_vec)
                 n_finite_adc = sum(~isnan(adc_vec));
                 % Only set gtv_vol from the first dwi_type to avoid
@@ -289,11 +383,22 @@ for j=1:n_patients_metrics
             end
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
+            % IVIM parameters provide biologically specific information beyond ADC:
+            %   D (true diffusion): cellularity without perfusion contamination
+            %   f (perfusion fraction): microvasculature density
+            %   D* (pseudo-diffusion): capillary blood flow velocity
+            % D* is the least reliable parameter due to its rapid signal
+            % decay (only measurable at very low b-values) and high noise
+            % sensitivity. DnCNN denoising and IVIMnet are specifically
+            % aimed at improving D* estimation.
             if ~isempty(d_vec)
                 % Exclude exact-zero f values that co-occur with failed D*
                 % fits (D* == 0 or NaN), preserving genuine zero perfusion.
+                % The segmented IVIM fitter returns f=0, D*=0 when the
+                % perfusion component cannot be separated from noise.
                 % Both f AND D* must be set to NaN for failed fits:
-                % leaving D*=0 in the data biases dstar_mean downward.
+                % leaving D*=0 in the data biases dstar_mean downward,
+                % and leaving f=0 biases f_mean downward.
                 failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
                 f_vec(failed_fit) = nan;
                 dstar_vec(failed_fit) = nan;
@@ -419,6 +524,14 @@ for j=1:n_patients_metrics
             end
 
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
+            % Only Fx1 (k==1) has multiple repeat acquisitions. These
+            % back-to-back scans (same session, same setup) measure
+            % inherent scan-to-scan variability. The resulting wCV
+            % (within-subject coefficient of variation) determines the
+            % minimum detectable change (MDC) for each parameter:
+            %   MDC = wCV * 1.96 * sqrt(2)
+            % Longitudinal changes smaller than MDC cannot be distinguished
+            % from measurement noise at 95% confidence.
             if k==1
                 rp_count = 0;
                 for rpi=1:size(data_vectors_gtvp, 3)

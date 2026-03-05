@@ -67,25 +67,55 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
     end
 
     % --- Robust percentile-based normalisation to [0, 1] ---
-    % mat2gray uses global min/max, which is highly vulnerable to contrast
-    % compression from isolated bright artifacts in DWI data. Instead we
-    % clip to the [1st, 99th] percentile of non-zero voxels and linearly
-    % rescale, preserving tissue contrast for imregdemons.
+    % DWI b=0 images can contain isolated bright voxels from susceptibility
+    % artifacts (common near the air-tissue interface in the pancreas/
+    % duodenum region) or coil sensitivity hotspots.  mat2gray uses global
+    % min/max, which would compress the tissue signal range to a narrow
+    % band, degrading the intensity-based cost function in imregdemons.
+    % Instead we clip to the [1st, 99th] percentile of non-zero voxels
+    % and linearly rescale, preserving the tissue contrast that drives
+    % accurate deformation estimation.
     fixed_norm = robust_percentile_norm(double(b0_fixed));
     moving_norm = robust_percentile_norm(double(b0_moving));
 
     % --- Symmetric Diffeomorphic Registration (Halfway-Space / Midpoint) ---
+    % The pancreas is a highly mobile organ that undergoes significant
+    % inter-fraction deformation due to respiratory motion, stomach/
+    % duodenal filling, and treatment-induced tumor shrinkage.  Standard
+    % (asymmetric) Demons registration is biased: the result depends on
+    % which image is designated as fixed vs. moving.  Symmetric registration
+    % via a halfway-space (midpoint image) eliminates this bias by treating
+    % both images equally, producing a more physically plausible deformation
+    % field for propagating the GTV contour.
+    %
+    % The algorithm:
+    %   1. Estimate an initial midpoint image as the voxel-wise average.
+    %   2. Register both images to the midpoint to refine it.
+    %   3. Re-register both images to the refined midpoint.
+    %   4. Compose the forward and inverse (negated backward) fields to get
+    %      a single fixed-to-moving transformation.
+    %
+    % The multi-resolution pyramid [100 50 25] iterations at 3 scales
+    % handles large deformations at coarse resolution first (capturing
+    % bulk organ motion), then refines at finer scales (capturing local
+    % tumor boundary changes).  AccumulatedFieldSmoothing = 1.5 regularizes
+    % the deformation field to prevent folding (non-invertible transforms),
+    % which would produce physically impossible tissue transformations.
     has_demons = exist('imregdemons', 'file') || exist('imregdemons', 'builtin');
     if has_demons
         try
+            % Step 1: Initial midpoint estimate (simple average of the two images)
             mid_img = (fixed_norm + moving_norm) / 2;
+            % Step 2: Register both images toward the midpoint
             D_fixed_to_mid = imregdemons(fixed_norm, mid_img, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
             D_moving_to_mid = imregdemons(moving_norm, mid_img, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+            % Step 3: Refine the midpoint using the warped images
             fixed_warped = imwarp(fixed_norm, D_fixed_to_mid);
             moving_warped = imwarp(moving_norm, D_moving_to_mid);
             mid_img_refined = (fixed_warped + moving_warped) / 2;
+            % Step 4: Final registration to the refined midpoint
             D_forward_mid = imregdemons(fixed_norm, mid_img_refined, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
             D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
@@ -93,8 +123,14 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
             % Compose displacement fields: D_forward(x) = D_fwd(x) + (-D_bwd)(x + D_fwd(x))
             % Simple subtraction is a linear approximation that degrades for
             % the several-mm inter-fraction deformations common in pancreas.
+            % Proper composition (via trilinear interpolation of D2 at
+            % displaced coordinates) is more accurate for deformations > 1 voxel.
             D_forward = compose_displacement_fields(D_forward_mid, -D_backward_mid);
             ref3d = imref3d(size(b0_moving));
+            % Warp the GTV mask using linear interpolation (not nearest-
+            % neighbor) to produce a continuous probability map.  This
+            % avoids jagged mask boundaries that nearest-neighbor would
+            % create, especially for the irregularly-shaped pancreatic GTV.
             mask_warped_float = imwarp(double(gtv_mask_fixed), D_forward, ...
                 'Interp', 'linear', 'FillValues', 0);
         catch ME
@@ -110,7 +146,12 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
     end
 
 
-    % Threshold and return as logical
+    % Threshold the continuous probability map at 0.5 to produce a binary
+    % mask.  The 0.5 threshold is the natural decision boundary: voxels
+    % with > 50% probability of being inside the GTV (based on the
+    % deformed contour) are included.  This approach preserves smooth mask
+    % boundaries and prevents systematic over- or under-estimation of GTV
+    % volume that would occur with nearest-neighbor interpolation.
     gtv_mask_warped = logical(mask_warped_float >= 0.5);
 end
 
