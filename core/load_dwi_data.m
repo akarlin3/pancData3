@@ -10,6 +10,32 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 %   GTV (Gross Tumor Volume) contours, and computes longitudinal summary
 %   metrics for downstream statistical analysis.
 %
+% ANALYTICAL RATIONALE
+%   Pancreatic DWI analysis requires fitting physical diffusion models
+%   (IVIM biexponential and ADC monoexponential) to multi-b-value MRI
+%   signal decay curves at every voxel within the tumor volume. The IVIM
+%   model separates true tissue diffusivity (D, reflecting cellularity)
+%   from pseudo-diffusion (D*, reflecting capillary blood flow) and the
+%   perfusion fraction (f, reflecting microvasculature). These biomarkers
+%   are hypothesized to be early predictors of treatment response in
+%   pancreatic cancer radiotherapy — changes in cellularity and perfusion
+%   during fractionated RT may precede volumetric tumor shrinkage by weeks.
+%
+%   The pipeline processes data longitudinally across treatment fractions
+%   (Fx1 through Fx5 + post-RT) because the temporal trajectory of
+%   diffusion parameters is as clinically informative as baseline values.
+%   Deformable image registration (DIR) aligns all timepoints to the
+%   baseline (Fx1) anatomy so that voxel-level longitudinal comparisons
+%   are spatially valid despite inter-fraction patient setup variation
+%   and tumor deformation during treatment.
+%
+%   Three parallel DWI processing pipelines are maintained (Standard,
+%   DnCNN-denoised, IVIMnet) to enable methodological comparison: DnCNN
+%   reduces Rician noise in DWI images before conventional IVIM fitting,
+%   while IVIMnet uses a neural network to estimate IVIM parameters
+%   directly, potentially with better noise robustness for the unstable
+%   D* parameter.
+%
 % WORKFLOW (5 sections — run sequentially or start from Section 4)
 %   Set skip_to_reload = true (in the USER OPTIONS section below) to skip
 %   Sections 1-3 and start directly from Section 4.
@@ -77,13 +103,31 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 % If skip_to_reload is TRUE, the script bypasses raw data discovery and processing,
 % assuming 'dwi_vectors.mat' is present. This allows rapid iteration on
 % statistical metrics (Section 5) without re-running expensive DICOM conversions.
+% This two-phase design (compute-once + reload-many) is essential because
+% DICOM conversion + model fitting for a typical 30-patient cohort with
+% 6 fractions each can take 6-12 hours, while summary metric computation
+% takes only minutes.
 skip_to_reload = config_struct.skip_to_reload;
 
 % b-value threshold (s/mm²) used for segmented IVIM fitting.
-% b-values >= ivim_bthr are used to estimate D (true diffusion) via a
-% monoexponential fit. b-values < ivim_bthr are used to estimate f and D*
-% (pseudo-diffusion), with D held fixed from Stage 1.
-% Set to 100 (includes b=0, 30 in low set; b=100, 150, 550 in high set).
+% The IVIM model S(b) = S0*[f*exp(-b*D*) + (1-f)*exp(-b*D)] has two
+% exponential components. At low b-values (< ~100 s/mm²), the
+% pseudo-diffusion term (D*, typically 10-30x larger than D) dominates
+% signal decay, reflecting intravascular blood flow. At high b-values
+% (>= ~100 s/mm²), the perfusion signal has decayed away and the
+% remaining signal reflects true tissue diffusion (D).
+%
+% The segmented fitting approach exploits this separation:
+%   Stage 1: Fit ln(S) vs b using only high b-values to estimate D
+%   Stage 2: With D fixed, fit the full model to estimate f and D*
+% This avoids the numerical instability of fitting all 3 parameters
+% simultaneously, which is particularly problematic for D* due to its
+% high variance in pancreatic tissue.
+%
+% Default threshold = 100 s/mm². For typical pancreatic DWI protocols
+% with b = [0, 30, 100, 150, 550], this places b=0 and b=30 in the
+% perfusion-sensitive low set, and b=100, 150, 550 in the diffusion-
+% dominated high set.
 ivim_bthr = config_struct.ivim_bthr;
 
 %% ========================================================================
@@ -92,8 +136,16 @@ fprintf('\n--- SECTION 1: File Discovery ---\n');
 
 if ~skip_to_reload
 
+% Discover all patient imaging data on the network share. This traverses
+% the directory hierarchy to locate DWI DICOM folders, GTV contour masks,
+% RT dose files, and nodal GTV masks for every patient x fraction x repeat
+% combination. The structured naming convention (P##/Fx#/DWI#/) allows
+% automated discovery without a manual lookup table.
 [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(config_struct.dataloc);
 
+% Optional patient subset filtering: when config specifies patient_ids,
+% restrict processing to only those patients. This is useful for debugging
+% individual cases or re-processing specific patients after data corrections.
 if isfield(config_struct, 'patient_ids') && ~isempty(config_struct.patient_ids)
     keep_idx = find(ismember(mrn_list, config_struct.patient_ids));
     if ~isempty(keep_idx)
@@ -121,7 +173,11 @@ if isfield(config_struct, 'conv_call'), conv_call = config_struct.conv_call; end
 
 dataloc = config_struct.dataloc;
 
-% load clinical data (local failure and immunotherapy status per patient)
+% Load clinical outcome data (local failure status and immunotherapy use)
+% from a curated spreadsheet. Local failure (LF) is the primary endpoint
+% for correlating diffusion biomarkers with treatment response. Immuno-
+% therapy status is tracked as a potential confounder because checkpoint
+% inhibitors can alter tumor microenvironment independently of RT.
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 if isfield(config_struct, 'clinical_sheet_name')
     sheet_name = config_struct.clinical_sheet_name;
@@ -146,42 +202,71 @@ end
 % load dwi data locations (optionally reload from a previous run)
 data_file = fullfile(dataloc, 'adc_vectors.mat');
 
+% Fraction labels matching the clinical RT schedule. Pancreatic SBRT
+% typically delivers 5 fractions (Fx1-Fx5) over 1-2 weeks, with a
+% post-treatment MRI acquired 4-6 weeks after completion. Each fraction
+% has a DWI acquisition for longitudinal biomarker tracking.
 fx_search = {'Fx1','Fx2','Fx3','Fx4','Fx5','post'};
 
-% Initialise output struct arrays for GTVp (primary) and GTVn (nodal)
+% Initialise output struct arrays for GTVp (primary tumor) and GTVn
+% (nodal disease). Pancreatic tumors may have both a primary pancreatic
+% mass (GTVp) and involved lymph nodes (GTVn), which can show different
+% diffusion characteristics and treatment response patterns.
 data_vectors_gtvp = struct;
 data_vectors_gtvn = struct;
 
-% Pre-allocate summary metric arrays (patient × fraction × repeat)
+% Pre-allocate summary metric arrays (patient x fraction x repeat).
+% NaN initialization ensures that missing data (e.g., patient without Fx3
+% scan) is naturally handled by nanmean/nanstd in downstream analysis
+% rather than corrupting calculations with zeros.
 adc_mean = nan(size(dwi_locations));
 adc_kurtosis = nan(size(dwi_locations));
 
-% IVIM true diffusion coefficient D — mean values per pipeline variant
+% IVIM true diffusion coefficient D — mean values per pipeline variant.
+% Tracking D separately from ADC is important because ADC conflates true
+% diffusion with pseudo-diffusion contributions, especially at low b-values.
+% D isolates the tissue diffusivity component, which more directly reflects
+% cellularity changes during treatment.
 d_mean = nan(size(dwi_locations));         % standard IVIM fit
 d_mean_dncnn = nan(size(dwi_locations));   % DnCNN-denoised IVIM fit
 d_mean_ivimnet = nan(size(dwi_locations)); % IVIMnet deep-learning fit
 
 d_kurtosis = nan(size(dwi_locations));
 
-% DVH parameters within GTVp and GTVn (patient × fraction)
+% DVH (Dose-Volume Histogram) parameters within GTVp and GTVn.
+% These dose metrics characterize the spatial distribution of radiation
+% dose within the tumor contour and are essential for correlating
+% diffusion changes with delivered dose — the fundamental dose-response
+% analysis in this study.
 % Sized to 6 columns to accommodate on-treatment fractions + Post-RT scan
-dmean_gtvp = nan(length(mrn_list), 6);  % mean dose in GTVp (Gy)
+dmean_gtvp = nan(length(mrn_list), 6);  % mean dose in GTVp (Gy) — overall dose intensity
 dmean_gtvn = nan(length(mrn_list), 6);  % mean dose in GTVn (Gy)
 
 d95_gtvp = nan(length(mrn_list), 6);    % D95% — dose received by 95% of GTV (Gy)
-d95_gtvn = nan(length(mrn_list), 6);
+d95_gtvn = nan(length(mrn_list), 6);    % D95 is a coverage metric: low D95 indicates
+                                         % cold spots within the tumor that may correlate
+                                         % with local failure
 
-v50gy_gtvp = nan(length(mrn_list), 6);  % V50Gy — fraction of GTV receiving ≥50 Gy
-v50gy_gtvn = nan(length(mrn_list), 6);
+v50gy_gtvp = nan(length(mrn_list), 6);  % V50Gy — fraction of GTV receiving >=50 Gy
+v50gy_gtvn = nan(length(mrn_list), 6);  % V50Gy captures high-dose coverage relevant
+                                         % to dose escalation studies
 
 % Clinical outcome flags (per patient)
-lf = zeros(size(mrn_list));      % local failure (1 = yes)
-immuno = zeros(size(mrn_list));  % received immunotherapy (1 = yes)
+lf = zeros(size(mrn_list));      % local failure (1 = yes) — primary endpoint
+immuno = zeros(size(mrn_list));  % received immunotherapy (1 = yes) — potential confounder
 
-% Track problematic DWI acquisitions for manual review
+% Track problematic DWI acquisitions for manual review. DWI artifacts
+% (motion, geometric distortion, incomplete acquisitions) are common in
+% pancreatic imaging due to respiratory motion and bowel peristalsis.
+% Flagging these allows the physicist to review and decide whether to
+% exclude the data or apply motion correction.
 bad_dwi_locations_per_patient = cell(length(mrn_list), 1);
 
-% Checkpoint directory setup
+% Checkpoint directory setup. Per-patient checkpointing is critical because
+% processing a full cohort (DICOM conversion + model fitting for ~30
+% patients x 6 fractions x multiple repeats) can take many hours. If the
+% pipeline is interrupted (crash, timeout, resource limit), completed
+% patients are preserved and only unfinished patients are re-processed.
 checkpoint_dir = fullfile(dataloc, 'processed_patients');
 if ~isfolder(checkpoint_dir)
     mkdir(checkpoint_dir);
@@ -332,7 +417,14 @@ parfor j = 1:length(mrn_list)
     n_rp = size(dwi_locations,3);
     [pat_data_vectors_gtvp, pat_data_vectors_gtvn] = init_scan_structs(n_fx, n_rp);
 
-    % Per-patient DIR reference: populated at Fx1, reused at Fx2+
+    % Per-patient DIR (Deformable Image Registration) reference volumes.
+    % Populated at Fx1 (baseline) and reused for all subsequent fractions.
+    % The Fx1 b=0 volume serves as the fixed (target) image for DIR because:
+    % 1. Fx1 is acquired before any RT-induced changes, providing a clean
+    %    anatomical reference
+    % 2. All GTV contours are drawn on the Fx1 anatomy by the physician
+    % 3. Warping Fx2-Fx5 to Fx1 space enables direct voxel-to-voxel
+    %    longitudinal comparison of diffusion parameters
     b0_fx1_ref        = [];   % b=0 volume at baseline fraction
     gtv_mask_fx1_ref  = [];   % GTVp mask at baseline fraction
     gtvn_mask_fx1_ref = [];   % GTVn mask at baseline fraction (when present)

@@ -50,28 +50,68 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %
 %   Requires: Statistics and Machine Learning Toolbox (for z-scoring only;
 %   the core construction uses only base MATLAB).
+%
+%   Analytical Background:
+%   ----------------------
+%   Standard Cox proportional hazards regression assumes covariates are
+%   fixed at baseline.  In pancreatic RT, DWI parameters (ADC, D, f, D*)
+%   change throughout the 5-week treatment course as radiation induces
+%   tumor cell death, edema, and vascular disruption.  Ignoring these
+%   intra-treatment changes would bias hazard ratio estimates toward
+%   baseline tumor biology and miss the prognostic signal carried by
+%   treatment-induced diffusion changes.
+%
+%   The counting-process (start-stop) representation splits each patient's
+%   follow-up into intervals aligned with scan dates.  Within each
+%   interval, the covariates are held constant at the most recent scan
+%   values — a piecewise-constant approximation to the continuously
+%   evolving tumor microenvironment.  This is the standard Anderson-Gill
+%   extension for time-dependent covariates in survival analysis.
+%
+%   The event indicator uses a competing-risk encoding (0/1/2) rather
+%   than simple binary, because pancreatic cancer patients face
+%   substantial non-cancer mortality that must be modeled separately
+%   to avoid upward bias in cancer-specific hazard estimates.
 
     n_pts  = length(lf_vec);
     n_feat = length(feat_arrays);
 
     % --- Default scan-day schedule (fraction days from RT start) ---
+    % The default [0, 5, 10, 15, 20, 90] corresponds to weekly scans
+    % during a standard 5-fraction SBRT course (Fx1 on day 0 through Fx5
+    % on day 20) plus a ~3-month post-RT follow-up scan (day 90).  This
+    % schedule captures the acute radiation response (first 3 weeks) and
+    % the early subacute recovery phase.
     if nargin < 6 || isempty(scan_days)
         scan_days = [0, 5, 10, 15, 20, 90];
     end
     if nargin < 7 || isempty(decay_half_life_months)
-        decay_half_life_months = 18;  % Default half-life of 18 months
+        % 18-month half-life: empirical estimate for how quickly the
+        % radiation-induced diffusion signal reverts toward pre-treatment
+        % baseline.  Used for exponential decay imputation when scans are
+        % missing — models the biological washout of treatment effect on
+        % tissue microstructure (e.g., fibrosis replacing acute edema).
+        decay_half_life_months = 18;
     end
-    scan_days = scan_days(1:nTp);  % trim to available timepoints
+    % Trim scan_days to the number of timepoints actually available in the
+    % data.  Some cohorts may have fewer scans than the full schedule.
+    scan_days = scan_days(1:nTp);
 
     % Remove NaN entries (fractions with no valid scan dates) while
     % preserving the mapping between scan_days indices and feature
-    % array columns via tp_map.
+    % array columns via tp_map.  NaN scan days arise when a fraction
+    % was scheduled but the MRI scan was not acquired (e.g., patient
+    % too sick, scanner unavailable).  The tp_map allows us to index
+    % back into the original feat_arrays columns after NaN removal.
     valid_sd = ~isnan(scan_days);
     tp_map   = find(valid_sd);       % tp_map(k) = original column in feat_arrays
     scan_days = scan_days(valid_sd);
     nTp = length(scan_days);
 
-    % Validate scan_days is strictly increasing
+    % Validate scan_days is strictly increasing — the counting-process
+    % representation requires non-overlapping intervals with t_start <
+    % t_stop.  Non-monotonic scan days would create degenerate intervals
+    % that violate the Cox model likelihood assumptions.
     assert(all(diff(scan_days) > 0), 'build_td_panel:scanDays', 'scan_days must be strictly increasing');
 
     % --- Vectorized Generation of General Intervals ---

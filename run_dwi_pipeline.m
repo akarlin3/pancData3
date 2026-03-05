@@ -21,16 +21,60 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 %
 % It explicitly passes data between modules to avoid workspace pollution
 % and includes error handling to halt execution if checks fail.
+%
+% [ANALYTICAL DESIGN RATIONALE]:
+% The pipeline follows a strict sequential dependency chain that mirrors the
+% scientific workflow for DWI-based treatment response assessment in pancreatic
+% cancer radiotherapy:
+%
+%   Load: Convert raw DICOM DWI images -> fit voxel-wise IVIM/ADC models.
+%         This is the most computationally expensive step (hours for large cohorts)
+%         because each voxel in each b-value image must be fit to either the
+%         mono-exponential ADC model (S = S0*exp(-b*ADC)) or the bi-exponential
+%         IVIM model (S = S0*((1-f)*exp(-b*D) + f*exp(-b*D*))). Checkpointing
+%         ensures that a crash after fitting patient 40/60 does not lose results.
+%
+%   Sanity: Validate that fitted parameters are physically meaningful. IVIM D
+%           values should be ~1e-3 mm^2/s (tissue diffusion), f should be 0-1
+%           (perfusion fraction), D* should be ~10x D (capillary pseudo-diffusion).
+%           Invalid fits indicate convergence failure, corrupt DICOM data, or
+%           misregistered GTV masks.
+%
+%   Metrics: The analytical core. Baseline metrics establish pre-treatment
+%            diffusion characteristics of the tumor. Longitudinal metrics track
+%            how these change across fractions (Fx1-Fx5) -- early diffusion
+%            increases may indicate tumor cell kill. Dosimetry correlates RT
+%            dose heterogeneity with diffusion sub-volumes. Statistical and
+%            survival analyses test whether diffusion changes predict outcomes.
+%
+%   Visualize: Generates parameter maps and distributions AFTER predictive
+%              modeling so that risk stratification overlays are available.
+%
+% The step ordering matters: metrics_baseline must precede longitudinal/dosimetry
+% because percent-change calculations require baseline values. Dosimetry must
+% precede stats because dose-response sub-volume features (D95, V50 within
+% diffusion-defined tumor sub-regions) are candidate predictors. Survival
+% analysis runs last because it uses risk scores from predictive modeling.
     % --- Initialization Block ---
     % 1) Dynamically add folders to the MATLAB path
     % This ensures that helper functions in 'core', 'utils', and 'dependencies'
     % are accessible regardless of the current working directory.
+    % The pipeline uses fileparts(mfilename('fullpath')) rather than pwd() so
+    % that it works correctly when invoked from any working directory -- a
+    % common scenario in cluster/batch environments at MSK.
     pipeline_dir = fileparts(mfilename('fullpath'));
     addpath(fullfile(pipeline_dir, 'core'));
     addpath(fullfile(pipeline_dir, 'utils'));
+    % Octave compatibility shims provide reimplementations of MATLAB-specific
+    % functions (e.g., niftiread, cvpartition, nanmean) so the pipeline can
+    % run on GNU Octave for sites without MATLAB licenses. These shims are
+    % only loaded when running under Octave to avoid shadowing native MATLAB.
     if exist('OCTAVE_VERSION', 'builtin')
         addpath(fullfile(pipeline_dir, 'utils', 'octave_compat'));
     end
+    % The dependencies/ folder contains third-party IVIM fitting algorithms
+    % (segmented, Bayesian), ADC fitting, DnCNN denoising, and dose-volume
+    % histogram tools. These are treated as read-only external libraries.
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     if nargin < 1
@@ -53,9 +97,18 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % 1.5) Run test suite before pipeline execution (once per session)
     % Uses a persistent variable so tests only run on the first call,
     % avoiding redundant re-runs when execute_all_workflows calls this
-    % function multiple times.
+    % function multiple times (once per DWI type: Standard, dnCNN, IVIMnet).
     % The timestamp tracks WHEN tests last passed so we can invalidate
     % if test files have been modified since (interactive development).
+    %
+    % [ANALYTICAL RATIONALE]: Pre-flight testing is essential because
+    % incorrect IVIM fitting, leaky cross-validation, or broken imputation
+    % could produce scientifically invalid results that would only be caught
+    % much later during manuscript review. Running unit tests before each
+    % pipeline execution ensures that core statistical and physical constraints
+    % (e.g., patient-stratified CV folds, temporal leakage bounds in KNN
+    % imputation, IVIM parameter range validation) are intact before
+    % committing to a multi-hour computation on the full patient cohort.
     persistent tests_passed_this_session;
     persistent tests_passed_timestamp;
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
@@ -90,7 +143,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 %  - Exclude integration tests (test_dwi_pipeline, test_modularity)
                 %    that call run_dwi_pipeline themselves, which would be circular.
                 %  - Skip the CodeCoveragePlugin (pre-flight only needs pass/fail).
-                %  - Keep pre-flight fast.
+                %  - Keep pre-flight fast (~seconds vs. minutes for full coverage).
+                % The excluded integration tests are run separately by
+                % execute_all_workflows via run_all_tests.m before any pipeline
+                % calls, so they are still exercised in full workflow runs.
                 tests_dir = fullfile(pipeline_dir, 'tests');
                 addpath(tests_dir);
                 pf_suite = matlab.unittest.TestSuite.fromFolder(tests_dir, 'IncludingSubfolders', true);
@@ -110,6 +166,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     pf_diary = fullfile(master_output_folder, 'preflight_tests_output.log');
                     diary(pf_diary);
                 end
+                % Suppress figure rendering during tests to avoid hundreds of
+                % plot windows spawning on headless cluster nodes or during
+                % batch execution. Tests validate plot generation logic
+                % without needing visible output.
                 old_fig_vis = get(0, 'DefaultFigureVisible');
                 set(0, 'DefaultFigureVisible', 'off');
                 pf_results = run(pf_suite);
@@ -149,6 +209,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % 2) Programmatically check for required toolboxes
     % The pipeline relies on specific toolboxes (Stats, Image).
     % Verification prevents obscure runtime errors deep within the code.
+    %
+    % [ANALYTICAL RATIONALE]: The Statistics Toolbox is needed for survival
+    % analysis (Cox regression, Kaplan-Meier), cross-validation (cvpartition),
+    % statistical tests (ranksum for Wilcoxon), and KNN imputation. The Image
+    % Processing Toolbox is needed for NIFTI I/O (niftiread/niftiwrite) used
+    % when reading converted DWI volumes, and for image registration operations
+    % during GTV mask propagation across treatment fractions. Without these,
+    % the pipeline would fail silently or produce incomplete results.
+    % Octave provides equivalent functionality via its shim layer, so the
+    % check is skipped for Octave environments.
     if ~exist('OCTAVE_VERSION', 'builtin')
         if ~license('test', 'Statistics_Toolbox')
             error('InitializationError:MissingToolbox', ...
