@@ -143,9 +143,19 @@ if skip_to_reload && isfield(config_struct, 'dwi_type_name') && ~isempty(config_
     file_prefix_check = ['_' config_struct.dwi_type_name];
     datasave_check = fullfile(dataloc_check, ['dwi_vectors' file_prefix_check '.mat']);
     if ~exist(datasave_check, 'file')
-        fprintf('  💡 skip_to_reload requested but %s not found. Running full load for %s.\n', ...
-            ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
-        skip_to_reload = false;
+        % Before falling through to full load, check if the default
+        % (un-typed) dwi_vectors.mat exists as a valid fallback.  The
+        % Section 4 reload path already handles this fallback, so we only
+        % need to set skip_to_reload = false when neither file exists.
+        datasave_fallback_check = fullfile(dataloc_check, 'dwi_vectors.mat');
+        if exist(datasave_fallback_check, 'file')
+            fprintf('  💡 %s not found — will fallback to dwi_vectors.mat for %s.\n', ...
+                ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
+        else
+            fprintf('  💡 skip_to_reload requested but %s not found. Running full load for %s.\n', ...
+                ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
+            skip_to_reload = false;
+        end
     end
 end
 

@@ -172,7 +172,11 @@ else
         disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
         diary(eaw_diary_file);  % switch back to master diary
     catch ME
-        diary(eaw_diary_file);  % switch back before error
+        try
+            diary(eaw_diary_file);  % switch back before error
+        catch
+            diary off;  % if master diary file is inaccessible, just turn diary off
+        end
         fprintf('❌ Test failure: %s\n', ME.message);
         error('PipelineAborted:TestFailure', ...
             'Pipeline aborted: test suite did not pass.');
