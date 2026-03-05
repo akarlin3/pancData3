@@ -31,6 +31,12 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'high_adc_thresh')
             config_struct.high_adc_thresh = 0.00115;  % must be >= adc_thresh
         end
+        % Validate threshold ordering
+        if config_struct.adc_thresh > config_struct.high_adc_thresh
+            error('parse_config:thresholdOrder', ...
+                'adc_thresh (%.6f) must be <= high_adc_thresh (%.6f).', ...
+                config_struct.adc_thresh, config_struct.high_adc_thresh);
+        end
         if ~isfield(config_struct, 'd_thresh')
             config_struct.d_thresh = 0.001;
         end

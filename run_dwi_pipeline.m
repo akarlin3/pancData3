@@ -267,7 +267,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('      💾 Saved summary_metrics to %s\n', summary_metrics_file);
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During load_dwi_data: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -350,7 +351,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
             fclose(fid);
             fprintf('      💾 Saved sanity check results to %s\n', sanity_results_file);
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During sanity_checks: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -428,7 +430,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
              'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
              'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_baseline: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -480,7 +483,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_longitudinal: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -512,7 +516,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_dosimetry: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -569,7 +574,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_stats_comparisons: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -617,7 +623,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('      💾 Saved calculated_results to %s\n', results_file);
 
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_stats_predictive: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -673,7 +680,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
             fclose(fid);
             fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During visualize_results: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -713,7 +721,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved survival results log to %s\n', survival_results_file);
             fprintf('      ✅ Done.\n');
-            [warn_msg, warn_id] = lastwarn('');
+            [warn_msg, warn_id] = lastwarn;  % read current warning
+            lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During metrics_survival: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);

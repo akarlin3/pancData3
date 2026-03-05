@@ -158,8 +158,14 @@ else
                 cod_lower = strtrim(lower(cod));
                 is_unknown = isempty(cod_lower) || strcmp(cod_lower, 'unknown') || ...
                              strcmp(cod_lower, 'pending') || strcmp(cod_lower, 'n/a');
-                if lf(j) == 0 && ~isempty(cod) && ~is_unknown && isempty(strfind(cod_lower, 'cancer'))
-                    lf(j) = 2; % Competing risk: non-cancer death without LF
+                % Classify as competing risk if death was not from
+                % pancreatic/biliary cancer.  The previous check for
+                % 'cancer' anywhere in the string incorrectly treated
+                % deaths from unrelated cancers (e.g., lung cancer) as
+                % pancreatic cancer deaths.
+                is_panc_cancer = ~isempty(regexp(cod_lower, 'pancrea|biliar|disease\s+progression', 'once'));
+                if lf(j) == 0 && ~isempty(cod) && ~is_unknown && ~is_panc_cancer
+                    lf(j) = 2; % Competing risk: non-pancreatic-cancer death without LF
                 end
             end
             lf_date(j) = T.LocoregionalFailureDateOfLocalOrRegionalFailure(i_find);
@@ -344,21 +350,17 @@ D_abs   = m_d_mean(:,:,dtype);
 f_abs   = m_f_mean(:,:,dtype);
 Dstar_abs = m_dstar_mean(:,:,dtype);
 
-% Use a data-adaptive epsilon (1% of baseline IQR) to prevent inflated
-% percent changes when baseline values are near zero, while remaining
-% proportional to the actual measurement scale.
-% NOTE: Outlier patients were NaN-ified above (lines 318-324), so the
-% isfinite() filter correctly excludes them from epsilon estimation.
-adc_iqr_raw  = iqr(ADC_abs(isfinite(ADC_abs(:,1)), 1));
-d_iqr_raw    = iqr(D_abs(isfinite(D_abs(:,1)), 1));
-dstar_iqr_raw = iqr(Dstar_abs(isfinite(Dstar_abs(:,1)), 1));
-% max(scalar, NaN) returns NaN in MATLAB's two-input form; guard explicitly.
-if isnan(adc_iqr_raw),  adc_iqr_raw  = 0; end
-if isnan(d_iqr_raw),    d_iqr_raw    = 0; end
-if isnan(dstar_iqr_raw), dstar_iqr_raw = 0; end
-adc_eps  = max(1e-8, 0.01 * adc_iqr_raw);
-d_eps    = max(1e-8, 0.01 * d_iqr_raw);
-dstar_eps = max(1e-8, 0.01 * dstar_iqr_raw);
+% Use fixed, physiologically motivated epsilon values to prevent inflated
+% percent changes when baseline values are near zero.  Fixed thresholds
+% improve reproducibility across cohorts (previously used data-adaptive
+% 1% of IQR, which varied with cohort composition).
+% Values correspond to ~1% of typical physiological range:
+%   ADC: 0.001-0.003 mm^2/s → eps = 1e-5
+%   D:   0.001-0.003 mm^2/s → eps = 1e-5
+%   D*:  0.005-0.050 mm^2/s → eps = 5e-5
+adc_eps  = 1e-5;
+d_eps    = 1e-5;
+dstar_eps = 5e-5;
 % Exclude patients with near-zero or negative baselines from percent change
 % computation to avoid sign-flipped or inflated ratios.  These patients get
 % NaN percent change so they are excluded from downstream group comparisons.

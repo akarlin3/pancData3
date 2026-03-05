@@ -59,7 +59,7 @@ for target_fx = 2:nTp
 
     feat_names_lasso = {'ADC_BL', 'D_BL', 'f_BL', 'Dstar_BL', ...
                         'ADC_Abs', 'D_Abs', 'f_Abs', 'Dstar_Abs', ...
-                        'ADC_Pct', 'D_Pct', 'f_Pct', 'Dstar_Pct', ...
+                        'ADC_Pct', 'D_Pct', 'f_Delta', 'Dstar_Pct', ...
                         'D95_GTVp', 'V50_GTVp', ...
                         'D95_Sub_ADC', 'V50_Sub_ADC', ...
                         'D95_Sub_D', 'V50_Sub_D', ...
@@ -311,8 +311,11 @@ for target_fx = 2:nTp
             coefs_loo = B_loo;
             intercept_loo = FitInfo_loo.Intercept;
         catch
-            coefs_loo = zeros(size(X_tr_kept, 2), 1);
-            intercept_loo = 0;
+            % Mark this patient's risk score as NaN rather than producing a
+            % meaningless zero-coefficient prediction that could corrupt
+            % downstream median-based stratification and ROC analysis.
+            coefs_loo = nan(size(X_tr_kept, 2), 1);
+            intercept_loo = NaN;
         end
         warning(w_state_loo);
 
@@ -430,8 +433,12 @@ for target_fx = 2:nTp
     events_km = events_km(valid_pts);
     
     labels = lf_group; % 0 = LC, 1 = LF
-    valid_roc = ~isnan(risk_scores_all_target) & ~isnan(labels);
-    
+    % Exclude competing-risk patients (lf==2) from ROC analysis.
+    % perfcurve treats non-positive-class as negatives, so lf==2 patients
+    % would be lumped with genuine LC patients, inflating AUC.
+    roc_eligible = (labels <= 1);
+    valid_roc = roc_eligible & ~isnan(risk_scores_all_target) & ~isnan(labels);
+
     if sum(valid_roc) > 0
         [roc_X, roc_Y, roc_T, roc_AUC] = perfcurve(labels(valid_roc), risk_scores_all_target(valid_roc), 1);
         
@@ -528,10 +535,14 @@ for target_fx = 2:nTp
         wcv_est = median(wcv_vals, 'omitnan');          % median wCV as fraction
         cor_est = 1.96 * sqrt(2) * wcv_est * 100;       % CoR in percent
         
-        x_scatter = ones(size(lf_group));
-        x_scatter(lf_group==1) = 2;
+        % Exclude competing-risk patients (lf==2) from scatter, consistent
+        % with the boxplot exclusion above (non_competing mask).
+        scatter_mask = (lf_group <= 1);
+        x_scatter = ones(sum(scatter_mask), 1);
+        x_scatter(lf_group(scatter_mask)==1) = 2;
         x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
-        scatter(x_scatter, curr_sig_pct_full(valid_pts, target_fx), 50, 'filled', 'MarkerEdgeColor', 'k');
+        scatter_vals = curr_sig_pct_full(valid_pts, target_fx);
+        scatter(x_scatter, scatter_vals(scatter_mask), 50, 'filled', 'MarkerEdgeColor', 'k');
         
         base_idx = mod(selected_indices(vi)-1, 4) + 1;
         
