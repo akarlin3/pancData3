@@ -22,9 +22,12 @@ function fold_id = make_grouped_folds(id_list_cell, y, n_folds)
 n_unique   = numel(unique_ids);
 
 % Derive patient-level event status. A patient is an "event" if ANY of
-% their longitudinal rows contains an event (max(y) > 0).
+% their longitudinal rows contains a local failure (y == 1).
+% Competing risk patients (y == 2) are NOT counted as events for
+% stratification; they are grouped with censored patients (y == 0) to
+% ensure folds are balanced by the event of interest (local failure).
 % Optimized: vectorized string grouping and any() evaluation via accumarray
-pt_y = double(accumarray(ic, double(y > 0), [n_unique, 1], @any));
+pt_y = double(accumarray(ic, double(y == 1), [n_unique, 1], @any));
 
 % Safety check: don't request more folds than we have unique patients
 k = min(n_folds, n_unique);

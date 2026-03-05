@@ -38,7 +38,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %               2 = competing risk (e.g., non-cancer death).
 %               The event code is assigned to the terminal row of each patient.
 %   pat_id_td - [n_intervals × 1] patient index for cluster-robust SE.
-%   frac_td   - [n_intervals × 1] Measurement fraction index (1 to nTp) generating row.
+%   frac_td   - [n_intervals × 1] Original measurement fraction index
+%               (column index in feat_arrays before NaN scan-day removal).
 %
 %   Algorithm (counting-process representation)
 %   -------------------------------------------

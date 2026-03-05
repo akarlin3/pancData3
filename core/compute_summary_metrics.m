@@ -288,10 +288,13 @@ for j=1:n_patients_metrics
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
             if ~isempty(d_vec)
-                % Exclude only exact-zero f values that co-occur with failed D*
+                % Exclude exact-zero f values that co-occur with failed D*
                 % fits (D* == 0 or NaN), preserving genuine zero perfusion.
+                % Both f AND D* must be set to NaN for failed fits:
+                % leaving D*=0 in the data biases dstar_mean downward.
                 failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
                 f_vec(failed_fit) = nan;
+                dstar_vec(failed_fit) = nan;
 
                 f_vec_sub = f_vec(f_vec<f_thresh);
                 f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;

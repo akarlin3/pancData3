@@ -15,8 +15,12 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
 %   None. Generates a histogram or boxplot visualization.
 %
 
-    % Remove NaN entries for accurate processing
-    has_data = ~isnan(vals);
+    % Remove NaN entries and competing risk patients (lf==2) for accurate
+    % processing.  Competing risk patients are excluded because boxplot
+    % labels assume exactly 2 groups (LC/LF), and ranksum requires exactly
+    % 2 groups.  Callers like metrics_stats_comparisons already filter, but
+    % this guard prevents crashes when called with unfiltered data.
+    has_data = ~isnan(vals) & (lf_group <= 1);
     vals_clean = vals(has_data);
     lf_clean = lf_group(has_data);
 
