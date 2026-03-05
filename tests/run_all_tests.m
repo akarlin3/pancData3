@@ -150,6 +150,8 @@ if has_display
         new_ax_y = (1 - ax_pos(4)) / 2 - 0.05;
         set(hAxes, 'Position', [new_ax_x, new_ax_y, ax_pos(3), ax_pos(4)]);
     end
+    % Center the waitbar message text within the resized figure
+    centerWaitbarText(hWaitbar);
 end
 
 % 3. Check whether parallel execution is available
@@ -183,6 +185,7 @@ if can_run_parallel
     fprintf('Running %d parallel-safe tests with runInParallel...\n', numel(parallel_suite));
     if ~isempty(hWaitbar) && isvalid(hWaitbar)
         waitbar(0, hWaitbar, sprintf('0.0%% — Running %d parallel-safe tests...', numel(parallel_suite)));
+        centerWaitbarText(hWaitbar);
     end
     par_runner = TestRunner.withTextOutput();
     parallel_results = par_runner.runInParallel(parallel_suite);
@@ -193,6 +196,7 @@ if can_run_parallel
         waitbar(parallel_done / numel(suite), hWaitbar, ...
             sprintf('%.1f%% — Parallel phase complete (%d/%d). Starting serial...', ...
             pct_done, parallel_done, numel(suite)));
+        centerWaitbarText(hWaitbar);
     end
 
     % --- Phase 2: serial tests sequentially ---
@@ -389,5 +393,17 @@ else
     end
     if is_batch
         error('pancData3:testFailure', '%d of %d tests failed.', num_failed, numel(results));
+    end
+end
+
+function centerWaitbarText(hWaitbar)
+%CENTERWAITBARTEXT Re-center text objects after waitbar updates.
+    if ~isvalid(hWaitbar); return; end
+    hText = findobj(hWaitbar, 'Type', 'text');
+    for ti = 1:numel(hText)
+        set(hText(ti), 'Units', 'normalized', ...
+            'Position', [0.5, 0.5, 0], ...
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'middle');
     end
 end
