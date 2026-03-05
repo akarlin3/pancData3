@@ -65,8 +65,10 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
             % Scenario:
             % Week 0 (Day 0).
             % Feature: DeltaADC (contains 'Delta').
-            % Logic: Derivative features at Week 0 should have mu=0, sigma=1.
-            % This means output = input.
+            % Logic: Derivative features at Week 0 use first-occurrence-per-
+            % patient training-set statistics, consistent with the duplicate-
+            % handling test (testDerivativeAtWeek0WithDuplicates).
+            % First-occurrence values: [100, 200] -> mu=150, std=70.7107.
 
             feat_names = {'DeltaADC'};
             pat_id_td = [1; 2];
@@ -77,9 +79,12 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
 
             X_td_scaled = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start_td, train_pat_ids);
 
-            % Expect no scaling
-            testCase.verifyEqual(X_td_scaled, X_td_raw, ...
-                'Derivative features at Week 0 should not be scaled (mu=0, sigma=1)');
+            mu_expected  = mean([100, 200]);
+            sig_expected = std([100, 200]);
+            expected_vals = (X_td_raw - mu_expected) / sig_expected;
+
+            testCase.verifyEqual(X_td_scaled, expected_vals, 'AbsTol', 1e-4, ...
+                'Derivative features at Week 0 should use first-occurrence-per-patient stats');
         end
 
         function testPatientDuplicateHandling(testCase)
