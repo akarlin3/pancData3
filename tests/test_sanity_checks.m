@@ -191,18 +191,26 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         function testDefaultOutputFolder(testCase)
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
+            % Snapshot existing saved_files_* dirs before the call so we
+            % only clean up the one(s) created by this test, not the
+            % execute_all_workflows output folder (which is also a
+            % saved_files_* directory in the repo root).
+            core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
+            project_root = fullfile(core_dir, '..');
+            pre_dirs = dir(fullfile(project_root, 'saved_files_*'));
+            pre_names = {pre_dirs([pre_dirs.isdir]).name};
+
             % Call with only 3 arguments, fallback to default output_folder
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary);
 
             % Should pass and complete
             testCase.verifyTrue(is_valid, 'Fallback defaults should not invalidate run');
 
-            % Cleanup: fallback path is core/../saved_files_* (project root)
-            core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
-            project_root = fullfile(core_dir, '..');
+            % Cleanup: only remove saved_files_* dirs that did not exist
+            % before the call (i.e., created by this test).
             fallback_dirs = dir(fullfile(project_root, 'saved_files_*'));
             for fi = 1:numel(fallback_dirs)
-                if fallback_dirs(fi).isdir
+                if fallback_dirs(fi).isdir && ~ismember(fallback_dirs(fi).name, pre_names)
                     rmdir(fullfile(project_root, fallback_dirs(fi).name), 's');
                 end
             end
