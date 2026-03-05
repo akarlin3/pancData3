@@ -8,28 +8,7 @@
 
 ## Critical Findings (Impact: Could Produce Incorrect Conclusions)
 
-### 1. BH FDR Correction Formula Error
-**File:** `core/metrics_stats_comparisons.m`, lines 193-197
-
-The Benjamini-Hochberg adjusted p-values are computed incorrectly. The standard BH formula for the i-th ranked p-value is:
-
-```
-q(i) = min(q(i+1), p(i) * m / i)
-```
-
-where `m` is the total number of tests and `i` is the **rank** (1 = smallest p-value). The current code uses:
-
-```matlab
-q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
-```
-
-This is correct. **However**, the step-up enforcement at line 198 (`q_all = min(q_all, 1)`) is applied **after** the backward sweep, which is correct. No error here upon closer review.
-
-**Status:** False alarm after deeper analysis. The BH implementation is correct.
-
----
-
-### 2. IPCW Frequency Approximation Introduces Bias in Cox Model
+### 1. IPCW Frequency Approximation Introduces Bias in Cox Model
 **File:** `core/metrics_survival.m`, lines 247-267
 
 The IPCW weights are converted to integer frequencies via `max(1, round(ipcw_weights * 100))` because MATLAB's `coxphfit` doesn't support continuous probability weights. The SE correction (`SE * sqrt(ipcw_scale)`) on line 266 is an approximation that assumes the information matrix scales linearly with N, which is not generally true for the Cox partial likelihood.
@@ -40,7 +19,7 @@ The IPCW weights are converted to integer frequencies via `max(1, round(ipcw_wei
 
 ---
 
-### 3. Collinearity Filtering Uses Different Feature Sets Across LOOCV Folds
+### 2. Collinearity Filtering Uses Different Feature Sets Across LOOCV Folds
 **File:** `core/metrics_stats_predictive.m`, lines 166-171 (outer CV) and 278-280 (LOOCV)
 
 Each fold computes its own `keep_fold = filter_collinear_features(X_tr_imp, y_tr_fold)`, which can select different features per fold. The final model uses a consensus mask (`keep_fold_counts > n_folds_en / 2`), but the LOOCV risk scores are generated with per-fold collinearity masks. This means:
@@ -55,7 +34,7 @@ Each fold computes its own `keep_fold = filter_collinear_features(X_tr_imp, y_tr
 
 ---
 
-### 4. Elastic Net Lambda Path Mismatch Across CV Folds
+### 3. Elastic Net Lambda Path Mismatch Across CV Folds
 **File:** `core/metrics_stats_predictive.m`, lines 174-194
 
 The lambda path is determined by the first fold (`cv_i == 1`) and then forced on subsequent folds via `'Lambda', common_Lambda`. However, `lassoglm` may select different features per fold due to the collinearity filter producing different feature subsets. When `X_tr_kept` has a different number of columns across folds (because `keep_fold` varies), the lambda values from fold 1 may not be appropriate for the regularization path of later folds with different dimensionality.
@@ -64,21 +43,7 @@ The lambda path is determined by the first fold (`cv_i == 1`) and then forced on
 
 ---
 
-### 5. Percent Change Denominator Uses Modified Baseline (Not Original)
-**File:** `core/metrics_baseline.m`, lines 368-374
-
-```matlab
-adc_bl = ADC_abs(:,1);  adc_bl(adc_bl < adc_eps) = NaN;
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
-```
-
-The code correctly guards against near-zero denominators, but `ADC_abs(:,1)` in the numerator `(ADC_abs - ADC_abs(:,1))` still uses the original (possibly near-zero) baseline value. This means the numerator could be extremely small while the denominator is NaN'd, producing NaN for valid patients. This is actually the intended behavior (filtering them out), but worth noting that the **epsilon threshold is data-adaptive** (1% of IQR), meaning it varies across runs and could filter different patients in replication studies.
-
-**Impact:** Minor. Reproducibility concern rather than a direct error.
-
----
-
-### 6. Exponential Decay Imputation Applies to All Missing Covariates Uniformly
+### 4. Exponential Decay Imputation Applies to All Missing Covariates Uniformly
 **File:** `utils/build_td_panel.m`, lines 121-133
 
 The exponential decay imputation uses the same half-life for all covariates (ADC, D, f, D*), but these parameters have different biological decay dynamics:
@@ -87,6 +52,43 @@ The exponential decay imputation uses the same half-life for all covariates (ADC
 - D*: pseudo-diffusion (fastest response, highest noise)
 
 **Impact:** The single half-life assumption may over- or under-impute certain parameters, biasing their hazard ratios in the Cox model. The sensitivity analysis (half-life grid) partially addresses this but applies the same half-life to all covariates simultaneously rather than independently.
+
+---
+
+### 5. Exponential Decay Imputation Decays Toward Zero
+**File:** `utils/build_td_panel.m`, line 132
+
+```matlab
+cov_row(decay_mask) = orig_X(decay_mask) .* exp(-lambda_decay * dt_per_feat(decay_mask));
+```
+
+The decay model assumes all features decay toward zero. For DWI parameters like ADC, the pre-treatment value is a positive physiological quantity. After treatment, values may return toward baseline, not zero. For patients with missing late-timepoint scans and long follow-up, imputed diffusion parameters will be artificially low, potentially creating a spurious association between low parameter values and events (since patients with events are more likely to have missing late scans).
+
+**Impact:** Systematic downward bias in imputed late-timepoint covariates, particularly for parameters with high physiological floor values (ADC, D).
+
+**Recommendation:** Decay toward patient-specific baseline rather than zero: `baseline + (last_observed - baseline) * exp(-lambda * dt)`.
+
+---
+
+### 6. Zero-Variance Feature Handling Inconsistent Between Scaling Modes
+**File:** `utils/scale_td_panel.m`, lines 123-124 vs lines 50-55
+
+In `baseline` mode (line 55), zero-variance features are correctly zeroed out. In `per_week` mode (line 123-124), zero-variance features have `sd_col` clamped to 1 instead, producing `(x - mu) / 1`, which preserves arbitrary centered values. Similarly, single-observation weeks (line 127-128) get `sd_col = 1`.
+
+```matlab
+% per_week mode (line 123-124):
+if sd_col == 0
+    sd_col = 1;  % zero-variance: clamp to 1
+end
+% vs baseline mode (line 50-55):
+if sig == 0 || isnan(sig)
+    X_td_scaled(:, fi) = 0;  % zero-variance: zero out
+end
+```
+
+**Impact:** Zero-variance features may appear to carry discriminative information in per_week mode (the default), artificially inflating their importance in downstream Cox regression.
+
+**Recommendation:** Use the baseline mode's approach — zero out constant features — in both modes.
 
 ---
 
@@ -107,16 +109,7 @@ This assumes the last element of `td_scan_days` is the post-treatment scan. If `
 
 ## Moderate Findings (Impact: May Affect Statistical Power or Interpretation)
 
-### 8. GLME Z-Score Standardization Uses All Patients (Including Outliers)
-**File:** `core/metrics_stats_comparisons.m`, lines 375-392
-
-The GLME baseline z-scores are computed using `mean()` and `std()` on `long_ADC(baseline_idx)`, which includes all patients with valid baseline data. However, metrics_baseline.m already NaN-ified outlier patients' values (line 333-340). This means the z-score denominators include NaN-excluded patients in their count but not their values.
-
-Actually, looking more carefully: the `long_ADC` array is populated from `ADC_abs(p_idx, t)` which already has outliers set to NaN, and line 356 filters to `~isnan(long_ADC)`. So the z-scores are computed from non-outlier patients only. **No error here.**
-
----
-
-### 9. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
+### 8. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
 **File:** `utils/calculate_subvolume_metrics.m`, lines 49-51
 
 ```matlab
@@ -130,20 +123,7 @@ The morphological open-close and connected component filter removes small cluste
 
 ---
 
-### 10. KNN Imputation Distance Computed on Z-scored Features, but Imputation Uses Raw Values
-**File:** `utils/knn_impute_train_test.m`, lines 40 and 106
-
-Distances are computed in Z-scored space (`search_space`), but the imputed values come from raw `X_tr`:
-
-```matlab
-X_tr_imp(i, m) = mean(X_tr(neighbors, m));
-```
-
-This is actually correct behavior (you want to impute raw values, not standardized ones), but it means the distance metric is scale-normalized while the imputed value is not. This is standard KNN imputation practice and is not an error.
-
----
-
-### 11. f_delta Uses Absolute Change While Other Parameters Use Percent Change
+### 9. f_delta Uses Absolute Change While Other Parameters Use Percent Change
 **File:** `core/metrics_baseline.m`, line 373
 
 ```matlab
@@ -158,7 +138,7 @@ This computes absolute change for f (perfusion fraction, range 0-1), while ADC, 
 
 ---
 
-### 12. In-Sample KNN Imputation for Final Elastic Net Model
+### 10. In-Sample KNN Imputation for Final Elastic Net Model
 **File:** `core/metrics_stats_predictive.m`, line 210
 
 ```matlab
@@ -171,7 +151,7 @@ The final model uses the entire dataset as both reference and target for KNN imp
 
 ---
 
-### 13. Competing Risk Patients Excluded Inconsistently Across Modules
+### 11. Competing Risk Patients Excluded Inconsistently Across Modules
 **Files:** Multiple
 
 - `metrics_stats_predictive.m` line 104: sets lf==2 to NaN (exclusion)
@@ -185,7 +165,7 @@ The handling is correct for each model type (exclusion for binomial, CSH censori
 
 ---
 
-### 14. Scan Day Assumption Creates Immortal Time Bias Risk
+### 12. Scan Day Assumption Creates Immortal Time Bias Risk
 **File:** `core/metrics_survival.m`, lines 44-53, `utils/build_td_panel.m` line 54
 
 The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day intervals. In practice, scans may be irregularly spaced. The warning on line 47-52 correctly flags this, but if the researcher doesn't provide actual scan days, the counting-process intervals will be misaligned with reality.
@@ -196,14 +176,30 @@ The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day inter
 
 ## Minor Findings
 
-### 15. `adc_sd` Indexed by `dtype` in Predictive Module May Be Wrong
-**File:** `core/metrics_stats_predictive.m`, line 523
+### 13. CLAUDE.md Documents Wrong Default for `adc_thresh`
+**File:** `CLAUDE.md` config section
 
-```matlab
-baseline_sd  = adc_sd(valid_pts, 1, dtype);
-```
+CLAUDE.md shows `"adc_thresh": 0.00115` but both `config.example.json` and `parse_config.m` use `0.001`. The `0.00115` value is actually the `high_adc_thresh` default.
 
-The `adc_sd` variable is passed as a parameter to this function and comes from `summary_metrics.adc_sd`, which is a 3D array `[nPat x nTp x 3]`. The `dtype` index selects the correct DWI type. This appears correct.
+**Impact:** Could mislead researchers relying on CLAUDE.md for configuration guidance.
+
+---
+
+### 14. No Validation of `adc_thresh <= high_adc_thresh` Ordering
+**File:** `utils/parse_config.m`, lines 28-33
+
+The comments state `adc_thresh` "must be <= high_adc_thresh" but this constraint is never enforced. A misconfigured `adc_thresh > high_adc_thresh` would produce empty or overlapping sub-volume selections.
+
+**Impact:** Silent misconfiguration could produce empty subvolumes and all-NaN dose metrics.
+
+---
+
+### 15. Data-Adaptive Epsilon for Percent Change Reduces Reproducibility
+**File:** `core/metrics_baseline.m`, lines 352-361
+
+The epsilon threshold for percent change denominators is `max(1e-8, 0.01 * iqr(baseline))`. Since IQR varies with cohort composition, different cohorts (or the same cohort with different outlier exclusions) will use different epsilon values, potentially filtering different patients.
+
+**Impact:** Minor reproducibility concern across cohorts.
 
 ---
 
@@ -211,12 +207,15 @@ The `adc_sd` variable is passed as a parameter to this function and comes from `
 
 | Severity | Count | Key Concerns |
 |----------|-------|-------------|
-| Critical | 4 | IPCW approximation bias, inconsistent feature spaces in LOOCV, lambda path mismatch, single decay half-life |
-| Moderate | 4 | Morphological filtering bias, f_delta mislabeling, in-sample imputation, immortal time bias risk |
-| Minor | 1 | Reproducibility of epsilon threshold |
+| Critical | 7 | IPCW bias, LOOCV feature inconsistency, lambda path mismatch, decay-to-zero, zero-variance scaling inconsistency, uniform decay half-life, landmark selection |
+| Moderate | 5 | Morphological filtering, f_delta mislabeling, in-sample imputation, competing risk documentation, immortal time bias |
+| Minor | 3 | CLAUDE.md threshold docs, threshold ordering validation, epsilon reproducibility |
 
 ### Top Priority Fixes
-1. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all LOOCV folds
-2. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes across folds
-3. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
-4. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
+1. **Fix zero-variance scaling inconsistency** (`scale_td_panel.m`) — Zero out constant features in both modes
+2. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all LOOCV folds
+3. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes across folds
+4. **Fix decay-to-zero imputation** — Decay toward patient baseline, not zero
+5. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
+6. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
+7. **Add threshold ordering validation** — Enforce `adc_thresh <= high_adc_thresh` in `parse_config.m`
