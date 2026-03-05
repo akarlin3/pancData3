@@ -515,8 +515,8 @@ for target_fx = 2:nTp
         else, xlabel('Warning: Volume is a Confounder'); end
         
         subplot(1, 3, 2);
-        sd_fx1  = adc_sd(valid_pts, 1, 1);
-        sd_fxN  = adc_sd(valid_pts, target_fx, 1);
+        sd_fx1  = adc_sd(valid_pts, 1, dtype);
+        sd_fxN  = adc_sd(valid_pts, target_fx, dtype);
         sd_delta = sd_fxN - sd_fx1;
         
         boxplot(sd_delta(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
