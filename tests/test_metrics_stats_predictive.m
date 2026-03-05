@@ -90,7 +90,7 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
                 m_total_time(m_lf == 0) + randi([5, 30], sum(m_lf == 0), 1);
 
             % adc_sd: used only when n_sig > 0; provide a valid 3-D array anyway
-            adc_sd = rand(n, nTp, 1) * 0.5e-3;
+            adc_sd = rand(n, nTp, 3) * 0.5e-3;
             m_gtv_vol = rand(n, nTp) * 50 + 5;
 
             args = {valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, ...
