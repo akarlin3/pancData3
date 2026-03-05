@@ -420,7 +420,10 @@ for target_fx = 2:nTp
     end
     
     times_km = m_total_time;
-    times_km(m_lf==0) = m_total_follow_up_time(m_lf==0);
+    % Censored (lf==0) and competing risk (lf==2) patients use follow-up
+    % time, consistent with the CSH approach in metrics_survival.m.
+    cens_or_cr = (m_lf == 0 | m_lf == 2) & ~isnan(m_total_follow_up_time);
+    times_km(cens_or_cr) = m_total_follow_up_time(cens_or_cr);
     events_km = m_lf;
     
     times_km = times_km(valid_pts);
