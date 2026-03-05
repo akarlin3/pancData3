@@ -265,7 +265,9 @@ for j=1:n_patients_metrics
                 % NOTE: KS-test p-values are liberal because within-patient
                 % voxels are spatially autocorrelated (violates independence).
                 % Treat as descriptive, not inferential.
-                if ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
+                % Skip k==1: adc_vec and adc_baseline are the same data,
+                % so the KS test trivially returns stat=0, p=1.
+                if k > 1 && ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
                         && any(~isnan(adc_vec)) && any(~isnan(adc_baseline))
                     % Remove NaN before kstest2 (required for Octave compatibility)
                     adc_vec_ks = adc_vec(~isnan(adc_vec));
@@ -346,7 +348,8 @@ for j=1:n_patients_metrics
                 end
                 d_histograms(j,k,:,dwi_type) = p1;
                 % NOTE: KS-test p-values are liberal (see ADC comment above).
-                if ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
+                % Skip k==1: d_vec and d_baseline are the same data.
+                if k > 1 && ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
                         && any(~isnan(d_vec)) && any(~isnan(d_baseline))
                     % Remove NaN before kstest2 (consistent with ADC path)
                     d_vec_ks = d_vec(~isnan(d_vec));

@@ -325,10 +325,29 @@ try
     is_censored_null = (event_td_csh == 0);
     w_temp_null = warning('off', 'all');
     cleanupObj = onCleanup(@() warning(w_temp_null));
-    [~, logl_null_td] = coxphfit(zeros(size(X_td_global,1),1), [t_start_td, t_stop_td], ...
-        'Censoring', is_censored_null, 'Ties', 'breslow', ...
-        'Frequency', ipcw_freq, ...
-        'Options', statset('MaxIter', 100));
+    % Compute null partial log-likelihood directly from Breslow's formula.
+    % The zero-covariate coxphfit approach adds numerical noise because
+    % the solver iterates on a dummy beta that should be exactly zero.
+    % With no covariates, the partial log-likelihood (counting-process
+    % Breslow) reduces to:  sum_events [ -log(sum_at_risk w_j) ]
+    % where the sum is over distinct failure times.
+    t_null = t_stop_td;
+    ev_null = ~is_censored_null;
+    w_null  = ipcw_freq;
+    unique_fail = unique(t_null(ev_null));
+    logl_null_td = 0;
+    for uf_i = 1:length(unique_fail)
+        tf = unique_fail(uf_i);
+        % Events at this time
+        ev_at_t = (t_null == tf) & ev_null;
+        d_events = sum(w_null(ev_at_t));
+        % Risk set: still at risk at time tf (entered before tf, not yet exited)
+        at_risk = (t_start_td < tf) & (t_stop_td >= tf);
+        R_t = sum(w_null(at_risk));
+        if R_t > 0
+            logl_null_td = logl_null_td - d_events * log(R_t);
+        end
+    end
     LRT_stat = 2 * (logl_td - logl_null_td);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
     LRT_p    = 1 - chi2cdf(LRT_stat, LRT_df);
