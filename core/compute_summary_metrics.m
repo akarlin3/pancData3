@@ -71,18 +71,32 @@ else
 end
 summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_prefix '.mat']);
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
+    checkpoint_loaded = false;
     if exist(summary_metrics_file, 'file')
         fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
         tmp_metrics = load(summary_metrics_file, 'summary_metrics');
-        summary_metrics = tmp_metrics.summary_metrics;
-        return;
+        checkpoint_loaded = true;
     else
         fallback_metrics_file = fullfile(config_struct.dataloc, 'summary_metrics.mat');
         if exist(fallback_metrics_file, 'file')
             fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
             tmp_metrics = load(fallback_metrics_file, 'summary_metrics');
-            summary_metrics = tmp_metrics.summary_metrics;
+            checkpoint_loaded = true;
+        end
+    end
+    if checkpoint_loaded
+        % Validate checkpoint dimensions match current cohort before using
+        nPat_expected = length(id_list);
+        nRpt_expected = size(data_vectors_gtvp, 3);
+        sm = tmp_metrics.summary_metrics;
+        dims_ok = isfield(sm, 'adc_mean_rpt') && ...
+                  size(sm.adc_mean_rpt, 1) == nPat_expected && ...
+                  size(sm.adc_mean_rpt, 2) == nRpt_expected;
+        if dims_ok
+            summary_metrics = sm;
             return;
+        else
+            fprintf('  [CHECKPOINT] Stale checkpoint (dimension mismatch). Recomputing...\n');
         end
     end
 end
