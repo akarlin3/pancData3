@@ -416,7 +416,7 @@ for target_fx = 2:nTp
     % survival differences.
     valid_oof = ~isnan(risk_scores_oof);
     oof_median = median(risk_scores_oof(valid_oof));
-    is_high_risk_oof = false(size(risk_scores_oof));
+    is_high_risk_oof = zeros(size(risk_scores_oof));
     is_high_risk_oof(valid_oof) = risk_scores_oof(valid_oof) > oof_median;
     % Patients with NaN risk scores (failed LOOCV folds) are excluded from
     % stratification rather than silently assigned to the low-risk group.
