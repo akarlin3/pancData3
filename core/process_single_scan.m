@@ -351,7 +351,7 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         dncnn_maps.adc_map_dncnn   = adc_map_dncnn;
     end
 
-    % IVIMnet maps struct (already rotated at load time, lines 182-184)
+    % IVIMnet maps struct (already rotated at load time, lines 214-216)
     ivimnet_maps = struct();
     if haveivimnet
         ivimnet_maps.D_ivimnet     = D_ivimnet;

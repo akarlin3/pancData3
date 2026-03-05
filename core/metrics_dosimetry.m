@@ -101,6 +101,29 @@ for j = 1:n_pat_dosimetry
 
                     if ~isempty(gtv_mask_3d) && sum(gtv_mask_3d(:) == 1) == length(adc_vec)
                         has_3d = true;
+                    elseif ~isempty(gtv_mask_3d) && k > 1
+                        % Native fraction mask doesn't match vector length.
+                        % When DIR warping is active, vectors are in Fx1 space
+                        % but gtv_locations{j_orig, k, 1} points to the native
+                        % fraction mask. Fall back to the Fx1 reference mask.
+                        fx1_mat = gtv_locations{j_orig, 1, 1};
+                        if ~isempty(fx1_mat)
+                            fx1_path_parts = strsplit(fx1_mat, {'/', '\'});
+                            fx1_mat = fullfile(fx1_path_parts{:});
+                            if isunix && ~startsWith(fx1_mat, filesep) && isempty(fx1_path_parts{1})
+                                fx1_mat = [filesep fx1_mat];
+                            end
+                            if exist(fx1_mat, 'file')
+                                fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                                if ~isempty(fx1_mask_3d) && sum(fx1_mask_3d(:) == 1) == length(adc_vec)
+                                    gtv_mask_3d = fx1_mask_3d;
+                                    has_3d = true;
+                                    warning('metrics_dosimetry:fx1MaskFallback', ...
+                                        'Patient %s Fx%d: native mask size mismatch (%d vs %d voxels). Using Fx1 reference mask for 3D sub-volume cleanup.', ...
+                                        m_id_list{j}, k, sum(last_gtv_mask_3d(:) == 1), length(adc_vec));
+                                end
+                            end
+                        end
                     end
                 end
             end
