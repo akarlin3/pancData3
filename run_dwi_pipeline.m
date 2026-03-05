@@ -114,7 +114,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 set(0, 'DefaultFigureVisible', 'off');
                 pf_results = run(pf_suite);
                 set(0, 'DefaultFigureVisible', old_fig_vis);
-                diary off;
+                if ~isempty(master_output_folder) && exist(master_output_folder, 'dir')
+                    diary off;
+                end
                 if any([pf_results.Failed])
                     error('PreFlight:TestFailure', '%d test(s) failed.', sum([pf_results.Failed]));
                 end
@@ -122,7 +124,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 tests_passed_timestamp = now;
                 fprintf('      ✅ %d unit tests passed.\n', numel(pf_results));
             catch ME
-                diary off;
+                if ~isempty(master_output_folder) && exist(master_output_folder, 'dir')
+                    diary off;
+                end
                 tests_passed_this_session = false;
                 fprintf('❌ Test suite failed: %s\n', ME.message);
                 error('PipelineAborted:TestFailure', ...
@@ -558,6 +562,17 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
     diary(master_diary_file);  % restart master diary after metrics_dosimetry
     lastwarn('');  % reset warning tracker between steps
+
+    % Append dosimetry sub-volume metrics to metric_sets for univariate
+    % analysis.  metrics_baseline creates sets 1-2 (absolute + percent
+    % change); sets 3-4 (D95 + V50 dose coverage) require dosimetry
+    % results which are only available after metrics_dosimetry completes.
+    if exist('d95_adc_sub', 'var') && exist('metric_sets', 'var')
+        metric_sets{3} = {m_d95_gtvp, d95_adc_sub, d95_d_sub, d95_f_sub, d95_dstar_sub};
+        metric_sets{4} = {m_v50gy_gtvp, v50_adc_sub, v50_d_sub, v50_f_sub, v50_dstar_sub};
+        set_names{3} = {'D95 GTVp (whole)', 'D95 Sub(ADC)', 'D95 Sub(D)', 'D95 Sub(f)', 'D95 Sub(D*)'};
+        set_names{4} = {'V50 GTVp (whole)', 'V50 Sub(ADC)', 'V50 Sub(D)', 'V50 Sub(f)', 'V50 Sub(D*)'};
+    end
 
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
