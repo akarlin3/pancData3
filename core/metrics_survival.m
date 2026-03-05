@@ -183,25 +183,48 @@ if has_admin_cens
         b_cens = zeros(td_n_feat, 1);
         b_cens(keep_ipcw) = b_cens_short;
 
-        % Compute survival function of censoring (Kaplan-Meier-like via Cox)
+        % Compute cumulative censoring survival function G(t|X) via Cox.
         % Use the censoring model coefficients (fit on non-competing subset)
         % to compute censoring probabilities for ALL rows.
+        %
+        % IMPORTANT: G_hat must be cumulative across each patient's
+        % intervals so that the IPCW weight for interval (s, t] uses
+        % G(s|X) — the probability of NOT being censored up to time s.
+        % A per-interval (non-cumulative) G_hat would underweight later
+        % intervals by ignoring censoring hazard from earlier periods.
         lp_cens = X_td_global * b_cens;           % linear predictor (all rows)
         % Baseline hazard estimated from the non-competing subset only
         lp_cens_sub = X_cens_subset * b_cens;
         t_start_sub = t_start_td(not_competing);
         t_stop_sub  = t_stop_td(not_competing);
-        uniq_times = unique(t_stop_sub);
-        G_hat = ones(size(t_stop_td));             % P(C > t | X)
+        uniq_times = sort(unique(t_stop_sub));
+
+        % Step 1: Compute cumulative baseline hazard H0(t) at each
+        % unique censoring event time.
+        h0_increments = zeros(length(uniq_times), 1);
         for ui = 1:length(uniq_times)
             t_u = uniq_times(ui);
             at_risk_sub  = (t_start_sub < t_u) & (t_stop_sub >= t_u);
             events_u_sub = at_risk_sub & (t_stop_sub == t_u) & (is_admin_cens_subset == 1);
             if any(events_u_sub) && any(at_risk_sub)
-                h0 = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
-                at_risk_full = (t_start_td < t_u) & (t_stop_td >= t_u);
-                G_hat(at_risk_full) = G_hat(at_risk_full) .* exp(-h0 * exp(lp_cens(at_risk_full)));
+                h0_increments(ui) = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
             end
+        end
+        H0_cumulative = cumsum(h0_increments);
+
+        % Step 2: For each interval, evaluate G(t_start | X) using the
+        % cumulative baseline hazard up to the interval's start time.
+        % This ensures later intervals inherit censoring from all
+        % earlier time periods for that patient.
+        G_hat = ones(size(t_stop_td));             % P(C > t_start | X)
+        for ri = 1:length(t_stop_td)
+            ts = t_start_td(ri);
+            % Find cumulative hazard at the latest event time <= ts
+            idx = find(uniq_times <= ts, 1, 'last');
+            if ~isempty(idx)
+                G_hat(ri) = exp(-H0_cumulative(idx) * exp(lp_cens(ri)));
+            end
+            % else: no censoring events before ts → G_hat remains 1
         end
 
         % Stabilised weights: G_marginal / G_conditional (truncated)
@@ -374,16 +397,23 @@ for hl_idx = 1:length(half_life_grid)
                     lp_cens_hl_sub = X_cens_hl * b_cens_hl_full;
                     t_start_hl_sub = pnl_tstart(not_comp_hl);
                     t_stop_hl_sub = pnl_tstop(not_comp_hl);
-                    uniq_t_hl = unique(t_stop_hl_sub);
-                    G_hl = ones(size(pnl_tstop));
+                    uniq_t_hl = sort(unique(t_stop_hl_sub));
+                    % Cumulative baseline hazard for censoring model
+                    h0_inc_hl = zeros(length(uniq_t_hl), 1);
                     for ui_hl = 1:length(uniq_t_hl)
                         t_u_hl = uniq_t_hl(ui_hl);
                         ar_sub = (t_start_hl_sub < t_u_hl) & (t_stop_hl_sub >= t_u_hl);
                         ev_sub = ar_sub & (t_stop_hl_sub == t_u_hl) & (is_cens_hl == 1);
                         if any(ev_sub) && any(ar_sub)
-                            h0_hl = sum(ev_sub) / sum(exp(lp_cens_hl_sub(ar_sub)));
-                            ar_full = (pnl_tstart < t_u_hl) & (pnl_tstop >= t_u_hl);
-                            G_hl(ar_full) = G_hl(ar_full) .* exp(-h0_hl * exp(lp_cens_hl(ar_full)));
+                            h0_inc_hl(ui_hl) = sum(ev_sub) / sum(exp(lp_cens_hl_sub(ar_sub)));
+                        end
+                    end
+                    H0_cum_hl = cumsum(h0_inc_hl);
+                    G_hl = ones(size(pnl_tstop));
+                    for ri_hl = 1:length(pnl_tstop)
+                        idx_hl = find(uniq_t_hl <= pnl_tstart(ri_hl), 1, 'last');
+                        if ~isempty(idx_hl)
+                            G_hl(ri_hl) = exp(-H0_cum_hl(idx_hl) * exp(lp_cens_hl(ri_hl)));
                         end
                     end
                     G_hl = max(G_hl, 0.05);
