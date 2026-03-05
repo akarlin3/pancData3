@@ -15,6 +15,10 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
 %   None. Generates a histogram or boxplot visualization.
 %
 
+    % Ensure column vectors to prevent implicit expansion issues
+    vals = vals(:);
+    lf_group = lf_group(:);
+
     % Remove NaN entries and competing risk patients (lf==2) for accurate
     % processing.  Competing risk patients are excluded because boxplot
     % labels assume exactly 2 groups (LC/LF), and ranksum requires exactly

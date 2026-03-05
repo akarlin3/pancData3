@@ -208,7 +208,7 @@ for j=1:n_patients_metrics
                     adc_sd(j,k,dwi_type) = nanstd(adc_vec);
                 end
                 
-                adc_vec_sub = adc_vec(adc_vec<adc_thresh);
+                adc_vec_sub = adc_vec(adc_vec<=adc_thresh);
                 adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
 
                 adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
@@ -463,7 +463,7 @@ for j=1:n_patients_metrics
                         if n_finite_rpt > 0
                             fx_corrupted_rpt(j,rpi,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_rpt;
                         end
-                        adc_vec_sub = adc_vec(adc_vec<adc_thresh);
+                        adc_vec_sub = adc_vec(adc_vec<=adc_thresh);
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;
                         else
