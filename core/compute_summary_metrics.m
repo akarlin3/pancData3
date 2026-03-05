@@ -440,6 +440,13 @@ for j=1:n_patients_metrics
                             dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
                     end
 
+                    % Apply the same failed-fit filter used in the main
+                    % metrics path (lines 297-299) so that repeatability
+                    % wCV for f and D* is not biased by spurious zeros.
+                    failed_fit_rpt = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
+                    f_vec(failed_fit_rpt) = nan;
+                    dstar_vec(failed_fit_rpt) = nan;
+
                     if ~isempty(adc_vec)
                         rp_count = rp_count+1;
                         if exist('OCTAVE_VERSION', 'builtin')

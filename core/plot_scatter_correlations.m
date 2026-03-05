@@ -75,19 +75,34 @@ for di = 1:n_diff_metrics
         warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         hold off;
 
-        % Compute Spearman rank correlation excluding competing-risk patients
-        if exist('OCTAVE_VERSION', 'builtin')
-            r_sp = spearman(x_vals(clean), y_vals(clean));
-            n_clean = sum(clean);
-            t_stat = r_sp * sqrt((n_clean - 2) / (1 - r_sp^2 + eps));
-            p_sp = 2 * (1 - tcdf(abs(t_stat), n_clean - 2));
-        else
-            [r_sp, p_sp] = corr(x_vals(clean), y_vals(clean), 'Type', 'Spearman');
+        % Compute per-group Spearman correlations to match the per-group
+        % trend lines and avoid Simpson's paradox inflating pooled r_s.
+        r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
+        if sum(lc_mask) >= 3
+            if exist('OCTAVE_VERSION', 'builtin')
+                r_lc = spearman(x_vals(lc_mask), y_vals(lc_mask));
+                n_lc = sum(lc_mask);
+                t_lc = r_lc * sqrt((n_lc - 2) / (1 - r_lc^2 + eps));
+                p_lc = 2 * (1 - tcdf(abs(t_lc), n_lc - 2));
+            else
+                [r_lc, p_lc] = corr(x_vals(lc_mask), y_vals(lc_mask), 'Type', 'Spearman');
+            end
+        end
+        if sum(lf_mask) >= 3
+            if exist('OCTAVE_VERSION', 'builtin')
+                r_lf = spearman(x_vals(lf_mask), y_vals(lf_mask));
+                n_lf = sum(lf_mask);
+                t_lf = r_lf * sqrt((n_lf - 2) / (1 - r_lf^2 + eps));
+                p_lf = 2 * (1 - tcdf(abs(t_lf), n_lf - 2));
+            else
+                [r_lf, p_lf] = corr(x_vals(lf_mask), y_vals(lf_mask), 'Type', 'Spearman');
+            end
         end
 
         xlabel(x_label);
         ylabel([diff_names{di} ' (' diff_units{di} ')']);
-        title(sprintf('%s vs Dose\nr_s=%.2f, %s', diff_names{di}, r_sp, format_p_value(p_sp)), ...
+        title(sprintf('%s vs Dose\nLC r_s=%.2f %s | LF r_s=%.2f %s', ...
+            diff_names{di}, r_lc, format_p_value(p_lc), r_lf, format_p_value(p_lf)), ...
             'FontSize', 10);
         if exist('OCTAVE_VERSION', 'builtin')
             legend('LC', 'LF', 'Linear fit', 'location', 'best');
