@@ -326,12 +326,16 @@ for target_fx = 2:nTp
     % AFTER the LOOCV loop completes, avoiding the circular per-fold median.
     valid_oof = ~isnan(risk_scores_oof);
     oof_median = median(risk_scores_oof(valid_oof));
-    is_high_risk_oof = risk_scores_oof > oof_median;
+    is_high_risk_oof = false(size(risk_scores_oof));
+    is_high_risk_oof(valid_oof) = risk_scores_oof(valid_oof) > oof_median;
+    % Patients with NaN risk scores (failed LOOCV folds) are excluded from
+    % stratification rather than silently assigned to the low-risk group.
+    is_high_risk_oof(~valid_oof) = NaN;
 
     risk_scores_all_target = nan(sum(valid_pts), 1);
     risk_scores_all_target(impute_mask) = risk_scores_oof;
 
-    is_high_risk_target = false(sum(valid_pts), 1);
+    is_high_risk_target = nan(sum(valid_pts), 1);
     is_high_risk_target(impute_mask) = is_high_risk_oof;
 
     all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 1-4: baseline covariates

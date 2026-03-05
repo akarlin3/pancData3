@@ -55,22 +55,25 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'cause_of_death_column')
             config_struct.cause_of_death_column = 'CauseOfDeath';
         end
-        if isfield(config_struct, 'dwi_type')
-            switch lower(config_struct.dwi_type)
-                case 'standard', config_struct.dwi_types_to_run = 1;
-                case 'dncnn', config_struct.dwi_types_to_run = 2;
-                case 'ivimnet', config_struct.dwi_types_to_run = 3;
-                otherwise
-                    error('parse_config:unknownDwiType', ...
-                        'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
-                        config_struct.dwi_type);
-            end
-        else
-            config_struct.dwi_types_to_run = 1:3;
-        end
-
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
+    end
+
+    % Validate dwi_type AFTER the JSON parsing try/catch so that an
+    % unrecognized type produces a specific error rather than being
+    % swallowed by the generic "Failed to parse JSON" catch block.
+    if isfield(config_struct, 'dwi_type')
+        switch lower(config_struct.dwi_type)
+            case 'standard', config_struct.dwi_types_to_run = 1;
+            case 'dncnn', config_struct.dwi_types_to_run = 2;
+            case 'ivimnet', config_struct.dwi_types_to_run = 3;
+            otherwise
+                error('parse_config:unknownDwiType', ...
+                    'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
+                    config_struct.dwi_type);
+        end
+    else
+        config_struct.dwi_types_to_run = 1:3;
     end
 end

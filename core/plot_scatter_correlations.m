@@ -100,7 +100,11 @@ for di = 1:n_diff_metrics
         end
 
         xlabel(x_label);
-        ylabel([diff_names{di} ' (' diff_units{di} ')']);
+        if isempty(diff_units{di})
+            ylabel(diff_names{di});
+        else
+            ylabel([diff_names{di} ' (' diff_units{di} ')']);
+        end
         title(sprintf('%s vs Dose\nLC r_s=%.2f %s | LF r_s=%.2f %s', ...
             diff_names{di}, r_lc, format_p_value(p_lc), r_lf, format_p_value(p_lf)), ...
             'FontSize', 10);

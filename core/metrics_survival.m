@@ -291,14 +291,9 @@ try
 
     % Correct variance inflation from the Frequency workaround.
     % coxphfit's Frequency parameter treats each "replicate" as an
-    % independent observation, inflating effective N by ipcw_scale and
-    % deflating SEs by sqrt(ipcw_scale).  Rescale SEs and recompute
+    % independent observation, inflating effective N by ~ipcw_scale and
+    % deflating SEs by ~sqrt(ipcw_scale).  Rescale SEs and recompute
     % p-values to recover correct inference.
-    % CAVEAT: This sqrt(N) rescaling assumes the Cox information matrix
-    % scales linearly with N.  In practice the partial likelihood
-    % information depends on the risk-set structure, so this is an
-    % approximation.  A custom weighted partial likelihood (or sandwich
-    % variance estimator) would be more rigorous.
     % Use actual mean frequency weight (accounts for rounding/truncation)
     % rather than the nominal ipcw_scale constant.
     eff_ipcw_scale = mean(ipcw_freq);
@@ -335,38 +330,51 @@ warning('on', 'stats:coxphfit:FitWarning');
 warning('on', 'stats:coxphfit:IterationLimit');
 
 % ---- Likelihood-ratio test vs. null model (no covariates) -----------
+% Compute both log-likelihoods manually using the original (unscaled)
+% IPCW weights to avoid the inflation/deflation approximation inherent
+% in dividing by mean(ipcw_freq).  The Frequency workaround inflates
+% log-likelihoods non-uniformly across risk sets, so a scalar deflation
+% factor can produce incorrect chi-squared statistics.
 try
     is_censored_null = (event_td_csh == 0);
     w_temp_null = warning('off', 'all');
     cleanupObj = onCleanup(@() warning(w_temp_null));
-    % Compute null partial log-likelihood directly from Breslow's formula.
-    % The zero-covariate coxphfit approach adds numerical noise because
-    % the solver iterates on a dummy beta that should be exactly zero.
-    % With no covariates, the partial log-likelihood (counting-process
-    % Breslow) reduces to:  sum_events [ -log(sum_at_risk w_j) ]
-    % where the sum is over distinct failure times.
-    t_null = t_stop_td;
-    ev_null = ~is_censored_null;
-    w_null  = ipcw_freq;
-    unique_fail = unique(t_null(ev_null));
-    logl_null_td = 0;
+    ev_lrt = ~is_censored_null;
+    w_lrt  = ipcw_weights;  % original continuous weights, not inflated
+    unique_fail = unique(t_stop_td(ev_lrt));
+
+    % Null partial log-likelihood (no covariates):
+    %   sum_events [ w_i * ( 0 - log(sum_{j in R_i} w_j) ) ]
+    logl_null_lrt = 0;
     for uf_i = 1:length(unique_fail)
         tf = unique_fail(uf_i);
-        % Events at this time
-        ev_at_t = (t_null == tf) & ev_null;
-        d_events = sum(w_null(ev_at_t));
-        % Risk set: still at risk at time tf (entered before tf, not yet exited)
+        ev_at_t = (t_stop_td == tf) & ev_lrt;
         at_risk = (t_start_td < tf) & (t_stop_td >= tf);
-        R_t = sum(w_null(at_risk));
+        R_t = sum(w_lrt(at_risk));
         if R_t > 0
-            logl_null_td = logl_null_td - d_events * log(R_t);
+            logl_null_lrt = logl_null_lrt - sum(w_lrt(ev_at_t)) * log(R_t);
         end
     end
-    % Deflate by eff_ipcw_scale: the Frequency workaround inflates both
-    % log-likelihoods by ~mean(ipcw_freq), so the raw LRT is ~100x too large.
-    LRT_stat = 2 * (logl_td - logl_null_td) / eff_ipcw_scale;
+
+    % Model partial log-likelihood using fitted coefficients b_td_short:
+    %   sum_events [ w_i * ( X_i*b - log(sum_{j in R_i} w_j*exp(X_j*b)) ) ]
+    eta = X_td_clean * b_td_short;  % linear predictor
+    logl_model_lrt = 0;
+    for uf_i = 1:length(unique_fail)
+        tf = unique_fail(uf_i);
+        ev_at_t = (t_stop_td == tf) & ev_lrt;
+        at_risk = (t_start_td < tf) & (t_stop_td >= tf);
+        R_t = sum(w_lrt(at_risk) .* exp(eta(at_risk)));
+        if R_t > 0
+            logl_model_lrt = logl_model_lrt + ...
+                sum(w_lrt(ev_at_t) .* eta(ev_at_t)) - ...
+                sum(w_lrt(ev_at_t)) * log(R_t);
+        end
+    end
+
+    LRT_stat = 2 * (logl_model_lrt - logl_null_lrt);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
-    LRT_p    = 1 - chi2cdf(LRT_stat, LRT_df);
+    LRT_p    = 1 - chi2cdf(max(0, LRT_stat), LRT_df);
 catch
     LRT_stat = NaN; LRT_p = NaN;
 end
