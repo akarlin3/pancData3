@@ -89,7 +89,7 @@ td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 % NOTE: Scaling is deferred until after landmark subsetting (below) to
 % prevent pre-landmark covariate distributions from contaminating the
 % statistics used to standardise the post-landmark analysis set.
-td_ok = (sum(event_td_def) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
+td_ok = (sum(event_td_def == 1) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
 half_life_grid = [3, 6, 12, 18, 24];
 n_halflife = length(half_life_grid);
@@ -102,7 +102,7 @@ for hl_idx = 1:n_halflife
 end
 
 if ~td_ok
-    fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td_def));
+    fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td_def == 1));
     if ~isempty(output_folder), diary off; end
     return;
 end
@@ -132,12 +132,12 @@ if any(lm_keep)
     pat_id_td   = pat_id_td(lm_keep);
     frac_td     = frac_td(lm_keep);
     fprintf('  Landmark at day %d: %d → %d intervals (%d patients, %d events)\n', ...
-        landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td > 0));
+        landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td == 1));
 
     % Re-validate event count after landmark subsetting — the pre-landmark
     % check (line 76) may have passed, but removing early intervals can
     % reduce event count below the minimum for reliable Cox estimation.
-    n_events_post_lm = sum(event_td > 0);
+    n_events_post_lm = sum(event_td == 1);
     if n_events_post_lm < 3 || size(X_td, 1) <= td_n_feat + 1
         fprintf('  Insufficient events (%d) or intervals after landmark subsetting for Cox model.\n', n_events_post_lm);
         if ~isempty(output_folder), diary off; end
