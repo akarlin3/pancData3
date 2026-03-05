@@ -175,11 +175,13 @@ fprintf('\n  2a. Fraction-level missingness (NaN in summary arrays):\n');
 fprintf('  %-12s  %s\n', 'Metric', strjoin(fx_labels,'   '));
 
 % Evaluate missingness using the active DWI type from config, not hardcoded 1.
-if isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
+if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
     dtype_miss = config_struct.dwi_types_to_run(1);  % scalar: use first type
 else
     dtype_miss = 1;
 end
+% Clamp to available dimension to avoid out-of-bounds indexing
+dtype_miss = min(dtype_miss, size(adc_mean, 3));
 summary_arrs  = {adc_mean(:,:,dtype_miss), d_mean(:,:,dtype_miss), f_mean(:,:,dtype_miss), dstar_mean(:,:,dtype_miss)};
 summary_names = {'ADC_mean', 'D_mean', 'f_mean', 'Dstar_mean'};
 
