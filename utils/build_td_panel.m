@@ -17,7 +17,10 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %   nTp          - number of timepoints (columns in feat_arrays).
 %   scan_days    - [1 × nTp] approximate day of each scan relative to Fx1.
 %                  Default: [0 5 10 15 20 90] (Fx1 through Post-RT).
-%   decay_half_life_months - [scalar] biological half-life for washout (months).
+%   decay_half_life_months - [scalar or 1×n_feat vector] biological half-life
+%                            for washout (months).  When a vector is provided,
+%                            each covariate uses its own half-life (e.g.,
+%                            faster decay for perfusion parameters).
 %                            Default: 18.
 %
 %   Outputs
@@ -71,16 +74,22 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     pat_buf     = zeros(max_rows, 1);
     frac_buf    = nan(max_rows, 1);
 
-    % Exponential decay imputation parameters
-    if decay_half_life_months <= 0
-        warning('build_td_panel:invalidHalfLife', ...
-            'decay_half_life_months = %.2f is not positive. Decay imputation will be disabled.', ...
-            decay_half_life_months);
+    % Exponential decay imputation parameters.
+    % Support per-feature half-lives: expand scalar to vector if needed.
+    if isscalar(decay_half_life_months)
+        decay_half_life_months = repmat(decay_half_life_months, 1, n_feat);
     end
-    use_decay = (decay_half_life_months > 0);
+    if length(decay_half_life_months) ~= n_feat
+        warning('build_td_panel:halfLifeLength', ...
+            'decay_half_life_months has %d elements but %d features. Using first element for all.', ...
+            length(decay_half_life_months), n_feat);
+        decay_half_life_months = repmat(decay_half_life_months(1), 1, n_feat);
+    end
+    use_decay = any(decay_half_life_months > 0);
     if use_decay
         hl_days      = decay_half_life_months * 30.44;
-        lambda_decay = log(2) / hl_days;
+        lambda_decay = log(2) ./ hl_days;
+        lambda_decay(decay_half_life_months <= 0) = 0;  % disable decay for non-positive half-lives
     end
 
     % Find valid patients (T_j and lf_j not NaN)
@@ -98,6 +107,7 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         % decay faster than the intended biological half-life.
         orig_X = nan(1, n_feat);   % last observed (non-NaN) value per feature
         orig_t = zeros(1, n_feat); % day of that observation
+        baseline_X = nan(1, n_feat);  % patient's baseline (tp=1) values for decay target
 
         for tp = 1:nTp
             day_tp = scan_days(tp);
@@ -118,9 +128,16 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
             % which features were genuinely observed at this timepoint.
             cov_row_raw = cov_row;
 
+            % Record baseline values at the first timepoint for use as
+            % the decay asymptote.
+            if tp == 1
+                baseline_X = cov_row;
+            end
+
             % Apply exponential decay imputation for missing covariates.
-            % Decay from the *original* observed value and its timestamp to
-            % avoid compounding decay across consecutive missing scans.
+            % Decay from the *original* observed value toward the patient's
+            % baseline (not zero) to avoid artificially low imputed values
+            % for parameters with physiological floor values (ADC, D).
             if use_decay && any(isnan(cov_row))
                 decay_mask = isnan(cov_row) & ~isnan(orig_X);
                 dt_per_feat = day_tp - orig_t;
@@ -129,7 +146,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                         'Negative time delta detected (patient %d, tp %d). Clamping to zero.', j, tp);
                     dt_per_feat = max(dt_per_feat, 0);
                 end
-                cov_row(decay_mask) = orig_X(decay_mask) .* exp(-lambda_decay * dt_per_feat(decay_mask));
+                % Decay toward baseline: baseline + (last_obs - baseline) * exp(-lambda * dt)
+                bl = baseline_X(decay_mask);
+                bl(isnan(bl)) = 0;  % fall back to zero if baseline is also missing
+                decay_factor = exp(-lambda_decay(decay_mask) .* dt_per_feat(decay_mask));
+                cov_row(decay_mask) = bl + (orig_X(decay_mask) - bl) .* decay_factor;
             end
 
             if all(isnan(cov_row))

@@ -1,4 +1,4 @@
-function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder)
+function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype)
 % PLOT_PARAMETER_MAPS — "Parameter Maps overlaid on Anatomy"
 %
 %  For each patient with Fx1 data available, load the DWI volume, compute
@@ -8,6 +8,10 @@ function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_f
 %    (b) Full-slice ADC map with GTV contour
 %    (c) ADC overlaid on anatomy (semi-transparent inside GTV only)
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
+
+if nargin < 6 || isempty(dtype)
+    dtype = 1;  % default to Standard
+end
 
 fprintf('\n--- 1. Parameter Maps overlaid on Anatomy ---\n');
 
@@ -29,7 +33,7 @@ for j = 1:nPat
     if j > size(data_vectors_gtvp, 1)
         continue;
     end
-    s = data_vectors_gtvp(j, 1, 1);
+    s = data_vectors_gtvp(j, 1, min(dtype, size(data_vectors_gtvp, 3)));
     if isempty(s.adc_vector), continue; end
     basefolder = fullfile(dataloc, id_list{j});
     nii_path   = fullfile(basefolder, 'nii');
@@ -50,7 +54,7 @@ for j = 1:nPat
         continue;
     end
     % Skip patients without extracted ADC data at Fx1
-    s = data_vectors_gtvp(j, 1, 1);
+    s = data_vectors_gtvp(j, 1, min(dtype, size(data_vectors_gtvp, 3)));
     if isempty(s.adc_vector)
         diag_empty_adc = diag_empty_adc + 1;
         fprintf('  💡 Pt %d (%s): empty adc_vector at Fx1 — skipping\n', j, id_list{j});
@@ -83,9 +87,13 @@ for j = 1:nPat
     fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
     bvals = bvals(:);
 
-    % Validate b-values against expected study protocol
+    % Validate b-values against expected study protocol (tolerance-based
+    % comparison to handle floating-point representation differences)
     expected_bvals = [0; 30; 150; 550];
-    if size(dwi_img, 4) ~= length(bvals) || ~isequal(sort(bvals), expected_bvals)
+    bval_tol = 1;  % tolerance of 1 s/mm^2
+    if size(dwi_img, 4) ~= length(bvals) || ...
+       numel(bvals) ~= numel(expected_bvals) || ...
+       any(abs(sort(bvals) - expected_bvals) > bval_tol)
         diag_bad_bval = diag_bad_bval + 1;
         fprintf('  💡 Pt %d (%s): protocol deviation — b-values %s (expected %s)\n', ...
             j, id_list{j}, mat2str(bvals'), mat2str(expected_bvals'));

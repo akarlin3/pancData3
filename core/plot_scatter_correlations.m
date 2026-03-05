@@ -37,16 +37,18 @@ for di = 1:n_diff_metrics
 
         subplot(2, numel(diff_metrics), plot_idx);
 
-        % Identify patients with both dose and diffusion data available
-        clean = ~isnan(x_vals) & ~isnan(y_vals);
+        % Ensure lf_group is a column vector to match clean, x_vals, and y_vals
+        lf_group_col = lf_group(:);
+
+        % Exclude competing-risk patients (lf==2) from scatter and statistics
+        % to prevent Simpson's paradox from masking group-specific trends.
+        eligible = (lf_group_col <= 1);
+        clean = eligible & ~isnan(x_vals) & ~isnan(y_vals);
         if sum(clean) < 3
             title([diff_names{di} ' — insufficient data']);
             plot_idx = plot_idx + 1;
             continue;
         end
-
-        % Ensure lf_group is a column vector to match clean, x_vals, and y_vals
-        lf_group_col = lf_group(:);
 
         % Plot LC (blue) and LF (red) points with black edge
         scatter(x_vals(clean & lf_group_col==0), y_vals(clean & lf_group_col==0), ...
@@ -54,16 +56,25 @@ for di = 1:n_diff_metrics
         scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
             50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
-        % Overlay a first-order (linear) polynomial fit
+        % Overlay per-group linear trend lines to avoid pooled Simpson's paradox
         warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
-        p_fit = polyfit(x_vals(clean), y_vals(clean), 1);
-        warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         x_line = linspace(min(x_vals(clean)), max(x_vals(clean)), 50);
-        plot(x_line, polyval(p_fit, x_line), 'k--', 'LineWidth', 1.5, ...
-            'DisplayName', 'Linear fit');
+        lc_mask = clean & lf_group_col==0;
+        lf_mask = clean & lf_group_col==1;
+        if sum(lc_mask) >= 2
+            p_fit_lc = polyfit(x_vals(lc_mask), y_vals(lc_mask), 1);
+            plot(x_line, polyval(p_fit_lc, x_line), '--', 'Color', [0 0.4470 0.7410], ...
+                'LineWidth', 1.5, 'DisplayName', 'LC trend');
+        end
+        if sum(lf_mask) >= 2
+            p_fit_lf = polyfit(x_vals(lf_mask), y_vals(lf_mask), 1);
+            plot(x_line, polyval(p_fit_lf, x_line), '--', 'Color', [0.8500 0.3250 0.0980], ...
+                'LineWidth', 1.5, 'DisplayName', 'LF trend');
+        end
+        warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         hold off;
 
-        % Compute Spearman rank correlation and annotate the title
+        % Compute Spearman rank correlation excluding competing-risk patients
         if exist('OCTAVE_VERSION', 'builtin')
             r_sp = spearman(x_vals(clean), y_vals(clean));
             n_clean = sum(clean);

@@ -81,7 +81,7 @@ fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');
 %    (c) ADC overlaid on anatomy (semi-transparent inside GTV only)
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 % -----------------------------------------------------------------------
-plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder);
+plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');

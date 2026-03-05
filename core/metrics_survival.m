@@ -114,12 +114,14 @@ X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_t
 % violates the time-dependent Cox assumption.  Landmark subsetting keeps
 % only patients still at risk after the last treatment fraction, using
 % covariates measured at or before the landmark.
-% The last element of td_scan_days is the post-treatment scan.
-% Select the last on-treatment fraction as the landmark.  This adapts
-% automatically to protocols with fewer or more than 5 fractions.
-n_on_tx = max(length(td_scan_days) - 1, 1);  % exclude post-treatment element
-landmark_idx = n_on_tx;
-landmark_day = td_scan_days(landmark_idx);  % end of RT
+% Select the landmark as the last scan before the largest inter-scan gap,
+% which marks the transition from on-treatment to post-treatment scans.
+% This is more robust than assuming the last element is always a single
+% post-treatment scan (e.g., handles protocols with multiple post-RT scans).
+scan_gaps = diff(td_scan_days);
+[~, gap_idx] = max(scan_gaps);
+landmark_idx = gap_idx;  % last on-treatment scan is before the largest gap
+landmark_day = td_scan_days(landmark_idx);
 lm_keep = (t_start_td >= landmark_day);
 if any(lm_keep)
     n_before = length(t_start_td);

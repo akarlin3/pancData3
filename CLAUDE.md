@@ -80,7 +80,7 @@ Key fields:
   "skip_to_reload": false,
   "skip_tests": false,
   "ivim_bthr": 100,
-  "adc_thresh": 0.00115,
+  "adc_thresh": 0.001,
   "dwi_type": "Standard"
 }
 ```

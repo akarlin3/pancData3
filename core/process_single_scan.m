@@ -84,7 +84,7 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     if ~isempty(ctx.dicomdoseloc) && ~isempty(ctx.dicomloc)
         if ~exist(fullfile(outloc, [dosename '.nii.gz']),'file')
             dicom_files = dir(fullfile(ctx.dicomloc, '*.dcm'));
-            b0list = cell(1);
+            b0list = cell(0, 1);
             b0count = 0;
             n_dicom_files = length(dicom_files);
             for bi = 1:n_dicom_files
@@ -107,8 +107,17 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
                 end
                 rtdosefile = fullfile(rtdose_dicom(1).folder, rtdose_dicom(1).name);
             end
-            dose_sampled = sample_rtdose_on_image(b0list,rtdosefile);
-            niftiwrite(rot90(dose_sampled,-1),fullfile(outloc, dosename),'Compressed',true);
+            if b0count > 0 && ~isempty(rtdosefile)
+                dose_sampled = sample_rtdose_on_image(b0list,rtdosefile);
+                niftiwrite(rot90(dose_sampled,-1),fullfile(outloc, dosename),'Compressed',true);
+            else
+                if b0count == 0
+                    warning('process_single_scan:noB0', 'No b=0 images found in %s. Skipping dose resampling.', ctx.dicomloc);
+                end
+                if isempty(rtdosefile)
+                    warning('process_single_scan:noDoseFile', 'No dose DICOM found in %s. Skipping dose resampling.', ctx.dicomdoseloc);
+                end
+            end
         end
     end
 
