@@ -63,7 +63,7 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testSinglePatientNoError(testCase)
-            % Edge case: only one patient. Mean = the patient's value; SEM = 0.
+            % Edge case: only one patient. Mean = the patient's value; SEM = NaN.
             nTp = 4;
             ADC_abs   = rand(1, nTp) * 2e-3;
             D_abs     = rand(1, nTp) * 1e-3;
