@@ -209,6 +209,18 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
 
             % LF field for visualize_results
             summary_metrics.lf = mod((1:nPat)', 2);
+
+            % Mock DICOM StudyDate strings (YYYYMMDD) for scan-day derivation.
+            % Dates produce scan days ~[0, 5, 10, 15, 20, 90] to avoid the
+            % immortal-time-bias warning from metrics_survival.
+            base_datenum = datenum('20240101', 'yyyymmdd');
+            mock_offsets = [0, 5, 10, 15, 20, 90];
+            summary_metrics.fx_dates = cell(nPat, nTp);
+            for pi = 1:nPat
+                for ti = 1:min(nTp, length(mock_offsets))
+                    summary_metrics.fx_dates{pi, ti} = datestr(base_datenum + mock_offsets(ti), 'yyyymmdd');
+                end
+            end
         end
     end
 

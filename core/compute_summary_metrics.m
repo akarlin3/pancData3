@@ -1,4 +1,4 @@
-function summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp)
+function summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp, fx_dates)
 % COMPUTE_SUMMARY_METRICS — Computes longitudinal summary metrics from data vectors
 % Part of the load_dwi_data.m refactoring.
 %
@@ -14,11 +14,15 @@ function summary_metrics = compute_summary_metrics(config_struct, data_vectors_g
 %   dmean_gtvp        - Array of mean dose inside GTV
 %   d95_gtvp          - Array of D95 dose metric inside GTV
 %   v50gy_gtvp        - Array of V50Gy dose metric inside GTV
+%   fx_dates          - (Optional) Cell matrix of DICOM StudyDate strings
+%                       (patients x fractions) from discover_patient_files
 %
 % Outputs:
 %   summary_metrics   - Struct containing computed mean, kurtosis, skewness,
 %                       SD, subsets, histogram features, predictability, etc.
 %
+
+if nargin < 12, fx_dates = {}; end
 
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
@@ -556,6 +560,7 @@ summary_metrics.n_rpt = n_rpt;
 summary_metrics.dmean_gtvp = dmean_gtvp;
 summary_metrics.gtv_locations = gtv_locations;
 summary_metrics.dwi_locations = dwi_locations;
+summary_metrics.fx_dates = fx_dates;
 
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
