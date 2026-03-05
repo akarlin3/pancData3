@@ -4,10 +4,10 @@ config_struct.dataloc = tempdir;
 config_struct.dwi_type_name = 'Standard';
 config_struct.skip_to_reload = true;
 config_struct.ivim_bthr = 100;
-config_struct.adc_thresh = 0.00115;
-config_struct.high_adc_thresh = 0.0015;
-config_struct.d_thresh = 0.00115;
-config_struct.f_thresh = 0.2;
+config_struct.adc_thresh = 0.001;
+config_struct.high_adc_thresh = 0.00115;
+config_struct.d_thresh = 0.001;
+config_struct.f_thresh = 0.1;
 config_struct.adc_max = 0.003;
 config_struct.min_vox_hist = 5;
 

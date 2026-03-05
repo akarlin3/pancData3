@@ -26,8 +26,8 @@ classdef test_modularity < matlab.unittest.TestCase
             testCase.ConfigStruct.skip_to_reload = true;
             testCase.ConfigStruct.use_checkpoints = true;
             % These are needed by load_dwi_data
-            testCase.ConfigStruct.adc_thresh = 0.00115;
-            testCase.ConfigStruct.high_adc_thresh = 0.001;
+            testCase.ConfigStruct.adc_thresh = 0.001;
+            testCase.ConfigStruct.high_adc_thresh = 0.00115;
             testCase.ConfigStruct.min_vox_hist = 1;
             testCase.ConfigStruct.adc_max = 3e-3;
             testCase.ConfigStruct.dcm2nii_call = 'dcm2niix';

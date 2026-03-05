@@ -288,7 +288,10 @@ try
     % information depends on the risk-set structure, so this is an
     % approximation.  A custom weighted partial likelihood (or sandwich
     % variance estimator) would be more rigorous.
-    stats_td_short.se = stats_td_short.se * sqrt(ipcw_scale);
+    % Use actual mean frequency weight (accounts for rounding/truncation)
+    % rather than the nominal ipcw_scale constant.
+    eff_ipcw_scale = mean(ipcw_freq);
+    stats_td_short.se = stats_td_short.se * sqrt(eff_ipcw_scale);
     stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
@@ -348,9 +351,9 @@ try
             logl_null_td = logl_null_td - d_events * log(R_t);
         end
     end
-    % Deflate by ipcw_scale: the Frequency workaround inflates both
-    % log-likelihoods by ~ipcw_scale, so the raw LRT is ~100x too large.
-    LRT_stat = 2 * (logl_td - logl_null_td) / ipcw_scale;
+    % Deflate by eff_ipcw_scale: the Frequency workaround inflates both
+    % log-likelihoods by ~mean(ipcw_freq), so the raw LRT is ~100x too large.
+    LRT_stat = 2 * (logl_td - logl_null_td) / eff_ipcw_scale;
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
     LRT_p    = 1 - chi2cdf(LRT_stat, LRT_df);
 catch
