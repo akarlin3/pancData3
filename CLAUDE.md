@@ -87,6 +87,10 @@ Key fields:
 
 `dwi_type` must be one of: `"Standard"`, `"dnCNN"`, or `"IVIMnet"`.
 
+### Config Backwards Compatibility (mandatory)
+
+When adding a new config field, you **must** add a corresponding default in `parse_config.m` using the existing `isfield` + fallback pattern so that config files without the new field continue to work unchanged. Do **not** modify `config.json` to add a new field without this default in place. If backwards compatibility is impossible for a change, ask the user for explicit permission before proceeding.
+
 ---
 
 ## Running the Pipeline
@@ -362,3 +366,4 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Use unsanitized strings in `system()` calls.
 - Hard-code file paths — all paths must flow through `config.json`.
 - Run the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) without explicit researcher approval. Pipeline runs are initiated by the researcher, not by AI assistants. Running the test suite (`run_all_tests.m`) for verification is encouraged.
+- Add or rename fields in `config.json` / `config.example.json` without ensuring **backwards compatibility**: any code that reads the new field must provide a sensible default in `parse_config.m` (via `isfield` + fallback) so that existing config files lacking the field continue to work. If a change truly cannot be made backwards-compatible, you **must** ask the user for explicit permission before proceeding.
