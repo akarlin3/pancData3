@@ -308,6 +308,11 @@ elseif exist(failureSummaryFile, 'file')
     delete(failureSummaryFile);
 end
 
+% Close waitbar before assertSuccess (which may throw on failure)
+if ~isempty(hWaitbar) && isvalid(hWaitbar)
+    close(hWaitbar);
+end
+
 % 8. Assert success (Throws an error and returns non-zero exit code if any test fails)
 % In CI environments running MATLAB with -batch, this will fail the step appropriately.
 % assertSuccess(results) was introduced in R2020a, providing backward compatibility
@@ -317,11 +322,6 @@ else
     if any([results.Failed])
         error('One or more tests failed.');
     end
-end
-
-% Close waitbar
-if ~isempty(hWaitbar) && isvalid(hWaitbar)
-    close(hWaitbar);
 end
 
 % Restore figure visibility
