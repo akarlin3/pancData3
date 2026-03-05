@@ -12,7 +12,8 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
 %                  NaN values are permitted; rows with all-NaN covariates are
 %                  silently excluded.
 %   feat_names   - cell array of strings naming each covariate (for display).
-%   lf_vec       - [n_pts × 1] binary event indicator (1 = local failure).
+%   lf_vec       - [n_pts × 1] event indicator (0 = censored, 1 = local
+%                  failure, 2 = competing risk).
 %   total_time_vec - [n_pts × 1] time-to-event / censoring (days).
 %   nTp          - number of timepoints (columns in feat_arrays).
 %   scan_days    - [1 × nTp] approximate day of each scan relative to Fx1.

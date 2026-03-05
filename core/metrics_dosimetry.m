@@ -51,7 +51,7 @@ last_gtv_mask_3d = [];
 n_pat_dosimetry = length(m_id_list);
 for j = 1:n_pat_dosimetry
     text_progress_bar(j, n_pat_dosimetry, 'Computing dosimetry metrics');
-    j_orig = find(strcmp(id_list, m_id_list{j}));
+    j_orig = find(strcmp(id_list, m_id_list{j}), 1, 'first');
     for k = 1:nTp
         if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
             dtype_idx = config_struct.dwi_types_to_run;
