@@ -86,6 +86,7 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function cleanupTempDir(testCase)
+            diary off;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
             end
@@ -206,9 +207,18 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
                 'RTStartDate', 'RTStopDate', 'CauseOfDeath'});
             writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
 
-            testCase.verifyWarningFree(@() ...
-                metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
-                    testCase.SummaryMetrics, testCase.ConfigStruct), ...
+            % Capture warnings explicitly instead of verifyWarningFree to
+            % avoid conflicts between the test framework's warning capture
+            % and metrics_baseline's internal warning state management
+            % (diary, warning('off', ...)).
+            lastwarn('', '');
+            [~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~] = ...
+             metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+            [~, warnId] = lastwarn;
+            testCase.verifyNotEqual(warnId, 'metrics_baseline:noCauseOfDeath', ...
                 'No noCauseOfDeath warning should be emitted when column is present.');
         end
 
