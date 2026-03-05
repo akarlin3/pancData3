@@ -148,7 +148,12 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 end
                 % Decay toward baseline: baseline + (last_obs - baseline) * exp(-lambda * dt)
                 bl = baseline_X(decay_mask);
-                bl(isnan(bl)) = 0;  % fall back to zero if baseline is also missing
+                % When baseline is NaN (patient missing first scan for this
+                % feature), fall back to the last observed value itself
+                % (LOCF — no decay).  The previous fallback to 0 produced
+                % non-physiological imputed values for parameters like ADC
+                % and D which have positive physiological floor values.
+                bl(isnan(bl)) = orig_X(decay_mask & isnan(baseline_X));
                 decay_factor = exp(-lambda_decay(decay_mask) .* dt_per_feat(decay_mask));
                 cov_row(decay_mask) = bl + (orig_X(decay_mask) - bl) .* decay_factor;
             end

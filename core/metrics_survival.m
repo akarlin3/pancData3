@@ -449,13 +449,8 @@ if ~isempty(output_folder)
 end
 end
 
-% ---- Local helper functions --------------------------------------------
-
-function [X_clean, keep] = remove_constant_columns(X)
-%REMOVE_CONSTANT_COLUMNS  Drop columns with zero variance.
-%   [X_clean, keep] = remove_constant_columns(X) returns the submatrix of
-%   columns whose variance exceeds eps, and a logical mask of kept columns.
-    col_var = var(X, 0, 1);
-    keep = col_var > eps;
-    X_clean = X(:, keep);
-end
+% NOTE: remove_constant_columns is provided by utils/remove_constant_columns.m
+% (NaN-safe, uses max/min with 'omitnan').  A previous local helper used
+% var(X,0,1) which propagated NaN, silently dropping features with ANY
+% missing value.  Ensure utils/ is on the path so the NaN-safe version is
+% called.
