@@ -302,8 +302,11 @@ if exclude_missing_baseline
             n_excluded_baseline, n_total_cohort);
         lf_excluded = lf(~valid_baseline);
         lf_included = lf(valid_baseline);
-        lf_rate_excl = 100 * sum(lf_excluded == 1) / max(1, sum(isfinite(lf_excluded)));
-        lf_rate_incl = 100 * sum(lf_included == 1) / max(1, sum(isfinite(lf_included)));
+        % Exclude competing risks (lf==2) from denominator: these patients
+        % died of non-cancer causes before LF could be observed, so they
+        % should not dilute the LF rate used for informative censoring assessment.
+        lf_rate_excl = 100 * sum(lf_excluded == 1) / max(1, sum(lf_excluded <= 1 & isfinite(lf_excluded)));
+        lf_rate_incl = 100 * sum(lf_included == 1) / max(1, sum(lf_included <= 1 & isfinite(lf_included)));
         fprintf('      LF rate: included=%.1f%%, excluded=%.1f%%\n', lf_rate_incl, lf_rate_excl);
         if abs(lf_rate_excl - lf_rate_incl) > 10
             fprintf('  ⚠️  >10pp difference in LF rates between imaging-excluded and included patients.\n');
