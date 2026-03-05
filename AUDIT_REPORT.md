@@ -107,9 +107,41 @@ This assumes the last element of `td_scan_days` is the post-treatment scan. If `
 
 ---
 
+### 8. DVH Metrics Silently Overwritten Across Repeat Scans
+**File:** `core/load_dwi_data.m`, lines 432-437
+
+```matlab
+pat_dmean_gtvp(1,fi) = scan_result.dmean_gtvp;
+pat_d95_gtvp(1,fi) = scan_result.d95_gtvp;
+pat_v50gy_gtvp(1,fi) = scan_result.v50gy_gtvp;
+```
+
+These arrays are indexed by `(1, fi)` with no repeat dimension `rpi`. When multiple repeat scans exist for a fraction, only the **last** repeat's dose metrics survive. Contrast with `pat_adc_mean(1,fi,rpi)` on line 426 which correctly includes the repeat index.
+
+**Impact:** For fractions with multiple repeat acquisitions, DVH metrics (mean dose, D95, V50Gy) are silently lost for all but the final repeat. Dose-parameter correlation analyses for multi-repeat fractions use incorrect dose values.
+
+**Recommendation:** Either index by `rpi` (like the imaging metrics) or explicitly average across repeats.
+
+---
+
+### 9. Dose Resampling Called with Empty/Invalid Inputs
+**File:** `core/process_single_scan.m`, lines 87-110
+
+Two related issues:
+
+(a) When dose DICOM directory exists but contains no `.dcm` files, `rtdosefile = ''` (line 102) but execution falls through to `sample_rtdose_on_image(b0list, '')` (line 110) with no guard. This will either crash or produce a corrupt dose NIfTI that persists on disk and is loaded in subsequent runs.
+
+(b) `b0list = cell(1)` (line 87) creates `{[]}` (a cell containing one empty element), not an empty cell. If no b=0 DICOM images are found, `b0list` remains `{[]}` — an invalid reference image list passed to `sample_rtdose_on_image`.
+
+**Impact:** Silent dose map corruption when dose directory is present but empty, or when DWI data lacks b=0 images. The corrupted NIfTI is cached on disk, persisting across pipeline reruns.
+
+**Recommendation:** Add guard `if b0count > 0 && ~isempty(rtdosefile)` before line 110, and initialize `b0list = cell(0,1)`.
+
+---
+
 ## Moderate Findings (Impact: May Affect Statistical Power or Interpretation)
 
-### 8. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
+### 10. Sub-Volume Morphological Filtering May Remove Clinically Relevant Scattered Voxels
 **File:** `utils/calculate_subvolume_metrics.m`, lines 49-51
 
 ```matlab
@@ -123,7 +155,7 @@ The morphological open-close and connected component filter removes small cluste
 
 ---
 
-### 9. f_delta Uses Absolute Change While Other Parameters Use Percent Change
+### 11. f_delta Uses Absolute Change While Other Parameters Use Percent Change
 **File:** `core/metrics_baseline.m`, line 373
 
 ```matlab
@@ -138,7 +170,7 @@ This computes absolute change for f (perfusion fraction, range 0-1), while ADC, 
 
 ---
 
-### 10. In-Sample KNN Imputation for Final Elastic Net Model
+### 12. In-Sample KNN Imputation for Final Elastic Net Model
 **File:** `core/metrics_stats_predictive.m`, line 210
 
 ```matlab
@@ -151,7 +183,7 @@ The final model uses the entire dataset as both reference and target for KNN imp
 
 ---
 
-### 11. Competing Risk Patients Excluded Inconsistently Across Modules
+### 13. Competing Risk Patients Excluded Inconsistently Across Modules
 **Files:** Multiple
 
 - `metrics_stats_predictive.m` line 104: sets lf==2 to NaN (exclusion)
@@ -165,7 +197,7 @@ The handling is correct for each model type (exclusion for binomial, CSH censori
 
 ---
 
-### 12. Scan Day Assumption Creates Immortal Time Bias Risk
+### 14. Scan Day Assumption Creates Immortal Time Bias Risk
 **File:** `core/metrics_survival.m`, lines 44-53, `utils/build_td_panel.m` line 54
 
 The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day intervals. In practice, scans may be irregularly spaced. The warning on line 47-52 correctly flags this, but if the researcher doesn't provide actual scan days, the counting-process intervals will be misaligned with reality.
@@ -176,7 +208,7 @@ The default scan days `[0, 5, 10, 15, 20, 90]` assume equally spaced 5-day inter
 
 ## Minor Findings
 
-### 13. CLAUDE.md Documents Wrong Default for `adc_thresh`
+### 15. CLAUDE.md Documents Wrong Default for `adc_thresh`
 **File:** `CLAUDE.md` config section
 
 CLAUDE.md shows `"adc_thresh": 0.00115` but both `config.example.json` and `parse_config.m` use `0.001`. The `0.00115` value is actually the `high_adc_thresh` default.
@@ -185,7 +217,7 @@ CLAUDE.md shows `"adc_thresh": 0.00115` but both `config.example.json` and `pars
 
 ---
 
-### 14. No Validation of `adc_thresh <= high_adc_thresh` Ordering
+### 16. No Validation of `adc_thresh <= high_adc_thresh` Ordering
 **File:** `utils/parse_config.m`, lines 28-33
 
 The comments state `adc_thresh` "must be <= high_adc_thresh" but this constraint is never enforced. A misconfigured `adc_thresh > high_adc_thresh` would produce empty or overlapping sub-volume selections.
@@ -194,7 +226,7 @@ The comments state `adc_thresh` "must be <= high_adc_thresh" but this constraint
 
 ---
 
-### 15. Data-Adaptive Epsilon for Percent Change Reduces Reproducibility
+### 17. Data-Adaptive Epsilon for Percent Change Reduces Reproducibility
 **File:** `core/metrics_baseline.m`, lines 352-361
 
 The epsilon threshold for percent change denominators is `max(1e-8, 0.01 * iqr(baseline))`. Since IQR varies with cohort composition, different cohorts (or the same cohort with different outlier exclusions) will use different epsilon values, potentially filtering different patients.
@@ -207,15 +239,17 @@ The epsilon threshold for percent change denominators is `max(1e-8, 0.01 * iqr(b
 
 | Severity | Count | Key Concerns |
 |----------|-------|-------------|
-| Critical | 7 | IPCW bias, LOOCV feature inconsistency, lambda path mismatch, decay-to-zero, zero-variance scaling inconsistency, uniform decay half-life, landmark selection |
+| Critical | 9 | IPCW bias, LOOCV feature inconsistency, lambda path mismatch, decay-to-zero, zero-variance scaling inconsistency, uniform decay half-life, landmark selection, DVH overwrite, dose resampling crash |
 | Moderate | 5 | Morphological filtering, f_delta mislabeling, in-sample imputation, competing risk documentation, immortal time bias |
 | Minor | 3 | CLAUDE.md threshold docs, threshold ordering validation, epsilon reproducibility |
 
 ### Top Priority Fixes
-1. **Fix zero-variance scaling inconsistency** (`scale_td_panel.m`) — Zero out constant features in both modes
-2. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all LOOCV folds
-3. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes across folds
-4. **Fix decay-to-zero imputation** — Decay toward patient baseline, not zero
-5. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
-6. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
-7. **Add threshold ordering validation** — Enforce `adc_thresh <= high_adc_thresh` in `parse_config.m`
+1. **Guard dose resampling inputs** (`process_single_scan.m`) — Add `if b0count > 0 && ~isempty(rtdosefile)` before calling `sample_rtdose_on_image`; init `b0list = cell(0,1)`
+2. **Fix DVH repeat indexing** (`load_dwi_data.m`) — Add `rpi` dimension to `pat_dmean_gtvp`, `pat_d95_gtvp`, `pat_v50gy_gtvp` (and GTVn counterparts)
+3. **Fix zero-variance scaling inconsistency** (`scale_td_panel.m`) — Zero out constant features in both modes
+4. **Fix LOOCV feature consistency** — Apply a fixed collinearity mask across all LOOCV folds
+5. **Fix lambda path issue** — Recompute lambda path when feature dimensionality changes across folds
+6. **Fix decay-to-zero imputation** — Decay toward patient baseline, not zero
+7. **Rename `f_Pct` to `f_Delta`** — Prevents misinterpretation of elastic net coefficients
+8. **Per-parameter decay half-lives** — Allow different biological decay rates for ADC/D vs f vs D*
+9. **Add threshold ordering validation** — Enforce `adc_thresh <= high_adc_thresh` in `parse_config.m`
