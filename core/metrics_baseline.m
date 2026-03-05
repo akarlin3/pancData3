@@ -426,7 +426,7 @@ set_names = {
     {'ADC Absolute', 'D Absolute', 'f Absolute', 'D* Absolute'}, ...
     {'\Delta ADC (%)', '\Delta D (%)', '\Delta f (abs)', '\Delta D* (%)'} ...
 };
-time_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};
+time_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 % Restore global state modified at the top of this function
 diary off;

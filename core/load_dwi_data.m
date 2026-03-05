@@ -99,7 +99,7 @@ if isfield(config_struct, 'patient_ids') && ~isempty(config_struct.patient_ids)
     if ~isempty(keep_idx)
         id_list = id_list(keep_idx);
         mrn_list = mrn_list(keep_idx);
-        fx_dates = fx_dates(keep_idx);
+        fx_dates = fx_dates(keep_idx, :);
         dwi_locations = dwi_locations(keep_idx, :, :);
         if ~isempty(rtdose_locations)
             rtdose_locations = rtdose_locations(keep_idx, :);

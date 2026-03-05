@@ -26,7 +26,7 @@ metrics_abs = {ADC_abs, D_abs, f_abs, Dstar_abs};
 metrics_pct = {ADC_pct, D_pct, f_delta, Dstar_pct};
 metric_names = {'ADC', 'D', 'f', 'D*'};
 metric_units = {'mm^2/s', 'mm^2/s', 'Fraction', 'mm^2/s'};
-x_labels = {'Fx1', 'Fx2', 'Fx3', 'Fx4', 'Fx5', 'Post'};
+x_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 x_vals = 1:nTp;
 
 % Create figure

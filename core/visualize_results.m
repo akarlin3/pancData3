@@ -61,7 +61,8 @@ set(0, 'DefaultFigureVisible', 'off');
 
 % Total number of patients and fraction (timepoint) labels
 nPat = length(id_list);
-fx_labels = {'Fx1','Fx2','Fx3','Fx4','Fx5','Post'};
+nTp  = size(adc_mean, 2);
+fx_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
 
 % Build a logical mask identifying patients with usable clinical and
 % imaging data.  Require a finite LF label and a
