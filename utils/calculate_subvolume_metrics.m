@@ -25,7 +25,12 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     v50 = NaN;
 
     if exist('OCTAVE_VERSION', 'builtin')
-        se = strel('arbitrary', ones(3, 3, 3));
+        % strel('sphere',1) produces a 7-voxel diamond (6-connected).
+        % ones(3,3,3) is a 27-voxel cube (26-connected) — not equivalent.
+        % Build the 6-connected diamond kernel manually.
+        sphere_kernel = zeros(3, 3, 3);
+        sphere_kernel(2,2,:) = 1; sphere_kernel(2,:,2) = 1; sphere_kernel(:,2,2) = 1;
+        se = strel('arbitrary', sphere_kernel);
     else
         se = strel('sphere', 1);
     end

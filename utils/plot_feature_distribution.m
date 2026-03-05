@@ -48,10 +48,19 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
 
         % Overlay semi-transparent histograms for each outcome group
         if exist('OCTAVE_VERSION', 'builtin')
+            % Octave's hist() treats 2nd arg as bin centers, not edges.
+            % Use histc() with edges for consistent binning with MATLAB.
             if length(unique(edges)) == length(edges) && length(edges) > 1
-                [counts_lc, centers] = hist(vals_lc, edges);
-                [counts_lf, ~] = hist(vals_lf, edges);
-                % handle edge case where centers is not unique
+                counts_lc = histc(vals_lc, edges);
+                counts_lf = histc(vals_lf, edges);
+                % histc puts exact-edge-max counts in the last bin;
+                % merge last two bins to match MATLAB histogram behavior
+                % (n_edges produces n_edges-1 bins).
+                counts_lc(end-1) = counts_lc(end-1) + counts_lc(end);
+                counts_lc(end) = [];
+                counts_lf(end-1) = counts_lf(end-1) + counts_lf(end);
+                counts_lf(end) = [];
+                centers = (edges(1:end-1) + edges(2:end)) / 2;
                 if length(unique(centers)) == length(centers)
                     bar(centers, [counts_lc(:), counts_lf(:)], 'stacked');
                 end
