@@ -28,8 +28,8 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             testCase.ConfigStruct.ivim_bthr = 100;
             testCase.ConfigStruct.dcm2nii_call = 'dummy';
             testCase.ConfigStruct.clinical_data_sheet = 'mock.xlsx';
-            testCase.ConfigStruct.adc_thresh = 0.00115;
-            testCase.ConfigStruct.high_adc_thresh = 0.001;
+            testCase.ConfigStruct.adc_thresh = 0.001;
+            testCase.ConfigStruct.high_adc_thresh = 0.00115;
             testCase.ConfigStruct.d_thresh = 0.001;
             testCase.ConfigStruct.f_thresh = 0.1;
             testCase.ConfigStruct.adc_max = 0.003;
