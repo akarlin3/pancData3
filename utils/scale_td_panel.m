@@ -49,13 +49,13 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
             end
 
             if sig == 0 || isnan(sig)
-                % Zero-variance feature carries no discriminative information.
-                % Setting to 0 prevents artificial importance in downstream
-                % models that weight features by post-standardization magnitude.
-                X_td_scaled(:, fi) = 0;
-            else
-                X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) / sig;
+                % Clamp sigma to 1 so that values are centered (mean-
+                % subtracted) without rescaling.  This preserves distance
+                % information for test-set observations that may differ
+                % from the constant training value.
+                sig = 1;
             end
+            X_td_scaled(:, fi) = (X_td_raw(:, fi) - mu) / sig;
         end
     else
         % --- Per-week scaling (default): independent mu/sigma per temporal week ---
@@ -108,9 +108,9 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     if length(bl_vals) > 1
                         mu_col = mean(bl_vals);
                         sd_col = std(bl_vals);
-                        % sd_col == 0 → zero-variance; handled by division guard below
+                        % sd_col == 0 → zero-variance; clamped to 1 by guard below
                     end
-                    % else: keep defaults mu_col=0, sd_col=0 (single value → zeroed)
+                    % else: keep defaults mu_col=0, sd_col=0 (clamped to 1 below)
                 else
                     first_occurrence_indices = first_occ_indices_cell{fn};
                     vals = X_td_raw(first_occurrence_indices, fi);
@@ -120,21 +120,22 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                     if valid_cnt > 1
                         mu_col = mean(unique_vals);
                         sd_col = std(unique_vals);
-                        % sd_col == 0 → zero-variance; handled by
-                        % division guard below (zeroed out), consistent
-                        % with baseline mode behavior
+                        % sd_col == 0 → zero-variance; clamped to 1
+                        % by guard below, consistent with baseline mode
                     elseif valid_cnt == 1
                         mu_col = unique_vals(1);
-                        sd_col = 0;  % single value → zero out (no discriminative info)
+                        sd_col = 1;  % single value → clamp sigma to 1 (center only)
                     end
                 end
 
                 cols_to_scale = X_td_raw(week_mask, fi);
                 if sd_col == 0
-                    X_td_scaled(week_mask, fi) = 0;
-                else
-                    X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
+                    % Clamp sigma to 1: center without rescaling to
+                    % preserve distance information for test-set
+                    % observations.
+                    sd_col = 1;
                 end
+                X_td_scaled(week_mask, fi) = (cols_to_scale - mu_col) / sd_col;
             end
         end
     end
