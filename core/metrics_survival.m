@@ -86,9 +86,6 @@ if ~isempty(actual_scan_days)
 else
     % Default scan days assume 5 on-treatment fractions + 1 post-treatment scan.
     td_scan_days = [0, 5, 10, 15, 20, 90];
-    warning('metrics_survival:defaultScanDays', ...
-        'Using default scan days [%s]. Replace with actual timing to avoid immortal time bias.', ...
-        num2str(td_scan_days));
     fprintf('  ⚠️  CAUTION: Using default scan days [%s].\n', num2str(td_scan_days));
     fprintf('      Pass actual DICOM-derived scan days via config.json td_scan_days field\n');
     fprintf('      or as the 14th argument to avoid immortal time bias.\n');
