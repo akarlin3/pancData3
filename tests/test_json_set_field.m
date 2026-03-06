@@ -60,6 +60,15 @@ classdef test_json_set_field < matlab.unittest.TestCase
             testCase.verifySubstring(result, '200');
         end
 
+        function testPreservesEmptyStringFields(testCase)
+            % Verifies that fields with "" values (like cause_of_death_column)
+            % are not corrupted when other fields are modified.
+            s = sprintf('{\n    "dwi_type": "Standard",\n    "cause_of_death_column": "",\n    "skip_to_reload": false\n}');
+            result = json_set_field(s, 'dwi_type', 'dnCNN');
+            result = json_set_field(result, 'skip_to_reload', true);
+            testCase.verifySubstring(result, '"cause_of_death_column": ""');
+        end
+
         function testRoundTripPreservesBytes(testCase)
             % Simulate the execute_all_workflows pattern: modify fields
             % then restore original. The original string must be unchanged.
