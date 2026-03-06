@@ -60,14 +60,17 @@ end
 
 % --- Per-Patient Baseline Normalization ---
 % Normalize each patient's dates relative to a common reference fraction
-% (the fraction column with the most data). Only patients who have the
+% (the earliest fraction column with valid data). Only patients who have the
 % reference fraction contribute to the consensus timeline; patients
 % missing it are left as NaN rather than using a misaligned fallback
 % (normalizing to their own earliest scan puts them on a different time
 % scale, which contaminates the per-column median and can break
 % monotonicity).
 fx_counts = sum(~isnan(date_nums), 1);
-[~, ref_col] = max(fx_counts);
+ref_col = find(fx_counts > 0, 1, 'first');
+if isempty(ref_col)
+    return;
+end
 days_from_baseline = nan(nPat, nFx);
 for j = 1:nPat
     if ~isnan(date_nums(j, ref_col))
