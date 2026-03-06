@@ -215,17 +215,16 @@ if exist(config_backup, 'file')
     delete(config_backup);
 end
 
-% Load the configuration JSON explicitly because we are going to modify it.
-% We read the raw JSON string (not parsed struct) so we can write back the
-% exact original content on restoration, preserving any formatting or
-% fields that jsondecode/jsonencode might alter (e.g., field ordering,
-% numeric precision).
+% Load the raw JSON string.  We modify individual fields via regex
+% (json_set_field) instead of jsondecode/jsonencode so that the on-disk
+% formatting (indentation, field order, numeric precision) is preserved
+% during intermediate writes.  The original string is kept for rollback.
 fid = fopen(config_file, 'r');
 raw = fread(fid, inf);
 str = char(raw');
 fclose(fid);
-config_struct = jsondecode(str);
 original_config_str = str;  % preserve original for rollback
+config_json = str;          % mutable copy for field-level edits
 
 % Backup config.json so a mid-run crash does not leave it in a modified state.
 % The onCleanup guard fires on normal return, errors, and Ctrl-C — but NOT
@@ -263,10 +262,9 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
 % skip_to_reload = false means this first run performs the full DICOM
 % conversion + model fitting pipeline from scratch.
 disp('====== STARTING STANDARD PIPELINE ======');
-config_struct.dwi_type = 'Standard';
-config_struct.skip_to_reload = false;
-json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
+config_json = json_set_field(config_json, 'dwi_type', 'Standard');
+config_json = json_set_field(config_json, 'skip_to_reload', false);
+fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
@@ -285,10 +283,9 @@ diary(eaw_diary_file);  % restart after pipeline run (module diaries override th
 % denoising, and refitting the diffusion models. This saves significant
 % time since dcm2niix conversion is identical across all three methods.
 disp('====== STARTING dnCNN PIPELINE ======');
-config_struct.dwi_type = 'dnCNN';
-config_struct.skip_to_reload = true;
-json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
+config_json = json_set_field(config_json, 'dwi_type', 'dnCNN');
+config_json = json_set_field(config_json, 'skip_to_reload', true);
+fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
@@ -309,10 +306,9 @@ diary(eaw_diary_file);  % restart after pipeline run (module diaries override th
 % set — this would constitute a severe form of data leakage that would
 % inflate apparent predictive accuracy.
 disp('====== STARTING IVIMnet PIPELINE ======');
-config_struct.dwi_type = 'IVIMnet';
-config_struct.skip_to_reload = true;
-json_str = jsonencode(config_struct);
-fid = fopen(config_file, 'w'); fwrite(fid, json_str); fclose(fid);
+config_json = json_set_field(config_json, 'dwi_type', 'IVIMnet');
+config_json = json_set_field(config_json, 'skip_to_reload', true);
+fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
