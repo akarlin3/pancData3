@@ -205,13 +205,38 @@ end
 % file is the only recovery mechanism in those cases.
 config_backup = fullfile(repo_root, 'config.json.bak');
 if exist(config_backup, 'file')
-    fprintf('⚠️  Found config.json.bak from a previous crash. Restoring original config.json.\n');
+    % A .bak file from a previous crashed run exists.  Only restore from it
+    % if config.json still looks like it was left in the crashed state (i.e.,
+    % the user has NOT edited config.json since the crash).  Detect this by
+    % normalizing the two files to the same dwi_type/skip_to_reload values
+    % and comparing: if they match, the config is still in the crashed state
+    % and should be restored; if they differ, the user has made intentional
+    % edits that we must not overwrite.
     fid_restore = fopen(config_backup, 'r');
     bak_raw = fread(fid_restore, inf);
     fclose(fid_restore);
-    fid_restore_w = fopen(config_file, 'w');
-    fwrite(fid_restore_w, bak_raw);
-    fclose(fid_restore_w);
+    bak_str = char(bak_raw');
+
+    fid_cur = fopen(config_file, 'r');
+    cur_raw = fread(fid_cur, inf);
+    fclose(fid_cur);
+    cur_str = char(cur_raw');
+
+    % Normalize the two fields that execute_all_workflows mutates so we can
+    % compare everything else.
+    norm_bak = json_set_field(json_set_field(bak_str, 'dwi_type', 'Standard'), 'skip_to_reload', false);
+    norm_cur = json_set_field(json_set_field(cur_str, 'dwi_type', 'Standard'), 'skip_to_reload', false);
+
+    if strcmp(norm_bak, norm_cur)
+        % Config is unchanged except for fields we mutate — safe to restore.
+        fprintf('⚠️  Found config.json.bak from a previous crash. Restoring original config.json.\n');
+        fid_restore_w = fopen(config_file, 'w');
+        fwrite(fid_restore_w, bak_raw);
+        fclose(fid_restore_w);
+    else
+        % User has edited config.json since the crash — keep their version.
+        fprintf('⚠️  Found config.json.bak from a previous crash, but config.json has been edited since then. Keeping current config.json.\n');
+    end
     delete(config_backup);
 end
 
