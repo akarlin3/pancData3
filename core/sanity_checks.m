@@ -394,6 +394,27 @@ for fi = 1:numel(nan_check_fields)
             fprintf('  ❌ Excessive NaN fraction in %s: %.1f%% (threshold: %.0f%%)\n', ...
                 nan_check_names{fi}, frac*100, max_nan_frac*100);
             excessive_nan = true;
+            % Diagnostic: help identify root cause for dnCNN/IVIMnet failures
+            if dtype_nan == 2 || dtype_nan == 3
+                n_present = 0; n_allnan = 0;
+                for jj = 1:nPat
+                    for kk = 1:min(size(data_vectors_gtvp, 2), nTp)
+                        if jj > size(data_vectors_gtvp, 1) || kk > size(data_vectors_gtvp, 2), continue; end
+                        s_diag = data_vectors_gtvp(jj, kk, 1);
+                        if isfield(s_diag, nan_check_fields{fi})
+                            v_diag = s_diag.(nan_check_fields{fi});
+                            if ~isempty(v_diag), n_present = n_present + 1; end
+                            if ~isempty(v_diag) && all(isnan(v_diag)), n_allnan = n_allnan + 1; end
+                        end
+                    end
+                end
+                fprintf('      💡 %d scans have %s data; %d are all-NaN.\n', n_present, nan_check_names{fi}, n_allnan);
+                if dtype_nan == 2
+                    fprintf('      💡 Check: (1) dependencies/dncnn_model.mat exists, (2) GTV masks are valid, (3) pre-cached dncnn/*.nii.gz files.\n');
+                else
+                    fprintf('      💡 Check: (1) IVIMnet .mat parameter maps exist, (2) GTV masks are valid.\n');
+                end
+            end
         end
     end
 end

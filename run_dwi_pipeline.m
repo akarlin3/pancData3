@@ -1097,10 +1097,21 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             % metrics_survival (which emits an immortal-time-bias warning).
             td_scan_days_cfg = [];
             if isfield(summary_metrics, 'fx_dates') && ~isempty(summary_metrics.fx_dates)
+                n_dates = sum(~cellfun('isempty', summary_metrics.fx_dates(:)));
+                fprintf('      💡 Found %d DICOM StudyDate entries across cohort.\n', n_dates);
                 td_scan_days_cfg = compute_scan_days_from_dates(summary_metrics.fx_dates);
+                if isempty(td_scan_days_cfg)
+                    fprintf('      ⚠️  Could not derive scan days from DICOM dates (insufficient valid dates or non-monotonic).\n');
+                end
+            else
+                fprintf('      💡 No DICOM StudyDate data available (fx_dates empty).\n');
             end
             if isempty(td_scan_days_cfg) && isfield(config_struct, 'td_scan_days') && ~isempty(config_struct.td_scan_days)
                 td_scan_days_cfg = config_struct.td_scan_days;
+                fprintf('      💡 Using td_scan_days from config.json.\n');
+            end
+            if isempty(td_scan_days_cfg)
+                fprintf('      💡 Set "td_scan_days" in config.json to override defaults.\n');
             end
             metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
                              m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol, config_struct.output_folder, td_scan_days_cfg);
