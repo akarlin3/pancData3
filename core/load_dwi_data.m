@@ -485,7 +485,8 @@ parfor j = 1:length(mrn_list)
         dvh_v50gy_gtvn_rp  = nan(1, n_rp_dim);
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
         % Use regexp with word-boundary to prevent 'Fx1' matching 'Fx10'
-        fxtmp_idx = ~cellfun(@isempty, regexp({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
+        % Case-insensitive to handle 'fx1', 'FX1', 'Fx1', etc.
+        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)
