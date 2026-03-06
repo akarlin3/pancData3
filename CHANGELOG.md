@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0-alpha.1] - 2026-03-06
+
+### Added
+- **Tumor core method comparison** (`compare_core_methods.m`): Pairwise comparison of all 11 tumor core delineation methods with Dice coefficient and Hausdorff distance metrics, integrated as an optional `compare_cores` pipeline step
+- **Patient data check** (`patient_data_check.m`): Pre-pipeline data integrity scanner that validates directory structure, DICOM availability, GTV masks, and RT dose folders
+- **Pipeline progress GUI** (`PipelineProgressGUI.m`): Pipeline-aware progress bar wrapper that maps step keys to display names
+- **Professional progress bar** (`ProgressGUI.m`): Custom-figure progress bar for MATLAB pipelines and test suite runs
+- **Longitudinal summary metrics** (`compute_summary_metrics.m`): Voxel-to-summary-metric aggregation for tumor and dosimetry analysis
+- **Single scan processing** (`process_single_scan.m`): Per-scan DICOM conversion, model fitting, and caching module
+- **Cross-DWI subvolume comparison** (`plot_cross_dwi_subvolume_comparison.m`): Visualization for cross-DWI-type ADC subvolume comparison
+- **Dice/Hausdorff utility** (`compute_dice_hausdorff.m`): Dice coefficient and Hausdorff distance computation between 3D binary masks
+- **JSON field utility** (`json_set_field.m`): Targeted regex replacement of field values in raw JSON strings
+- New config fields: `core_method`, `core_percentile`, `core_n_clusters`, `fdm_parameter`, `fdm_thresh`
+- Documentation maintenance guidelines in `CLAUDE.md`
+
+### Changed
+- Professional progress bar GUI replaces basic waitbar for test suite and pipeline steps
+
 ## [1.0.0-beta.2] - 2026-03-06
 
 ### Fixed
