@@ -222,6 +222,9 @@ else
     % Rename the configured cause-of-death column to the canonical name.
     % First try exact match; if not found, fall back to case-insensitive
     % match (readtable may alter casing depending on VariableNamingRule).
+    % Third fallback: normalize both sides by stripping non-alphanumeric
+    % characters (handles underscores, spaces, hyphens in column names
+    % such as 'Cause_of_Death' or 'Cause Of Death').
     if ismember(cod_column, T.Properties.VariableNames)
         if ~strcmp(cod_column, 'CauseOfDeath')
             T.Properties.VariableNames{strcmp(T.Properties.VariableNames, cod_column)} = 'CauseOfDeath';
@@ -230,6 +233,15 @@ else
         ci_idx = find(strcmpi(T.Properties.VariableNames, cod_column));
         if ~isempty(ci_idx)
             T.Properties.VariableNames{ci_idx(1)} = 'CauseOfDeath';
+        else
+            cod_norm = lower(regexprep(cod_column, '[^a-zA-Z0-9]', ''));
+            for vi = 1:numel(T.Properties.VariableNames)
+                vn_norm = lower(regexprep(T.Properties.VariableNames{vi}, '[^a-zA-Z0-9]', ''));
+                if strcmp(cod_norm, vn_norm)
+                    T.Properties.VariableNames{vi} = 'CauseOfDeath';
+                    break;
+                end
+            end
         end
     end
 end
@@ -317,8 +329,9 @@ end
 % spreadsheet lacks a CauseOfDeath column.  Without it, non-cancer deaths
 % are treated as administrative censoring, which inflates the CSH estimate.
 if ~exist('OCTAVE_VERSION', 'builtin') && ~ismember('CauseOfDeath', T.Properties.VariableNames)
+    avail_cols = strjoin(T.Properties.VariableNames, ', ');
     warning('metrics_baseline:noCauseOfDeath', ...
-        '%s column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased.', cod_column);
+        '%s column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased. Available columns: %s', cod_column, avail_cols);
 end
 
 % =========================================================================
