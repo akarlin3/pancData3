@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [0.2.0-beta] - 2026-03-06
+## [1.0.0-beta.1] - 2026-03-06
 
 ### Added
 - `clear_cache` config option to delete all cached pipeline files before execution
@@ -76,10 +76,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Test progress bar window sizing and axes centering
 
 ### Changed
-- Version references updated from 1.x to 0.x scheme
+- Version references updated to 1.0.0 pre-release scheme
 - Parallel pool now shuts down at end of standalone test suite runs
 
-## [0.1.0] - 2026-03-03
+## [1.0.0-alpha.1] - 2026-03-03
 
 ### Added
 - Time-dependent Cox PH model for survival analysis with IPCW weighting
