@@ -724,7 +724,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         try
             fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-                                 nTp, dtype_label, config_struct.output_folder);
+                                 nTp, dtype_label, config_struct.output_folder, m_lf);
             longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
             fid = fopen(longitudinal_results_file, 'w');
             fprintf(fid, 'Longitudinal metrics generated successfully.\n');

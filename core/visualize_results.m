@@ -153,6 +153,20 @@ for dtype = config_struct.dwi_types_to_run
     plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 end % for dtype
 
+%% -----------------------------------------------------------------------
+fprintf('\n--- SECTION 4: Cross-DWI ADC Subvolume Comparison at Fx1 ---\n');
+%  4. CROSS-DWI-TYPE ADC SUBVOLUME COMPARISON
+%  Compares the restricted ADC subvolume (ADC < threshold) across all
+%  available DWI processing methods (Standard, dnCNN, IVIMnet) at baseline.
+%  Also visualises scan-to-scan repeatability of the subvolume from
+%  back-to-back repeat acquisitions at Fx1.
+% -----------------------------------------------------------------------
+try
+    plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
+catch ME
+    fprintf('  ⚠️ Cross-DWI subvolume comparison failed: %s\n', ME.message);
+end
+
 fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');

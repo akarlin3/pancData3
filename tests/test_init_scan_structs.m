@@ -24,7 +24,7 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
                 'adc_vector_dncnn', ...
                 'd_vector_ivimnet', 'f_vector_ivimnet', 'dstar_vector_ivimnet', ...
                 'ID', 'MRN', 'LF', 'Immuno', ...
-                'Fraction', 'Repeatability_index', 'vox_vol'};
+                'Fraction', 'Repeatability_index', 'vox_vol', 'vox_dims'};
 
             actual_fields = fieldnames(gtvp);
             testCase.verifyEqual(sort(actual_fields), sort(expected_fields'), ...
@@ -75,8 +75,8 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
             [gtvp, ~] = init_scan_structs(1, 1);
 
             n_fields = numel(fieldnames(gtvp));
-            testCase.verifyEqual(n_fields, 22, ...
-                'Struct should have exactly 22 fields.');
+            testCase.verifyEqual(n_fields, 23, ...
+                'Struct should have exactly 23 fields.');
         end
 
     end

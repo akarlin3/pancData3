@@ -1,4 +1,4 @@
-function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, dtype_label, output_folder)
+function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, dtype_label, output_folder, m_lf)
 % METRICS_LONGITUDINAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 2/5 of the metrics step. Visualizes longitudinal evolution of absolute
 % parameters and their relative percent changes.
@@ -27,16 +27,24 @@ function metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, 
 %   making inter-patient response patterns comparable despite different
 %   starting values.
 %
+%   When m_lf is provided, additional outcome-stratified figures are
+%   generated: one per outcome group (LC, LF, Competing Risk) and one
+%   combined overlay comparing group mean trajectories.
+%
 % Inputs:
 %   *_abs             - Matrices of absolute values for ADC, D, f, D*
 %   *_pct             - Matrices of percent change values for ADC, D, f, D*
 %   nTp               - Number of timepoints expected
 %   dtype_label       - String label indicating pipeline variant (Standard, etc)
 %   output_folder     - Directory where generated figures will be saved
+%   m_lf              - (Optional) Outcome vector (0=LC, 1=LF, 2=Competing Risk)
 %
 % Outputs:
 %   None. Saves generated longitudinal plots to output_folder.
 %
+
+% Handle optional m_lf argument for backward compatibility
+if nargin < 12, m_lf = []; end
 
 fprintf('  --- SECTION 5: Longitudinal Metric Plotting ---\n');
 
@@ -107,6 +115,140 @@ end
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
+
+% =====================================================================
+% OUTCOME-STRATIFIED LONGITUDINAL PLOTS
+% =====================================================================
+% When clinical outcome data (m_lf) is available, generate:
+%   1. Per-outcome spaghetti figures (same layout as all-patients figure)
+%   2. Combined overlay figure comparing group mean trajectories
+if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
+    outcome_codes  = [0,                1,    2];
+    outcome_labels = {'LC',             'LF', 'CompetingRisk'};
+    outcome_titles = {'Local Control',  'Local Failure', 'Competing Risk'};
+
+    % --- Per-outcome figures ---
+    for g = 1:numel(outcome_codes)
+        idx_g = find(m_lf == outcome_codes(g));
+        if isempty(idx_g), continue; end
+
+        fprintf('  Plotting longitudinal metrics for %s (n=%d)...\n', outcome_titles{g}, numel(idx_g));
+        figure('Name', ['Longitudinal — ' outcome_titles{g} ' — ' dtype_label], ...
+               'Position', [100, 100, 1400, 700]);
+
+        for i = 1:n_metrics_long
+            title_str = ['Mean ', metric_names{i}];
+            plot_metric_subplot(i, metrics_abs{i}(idx_g, :), x_vals, x_labels, nTp, 'k', 'o', ...
+                title_str, metric_units{i}, false);
+
+            if strcmp(metric_names{i}, 'f')
+                title_str_pct = ['\Delta ', metric_names{i}, ' (abs)'];
+                ylabel_pct = 'Absolute Change';
+            else
+                title_str_pct = ['\Delta ', metric_names{i}, ' (%)'];
+                ylabel_pct = '% Change from Fx1';
+            end
+            plot_metric_subplot(i+4, metrics_pct{i}(idx_g, :), x_vals, x_labels, nTp, 'r', 's', ...
+                title_str_pct, ylabel_pct, true);
+        end
+
+        fig_title = sprintf('Longitudinal Metrics — %s (n=%d) [%s]', ...
+            outcome_titles{g}, numel(idx_g), dtype_label);
+        if exist('OCTAVE_VERSION', 'builtin')
+            axes('Position',[0 0 1 1],'Xlim',[0 1],'Ylim',[0 1],'Box','off','Visible','off','Units','normalized', 'clipping','off');
+            text(0.5, 0.98, fig_title, 'HorizontalAlignment', 'center', 'FontSize', 16, 'FontWeight', 'bold');
+        else
+            sgtitle(fig_title, 'FontSize', 16, 'FontWeight', 'bold');
+        end
+        if ~exist('OCTAVE_VERSION', 'builtin')
+            allAx = findall(gcf, 'Type', 'Axes');
+            for k = 1:numel(allAx)
+                pos = allAx(k).Position;
+                allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+            end
+        end
+        set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
+        saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '_' outcome_labels{g} '.png']));
+        close(gcf);
+    end
+
+    % --- Combined stratified overlay figure ---
+    % Shows mean+SEM for each outcome group on the same axes for direct
+    % comparison of treatment response trajectories between groups.
+    group_colors = {[0.0 0.4 0.8], [0.9 0.1 0.1], [0.5 0.5 0.5]};  % blue, red, grey
+    group_markers = {'o', 's', 'd'};
+
+    figure('Name', ['Longitudinal by Outcome — ' dtype_label], ...
+           'Position', [100, 100, 1400, 700]);
+
+    for i = 1:n_metrics_long
+        % Top row: absolute values
+        subplot(2, 4, i); hold on;
+        legend_entries = {};
+        for g = 1:numel(outcome_codes)
+            idx_g = find(m_lf == outcome_codes(g));
+            if isempty(idx_g), continue; end
+            dat_g = metrics_abs{i}(idx_g, :);
+            plot_group_mean_sem(x_vals, dat_g, group_colors{g}, group_markers{g});
+            legend_entries{end+1} = sprintf('%s (n=%d)', outcome_titles{g}, numel(idx_g)); %#ok<AGROW>
+        end
+        set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
+        title(['Mean ', metric_names{i}], 'FontSize', 12, 'FontWeight', 'bold');
+        ylabel(metric_units{i});
+        xlim([0.5, nTp+0.5]);
+        grid on; box on;
+        if i == 1 && ~isempty(legend_entries)
+            legend(legend_entries, 'Location', 'best', 'FontSize', 7);
+        end
+
+        % Bottom row: percent change (or absolute change for f)
+        subplot(2, 4, i+4); hold on;
+        for g = 1:numel(outcome_codes)
+            idx_g = find(m_lf == outcome_codes(g));
+            if isempty(idx_g), continue; end
+            dat_g = metrics_pct{i}(idx_g, :);
+            plot_group_mean_sem(x_vals, dat_g, group_colors{g}, group_markers{g});
+        end
+        if strcmp(metric_names{i}, 'f')
+            title_str_pct = ['\Delta ', metric_names{i}, ' (abs)'];
+            ylabel_pct = 'Absolute Change';
+        else
+            title_str_pct = ['\Delta ', metric_names{i}, ' (%)'];
+            ylabel_pct = '% Change from Fx1';
+        end
+        if exist('OCTAVE_VERSION', 'builtin')
+            xl = xlim;
+            plot(xl, [0 0], 'k--', 'LineWidth', 1.5);
+        else
+            yline(0, 'k--', 'LineWidth', 1.5);
+        end
+        set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
+        title(title_str_pct, 'FontSize', 12, 'FontWeight', 'bold');
+        ylabel(ylabel_pct);
+        xlim([0.5, nTp+0.5]);
+        grid on; box on;
+    end
+
+    fig_title = ['Longitudinal Metrics by Outcome (' dtype_label ')'];
+    if exist('OCTAVE_VERSION', 'builtin')
+        axes('Position',[0 0 1 1],'Xlim',[0 1],'Ylim',[0 1],'Box','off','Visible','off','Units','normalized', 'clipping','off');
+        text(0.5, 0.98, fig_title, 'HorizontalAlignment', 'center', 'FontSize', 16, 'FontWeight', 'bold');
+    else
+        sgtitle(fig_title, 'FontSize', 16, 'FontWeight', 'bold');
+    end
+    if ~exist('OCTAVE_VERSION', 'builtin')
+        allAx = findall(gcf, 'Type', 'Axes');
+        for k = 1:numel(allAx)
+            pos = allAx(k).Position;
+            allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+        end
+    end
+    set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
+    saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '_ByOutcome.png']));
+    close(gcf);
+
+    fprintf('  Outcome-stratified longitudinal plots saved.\n');
+end
 
 diary off;
 end
@@ -193,5 +335,44 @@ title(title_str, 'FontSize', 12, 'FontWeight', 'bold');
 ylabel(y_label);
 xlim([0.5, nTp+0.5]);
 grid on; box on;
+
+end
+
+function plot_group_mean_sem(x_vals, dat, color_rgb, marker_style)
+% PLOT_GROUP_MEAN_SEM — Plot mean+SEM line for a single outcome group
+%
+% Used by the combined stratified overlay figure.  Plots into the current
+% axes (caller must have called subplot + hold on).
+%
+% Inputs:
+%   x_vals       - X-axis values (1:nTp)
+%   dat          - Data matrix (patients x timepoints) for this group
+%   color_rgb    - 1x3 RGB color vector
+%   marker_style - Marker string (e.g., 'o', 's', 'd')
+
+if exist('OCTAVE_VERSION', 'builtin')
+    valid_mask = ~isnan(dat);
+    N = sum(valid_mask, 1);
+    dat_zero = dat;
+    dat_zero(~valid_mask) = 0;
+    grp_mean = sum(dat_zero, 1) ./ N;
+
+    devs = dat - repmat(grp_mean, size(dat, 1), 1);
+    devs_sq = devs.^2;
+    devs_sq(~valid_mask) = 0;
+    grp_std = sqrt(sum(devs_sq, 1) ./ (N - 1));
+    grp_se = grp_std ./ sqrt(N);
+    grp_se(N < 2) = NaN;
+else
+    grp_mean = mean(dat, 1, 'omitnan');
+    grp_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+end
+
+if exist('OCTAVE_VERSION', 'builtin')
+    errorbar(x_vals, grp_mean, grp_se);
+else
+    errorbar(x_vals, grp_mean, grp_se, '-', 'Color', color_rgb, 'LineWidth', 2, ...
+        'Marker', marker_style, 'MarkerFaceColor', color_rgb, 'MarkerSize', 6);
+end
 
 end

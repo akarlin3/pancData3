@@ -90,6 +90,7 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
         nRpt_expected = size(data_vectors_gtvp, 3);
         sm = tmp_metrics.summary_metrics;
         dims_ok = isfield(sm, 'adc_mean_rpt') && ...
+                  isfield(sm, 'adc_sub_vol_rpt') && ...
                   size(sm.adc_mean_rpt, 1) == nPat_expected && ...
                   size(sm.adc_mean_rpt, 2) == nRpt_expected;
         if dims_ok
@@ -228,6 +229,8 @@ adc_max = config_struct.adc_max;
 % within noise, but a 15% change is likely a true biological effect.
 adc_mean_rpt = nan(length(id_list),nRpt,3);     % mean ADC per repeat scan
 adc_sub_rpt = nan(length(id_list),nRpt,3);       % mean ADC in restricted sub-volume per repeat
+adc_sub_vol_rpt = nan(length(id_list),nRpt,3);   % restricted sub-volume (cm^3) per repeat
+adc_sub_vol_pc_rpt = nan(length(id_list),nRpt,3); % restricted sub-volume (fraction of GTV) per repeat
 fx_corrupted_rpt = nan(length(id_list),nRpt,3);   % motion corruption flag per repeat
 d_mean_rpt = nan(length(id_list),nRpt,3);         % mean D per repeat scan
 f_mean_rpt = nan(length(id_list),nRpt,3);         % mean f per repeat scan
@@ -235,6 +238,42 @@ dstar_mean_rpt = nan(length(id_list),nRpt,3);     % mean D* per repeat scan
 
 % Count of available repeat scans per patient (for wCV denominator)
 n_rpt = nan(length(id_list),1);
+
+% --- Spatial repeatability: Dice and Hausdorff between repeat sub-volumes ---
+% These metrics quantify whether the spatial definition of the sensitive
+% sub-volume is reproducible across same-session repeat DWI acquisitions.
+% High Dice and low Hausdorff indicate that the sub-volume boundary is
+% stable despite measurement noise; low Dice or high Hausdorff indicates
+% that parameter noise causes the threshold-defined sub-region to shift
+% spatially between acquisitions.  This complements wCV (which quantifies
+% scalar mean repeatability) by capturing spatial agreement.
+dice_rpt_adc = nan(length(id_list), 3);
+hd_max_rpt_adc = nan(length(id_list), 3);
+hd95_rpt_adc = nan(length(id_list), 3);
+dice_rpt_d = nan(length(id_list), 3);
+hd_max_rpt_d = nan(length(id_list), 3);
+hd95_rpt_d = nan(length(id_list), 3);
+dice_rpt_f = nan(length(id_list), 3);
+hd_max_rpt_f = nan(length(id_list), 3);
+hd95_rpt_f = nan(length(id_list), 3);
+dice_rpt_dstar = nan(length(id_list), 3);
+hd_max_rpt_dstar = nan(length(id_list), 3);
+hd95_rpt_dstar = nan(length(id_list), 3);
+
+% Morphological structuring element for sub-volume cleanup (same as
+% calculate_subvolume_metrics.m).
+if exist('OCTAVE_VERSION', 'builtin')
+    sphere_kernel = zeros(3, 3, 3);
+    sphere_kernel(2,2,:) = 1; sphere_kernel(2,:,2) = 1; sphere_kernel(:,2,2) = 1;
+    morph_se = strel('arbitrary', sphere_kernel);
+else
+    morph_se = strel('sphere', 1);
+end
+morph_min_cc = 10;  % minimum connected component size (voxels)
+
+% Cache for GTV mask loading (avoids repeated disk I/O for same file)
+last_rpt_gtv_mat = '';
+last_rpt_gtv_mask = [];
 
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
 n_patients_metrics = length(id_list);
@@ -611,6 +650,14 @@ for j=1:n_patients_metrics
                                 adc_sub_rpt(j,rpi,dwi_type) = nanmean(adc_vec_sub);
                             end
                         end
+                        % Restricted sub-volume size per repeat scan.
+                        % Complements adc_sub_rpt (mean ADC within sub-volume)
+                        % by tracking whether the sub-volume SIZE is reproducible.
+                        adc_sub_vol_rpt(j,rpi,dwi_type) = numel(adc_vec_sub) * vox_vol;
+                        if n_finite_rpt > 0
+                            finite_vol_rpt = n_finite_rpt * vox_vol;
+                            adc_sub_vol_pc_rpt(j,rpi,dwi_type) = adc_sub_vol_rpt(j,rpi,dwi_type) / finite_vol_rpt;
+                        end
                     end
 
                     if ~isempty(d_vec)
@@ -650,6 +697,159 @@ for j=1:n_patients_metrics
                 % all-NaN for dnCNN/IVIMnet-only runs and breaking wCV.
                 if isnan(n_rpt(j)) || n_rpt(j) == 0
                     n_rpt(j) = rp_count;
+                end
+
+                % --- Spatial repeatability: Dice & Hausdorff between repeat sub-volumes ---
+                % Compare threshold-defined sensitive sub-volumes across all
+                % pairs of Fx1 repeat scans to assess spatial reproducibility.
+                if rp_count >= 2
+                    % Determine voxel dimensions for physical Hausdorff distances
+                    rpt_vox_dims = data_vectors_gtvp(j,1,1).vox_dims;
+                    if isempty(rpt_vox_dims) || ~isnumeric(rpt_vox_dims) || numel(rpt_vox_dims) ~= 3
+                        rpt_vox_vol = data_vectors_gtvp(j,1,1).vox_vol;
+                        if ~isempty(rpt_vox_vol) && ~isnan(rpt_vox_vol) && rpt_vox_vol > 0
+                            side_mm = (rpt_vox_vol * 1000) ^ (1/3);
+                            rpt_vox_dims = [side_mm, side_mm, side_mm];
+                        else
+                            rpt_vox_dims = [1, 1, 1];
+                        end
+                    end
+
+                    % Collect valid repeat indices and their parameter vectors
+                    valid_rpis = [];
+                    rpt_vecs = struct('adc', {{}}, 'd', {{}}, 'f', {{}}, 'dstar', {{}});
+                    for rpi2 = 1:size(data_vectors_gtvp, 3)
+                        switch dwi_type
+                            case 1
+                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector;
+                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector;
+                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector;
+                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector;
+                            case 2
+                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector_dncnn;
+                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector_dncnn;
+                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector_dncnn;
+                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector_dncnn;
+                            case 3
+                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector;
+                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector_ivimnet;
+                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector_ivimnet;
+                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector_ivimnet;
+                        end
+                        if ~isempty(rv_adc) || ~isempty(rv_d)
+                            valid_rpis(end+1) = rpi2; %#ok<AGROW>
+                            rpt_vecs.adc{end+1} = rv_adc;
+                            rpt_vecs.d{end+1} = rv_d;
+                            rpt_vecs.f{end+1} = rv_f;
+                            rpt_vecs.dstar{end+1} = rv_ds;
+                        end
+                    end
+
+                    if numel(valid_rpis) >= 2
+                        % Load 3D GTV masks for each valid repeat
+                        rpt_masks_3d = cell(numel(valid_rpis), 1);
+                        rpt_has_3d = true;
+                        for ri = 1:numel(valid_rpis)
+                            rpi_idx = valid_rpis(ri);
+                            gtv_mat_path = gtv_locations{j, 1, rpi_idx};
+                            if ~isempty(gtv_mat_path)
+                                path_parts = strsplit(gtv_mat_path, {'/', '\'});
+                                gtv_mat_path = fullfile(path_parts{:});
+                                if isunix && ~startsWith(gtv_mat_path, filesep) && isempty(path_parts{1})
+                                    gtv_mat_path = [filesep gtv_mat_path]; %#ok<AGROW>
+                                end
+                                if exist(gtv_mat_path, 'file')
+                                    if strcmp(gtv_mat_path, last_rpt_gtv_mat)
+                                        rpt_masks_3d{ri} = last_rpt_gtv_mask;
+                                    else
+                                        rpt_masks_3d{ri} = safe_load_mask(gtv_mat_path, 'Stvol3d');
+                                        last_rpt_gtv_mat = gtv_mat_path;
+                                        last_rpt_gtv_mask = rpt_masks_3d{ri};
+                                    end
+                                end
+                            end
+                            if isempty(rpt_masks_3d{ri})
+                                rpt_has_3d = false;
+                            end
+                        end
+
+                        if rpt_has_3d
+                            % Accumulate pairwise metrics then average
+                            param_names = {'adc', 'd', 'f', 'dstar'};
+                            param_thresholds = [adc_thresh, d_thresh, f_thresh, config_struct.dstar_thresh];
+                            pair_dice = nan(numel(valid_rpis)*(numel(valid_rpis)-1)/2, 4);
+                            pair_hd_max = nan(size(pair_dice));
+                            pair_hd95 = nan(size(pair_dice));
+                            pi_count = 0;
+
+                            for ri1 = 1:numel(valid_rpis)-1
+                                for ri2 = ri1+1:numel(valid_rpis)
+                                    pi_count = pi_count + 1;
+                                    mask_3d_1 = rpt_masks_3d{ri1};
+                                    mask_3d_2 = rpt_masks_3d{ri2};
+
+                                    % Verify compatible 3D mask dimensions
+                                    if ~isequal(size(mask_3d_1), size(mask_3d_2))
+                                        continue;
+                                    end
+
+                                    for pi = 1:4
+                                        vec_1 = rpt_vecs.(param_names{pi}){ri1};
+                                        vec_2 = rpt_vecs.(param_names{pi}){ri2};
+                                        if isempty(vec_1) || isempty(vec_2)
+                                            continue;
+                                        end
+
+                                        n_gtv_1 = sum(mask_3d_1(:) == 1);
+                                        n_gtv_2 = sum(mask_3d_2(:) == 1);
+                                        if numel(vec_1) ~= n_gtv_1 || numel(vec_2) ~= n_gtv_2
+                                            continue;
+                                        end
+
+                                        % Threshold to binary, embed in 3D, morphological cleanup
+                                        subvol_3d_1 = false(size(mask_3d_1));
+                                        subvol_3d_1(mask_3d_1 == 1) = vec_1 < param_thresholds(pi);
+                                        subvol_3d_1 = imclose(imopen(subvol_3d_1, morph_se), morph_se);
+                                        subvol_3d_1 = bwareaopen(subvol_3d_1, morph_min_cc);
+
+                                        subvol_3d_2 = false(size(mask_3d_2));
+                                        subvol_3d_2(mask_3d_2 == 1) = vec_2 < param_thresholds(pi);
+                                        subvol_3d_2 = imclose(imopen(subvol_3d_2, morph_se), morph_se);
+                                        subvol_3d_2 = bwareaopen(subvol_3d_2, morph_min_cc);
+
+                                        [d_val, hm_val, h95_val] = compute_dice_hausdorff( ...
+                                            subvol_3d_1, subvol_3d_2, rpt_vox_dims);
+                                        pair_dice(pi_count, pi) = d_val;
+                                        pair_hd_max(pi_count, pi) = hm_val;
+                                        pair_hd95(pi_count, pi) = h95_val;
+                                    end
+                                end
+                            end
+
+                            % Average across all repeat pairs
+                            if exist('OCTAVE_VERSION', 'builtin')
+                                mean_dice = mean(pair_dice(1:pi_count,:), 1, 'omitnan');
+                                mean_hd_max = mean(pair_hd_max(1:pi_count,:), 1, 'omitnan');
+                                mean_hd95 = mean(pair_hd95(1:pi_count,:), 1, 'omitnan');
+                            else
+                                mean_dice = nanmean(pair_dice(1:pi_count,:), 1);
+                                mean_hd_max = nanmean(pair_hd_max(1:pi_count,:), 1);
+                                mean_hd95 = nanmean(pair_hd95(1:pi_count,:), 1);
+                            end
+                            dice_rpt_adc(j, dwi_type) = mean_dice(1);
+                            dice_rpt_d(j, dwi_type)   = mean_dice(2);
+                            dice_rpt_f(j, dwi_type)   = mean_dice(3);
+                            dice_rpt_dstar(j, dwi_type) = mean_dice(4);
+                            hd_max_rpt_adc(j, dwi_type) = mean_hd_max(1);
+                            hd_max_rpt_d(j, dwi_type)   = mean_hd_max(2);
+                            hd_max_rpt_f(j, dwi_type)   = mean_hd_max(3);
+                            hd_max_rpt_dstar(j, dwi_type) = mean_hd_max(4);
+                            hd95_rpt_adc(j, dwi_type) = mean_hd95(1);
+                            hd95_rpt_d(j, dwi_type)   = mean_hd95(2);
+                            hd95_rpt_f(j, dwi_type)   = mean_hd95(3);
+                            hd95_rpt_dstar(j, dwi_type) = mean_hd95(4);
+                        end
+                    end
                 end
             end
         end
@@ -699,10 +899,24 @@ summary_metrics.lf = lf;
 summary_metrics.immuno = immuno;
 summary_metrics.adc_mean_rpt = adc_mean_rpt;
 summary_metrics.adc_sub_rpt = adc_sub_rpt;
+summary_metrics.adc_sub_vol_rpt = adc_sub_vol_rpt;
+summary_metrics.adc_sub_vol_pc_rpt = adc_sub_vol_pc_rpt;
 summary_metrics.d_mean_rpt = d_mean_rpt;
 summary_metrics.f_mean_rpt = f_mean_rpt;
 summary_metrics.dstar_mean_rpt = dstar_mean_rpt;
 summary_metrics.n_rpt = n_rpt;
+summary_metrics.dice_rpt_adc = dice_rpt_adc;
+summary_metrics.hd_max_rpt_adc = hd_max_rpt_adc;
+summary_metrics.hd95_rpt_adc = hd95_rpt_adc;
+summary_metrics.dice_rpt_d = dice_rpt_d;
+summary_metrics.hd_max_rpt_d = hd_max_rpt_d;
+summary_metrics.hd95_rpt_d = hd95_rpt_d;
+summary_metrics.dice_rpt_f = dice_rpt_f;
+summary_metrics.hd_max_rpt_f = hd_max_rpt_f;
+summary_metrics.hd95_rpt_f = hd95_rpt_f;
+summary_metrics.dice_rpt_dstar = dice_rpt_dstar;
+summary_metrics.hd_max_rpt_dstar = hd_max_rpt_dstar;
+summary_metrics.hd95_rpt_dstar = hd95_rpt_dstar;
 summary_metrics.dmean_gtvp = dmean_gtvp;
 summary_metrics.gtv_locations = gtv_locations;
 summary_metrics.dwi_locations = dwi_locations;

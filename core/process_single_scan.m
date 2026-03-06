@@ -458,7 +458,7 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     % Build maps struct for extract_biomarkers
     maps = struct('adc_map', adc_map, 'd_map', d_map, 'f_map', f_map, 'dstar_map', dstar_map);
     meta = struct('id', ctx.id_j, 'mrn', ctx.mrn_j, 'lf', ctx.pat_lf, ...
-        'immuno', ctx.pat_immuno, 'fi', fi, 'rpi', rpi, 'vox_vol', dwi_vox_vol);
+        'immuno', ctx.pat_immuno, 'fi', fi, 'rpi', rpi, 'vox_vol', dwi_vox_vol, 'vox_dims', dwi_dims);
 
     % DnCNN maps struct
     dncnn_maps = struct();
@@ -658,6 +658,7 @@ function bio = extract_biomarkers(mask, maps, meta, dncnn_maps, dncnn_mask, ivim
     bio.Fraction = meta.fi;
     bio.Repeatability_index = meta.rpi;
     bio.vox_vol = meta.vox_vol;
+    bio.vox_dims = meta.vox_dims;
 
     % DnCNN-denoised vectors
     if isfield(dncnn_maps, 'd_map_dncnn') && ~isempty(dncnn_maps.d_map_dncnn)
