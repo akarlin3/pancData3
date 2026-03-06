@@ -119,39 +119,10 @@ serial_suite   = suite(~is_parallel);
 fprintf('Discovered %d tests (%d parallel-safe, %d serial).\n\n', ...
     numel(suite), numel(parallel_suite), numel(serial_suite));
 
-% --- Waitbar setup (GUI environments only) ---
-has_display = false;
-if ~exist('OCTAVE_VERSION', 'builtin')
-    try
-        has_display = usejava('desktop') || ...
-                      (~isempty(getenv('DISPLAY')) && usejava('jvm'));
-    catch
-        has_display = false;
-    end
-end
-hWaitbar = [];
-if has_display
-    hWaitbar = waitbar(0, 'Initializing test suite...', ...
-        'Name', 'Test Suite Progress', ...
-        'Visible', 'on');
-    % Expand the default waitbar window and center it on screen
-    fig_pos = get(hWaitbar, 'Position');
-    new_w = fig_pos(3) + 80;
-    new_h = fig_pos(4) + 30;
-    screen_sz = get(0, 'ScreenSize');
-    new_x = (screen_sz(3) - new_w) / 2;
-    new_y = (screen_sz(4) - new_h) / 2;
-    set(hWaitbar, 'Position', [new_x, new_y, new_w, new_h]);
-    % Re-center the progress bar axes within the resized figure
-    hAxes = findobj(hWaitbar, 'Type', 'axes');
-    if ~isempty(hAxes)
-        ax_pos = get(hAxes, 'Position');
-        new_ax_x = (1 - ax_pos(3)) / 2;
-        new_ax_y = (1 - ax_pos(4)) / 2 - 0.05;
-        set(hAxes, 'Position', [new_ax_x, new_ax_y, ax_pos(3), ax_pos(4)]);
-    end
-    % Center the waitbar message text within the resized figure
-    centerWaitbarText(hWaitbar);
+% --- Progress GUI setup (GUI environments only) ---
+hGUI = [];
+if ProgressGUI.isDisplayAvailable()
+    hGUI = ProgressGUI('Running Tests', numel(suite));
 end
 
 % 3. Check whether parallel execution is available
@@ -183,28 +154,29 @@ disp('===================================================');
 if can_run_parallel
     % --- Phase 1: parallel-safe tests via runInParallel ---
     fprintf('Running %d parallel-safe tests with runInParallel...\n', numel(parallel_suite));
-    if ~isempty(hWaitbar) && isvalid(hWaitbar)
-        waitbar(0, hWaitbar, sprintf('0.0%% — Running %d parallel-safe tests...', numel(parallel_suite)));
-        centerWaitbarText(hWaitbar);
+    if ~isempty(hGUI) && hGUI.isValid()
+        counts = struct('completed', 0, 'total', numel(suite), 'passed', 0, 'failed', 0);
+        hGUI.update(0, counts, sprintf('Running %d parallel-safe tests...', numel(parallel_suite)), 'running');
     end
     par_runner = TestRunner.withTextOutput();
     parallel_results = par_runner.runInParallel(parallel_suite);
 
     parallel_done = numel(parallel_suite);
-    if ~isempty(hWaitbar) && isvalid(hWaitbar)
-        pct_done = (parallel_done / numel(suite)) * 100;
-        waitbar(parallel_done / numel(suite), hWaitbar, ...
-            sprintf('%.1f%% — Parallel phase complete (%d/%d). Starting serial...', ...
-            pct_done, parallel_done, numel(suite)));
-        centerWaitbarText(hWaitbar);
+    if ~isempty(hGUI) && hGUI.isValid()
+        par_passed = sum(~[parallel_results.Failed]);
+        par_failed = sum([parallel_results.Failed]);
+        counts = struct('completed', parallel_done, 'total', numel(suite), ...
+                        'passed', par_passed, 'failed', par_failed);
+        hGUI.update(parallel_done / numel(suite), counts, ...
+            'Parallel phase complete. Starting serial...', 'running');
     end
 
     % --- Phase 2: serial tests sequentially ---
     fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
     ser_runner = TestRunner.withTextOutput();
     ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite)));
-    if ~isempty(hWaitbar) && isvalid(hWaitbar)
-        ser_runner.addPlugin(WaitbarProgressPlugin(hWaitbar, numel(suite), parallel_done));
+    if ~isempty(hGUI) && hGUI.isValid()
+        ser_runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
     end
 
     % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
@@ -228,8 +200,8 @@ else
 
     runner = TestRunner.withTextOutput();
     runner.addPlugin(ProgressBarPlugin(numel(suite)));
-    if ~isempty(hWaitbar) && isvalid(hWaitbar)
-        runner.addPlugin(WaitbarProgressPlugin(hWaitbar, numel(suite), 0));
+    if ~isempty(hGUI) && hGUI.isValid()
+        runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), 0));
     end
 
     if is_preflight
@@ -328,9 +300,9 @@ elseif exist(failureSummaryFile, 'file')
     delete(failureSummaryFile);
 end
 
-% Close waitbar before assertSuccess (which may throw on failure)
-if ~isempty(hWaitbar) && isvalid(hWaitbar)
-    close(hWaitbar);
+% Close progress GUI before assertSuccess (which may throw on failure)
+if ~isempty(hGUI) && hGUI.isValid()
+    hGUI.close();
 end
 
 % 8. Assert success (Throws an error and returns non-zero exit code if any test fails)
@@ -401,14 +373,3 @@ else
     end
 end
 
-function centerWaitbarText(hWaitbar)
-%CENTERWAITBARTEXT Re-center text objects after waitbar updates.
-    if ~isvalid(hWaitbar); return; end
-    hText = findobj(hWaitbar, 'Type', 'text');
-    for ti = 1:numel(hText)
-        set(hText(ti), 'Units', 'normalized', ...
-            'Position', [0.5, 0.5, 0], ...
-            'HorizontalAlignment', 'center', ...
-            'VerticalAlignment', 'middle');
-    end
-end
