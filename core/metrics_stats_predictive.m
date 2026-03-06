@@ -241,12 +241,12 @@ for target_fx = 2:nTp
         try
             if cv_i == 1
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                    'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 10000);
+                    'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1e5);
                 common_Lambda = FitInfo_fold.Lambda;
                 all_deviance = zeros(length(common_Lambda), n_folds_en);
             else
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                    'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 10000);
+                    'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1e5);
             end
             
             % Compute test-fold predicted probabilities via logistic sigmoid
@@ -289,22 +289,23 @@ for target_fx = 2:nTp
         X_clean_kept = X_clean_all(:, keep_final);
         final_feature_indices = original_feature_indices(keep_final);
 
+        w_state_final = warning('off', 'stats:lassoGlm:IterationLimit');
         try
             [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
-                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 10000);
+                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1e5);
 
             coefs_en = B_final;
 
             % Map nonzero coefficient indices to original feature names.
             nz_in_kept = find(coefs_en ~= 0);
             selected_indices = final_feature_indices(nz_in_kept);
-            
+
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
         catch
             cv_failed = true;
         end
-        warning(w_state_cv);
+        warning(w_state_final);
     end
     
     if cv_failed || isempty(common_Lambda)
@@ -374,12 +375,12 @@ for target_fx = 2:nTp
                 inn_te = (inn_fold_id == inn_i);
                 if inn_i == 1
                     [B_inn, FI_inn] = lassoglm(X_tr_kept(inn_tr,:), y_tr_fold(inn_tr), 'binomial', ...
-                        'Alpha', 0.5, 'NumLambda', 10, 'Standardize', true, 'MaxIter', 10000);
+                        'Alpha', 0.5, 'NumLambda', 10, 'Standardize', true, 'MaxIter', 1e5);
                     inn_Lambda = FI_inn.Lambda;
                     inn_deviance = zeros(numel(inn_Lambda), n_inn_folds);
                 else
                     [B_inn, FI_inn] = lassoglm(X_tr_kept(inn_tr,:), y_tr_fold(inn_tr), 'binomial', ...
-                        'Alpha', 0.5, 'Lambda', inn_Lambda, 'Standardize', true, 'MaxIter', 10000);
+                        'Alpha', 0.5, 'Lambda', inn_Lambda, 'Standardize', true, 'MaxIter', 1e5);
                 end
                 p_inn = 1 ./ (1 + exp(-(X_tr_kept(inn_te,:) * B_inn + FI_inn.Intercept)));
                 p_inn = max(min(p_inn, 1 - 1e-10), 1e-10);
@@ -392,7 +393,7 @@ for target_fx = 2:nTp
             [~, best_idx] = min(mean(inn_deviance, 2));
             opt_lam_loo = inn_Lambda(best_idx);
             [B_loo, FitInfo_loo] = lassoglm(X_tr_kept, y_tr_fold, 'binomial', ...
-                'Alpha', 0.5, 'Lambda', opt_lam_loo, 'Standardize', true, 'MaxIter', 10000);
+                'Alpha', 0.5, 'Lambda', opt_lam_loo, 'Standardize', true, 'MaxIter', 1e5);
             coefs_loo = B_loo;
             intercept_loo = FitInfo_loo.Intercept;
         catch
@@ -728,7 +729,7 @@ for target_fx = 2:nTp
                 % NOTE: Decision boundary is fitted on the full displayed
                 % dataset (not cross-validated) for visualization only.
                 w_state = warning('off', 'all');
-                mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 10000));
+                mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1e5));
                 warning(w_state);
                 coefs = mdl.Coefficients.Estimate;
                 if numel(coefs) >= 3 && coefs(3) ~= 0
