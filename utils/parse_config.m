@@ -165,6 +165,8 @@ function config_struct = parse_config(json_path)
         % Distinguishing cancer-specific death from other causes (e.g.,
         % cardiovascular) is essential for Cause-Specific Hazard modeling
         % in pancreatic cancer where non-cancer mortality is non-negligible.
+        % Set to "" (empty string) to disable the warning when no
+        % cause-of-death data is available.
         if ~isfield(config_struct, 'cause_of_death_column')
             config_struct.cause_of_death_column = 'CauseOfDeath';
         end
