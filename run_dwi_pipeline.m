@@ -715,6 +715,42 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_baseline
     lastwarn('');  % reset warning tracker between steps
 
+    % --- Compare Core Methods (standalone optional step) ---
+    % Runs all 11 tumor core delineation methods on each patient/timepoint
+    % and computes pairwise Dice/Hausdorff agreement metrics with summary
+    % figures.  Not included in the default step list — invoke explicitly:
+    %   run_dwi_pipeline('config.json', {'compare_cores'});
+    if ismember('compare_cores', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('compare_cores'); end
+        try
+            fprintf('\n⚙️ [%s] Running core method comparison...\n', current_name);
+            compare_results = compare_core_methods(validated_data_gtvp, summary_metrics, config_struct); %#ok<NASGU>
+            fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('compare_cores', 'success'); end
+            [warn_msg, warn_id] = lastwarn;
+            lastwarn('');
+            if ~isempty(warn_msg) && log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] During compare_core_methods: %s (id: %s)\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
+            end
+        catch ME
+            fprintf('⚠️ FAILED (Non-Fatal).\n');
+            fprintf('⚠️ Error during compare_core_methods: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('compare_cores', 'warning'); end
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [ERROR] compare_core_methods failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf(log_fid, '         at %s:%d\n', ME.stack(1).name, ME.stack(1).line);
+                end
+            end
+        end
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('compare_cores', 'skipped'); end
+    end
+    diary(master_diary_file);  % restart master diary after compare_cores
+    lastwarn('');  % reset warning tracker between steps
+
     % [ANALYTICAL RATIONALE — LONGITUDINAL METRICS]:
     % metrics_longitudinal analyzes how diffusion parameters change across
     % treatment fractions (Fx1 through Fx5 and post-treatment). In pancreatic

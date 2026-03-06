@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0--beta.2-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-70%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-71%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -192,6 +192,29 @@ The pipeline executes the following steps in order:
 | 4d. Comparisons | `metrics_stats_comparisons` | Statistical group comparisons |
 | 4e. Predictive | `metrics_stats_predictive` | Feature selection, cross-validated predictive modeling |
 | 4f. Survival | `metrics_survival` | Competing risks, Cause-Specific Hazards analysis |
+| 5. **Compare Cores** | `compare_core_methods` | Pairwise comparison of all 11 tumor core methods (optional, invoke explicitly) |
+
+### Comparing Core Delineation Methods
+
+The `compare_cores` step runs all 11 tumor core delineation methods on every patient and timepoint, then computes pairwise spatial agreement metrics. This is not part of the default pipeline — invoke it explicitly:
+
+```matlab
+% Run after data has been loaded (requires dwi_vectors and summary_metrics on disk)
+run_dwi_pipeline('config.json', {'compare_cores'});
+```
+
+**Output files** (saved to the DWI-type subfolder):
+
+| File | Description |
+|---|---|
+| `compare_core_results_{type}.mat` | Full comparison struct: pairwise Dice and HD95 matrices, per-method volume fractions, fallback flags |
+| `core_method_dice_heatmap_{type}.png` | 11x11 heatmap of mean pairwise Dice coefficients |
+| `core_method_hd95_heatmap_{type}.png` | 11x11 heatmap of mean pairwise 95th-percentile Hausdorff distance (only when 3D GTV masks are available) |
+| `core_method_volume_comparison_{type}.png` | Bar chart of mean core volume (% of GTV) per method with error bars |
+| `core_method_fallbacks_{type}.png` | Bar chart showing how often each method fell back to `adc_threshold` (e.g., fDM at baseline, spatial methods without 3D masks) |
+| `compare_core_methods_output_{type}.txt` | Console log |
+
+The MAT file contains a `compare_results` struct with fields: `method_names`, `mean_dice_matrix`, `mean_hd95_matrix`, `volume_fractions`, `fallback_flags`, `all_dice` (per-patient Dice matrices), and `all_hd95` (per-patient HD95 matrices).
 
 ---
 
@@ -201,7 +224,7 @@ The pipeline executes the following steps in order:
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 70 test files covering:
+The test suite includes 71 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -223,7 +246,7 @@ pancData3/
 ├── execute_all_workflows.m     # Sequential multi-type runner
 ├── patient_data_check.m       # Pre-pipeline data validation
 ├── config.example.json         # Configuration template
-├── core/                       # Pipeline modules (17 files)
+├── core/                       # Pipeline modules (18 files)
 │   ├── load_dwi_data.m         #   Data loading & model fitting
 │   ├── sanity_checks.m         #   Data validation
 │   ├── visualize_results.m     #   Visualization generation

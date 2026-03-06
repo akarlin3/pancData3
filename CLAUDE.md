@@ -46,10 +46,10 @@ pancData3/
 ├── patient_data_check.m        # Pre-pipeline data integrity scanner
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
-├── core/                       # Primary pipeline modules (17 files)
+├── core/                       # Primary pipeline modules (18 files)
 ├── utils/                      # Helper utilities (28 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (70 test files)
+├── tests/                      # Full test suite (71 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
@@ -146,6 +146,7 @@ The optional 3rd argument specifies a parent output folder. If omitted, `run_dwi
 2. `sanity` — Convergence validation, missingness, spatial alignment
 3. `visualize` — Parameter maps, distributions, trajectories
 4. `metrics` — Summary metrics, baseline, longitudinal, dosimetry, stats, survival
+5. `compare_cores` — Pairwise comparison of all 11 core methods (Dice, Hausdorff, volumes). Not in default steps; invoke explicitly: `run_dwi_pipeline('config.json', {'compare_cores'})`
 
 ### Agent workflow (`/run_data`)
 
@@ -199,6 +200,7 @@ run('tests/run_all_tests.m')
 | `test_source_code_standards.m` | Source code standards enforcement |
 | `test_modularity.m` | Module independence and interface tests |
 | `test_statistical_methods.m` | Statistical methods validation |
+| `test_compare_core_methods.m` | Core method pairwise comparison validation |
 
 ---
 
@@ -223,6 +225,7 @@ run('tests/run_all_tests.m')
 | `plot_feature_distributions.m` | Feature histogram/boxplot rendering |
 | `plot_scatter_correlations.m` | Correlation scatter plots |
 | `process_single_scan.m` | Per-scan DICOM conversion, model fitting, and caching |
+| `compare_core_methods.m` | Pairwise comparison of all 11 tumor core methods (Dice, Hausdorff, volume) |
 
 ---
 
@@ -332,6 +335,8 @@ saved_files_YYYYMMDD_HHMMSS/
 │   ├── sanity_checks_output.txt
 │   ├── visualize_results_output.txt
 │   ├── metrics_baseline_output_Standard.txt
+│   ├── compare_core_methods_output_Standard.txt
+│   ├── compare_core_results_Standard.mat
 │   ├── metrics_longitudinal_output_Standard.txt
 │   ├── metrics_dosimetry_output.txt
 │   ├── metrics_stats_comparisons_output_Standard.txt
@@ -347,7 +352,7 @@ saved_files_YYYYMMDD_HHMMSS/
 
 - Validate MATLAB toolbox licenses at startup (Statistics + Image Processing).
 - Halt with a clear message on any unrecoverable error.
-- Non-fatal module failures (metrics_longitudinal, dosimetry, stats, survival) log a `⚠️` warning and continue the pipeline.
+- Non-fatal module failures (compare_core_methods, metrics_longitudinal, dosimetry, stats, survival) log a `⚠️` warning and continue the pipeline.
 - Graceful halting is preferred over silent continuation with bad data.
 
 ---
