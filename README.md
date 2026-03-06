@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0--beta-blue)](#citation)
+[![Version](https://img.shields.io/badge/version-1.0.0--beta.1-blue)](#citation)
 [![Tests](https://img.shields.io/badge/tests-65%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 0.2.0-beta — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 1.0.0-beta.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -261,7 +261,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {0.2.0-beta},
+  version   = {1.0.0-beta.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {MIT}
 }
