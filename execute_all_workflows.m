@@ -127,6 +127,13 @@ timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
 eaw_output_folder = fullfile(repo_root, sprintf('saved_files_%s', timestamp_str));
 if ~exist(eaw_output_folder, 'dir'), mkdir(eaw_output_folder); end
 
+% --- Workflow Progress GUI (GUI environments only) ---
+wfGUI = [];
+if ProgressGUI.isDisplayAvailable()
+    wfGUI = ProgressGUI('DWI Analysis Workflow', 3);
+end
+cleanup_wf_gui = onCleanup(@() closeWfGUI(wfGUI));
+
 % Master diary for execute_all_workflows console output.
 % MATLAB only supports one active diary at a time. This master diary
 % captures the orchestrator-level output (which DWI type is running,
@@ -231,6 +238,10 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
 % skip_to_reload = false means this first run performs the full DICOM
 % conversion + model fitting pipeline from scratch.
 disp('====== STARTING STANDARD PIPELINE ======');
+if ~isempty(wfGUI) && wfGUI.isValid()
+    counts = struct('completed', 0, 'total', 3, 'stepName', 'DWI Type 1/3: Standard');
+    wfGUI.update(0, counts, 'Running Standard pipeline...', 'running');
+end
 config_json = json_set_field(config_json, 'dwi_type', 'Standard');
 config_json = json_set_field(config_json, 'skip_to_reload', false);
 fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
@@ -252,6 +263,10 @@ diary(eaw_diary_file);  % restart after pipeline run (module diaries override th
 % denoising, and refitting the diffusion models. This saves significant
 % time since dcm2niix conversion is identical across all three methods.
 disp('====== STARTING dnCNN PIPELINE ======');
+if ~isempty(wfGUI) && wfGUI.isValid()
+    counts = struct('completed', 1, 'total', 3, 'stepName', 'DWI Type 2/3: dnCNN');
+    wfGUI.update(1/3, counts, 'Running dnCNN pipeline...', 'running');
+end
 config_json = json_set_field(config_json, 'dwi_type', 'dnCNN');
 config_json = json_set_field(config_json, 'skip_to_reload', true);
 fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
@@ -275,21 +290,38 @@ diary(eaw_diary_file);  % restart after pipeline run (module diaries override th
 % set — this would constitute a severe form of data leakage that would
 % inflate apparent predictive accuracy.
 disp('====== STARTING IVIMnet PIPELINE ======');
+if ~isempty(wfGUI) && wfGUI.isValid()
+    counts = struct('completed', 2, 'total', 3, 'stepName', 'DWI Type 3/3: IVIMnet');
+    wfGUI.update(2/3, counts, 'Running IVIMnet pipeline...', 'running');
+end
 config_json = json_set_field(config_json, 'dwi_type', 'IVIMnet');
 config_json = json_set_field(config_json, 'skip_to_reload', true);
 fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
+if ~isempty(wfGUI) && wfGUI.isValid()
+    counts = struct('completed', 3, 'total', 3, 'stepName', 'All workflows complete');
+    wfGUI.update(1, counts, 'All 3 DWI types processed', 'success');
+end
 disp('====== ALL WORKFLOWS COMPLETED ======');
 diary off;
 
-% Explicitly restore config.json now.  In a script with local functions,
-% onCleanup objects persist in the base workspace after the script ends and
-% the cleanup never fires automatically.  Without this, config.json is left
-% with the last intermediate dwi_type/skip_to_reload values until the user
-% clears the workspace or exits MATLAB.
+% Explicitly restore config.json and close workflow GUI now.  In a script
+% with local functions, onCleanup objects persist in the base workspace
+% after the script ends and the cleanup never fires automatically.
+% Without this, config.json is left with the last intermediate
+% dwi_type/skip_to_reload values until the user clears the workspace or
+% exits MATLAB.
 delete(restore_config);
+delete(cleanup_wf_gui);
+
+function closeWfGUI(gui)
+%CLOSEWFGUI  Close the workflow progress GUI if valid.
+    if ~isempty(gui)
+        try gui.close(); catch, end
+    end
+end
 
 function restore_config_file(config_path, original_str)
 % Restore config.json to its original state when the script exits (whether

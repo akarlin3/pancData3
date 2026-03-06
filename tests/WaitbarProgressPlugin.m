@@ -1,17 +1,18 @@
 classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
-%WAITBARPROGRESSPLUGIN Displays a waitbar dialog during test execution.
-%   Updates a MATLAB waitbar figure as each test completes. Receives an
-%   existing waitbar handle and an offset count so that progress spans
-%   both parallel and serial test phases.
+%WAITBARPROGRESSPLUGIN Displays a ProgressGUI dialog during test execution.
+%   Updates a ProgressGUI figure as each test completes. Receives an
+%   existing ProgressGUI instance and an offset count so that progress
+%   spans both parallel and serial test phases.
 %
-%   Shows precise percentage, pass/fail counts, and the current test name.
+%   Shows precise percentage, pass/fail counts, elapsed time, and the
+%   current test name in a professional styled progress window.
 %
 %   Usage:
-%       h = waitbar(0, 'Running tests...', 'Visible', 'on');
-%       runner.addPlugin(WaitbarProgressPlugin(h, totalTests, offset));
+%       gui = ProgressGUI('Running Tests', totalTests);
+%       runner.addPlugin(WaitbarProgressPlugin(gui, totalTests, offset));
 
     properties (Access = private)
-        WaitbarHandle       % Handle to the waitbar figure
+        GUI                 % ProgressGUI instance
         TotalTests double   % Total test count (parallel + serial)
         Offset double       % Tests already completed (from parallel phase)
         CompletedTests double = 0
@@ -19,23 +20,9 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
         FailedTests double = 0
     end
 
-    methods (Access = private, Static)
-        function centerWaitbarText(hWaitbar)
-        %CENTERWAITBARTEXT Re-center text objects after waitbar updates.
-            if ~isvalid(hWaitbar); return; end
-            hText = findobj(hWaitbar, 'Type', 'text');
-            for ti = 1:numel(hText)
-                set(hText(ti), 'Units', 'normalized', ...
-                    'Position', [0.5, 0.5, 0], ...
-                    'HorizontalAlignment', 'center', ...
-                    'VerticalAlignment', 'middle');
-            end
-        end
-    end
-
     methods
-        function plugin = WaitbarProgressPlugin(hWaitbar, totalTests, offset)
-            plugin.WaitbarHandle = hWaitbar;
+        function plugin = WaitbarProgressPlugin(gui, totalTests, offset)
+            plugin.GUI = gui;
             plugin.TotalTests = totalTests;
             plugin.Offset = offset;
             plugin.CompletedTests = 0;
@@ -44,46 +31,32 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
 
     methods (Access = protected)
         function runTestSuite(plugin, pluginData)
-            if isvalid(plugin.WaitbarHandle)
+            if ~isempty(plugin.GUI) && plugin.GUI.isValid()
                 frac = plugin.Offset / max(plugin.TotalTests, 1);
-                pct = frac * 100;
-                waitbar(frac, plugin.WaitbarHandle, ...
-                    sprintf('%.1f%% — Running serial tests... (%d/%d)', ...
-                    pct, plugin.Offset, plugin.TotalTests));
-                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
+                counts = struct('completed', plugin.Offset, 'total', plugin.TotalTests, ...
+                                'passed', plugin.PassedTests, 'failed', plugin.FailedTests);
+                plugin.GUI.update(frac, counts, 'Running serial tests...', 'running');
             end
 
             runTestSuite@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
 
-            if isvalid(plugin.WaitbarHandle)
+            if ~isempty(plugin.GUI) && plugin.GUI.isValid()
+                total_done = plugin.Offset + plugin.CompletedTests;
+                counts = struct('completed', total_done, 'total', plugin.TotalTests, ...
+                                'passed', plugin.PassedTests, 'failed', plugin.FailedTests);
                 if plugin.FailedTests > 0
-                    waitbar(1, plugin.WaitbarHandle, ...
-                        sprintf('100.0%% — Done: %d passed, %d failed', ...
-                        plugin.PassedTests, plugin.FailedTests));
+                    plugin.GUI.update(1, counts, 'Done', 'failure');
                 else
-                    waitbar(1, plugin.WaitbarHandle, ...
-                        sprintf('100.0%% — Done: %d passed', plugin.PassedTests));
+                    plugin.GUI.update(1, counts, 'Done', 'success');
                 end
-                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
             end
         end
 
         function runTest(plugin, pluginData)
             % Show current test name before running
             testName = pluginData.Name;
-            total_done = plugin.Offset + plugin.CompletedTests;
-            if isvalid(plugin.WaitbarHandle)
-                frac = total_done / max(plugin.TotalTests, 1);
-                pct = frac * 100;
-                % Truncate long test names to fit the waitbar
-                displayName = testName;
-                if length(displayName) > 80
-                    displayName = ['...' displayName(end-76:end)];
-                end
-                waitbar(frac, plugin.WaitbarHandle, ...
-                    sprintf('%.1f%% (%d/%d) — %s', ...
-                    pct, total_done, plugin.TotalTests, displayName));
-                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
+            if ~isempty(plugin.GUI) && plugin.GUI.isValid()
+                plugin.GUI.setDetail(testName);
             end
 
             runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
@@ -96,20 +69,16 @@ classdef WaitbarProgressPlugin < matlab.unittest.plugins.TestRunnerPlugin
             end
 
             total_done = plugin.Offset + plugin.CompletedTests;
-            if isvalid(plugin.WaitbarHandle)
+            if ~isempty(plugin.GUI) && plugin.GUI.isValid()
                 frac = total_done / max(plugin.TotalTests, 1);
-                pct = frac * 100;
+                counts = struct('completed', total_done, 'total', plugin.TotalTests, ...
+                                'passed', plugin.PassedTests, 'failed', plugin.FailedTests);
                 if plugin.FailedTests > 0
-                    waitbar(frac, plugin.WaitbarHandle, ...
-                        sprintf('%.1f%% (%d/%d) — %d passed, %d failed', ...
-                        pct, total_done, plugin.TotalTests, ...
-                        plugin.PassedTests, plugin.FailedTests));
+                    status = 'failure';
                 else
-                    waitbar(frac, plugin.WaitbarHandle, ...
-                        sprintf('%.1f%% (%d/%d) — %d passed', ...
-                        pct, total_done, plugin.TotalTests, plugin.PassedTests));
+                    status = 'running';
                 end
-                WaitbarProgressPlugin.centerWaitbarText(plugin.WaitbarHandle);
+                plugin.GUI.update(frac, counts, testName, status);
             end
         end
     end
