@@ -160,6 +160,13 @@ high_adc_sub_vol_pc = nan(length(id_list),nTp,3); % high-ADC sub-volume as % of 
 f_sub_vol = nan(length(id_list),nTp,3);           % low-perfusion sub-volume in cm^3
 gtv_vol = nan(length(id_list),nTp);               % total GTV volume in cm^3 (pipeline-independent)
 
+% --- fDM (Functional Diffusion Map) volume fractions ---
+% Only populated when core_method = 'fdm'.  Each fraction represents the
+% proportion of GTV voxels in each fDM class (responding/stable/progressing).
+fdm_responding_pc = nan(length(id_list),nTp,3);
+fdm_progressing_pc = nan(length(id_list),nTp,3);
+fdm_stable_pc = nan(length(id_list),nTp,3);
+
 % --- Whole-GTV summary statistics for ADC ---
 adc_mean = nan(length(id_list),nTp,3);
 adc_kurt = nan(length(id_list),nTp,3);
@@ -285,6 +292,23 @@ for j=1:n_patients_metrics
         else
             vox_vol = NaN;
         end
+
+        % Load 3D GTV mask for this patient/timepoint (needed by
+        % extract_tumor_core methods that require spatial context:
+        % region_growing, active_contours, spectral with 3D cleanup).
+        has_3d = false;
+        gtv_mask_3d = [];
+        if nargin >= 7 && ~isempty(gtv_locations) && ...
+                size(gtv_locations, 1) >= j && size(gtv_locations, 2) >= k
+            gtv_mat = gtv_locations{j, k, 1};
+            if ~isempty(gtv_mat) && exist(gtv_mat, 'file')
+                gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                if ~isempty(gtv_mask_3d)
+                    has_3d = true;
+                end
+            end
+        end
+
         for dwi_type = config_struct.dwi_types_to_run
 
             % Select the appropriate voxel vectors depending on pipeline
@@ -361,10 +385,55 @@ for j=1:n_patients_metrics
                     adc_sd(j,k,dwi_type) = nanstd(adc_vec);
                 end
                 
-                adc_vec_sub = adc_vec(adc_vec<=adc_thresh);
+                % CORE DELINEATION METHOD ABSTRACTION
+                % Instead of hardcoding ADC < adc_thresh, use the configurable method
+                core_opts = struct();
+                core_opts.timepoint_index = k;
+                if k > 1
+                    % Provide baseline vectors for fDM
+                    switch dwi_type
+                        case 1
+                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
+                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector;
+                        case 2
+                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
+                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_dncnn;
+                        case 3
+                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
+                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
+                    end
+                end
+                adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                adc_vec_sub = adc_vec(adc_vec_sub_mask);
                 adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
 
-                adc_sub_vol(j,k,dwi_type) = numel(adc_vec_sub)*vox_vol;
+                % Compute fDM volume fractions when using fDM core method
+                if strcmpi(config_struct.core_method, 'fdm') && k > 1
+                    switch lower(config_struct.fdm_parameter)
+                        case 'adc'
+                            fdm_current = adc_vec;
+                            fdm_baseline = core_opts.baseline_adc_vec;
+                        case 'd'
+                            fdm_current = d_vec;
+                            fdm_baseline = core_opts.baseline_d_vec;
+                    end
+                    if ~isempty(fdm_baseline) && numel(fdm_baseline) == numel(fdm_current)
+                        fdm_sig = config_struct.fdm_thresh;
+                        if isfield(core_opts, 'repeatability_cor') && ~isnan(core_opts.repeatability_cor)
+                            fdm_sig = core_opts.repeatability_cor;
+                        end
+                        delta_fdm = fdm_current - fdm_baseline;
+                        valid_delta = ~isnan(delta_fdm);
+                        n_valid_fdm = sum(valid_delta);
+                        if n_valid_fdm > 0
+                            fdm_responding_pc(j,k,dwi_type)  = sum(delta_fdm(valid_delta) > fdm_sig) / n_valid_fdm;
+                            fdm_progressing_pc(j,k,dwi_type) = sum(delta_fdm(valid_delta) < -fdm_sig) / n_valid_fdm;
+                            fdm_stable_pc(j,k,dwi_type)      = sum(abs(delta_fdm(valid_delta)) <= fdm_sig) / n_valid_fdm;
+                        end
+                    end
+                end
+
+                adc_sub_vol(j,k,dwi_type) = sum(adc_vec_sub_mask)*vox_vol;
                 % Use count of finite (non-NaN) voxels as denominator so
                 % NaN voxels do not artificially deflate the percentage.
                 finite_vol = n_finite_adc * vox_vol;
@@ -462,9 +531,18 @@ for j=1:n_patients_metrics
                 f_vec(failed_fit) = nan;
                 dstar_vec(failed_fit) = nan;
 
-                f_vec_sub = f_vec(f_vec<f_thresh);
-                f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;
-                d_vec_sub = d_vec(d_vec<d_thresh);
+                % For unified core methods (percentile, spectral, fdm),
+                % the core mask replaces individual parameter thresholds.
+                unified_methods = {'percentile', 'spectral', 'fdm'};
+                if any(strcmpi(config_struct.core_method, unified_methods))
+                    f_vec_sub = f_vec(adc_vec_sub_mask);
+                    f_sub_vol(j,k,dwi_type) = sum(adc_vec_sub_mask) * vox_vol;
+                    d_vec_sub = d_vec(adc_vec_sub_mask);
+                else
+                    f_vec_sub = f_vec(f_vec<f_thresh);
+                    f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;
+                    d_vec_sub = d_vec(d_vec<d_thresh);
+                end
 
                 if exist('OCTAVE_VERSION', 'builtin')
                     tmp = d_vec(~isnan(d_vec));
@@ -635,7 +713,10 @@ for j=1:n_patients_metrics
                         if n_finite_rpt > 0
                             fx_corrupted_rpt(j,rpi,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_rpt;
                         end
-                        adc_vec_sub = adc_vec(adc_vec<=adc_thresh);
+                        % CORE DELINEATION METHOD ABSTRACTION
+                        rpt_core_opts = struct('timepoint_index', k);
+                        adc_vec_sub_mask_rpt = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, rpt_core_opts);
+                        adc_vec_sub = adc_vec(adc_vec_sub_mask_rpt);
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;
                         else
@@ -921,6 +1002,10 @@ summary_metrics.dmean_gtvp = dmean_gtvp;
 summary_metrics.gtv_locations = gtv_locations;
 summary_metrics.dwi_locations = dwi_locations;
 summary_metrics.fx_dates = fx_dates;
+summary_metrics.core_method = config_struct.core_method;
+summary_metrics.fdm_responding_pc = fdm_responding_pc;
+summary_metrics.fdm_progressing_pc = fdm_progressing_pc;
+summary_metrics.fdm_stable_pc = fdm_stable_pc;
 
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);

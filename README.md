@@ -104,6 +104,11 @@ Edit `config.json` with your local paths:
 | `use_checkpoints` | Enable/disable checkpoint recovery |
 | `clear_cache` | Delete all cached pipeline files before execution |
 | `cause_of_death_column` | Column name for competing risk classification (default: `"CauseOfDeath"`) |
+| `core_method` | Method for defining the tumor core. Options: `"adc_threshold"`, `"d_threshold"`, `"df_intersection"`, `"otsu"`, `"gmm"`, `"kmeans"`, `"region_growing"`, `"active_contours"`, `"percentile"`, `"spectral"`, `"fdm"` (default: `"adc_threshold"`) |
+| `core_percentile` | Percentile cutoff for the `"percentile"` core method (default: `25`) |
+| `core_n_clusters` | Number of tissue clusters for the `"spectral"` core method (default: `2`) |
+| `fdm_parameter` | Diffusion parameter for the `"fdm"` core method: `"adc"` or `"d"` (default: `"adc"`) |
+| `fdm_thresh` | Fallback fDM significance threshold in mm²/s when no repeat-scan data is available (default: `0.0004`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 

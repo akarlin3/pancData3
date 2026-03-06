@@ -180,12 +180,71 @@ function config_struct = parse_config(json_path)
         if ~isfield(config_struct, 'clear_cache')
             config_struct.clear_cache = false;
         end
+
+        % core_method: Algorithm to use for determining the tumor core
+        % sub-volume inside the GTV. Default is 'adc_threshold' for
+        % backwards compatibility. Other options include 'd_threshold',
+        % 'df_intersection', 'otsu', 'gmm', 'kmeans', 'region_growing',
+        % 'active_contours', 'percentile', 'spectral', and 'fdm'.
+        if ~isfield(config_struct, 'core_method')
+            config_struct.core_method = 'adc_threshold';
+        end
+
+        % core_percentile: Percentile cutoff for the 'percentile' core
+        % method.  Voxels with ADC below the Nth percentile of the
+        % patient's own GTV ADC distribution are classified as core.
+        % N=25 means the densest quarter of the tumor by cellularity.
+        % The result is capped at adc_thresh as a safety floor to avoid
+        % labelling normal tissue as core in uniformly necrotic tumors.
+        if ~isfield(config_struct, 'core_percentile')
+            config_struct.core_percentile = 25;
+        end
+
+        % core_n_clusters: Number of tissue sub-populations for the
+        % 'spectral' core method.  2 = binary core/non-core separation;
+        % 3 = adds a transitional zone between viable tumor and necrosis.
+        % Uses spectralcluster (R2019b+) with k-means fallback on older
+        % MATLAB or Octave.
+        if ~isfield(config_struct, 'core_n_clusters')
+            config_struct.core_n_clusters = 2;
+        end
+
+        % fdm_parameter: Which diffusion parameter to use for functional
+        % diffusion map (fDM) voxel-level change classification.  'adc'
+        % is more robust (always available); 'd' removes perfusion
+        % contamination but is noisier and may have more fit failures.
+        if ~isfield(config_struct, 'fdm_parameter')
+            config_struct.fdm_parameter = 'adc';
+        end
+
+        % fdm_thresh: Fallback fDM significance threshold (mm^2/s).
+        % When repeatability-derived Coefficient of Reproducibility (CoR)
+        % is unavailable (no Fx1 repeat scans), voxel-level changes
+        % exceeding this value are classified as responding or progressing.
+        % 0.4 x 10^-3 mm^2/s is a typical test-retest threshold for
+        % abdominal DWI at 1.5-3T.
+        if ~isfield(config_struct, 'fdm_thresh')
+            config_struct.fdm_thresh = 0.0004;
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % Any JSON syntax error or field-access failure is caught here.
         % Re-throwing as a specific error ID allows callers to distinguish
         % config parsing failures from other errors in their try/catch blocks.
         error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
+    end
+
+    % ================================================================
+    % Validate core_method against the set of implemented algorithms.
+    % ================================================================
+    valid_core_methods = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+    if ~any(strcmpi(config_struct.core_method, valid_core_methods))
+        error('parse_config:invalidCoreMethod', ...
+            'Unrecognized core_method "%s". Must be one of: %s', ...
+            config_struct.core_method, strjoin(valid_core_methods, ', '));
     end
 
     % ================================================================

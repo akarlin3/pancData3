@@ -80,11 +80,18 @@ Key fields:
   "adc_thresh": 0.001,
   "dwi_type": "Standard",
   "cause_of_death_column": "CauseOfDeath",
-  "clear_cache": false
+  "clear_cache": false,
+  "core_method": "adc_threshold",
+  "core_percentile": 25,
+  "core_n_clusters": 2,
+  "fdm_parameter": "adc",
+  "fdm_thresh": 0.0004
 }
 ```
 
 `dwi_type` must be one of: `"Standard"`, `"dnCNN"`, or `"IVIMnet"`.
+
+`core_method` selects the tumor core delineation algorithm. Options: `"adc_threshold"` (default), `"d_threshold"`, `"df_intersection"`, `"otsu"`, `"gmm"`, `"kmeans"`, `"region_growing"`, `"active_contours"`, `"percentile"`, `"spectral"`, `"fdm"`. The `percentile`, `spectral`, and `fdm` methods use a unified core mask across all parameters (replacing individual D/f/D* thresholds).
 
 ### Config Backwards Compatibility (mandatory)
 
@@ -173,6 +180,8 @@ run('tests/run_all_tests.m')
 | `test_safe_load_mask.m` | Secure mask file loading |
 | `test_escape_shell_arg.m` | Cross-platform shell argument escaping |
 | `test_visualize_smoke.m` | Visualization output smoke tests |
+| `test_core_methods.m` | Tumor core extraction method validation (all 11 methods) |
+| `test_new_core_methods.m` | Detailed tests for percentile, spectral, and fDM core methods |
 
 ---
 
@@ -226,14 +235,15 @@ run('tests/run_all_tests.m')
 | `remove_constant_columns.m` | Removes constant/NaN-only columns from feature matrices |
 | `parfor_progress.m` | Parallel loop progress reporting |
 | `text_progress_bar.m` | Text-based progress bar display |
+| `extract_tumor_core.m` | Configurable tumor core delineation (11 methods) |
 
 ### Octave Compatibility (`.octave_compat/`)
 
-Contains 20 shim files for GNU Octave compatibility, including:
+Contains 21 shim files for GNU Octave compatibility, including:
 
 - `@table/` class implementation (`table.m`, `subsasgn.m`, `subsref.m`, `display.m`)
 - `+matlab/+unittest/` namespace shims (`TestSuite.m`, `TestCase.m`, `TestRunner.m`)
-- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`
+- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
 
 ---
 

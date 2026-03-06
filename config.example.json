@@ -19,5 +19,10 @@
     "dwi_type": "Standard",
     "td_scan_days": [],
     "cause_of_death_column": "",
-    "clear_cache": true
+    "clear_cache": true,
+    "core_method": "adc_threshold",
+    "core_percentile": 25,
+    "core_n_clusters": 2,
+    "fdm_parameter": "adc",
+    "fdm_thresh": 0.0004
 }

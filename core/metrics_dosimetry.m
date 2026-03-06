@@ -184,17 +184,42 @@ for j = 1:n_pat_dosimetry
                 end
             end
             
-            % Compute D95 and V50 for each diffusion-defined resistant sub-volume.
+            % compute the core mask using the chosen algorithmic method
+            core_opts = struct('timepoint_index', k);
+            if k > 1
+                switch dtype_idx
+                    case 1
+                        core_opts.baseline_adc_vec = m_data_vectors_gtvp(j,1,1).adc_vector;
+                        core_opts.baseline_d_vec = m_data_vectors_gtvp(j,1,1).d_vector;
+                    case 2
+                        core_opts.baseline_adc_vec = m_data_vectors_gtvp(j,1,1).adc_vector_dncnn;
+                        core_opts.baseline_d_vec = m_data_vectors_gtvp(j,1,1).d_vector_dncnn;
+                    case 3
+                        core_opts.baseline_adc_vec = m_data_vectors_gtvp(j,1,1).adc_vector;
+                        core_opts.baseline_d_vec = m_data_vectors_gtvp(j,1,1).d_vector_ivimnet;
+                end
+            end
+            core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+
             % calculate_subvolume_metrics identifies voxels below threshold,
             % optionally applies 3D morphological cleanup (erosion to remove
             % single-voxel noise), and computes dose-volume histogram statistics
             % on the resulting sub-region.  If the sub-volume is empty (no
             % voxels below threshold), NaN is returned — indicating the entire
             % GTV appears non-resistant by that metric.
-            [d95_adc_sub(j,k), v50_adc_sub(j,k)] = calculate_subvolume_metrics(adc_vec, adc_thresh, dose_vec, has_3d, gtv_mask_3d);
-            [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
-            [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
-            [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
+            [d95_adc_sub(j,k), v50_adc_sub(j,k)] = calculate_subvolume_metrics(adc_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+            % For unified core methods, use the same core_mask for all
+            % parameters; for legacy threshold methods, keep per-parameter thresholds.
+            unified_methods = {'percentile', 'spectral', 'fdm'};
+            if any(strcmpi(config_struct.core_method, unified_methods))
+                [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+                [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+                [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+            else
+                [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
+                [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
+                [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
+            end
             
         end
     end

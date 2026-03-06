@@ -79,6 +79,11 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     else
         mask_1d = vector < threshold;
     end
+    
+    % NEW LOGIC: Support pre-computed logical mask instead of a scalar threshold
+    if islogical(threshold) && isequal(size(vector), size(threshold))
+        mask_1d = threshold;
+    end
 
     if has_3d
         % When a 3D GTV mask is available, we can perform spatially-aware

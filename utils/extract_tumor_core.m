@@ -1,0 +1,401 @@
+function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts)
+% EXTRACT_TUMOR_CORE — Delineates the viable tumor core from parameter maps.
+%
+% Integrates multiple algorithmic approaches for isolating the restricted,
+% densely-cellular sub-volume of a pancreatic tumor.
+%
+% Inputs:
+%   config_struct  - Configuration settings including 'core_method'
+%                    Options: 'adc_threshold', 'd_threshold', 'df_intersection',
+%                    'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours',
+%                    'percentile', 'spectral', 'fdm'
+%   adc_vec        - 1D vector of ADC values
+%   d_vec          - 1D vector of true diffusion (D) values
+%   f_vec          - 1D vector of perfusion fraction (f) values
+%   dstar_vec      - 1D vector of pseudo-diffusion (D*) values
+%   has_3d         - Logical, true if a 3D GTV mask is available
+%   gtv_mask_3d    - 3D logical mask of the total GTV
+%   opts           - (Optional) struct with additional options:
+%                    .timepoint_index    - Current fraction index (for fDM)
+%                    .baseline_adc_vec   - Baseline ADC voxel vector (for fDM)
+%                    .baseline_d_vec     - Baseline D voxel vector (for fDM)
+%                    .repeatability_cor  - Coefficient of Reproducibility (for fDM)
+%
+% Outputs:
+%   core_mask      - A 1D logical mask (same size as input vectors) where
+%                    true indicates a voxel belongs to the core.
+
+    if nargin < 8, opts = struct(); end
+
+    core_method = lower(config_struct.core_method);
+    n_voxels = length(adc_vec);
+    core_mask = false(n_voxels, 1);
+
+    % Fallback if ADC vector is entirely empty or NaN
+    if sum(~isnan(adc_vec)) == 0
+        return;
+    end
+
+    switch core_method
+        case 'adc_threshold'
+            % Standard logic: ADC < scalar threshold
+            core_mask = adc_vec <= config_struct.adc_thresh;
+
+        case 'd_threshold'
+            % Better cellularity logic: True Diffusion (D) < threshold
+            if isempty(d_vec) || sum(~isnan(d_vec)) == 0
+                warning('extract_tumor_core:noDValues', 'D values missing. Falling back to ADC threshold.');
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            else
+                core_mask = d_vec <= config_struct.d_thresh;
+            end
+
+        case 'df_intersection'
+            % PDAC signature logic: Low Diffusion AND Low Perfusion
+            if isempty(d_vec) || sum(~isnan(d_vec)) == 0 || isempty(f_vec) || sum(~isnan(f_vec)) == 0
+                warning('extract_tumor_core:noIVIMValues', 'IVIM D/f values missing. Falling back to ADC threshold.');
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            else
+                core_mask = (d_vec <= config_struct.d_thresh) & (f_vec <= config_struct.f_thresh);
+            end
+
+        case 'otsu'
+            % Otsu's optimal thresholding on the ADC distribution
+            valid_idx = find(~isnan(adc_vec));
+            if isempty(valid_idx)
+                return;
+            end
+            valid_vals = adc_vec(valid_idx);
+            if length(valid_vals) > config_struct.min_vox_hist
+                try
+                    level = multithresh(valid_vals, 1);
+                    % Core is the darker class
+                    core_mask = adc_vec <= level;
+                catch
+                    warning('extract_tumor_core:otsuFailed', 'Otsu method failed. Falling back to ADC threshold.');
+                    core_mask = adc_vec <= config_struct.adc_thresh;
+                end
+            else
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            end
+
+        case 'gmm'
+            % 2-class Gaussian Mixture Model on ADC
+            valid_idx = find(~isnan(adc_vec));
+            if isempty(valid_idx)
+                return;
+            end
+            valid_vals = adc_vec(valid_idx);
+            if length(valid_vals) > config_struct.min_vox_hist
+                try
+                    if exist('OCTAVE_VERSION', 'builtin')
+                        % Fallback to k-means for octave
+                        [idx, C] = kmeans(valid_vals, 2);
+                        [~, min_cluster] = min(C);
+                        core_mask_valid = (idx == min_cluster);
+                    else
+                        gm = fitgmdist(valid_vals, 2, 'Replicates', 3, 'Options', statset('MaxIter', 500));
+                        idx = cluster(gm, valid_vals);
+                        [~, min_c_idx] = min(gm.mu);
+                        core_mask_valid = (idx == min_c_idx);
+                    end
+                    core_mask(valid_idx) = core_mask_valid;
+                catch
+                    warning('extract_tumor_core:gmmFailed', 'GMM failed. Falling back to ADC threshold.');
+                    core_mask = adc_vec <= config_struct.adc_thresh;
+                end
+            else
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            end
+
+        case 'kmeans'
+            % K-Means Clustering on ADC (2 classes: Core vs Margin/Necrosis)
+            valid_idx = find(~isnan(adc_vec));
+            if isempty(valid_idx)
+                return;
+            end
+            valid_vals = adc_vec(valid_idx);
+            if length(valid_vals) > config_struct.min_vox_hist
+                try
+                    [idx, C] = kmeans(valid_vals, 2, 'Replicates', 3);
+                    [~, min_cluster] = min(C);
+                    core_mask(valid_idx) = (idx == min_cluster);
+                catch
+                    warning('extract_tumor_core:kmeansFailed', 'K-Means failed. Falling back to ADC threshold.');
+                    core_mask = adc_vec <= config_struct.adc_thresh;
+                end
+            else
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            end
+
+        case 'region_growing'
+            % Region growing from the most restricted voxel
+            if ~has_3d || isempty(gtv_mask_3d)
+                warning('extract_tumor_core:no3DForRegionGrowing', '3D mask required for Region Growing. Falling back to ADC threshold.');
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            else
+                valid_idx = find(~isnan(adc_vec));
+                if isempty(valid_idx), return; end
+                
+                % Reconstruct the 3D ADC map inside the GTV
+                adc_map_3d = nan(size(gtv_mask_3d));
+                adc_map_3d(gtv_mask_3d == 1) = adc_vec;
+                
+                % Find absolute minimum ADC (the most restricted voxel as seed)
+                [min_val, min_idx] = min(adc_map_3d(:));
+                
+                if isnan(min_val)
+                    core_mask = adc_vec <= config_struct.adc_thresh;
+                else
+                    [sx, sy, sz] = ind2sub(size(adc_map_3d), min_idx);
+                    
+                    % Basic region growing: accept contiguous voxels within a tolerance
+                    % Tolerance: mean + 1 std of the bottom 10%
+                    sorted_adc = sort(adc_vec(valid_idx));
+                    bot_10_idx = max(1, round(0.1 * length(sorted_adc)));
+                    bot_10 = sorted_adc(1:bot_10_idx);
+                    tol_upper = mean(bot_10) + std(bot_10) * 2;
+                    if isnan(tol_upper) || tol_upper == 0
+                        tol_upper = config_struct.adc_thresh;
+                    end
+                    
+                    % Grow mask
+                    rg_mask = false(size(adc_map_3d));
+                    rg_mask(sx, sy, sz) = true;
+                    queue = [sx, sy, sz];
+                    
+                    % 6-connected neighborhood shifts
+                    shifts = [1 0 0; -1 0 0; 0 1 0; 0 -1 0; 0 0 1; 0 0 -1];
+                    
+                    while ~isempty(queue)
+                        cx = queue(1,1); cy = queue(1,2); cz = queue(1,3);
+                        queue(1,:) = [];
+                        
+                        for i=1:6
+                            nx = cx + shifts(i,1);
+                            ny = cy + shifts(i,2);
+                            nz = cz + shifts(i,3);
+                            
+                            if nx >= 1 && nx <= size(adc_map_3d,1) && ...
+                               ny >= 1 && ny <= size(adc_map_3d,2) && ...
+                               nz >= 1 && nz <= size(adc_map_3d,3)
+                                
+                                if ~rg_mask(nx, ny, nz) && ~isnan(adc_map_3d(nx,ny,nz)) ...
+                                   && gtv_mask_3d(nx,ny,nz) == 1
+                               
+                                    if adc_map_3d(nx,ny,nz) <= tol_upper
+                                        rg_mask(nx,ny,nz) = true;
+                                        queue(end+1,:) = [nx, ny, nz]; %#ok<AGROW>
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    core_mask = rg_mask(gtv_mask_3d == 1);
+                end
+            end
+
+        case 'active_contours'
+            % Level-set spatial mapping
+            if ~has_3d || isempty(gtv_mask_3d)
+                warning('extract_tumor_core:no3DForActiveContours', '3D mask required for Active Contours. Falling back to ADC threshold.');
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            else
+                if exist('OCTAVE_VERSION', 'builtin')
+                    warning('extract_tumor_core:octaveContours', 'Active contours not supported in Octave natively. Falling back to Otsu.');
+                    try
+                        valid_vals = adc_vec(~isnan(adc_vec));
+                        if length(valid_vals) > config_struct.min_vox_hist
+                            level = multithresh(valid_vals, 1);
+                            core_mask = adc_vec <= level;
+                        else
+                            core_mask = adc_vec <= config_struct.adc_thresh;
+                        end
+                    catch
+                        core_mask = adc_vec <= config_struct.adc_thresh;
+                    end
+                else
+                    % Reconstruct 3D ADC map, normalize for activecontour
+                    adc_map_3d = nan(size(gtv_mask_3d));
+                    adc_map_3d(gtv_mask_3d == 1) = adc_vec;
+                    
+                    % Create initial roughly-central circular mask
+                    init_mask = false(size(gtv_mask_3d));
+                    % Just initialize with standard threshold as seed
+                    init_mask(adc_map_3d <= config_struct.adc_thresh) = true;
+                    
+                    % Invert contrast (we want dark ADC to bright for active contour to find the edge)
+                    max_adc = max(adc_vec);
+                    inf_img = gtv_mask_3d * max_adc;
+                    
+                    norm_img = zeros(size(gtv_mask_3d));
+                    norm_img(gtv_mask_3d == 1) = max_adc - adc_vec; % Dark core becomes bright
+                    norm_img = norm_img / max(norm_img(:)); % 0-1 range
+                    
+                    try
+                        % 50 smoothing iterations (standard)
+                        ac_mask = activecontour(norm_img, init_mask, 50, 'Chan-Vese');
+                        core_mask = ac_mask(gtv_mask_3d == 1);
+                    catch
+                        warning('extract_tumor_core:activeContourFailed', 'Active contour failed. Falling back to ADC threshold.');
+                        core_mask = adc_vec <= config_struct.adc_thresh;
+                    end
+                end
+            end
+
+        case 'percentile'
+            % Patient-adaptive threshold: Nth percentile of the patient's
+            % own ADC distribution within the GTV.  Adapts to inter-patient
+            % variability in baseline tissue properties and scanner
+            % calibration, unlike a fixed threshold.
+            pct = config_struct.core_percentile;
+            valid_adc = adc_vec(~isnan(adc_vec));
+            if isempty(valid_adc)
+                return;
+            end
+            pct_thresh = prctile(valid_adc, pct);
+            % Safety floor: cap at adc_thresh to prevent labelling normal
+            % tissue as core in uniformly necrotic/high-ADC tumors.
+            pct_thresh = min(pct_thresh, config_struct.adc_thresh);
+            core_mask = adc_vec <= pct_thresh;
+
+        case 'spectral'
+            % Multi-parameter spectral clustering using available IVIM
+            % parameters.  Discovers tissue sub-populations via the graph
+            % Laplacian eigenspace, capturing non-linear relationships
+            % between diffusion and perfusion parameters.
+
+            % Build feature matrix from available parameters
+            features = adc_vec;
+            if ~isempty(d_vec) && sum(~isnan(d_vec)) > 0
+                features = [features, d_vec];
+            end
+            if ~isempty(f_vec) && sum(~isnan(f_vec)) > 0
+                features = [features, f_vec];
+            end
+            if ~isempty(dstar_vec) && sum(~isnan(dstar_vec)) > 0
+                features = [features, dstar_vec];
+            end
+
+            % Only keep voxels where all features are finite
+            valid_idx = find(all(~isnan(features), 2));
+            if numel(valid_idx) < config_struct.min_vox_hist
+                warning('extract_tumor_core:tooFewForSpectral', ...
+                    'Too few valid voxels (%d) for spectral clustering. Falling back to ADC threshold.', ...
+                    numel(valid_idx));
+                core_mask = adc_vec <= config_struct.adc_thresh;
+                return;
+            end
+
+            n_clusters = config_struct.core_n_clusters;
+            valid_features = features(valid_idx, :);
+
+            % Z-score normalize so parameters on different scales
+            % (ADC ~1e-3, f ~0.1) contribute equally
+            feat_mean = mean(valid_features, 1);
+            feat_std = std(valid_features, 0, 1);
+            feat_std(feat_std == 0) = 1;  % prevent division by zero
+            valid_features_z = (valid_features - feat_mean) ./ feat_std;
+
+            try
+                if exist('spectralcluster', 'file')
+                    idx = spectralcluster(valid_features_z, n_clusters);
+                else
+                    % Fallback: k-means when spectralcluster unavailable
+                    % (MATLAB < R2019b or Octave)
+                    warning('extract_tumor_core:noSpectralCluster', ...
+                        'spectralcluster not available (requires R2019b+). Using k-means fallback.');
+                    [idx, ~] = kmeans(valid_features_z, n_clusters, 'Replicates', 5);
+                end
+
+                % Core cluster = the one with lowest mean ADC (first column)
+                cluster_means = zeros(n_clusters, 1);
+                for ci = 1:n_clusters
+                    cluster_means(ci) = mean(valid_features(idx == ci, 1));
+                end
+                [~, core_cluster] = min(cluster_means);
+                core_mask(valid_idx) = (idx == core_cluster);
+            catch ME
+                warning('extract_tumor_core:spectralFailed', ...
+                    'Spectral clustering failed: %s. Falling back to ADC threshold.', ME.message);
+                core_mask = adc_vec <= config_struct.adc_thresh;
+            end
+
+        case 'fdm'
+            % Functional Diffusion Maps: voxel-level change classification
+            % between baseline and current timepoint.  Identifies the
+            % treatment-resistant core as voxels where diffusivity
+            % decreased (progressing = increased cellularity).
+
+            k_idx = 0;
+            if isfield(opts, 'timepoint_index')
+                k_idx = opts.timepoint_index;
+            end
+
+            if k_idx <= 1
+                % fDM is undefined at baseline — requires delta from Fx1
+                warning('extract_tumor_core:fdmBaseline', ...
+                    'fDM requires post-baseline timepoint. Falling back to ADC threshold for baseline.');
+                core_mask = adc_vec <= config_struct.adc_thresh;
+                return;
+            end
+
+            % Select parameter for voxel-level change
+            fdm_param = lower(config_struct.fdm_parameter);
+            switch fdm_param
+                case 'adc'
+                    current_vec = adc_vec;
+                    if isfield(opts, 'baseline_adc_vec')
+                        baseline_vec = opts.baseline_adc_vec;
+                    else
+                        warning('extract_tumor_core:fdmNoBaseline', ...
+                            'fDM: No baseline ADC vector provided. Falling back to ADC threshold.');
+                        core_mask = adc_vec <= config_struct.adc_thresh;
+                        return;
+                    end
+                case 'd'
+                    current_vec = d_vec;
+                    if isfield(opts, 'baseline_d_vec')
+                        baseline_vec = opts.baseline_d_vec;
+                    else
+                        warning('extract_tumor_core:fdmNoBaseline', ...
+                            'fDM: No baseline D vector provided. Falling back to ADC threshold.');
+                        core_mask = adc_vec <= config_struct.adc_thresh;
+                        return;
+                    end
+                otherwise
+                    error('extract_tumor_core:invalidFdmParam', ...
+                        'fdm_parameter must be ''adc'' or ''d'', got ''%s''.', fdm_param);
+            end
+
+            % Determine significance threshold: prefer repeatability-
+            % derived CoR when available, else use config fallback
+            fdm_significance = config_struct.fdm_thresh;
+            if isfield(opts, 'repeatability_cor') && ~isnan(opts.repeatability_cor)
+                fdm_significance = opts.repeatability_cor;
+            end
+
+            % Guard against vector length mismatch (different GTV contour
+            % sizes across fractions after deformable registration)
+            if isempty(baseline_vec) || numel(baseline_vec) ~= numel(current_vec)
+                warning('extract_tumor_core:fdmVectorMismatch', ...
+                    'fDM: Baseline vector length (%d) does not match current (%d). Falling back to ADC threshold.', ...
+                    numel(baseline_vec), numel(current_vec));
+                core_mask = adc_vec <= config_struct.adc_thresh;
+                return;
+            end
+
+            delta = current_vec - baseline_vec;
+
+            % Classification:
+            %   delta <= -threshold  →  "progressing" (ADC decreased = core)
+            %   delta >=  threshold  →  "responding"  (ADC increased = non-core)
+            %   |delta| < threshold  →  "stable"      (within noise floor)
+            % Core = progressing voxels (treatment-resistant)
+            core_mask = delta <= -fdm_significance;
+
+        otherwise
+            error('extract_tumor_core:invalidMethod', 'Unrecognized core_method: %s', config_struct.core_method);
+    end
+end
