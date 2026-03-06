@@ -253,7 +253,11 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         if exist(dncnn_file,'file')
             dncnn_info = niftiinfo(dncnn_file);
             dwi_dncnn = rot90(niftiread(dncnn_info));
-            dwi_dncnn = double(dwi_dncnn(:,:,:,i_sort));
+            % Normalise denoised signal to [0,1] for IVIM fitting.
+            % mat2gray maps the volume's [min,max] to [0,1], which is
+            % required because the cached DnCNN output may have different
+            % intensity scaling than the raw DWI.
+            dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
             havedenoised=1;
         else
             % Load GTVp/GTVn masks for the fallback (may already exist on disk)
@@ -705,7 +709,7 @@ function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mas
             dwi_dncnn_cpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_cpu(:,:,:,b_idx), mask_cpu, dncnn_net, 15);
         end
 
-        dwi_dncnn = double(dwi_dncnn_cpu);
+        dwi_dncnn = double(mat2gray(dwi_dncnn_cpu));
         havedenoised = 1;
         fprintf('  [DnCNN] Deep learning denoising completed.\n');
     catch CPU_ME
