@@ -187,33 +187,8 @@ end
 % This script modifies config.json in-place between DWI type runs to change
 % dwi_type and skip_to_reload. This is necessary because run_dwi_pipeline
 % reads config.json via parse_config, which expects a file path — not an
-% in-memory struct. The mutation pattern introduces a risk: if the pipeline
-% crashes mid-run, config.json is left in a modified state (e.g., dwi_type
-% set to "dnCNN" instead of the user's original value).
-%
-% The backup/restore mechanism below provides crash safety:
-%   1. Before any modification, the original config.json is backed up to
-%      config.json.bak and preserved in memory (original_config_str).
-%   2. An onCleanup guard restores config.json from memory on normal exit
-%      or caught errors.
-%   3. If MATLAB is killed (kill -9) or segfaults, onCleanup never fires,
-%      but the .bak file persists on disk. On the next run, the .bak file
-%      is detected and restored BEFORE any pipeline execution.
-%
-% If a backup from a previous crashed run exists, restore it first.
-% onCleanup does not fire on kill -9 or MATLAB segfaults, so the .bak
-% file is the only recovery mechanism in those cases.
-config_backup = fullfile(repo_root, 'config.json.bak');
-if exist(config_backup, 'file')
-    fprintf('⚠️  Found config.json.bak from a previous crash. Restoring original config.json.\n');
-    fid_restore = fopen(config_backup, 'r');
-    bak_raw = fread(fid_restore, inf);
-    fclose(fid_restore);
-    fid_restore_w = fopen(config_file, 'w');
-    fwrite(fid_restore_w, bak_raw);
-    fclose(fid_restore_w);
-    delete(config_backup);
-end
+% in-memory struct. The original string is preserved in memory and restored
+% via onCleanup on normal exit, errors, or Ctrl-C.
 
 % Load the raw JSON string.  We modify individual fields via regex
 % (json_set_field) instead of jsondecode/jsonencode so that the on-disk
@@ -226,13 +201,7 @@ fclose(fid);
 original_config_str = str;  % preserve original for rollback
 config_json = str;          % mutable copy for field-level edits
 
-% Backup config.json so a mid-run crash does not leave it in a modified state.
-% The onCleanup guard fires on normal return, errors, and Ctrl-C — but NOT
-% on kill -9 or MATLAB segfaults. The .bak file covers those edge cases.
-fid_bak = fopen(config_backup, 'w');
-fwrite(fid_bak, str);
-fclose(fid_bak);
-restore_config = onCleanup(@() restore_config_file(config_file, original_config_str, config_backup));
+restore_config = onCleanup(@() restore_config_file(config_file, original_config_str));
 
 % Execute all 9 discrete target modules.
 % [ANALYTICAL STEP ORDERING RATIONALE]:
@@ -322,15 +291,10 @@ diary off;
 % clears the workspace or exits MATLAB.
 delete(restore_config);
 
-function restore_config_file(config_path, original_str, backup_path)
+function restore_config_file(config_path, original_str)
 % Restore config.json to its original state when the script exits (whether
-% by normal completion or error).  Also removes the backup file.
-% [RATIONALE]: The user's config.json must be left exactly as they wrote it
-% after the workflow completes. The dwi_type and skip_to_reload mutations
-% are internal orchestration details — the user should never see their
-% config modified by a pipeline run. The two-layer recovery (in-memory
-% string + on-disk .bak file) ensures restoration even under partial
-% failure conditions.
+% by normal completion or error).  The user's config.json must be left
+% exactly as they wrote it after the workflow completes.
     try
         fid = fopen(config_path, 'w');
         if fid == -1
@@ -338,19 +302,7 @@ function restore_config_file(config_path, original_str, backup_path)
         end
         fwrite(fid, original_str);
         fclose(fid);
-        if exist(backup_path, 'file')
-            delete(backup_path);
-        end
     catch
-        % Primary restore failed — try copying from backup as fallback.
-        if exist(backup_path, 'file')
-            try
-                copyfile(backup_path, config_path);
-                fprintf('⚠️  Restored config.json from backup file.\n');
-                return;
-            catch
-            end
-        end
-        fprintf('❌ CRITICAL: config.json could not be restored. Manual recovery from %s required.\n', backup_path);
+        fprintf('❌ CRITICAL: config.json could not be restored to its original state.\n');
     end
 end
