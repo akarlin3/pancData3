@@ -18,6 +18,6 @@
     "patient_ids": [],
     "dwi_type": "Standard",
     "td_scan_days": [],
-    "cause_of_death_column": "CauseOfDeath",
-    "clear_cache": false
+    "cause_of_death_column": "",
+    "clear_cache": true
 }
