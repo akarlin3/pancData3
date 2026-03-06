@@ -99,7 +99,8 @@ for j=1:n_pat_discover
 
         % Use regexp with a word-boundary anchor to prevent substring
         % false positives (e.g., 'Fx1' matching 'Fx10' or 'Fx11').
-        fxtmp_idx = ~cellfun(@isempty, regexp({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
+        % Case-insensitive to handle 'fx1', 'FX1', 'Fx1', etc.
+        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         if isempty(fxtmp)

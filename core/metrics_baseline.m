@@ -191,8 +191,14 @@ fprintf('  --- SECTION 2: Load Clinical Outcome Data ---\n');
 clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 
 % Determine cause-of-death column name from config (default: 'CauseOfDeath')
+% Set to "" (empty string) to explicitly disable competing-risk classification.
+cod_disabled = false;
 if isfield(config_struct, 'cause_of_death_column')
     cod_column = config_struct.cause_of_death_column;
+    if isempty(cod_column)
+        cod_disabled = true;
+        cod_column = 'CauseOfDeath';
+    end
 else
     cod_column = 'CauseOfDeath';
 end
@@ -220,12 +226,15 @@ else
         T = readtable(clinical_data_sheet);
     end
     % Rename the configured cause-of-death column to the canonical name.
+    % Skip matching entirely when cause-of-death is explicitly disabled.
     % First try exact match; if not found, fall back to case-insensitive
     % match (readtable may alter casing depending on VariableNamingRule).
     % Third fallback: normalize both sides by stripping non-alphanumeric
     % characters (handles underscores, spaces, hyphens in column names
     % such as 'Cause_of_Death' or 'Cause Of Death').
-    if ismember(cod_column, T.Properties.VariableNames)
+    if cod_disabled
+        % No-op: user explicitly set cause_of_death_column to ""
+    elseif ismember(cod_column, T.Properties.VariableNames)
         if ~strcmp(cod_column, 'CauseOfDeath')
             T.Properties.VariableNames{strcmp(T.Properties.VariableNames, cod_column)} = 'CauseOfDeath';
         end
@@ -328,7 +337,7 @@ end
 % Warn if competing risks could not be identified because the clinical
 % spreadsheet lacks a CauseOfDeath column.  Without it, non-cancer deaths
 % are treated as administrative censoring, which inflates the CSH estimate.
-if ~exist('OCTAVE_VERSION', 'builtin') && ~ismember('CauseOfDeath', T.Properties.VariableNames)
+if ~exist('OCTAVE_VERSION', 'builtin') && ~cod_disabled && ~ismember('CauseOfDeath', T.Properties.VariableNames)
     avail_cols = strjoin(T.Properties.VariableNames, ', ');
     warning('metrics_baseline:noCauseOfDeath', ...
         '%s column not found in clinical spreadsheet. Competing risks cannot be identified; CSH survival analysis may be biased. Available columns: %s', cod_column, avail_cols);

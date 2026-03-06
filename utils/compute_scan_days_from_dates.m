@@ -59,18 +59,23 @@ for j = 1:nPat
 end
 
 % --- Per-Patient Baseline Normalization ---
-% Compute days since each patient's earliest scan. This normalization
-% removes the absolute calendar date and expresses all timepoints
-% relative to the start of that patient's imaging series. Without this
-% step, patients scanned in different years would have incomparable
-% datenum values.
+% Normalize each patient's dates relative to a common reference fraction
+% (the fraction column with the most data). This avoids the problem where
+% patients missing early fractions (e.g., Fx1) get a different day-zero
+% than patients who have them, which collapses the median timeline and
+% breaks monotonicity. Patients lacking the reference fraction are
+% normalized to their own earliest scan as a fallback.
+fx_counts = sum(~isnan(date_nums), 1);
+[~, ref_col] = max(fx_counts);
 days_from_baseline = nan(nPat, nFx);
 for j = 1:nPat
     valid = ~isnan(date_nums(j, :));
     if any(valid)
-        % Subtract the earliest valid date for this patient, so fraction 1
-        % (or whichever was scanned first) maps to day 0.
-        days_from_baseline(j, :) = date_nums(j, :) - min(date_nums(j, valid));
+        if ~isnan(date_nums(j, ref_col))
+            days_from_baseline(j, :) = date_nums(j, :) - date_nums(j, ref_col);
+        else
+            days_from_baseline(j, :) = date_nums(j, :) - min(date_nums(j, valid));
+        end
     end
 end
 
@@ -113,7 +118,8 @@ scan_days = median_days;
 valid_days = median_days(valid_fx);
 if any(diff(valid_days) <= 0)
     warning('compute_scan_days_from_dates:notIncreasing', ...
-        'Computed scan days are not strictly increasing. Falling back to defaults.');
+        'Computed scan days [%s] are not strictly increasing. Falling back to defaults.', ...
+        num2str(median_days, '%.1f '));
     scan_days = [];
 end
 end
