@@ -315,6 +315,13 @@ diary(eaw_diary_file);  % restart after pipeline run (module diaries override th
 disp('====== ALL WORKFLOWS COMPLETED ======');
 diary off;
 
+% Explicitly restore config.json now.  In a script with local functions,
+% onCleanup objects persist in the base workspace after the script ends and
+% the cleanup never fires automatically.  Without this, config.json is left
+% with the last intermediate dwi_type/skip_to_reload values until the user
+% clears the workspace or exits MATLAB.
+delete(restore_config);
+
 function restore_config_file(config_path, original_str, backup_path)
 % Restore config.json to its original state when the script exits (whether
 % by normal completion or error).  Also removes the backup file.
