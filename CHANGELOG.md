@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.0.0-beta.2] - 2026-03-06
+
+### Fixed
+- **Baseline ref_col selection**: `ref_col` used wrong column instead of earliest fraction as baseline (`metrics_baseline.m`)
+- **Iteration limit warning**: `lassoglm`/`fitglm` calls hit iteration cap with `MaxIter` 1e5; increased to 1e7 (`metrics_stats_predictive.m`)
+- **Config restore after execute_all_workflows**: `config.json` was not restored after multi-type pipeline execution (`execute_all_workflows.m`)
+- **Config .bak overwrite**: `.bak` file restore silently overwrote user config edits between pipeline runs (`execute_all_workflows.m`)
+- **Config formatting loss**: `config.json` formatting was not preserved during pipeline execution
+- **DnCNN mat2gray normalization**: `mat2gray` normalization was missing for DnCNN-denoised DWI loading (`load_dwi_data.m`)
+- **Warning log pollution**: `KFoldMissingGrp` and `defaultScanDays` warnings leaked to pipeline error log
+
+### Changed
+- Removed `.bak` file mechanism from `execute_all_workflows` in favor of in-memory config preservation
+
+### Test Suite
+- Fix `testDefaultOutputFolder` deleting `execute_all_workflows` output folder during concurrent runs
+- Add test for empty string field preservation (`cause_of_death_column`)
+
 ## [1.0.0-beta.1] - 2026-03-06
 
 ### Added
