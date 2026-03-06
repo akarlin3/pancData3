@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.1.0] - 2026-03-03
+## [0.2.0-beta] - 2026-03-06
+
+## [0.1.0] - 2026-03-03
 
 ### Added
 - Time-dependent Cox PH model for survival analysis with IPCW weighting
@@ -31,7 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 - Octave compatibility issues across core, utils, and test modules
 
-## [1.0.0] - 2026-01-01
+## [0.0.0] - 2026-01-01
 
 ### Added
 - Master orchestrator pipeline (`run_dwi_pipeline.m`) with modular step execution
