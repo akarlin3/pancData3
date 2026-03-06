@@ -307,6 +307,47 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
                 'No noCauseOfDeath warning should be emitted with case-insensitive match.');
         end
 
+        function testStringScalarEmptyDisablesCauseOfDeath(testCase)
+            % When cause_of_death_column is a MATLAB string("") scalar
+            % (as jsondecode produces from JSON ""), competing-risk
+            % classification should be disabled without warning.
+            if exist('OCTAVE_VERSION', 'builtin')
+                testCase.assumeFail('Test requires MATLAB readtable/writetable.');
+            end
+            nPat = 8;
+            id_list_xls = arrayfun(@(x) sprintf('P%d', x), (1:nPat)', 'UniformOutput', false);
+            lf_vals     = [0; 0; 0; 0; 1; 1; 1; 1];
+            dt_event    = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_censor   = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_reg      = repmat(datetime('2023-06-01'), nPat, 1);
+            dt_rtstart  = repmat(datetime('2022-01-01'), nPat, 1);
+            dt_rtstop   = repmat(datetime('2022-03-01'), nPat, 1);
+            % Spreadsheet has NO CauseOfDeath column
+            T_clin = table(id_list_xls, lf_vals, dt_event, dt_censor, dt_reg, ...
+                dt_rtstart, dt_rtstop, ...
+                'VariableNames', {'Pat', 'LocalOrRegionalFailure', ...
+                'LocoregionalFailureDateOfLocalOrRegionalFailure', ...
+                'LocalFailureDateOfLocalFailureOrCensor', ...
+                'RegionalFailureDateOfRegionalFailureOrCensor', ...
+                'RTStartDate', 'RTStopDate'});
+            writetable(T_clin, fullfile(testCase.TempDir, 'mock_clinical.xlsx'));
+
+            testCase.SummaryMetrics.lf = lf_vals;
+            cfg = testCase.ConfigStruct;
+            % Simulate jsondecode("") producing a string scalar
+            cfg.cause_of_death_column = string("");
+
+            lastwarn('', '');
+            [~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~, ~, ~, ...
+             ~, ~, ~, ~, ~, ~] = ...
+             metrics_baseline(testCase.DataVectorsGTVp, testCase.DataVectorsGTVn, ...
+                testCase.SummaryMetrics, cfg);
+            [~, warnId] = lastwarn;
+            testCase.verifyNotEqual(warnId, 'metrics_baseline:noCauseOfDeath', ...
+                'No noCauseOfDeath warning when cause_of_death_column is string("").');
+        end
+
         function testNormalizedCauseOfDeathColumn(testCase)
             % When the spreadsheet column has underscores or spaces (e.g.,
             % 'Cause_of_Death'), the normalized fallback should still find it.
