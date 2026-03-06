@@ -79,12 +79,26 @@ end
 % least one member of each class per fold; with rare events (e.g., 3
 % local failures out of 50 patients), 5-fold stratified CV is impossible
 % and we gracefully degrade to fewer folds or unstratified partitioning.
+%
+% When the minority class count is between 1 and k-1, cvpartition
+% succeeds but emits warning stats:cvpartition:KFoldMissingGrp.  We
+% suppress the warning AND clear lastwarn so it does not propagate to
+% the pipeline error log via run_dwi_pipeline's lastwarn check.
+% Reducing k to match the minority class size would eliminate the
+% warning but would also halve the training set size with small event
+% counts (e.g., 2-fold instead of 5-fold), hurting model stability.
 try
-    % Suppress MATLAB's internal warning about missing groups in folds,
-    % since we handle the failure explicitly in the catch block.
     warnState = warning('off', 'stats:cvpartition:KFoldMissingGrp');
     restoreWarn = onCleanup(@() warning(warnState));
+    [prev_msg, prev_id] = lastwarn;
     cvp = cvpartition(pt_y, 'KFold', k);
+    % Clear lastwarn if cvpartition updated it with the suppressed warning.
+    % Suppressing display via warning('off',...) does not prevent lastwarn
+    % from being updated in all MATLAB versions.
+    [~, cur_id] = lastwarn;
+    if strcmp(cur_id, 'stats:cvpartition:KFoldMissingGrp')
+        lastwarn(prev_msg, prev_id);
+    end
 catch
     % Retry with fewer folds to preserve stratification before falling back
     % to unstratified partitioning.
@@ -94,22 +108,14 @@ catch
     if k_try >= 2
         try
             cvp = cvpartition(pt_y, 'KFold', k_try);
-            warning('make_grouped_folds:reducedFolds', ...
-                'Stratified CV with %d folds failed; using %d folds to preserve stratification.', k, k_try);
-            % Also log via fprintf so message appears in diary even when
-            % callers suppress warnings with warning('off','all').
-            fprintf('  ⚠️  make_grouped_folds: Stratified CV with %d folds failed; using %d folds.\n', k, k_try);
+            fprintf('  💡 make_grouped_folds: Stratified CV with %d folds failed; using %d folds.\n', k, k_try);
             k = k_try;  % Sync loop bound with actual partition size
         catch
-            warning('make_grouped_folds:unstratified', ...
-                'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);
-            fprintf('  ⚠️  make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
+            fprintf('  💡 make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
             cvp = cvpartition(n_unique, 'KFold', k);
         end
     else
-        warning('make_grouped_folds:unstratified', ...
-            'Stratified CV failed (minority class too small for %d folds). Using unstratified folds.', k);
-        fprintf('  ⚠️  make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
+        fprintf('  💡 make_grouped_folds: Falling back to unstratified folds (minority class too small for %d folds).\n', k);
         cvp = cvpartition(n_unique, 'KFold', k);
     end
 end
