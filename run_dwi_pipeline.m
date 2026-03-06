@@ -344,6 +344,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     lastwarn(''); % Reset MATLAB warning tracker
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
+    % --- Pipeline Progress GUI (GUI environments only) ---
+    pipeGUI = [];
+    if ProgressGUI.isDisplayAvailable()
+        pipeGUI = PipelineProgressGUI(steps_to_run, current_name);
+    end
+    cleanup_gui = onCleanup(@() closeIfValid(pipeGUI));
+
     % [TYPE-ISOLATED FILE NAMING]:
     % Each DWI processing method produces its own set of output files, suffixed
     % with the method name (e.g., dwi_vectors_Standard.mat, dwi_vectors_dnCNN.mat).
@@ -421,6 +428,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % biological behaviors. GTVp is the primary analysis target for
     % pancreatic cancer response assessment.
     if ismember('load', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('load'); end
         try
             fprintf('⚙️ [2/5] [%s] Loading DWI data... \n', current_name);
             [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data(config_struct);
@@ -430,6 +438,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('      💾 Saved summary_metrics to %s\n', summary_metrics_file);
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('load', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -466,6 +475,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         % prevent the dangerous scenario of loading Standard-fitted parameters
         % when running a dnCNN or IVIMnet analysis — this would silently
         % invalidate all downstream results.
+        if ~isempty(pipeGUI), pipeGUI.completeStep('load', 'skipped'); end
         fprintf('⏭️ [2/5] [%s] Skipping Load Step. Loading from disk...\n', current_name);
         try
             fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
@@ -531,6 +541,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % correlations) would be scientifically invalid. It is better to halt and
     % investigate than to produce misleading results.
     if ismember('sanity', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('sanity'); end
         try
             fprintf('⚙️ [3/5] [%s] Running sanity checks...\n', current_name);
             [is_valid, validation_msg, validated_data_gtvp, validated_data_gtvn] = sanity_checks(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct);
@@ -539,6 +550,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 error('Sanity checks failed: %s', validation_msg);
             end
             fprintf('      ✅ Passed.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('sanity', 'success'); end
 
             sanity_results_file = fullfile(config_struct.output_folder, sprintf('sanity_checks_results_%s.txt', current_name));
             fid = fopen(sanity_results_file, 'w');
@@ -561,6 +573,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             return; % Halt pipeline MUST STOP HERE IF DATA IS CORRUPT
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('sanity', 'skipped'); end
         fprintf('⏭️ [3/5] [%s] Skipping Sanity Checks.\n', current_name);
         if exist('data_vectors_gtvp', 'var')
             validated_data_gtvp = data_vectors_gtvp;
@@ -644,6 +657,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
 
     if ismember('metrics_baseline', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_baseline'); end
         try
             fprintf('\n⚙️ [5.1/5] [%s] Running metrics_baseline...\n', current_name);
             [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
@@ -657,6 +671,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
              'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
              'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -678,6 +693,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     else
         metrics_steps = {'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
         if any(ismember(metrics_steps, steps_to_run))
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'skipped'); end
             fprintf('\n⏭️ [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             if exist(baseline_results_file, 'file')
                 tmp_base = load(baseline_results_file);
@@ -721,6 +737,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % (dosimetry, predictive modeling, survival) can still operate on
     % baseline and absolute metrics alone.
     if ismember('metrics_longitudinal', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_longitudinal'); end
         try
             fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
             metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
@@ -731,6 +748,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_longitudinal', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -740,6 +758,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error during metrics_longitudinal: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_longitudinal', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_longitudinal failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -749,6 +768,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_longitudinal', 'skipped'); end
         fprintf('⏭️ [5.2/5] [%s] Skipping metrics_longitudinal.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_longitudinal
@@ -779,6 +799,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % {D95, V50} x {ADC, D, f, D*} sub-volume definitions.
     dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
     if ismember('metrics_dosimetry', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_dosimetry'); end
         try
             fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry...\n', current_name);
             [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
@@ -787,6 +808,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_dosimetry', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -796,6 +818,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error during metrics_dosimetry: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_dosimetry', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_dosimetry failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -805,6 +828,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_dosimetry', 'skipped'); end
         if any(ismember({'metrics_stats_comparisons', 'metrics_stats_predictive'}, steps_to_run))
             fprintf('⏭️ [5.3/5] [%s] Skipping metrics_dosimetry. Loading from disk...\n', current_name);
             if exist(dosimetry_results_file, 'file')
@@ -872,6 +896,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % for subsequent multivariate predictive modeling (metrics_stats_predictive).
     % Multiple comparison correction is applied to control false discovery rate.
     if ismember('metrics_stats_comparisons', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_stats_comparisons'); end
         try
             fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
             metrics_stats_comparisons(valid_pts, lf_group, ...
@@ -884,6 +909,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_comparisons', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -893,6 +919,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error during metrics_stats_comparisons: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_comparisons', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_stats_comparisons failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -902,6 +929,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_comparisons', 'skipped'); end
         fprintf('⏭️ [5.4a/5] [%s] Skipping metrics_stats_comparisons.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_stats_comparisons
@@ -934,6 +962,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % intra-tumoral ADC variance) may indicate mixed cellularity/necrosis
     % and different treatment response patterns.
     if ismember('metrics_stats_predictive', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_stats_predictive'); end
         try
             fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive...\n', current_name);
             % Subset adc_sd to baseline-valid patients to match the
@@ -972,6 +1001,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf('      💾 Saved calculated_results to %s\n', results_file);
 
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_predictive', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -981,6 +1011,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error during metrics_stats_predictive: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_predictive', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_stats_predictive failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -990,6 +1021,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_predictive', 'skipped'); end
         if ismember('metrics_survival', steps_to_run)
             fprintf('⏭️ [5.4b/5] [%s] Skipping metrics_stats_predictive. Loading from disk...\n', current_name);
             if exist(predictive_results_file, 'file')
@@ -1019,6 +1051,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % visualize_results falls back to basic parameter distributions without
     % risk annotations (using an empty struct).
     if ismember('visualize', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('visualize'); end
         try
             fprintf('\n⚙️ [5.4c/5] [%s] Visualizing results...\n', current_name);
             % Load existing results if visualize is run independently
@@ -1037,6 +1070,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
             fclose(fid);
             fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('visualize', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -1046,6 +1080,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error generating visualizations: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('visualize', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] visualize_results failed (non-fatal): %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -1055,6 +1090,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('visualize', 'skipped'); end
         fprintf('⏭️ [5.4c/5] [%s] Skipping Visualization.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after visualize_results
@@ -1088,6 +1124,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % biasing hazard ratio estimates. The three-level fallback (DICOM dates ->
     % config -> defaults with warning) reflects decreasing data quality.
     if ismember('metrics_survival', steps_to_run)
+        if ~isempty(pipeGUI), pipeGUI.startStep('metrics_survival'); end
         try
             fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
             % Derive actual scan days from DICOM StudyDate headers stored
@@ -1122,6 +1159,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             fclose(fid);
             fprintf('      💾 Saved survival results log to %s\n', survival_results_file);
             fprintf('      ✅ Done.\n');
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
             if ~isempty(warn_msg) && log_fid > 0
@@ -1131,6 +1169,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         catch ME
             fprintf('⚠️ FAILED (Non-Fatal).\n');
             fprintf('⚠️ Error during metrics_survival: %s\n', ME.message);
+            if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'warning'); end
             if log_fid > 0
                 fprintf(log_fid, '[%s] [ERROR] metrics_survival failed: %s\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -1140,6 +1179,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             end
         end
     else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'skipped'); end
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
     end
     diary(master_diary_file);  % restart master diary after metrics_survival
@@ -1155,6 +1195,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     diary off;  % close master diary at end of pipeline run
+end
+
+function closeIfValid(gui)
+%CLOSEIFVALID  Close a PipelineProgressGUI if it is still valid.
+    if ~isempty(gui)
+        try gui.close(); catch, end
+    end
 end
 
 function safe_fclose_log(fid)
