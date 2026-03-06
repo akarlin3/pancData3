@@ -8,6 +8,77 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.2.0-beta] - 2026-03-06
 
+### Added
+- `clear_cache` config option to delete all cached pipeline files before execution
+- `CauseOfDeath` column support for competing risk classification in survival analysis
+- Detailed analytical comments across all 39 non-dependency MATLAB files explaining medical physics and statistical rationale
+- Protocol deviation check in `plot_parameter_maps.m` that skips patients with non-standard b-values
+- Config backwards-compatibility rule in `CLAUDE.md` covering both field addition and removal
+
+### Fixed
+
+#### Analytical / Logical Errors
+- **Immortal time bias**: Scan days were derived from folder names instead of DICOM headers, inflating early-timepoint survival estimates (`metrics_survival.m`)
+- **Anti-conservative LRT p-value**: IPCW frequency-weight scaling inflated both the log-likelihood and degrees of freedom, producing artificially small p-values in survival analysis (`metrics_survival.m`)
+- **IPCW censoring model**: Non-terminal intervals were misclassified as censoring events, biasing inverse-probability weights (`metrics_survival.m`)
+- **Competing risk event counting**: Events were miscounted in survival analysis, and dosimetry used incorrect indexing (`metrics_survival.m`, `metrics_dosimetry.m`)
+- **NaN-unsafe column removal**: `remove_constant_columns` in survival dropped columns containing NaN instead of ignoring them, and imputation used decay-to-zero instead of proper fill (`metrics_survival.m`)
+- **Repeatability bias**: Failed IVIM fits (f=0, D*=0/NaN) were included in summary metrics instead of being filtered to NaN, biasing voxel-level statistics (`compute_summary_metrics.m`)
+- **Simpson's paradox risk**: KS test was applied with k≤1 preventing meaningful distribution comparison; added guard requiring k>1 (`compute_summary_metrics.m`)
+- **ROC inflation**: Audit identified inflated ROC curves from data leakage in predictive modeling (`metrics_stats_predictive.m`)
+- **Baseline scaling after landmark subsetting**: Hardcoded `t_start==0` failed after landmark subsetting removed time-zero rows; replaced with `min(t_start)` (`scale_td_panel.m`)
+- **scale_td_panel zeroing features**: Features with zero standard deviation were zeroed out instead of being clamped to σ=1 (`scale_td_panel.m`)
+- **Silent patient dropout**: Missing quote stripping in clinical spreadsheet matching caused patients with quoted IDs to silently drop from analysis (`metrics_baseline.m`)
+- **wCV dimension mismatch crash**: Compound masking caused reshape errors during IVIMnet within-coefficient-of-variation computation (`metrics_baseline.m`)
+- **Reshape crash in wCV for IVIMnet**: Used self-referential reshape dimensions instead of deriving from potentially stale arrays (`metrics_baseline.m`)
+- **Hardcoded DWI type index**: ADC SD heterogeneity check used a hardcoded pipeline index instead of the current DWI type (`metrics_stats_predictive.m`)
+- **NaN risk scores from failed LOOCV**: Risk score array initialized as logical (cannot hold NaN); changed to double (`metrics_stats_predictive.m`)
+- **Missing dosimetry univariate analysis**: Univariate dose-response analysis was skipped silently (`metrics_dosimetry.m`)
+- **GTVn DVH spatial mismatch**: Dose-volume histogram computed on misaligned GTVn masks (`metrics_dosimetry.m`)
+- **LF rate denominator error**: Local failure rate denominator was incorrect (`metrics_dosimetry.m`)
+- **DVH running-mean accumulation error**: DVH values accumulated incorrectly for patients with 3+ repeat scans (`metrics_dosimetry.m`)
+- **Dosimetry 3D mask mismatch**: DIR-warped fraction masks had spatial dimension mismatches (`metrics_dosimetry.m`)
+- **Division-by-zero in metrics**: Unguarded division produced Inf/NaN in edge cases (`metrics_stats_comparisons.m`)
+- **Silent GLME failure**: Generalized linear mixed-effects model failures were silently swallowed (`metrics_stats_comparisons.m`)
+- **Swapped ADC threshold defaults**: `adc_thresh` and `high_adc_thresh` config defaults were inverted (`parse_config.m`)
+- **Missing IVIMnet repeat ADC**: IVIMnet repeat ADC vectors were not loaded (`load_dwi_data.m`)
+- **Fraction folder substring matching**: `'Fx1'` incorrectly matched `'Fx10'` due to `strfind` substring semantics; switched to exact matching (`discover_patient_files.m`, `load_dwi_data.m`)
+- **Stale checkpoint dimensions**: Cached summary metrics with mismatched cohort dimensions were silently loaded instead of recomputed (`compute_summary_metrics.m`)
+- **IVIM squeeze vs reshape**: `squeeze()` on IVIM output could collapse wrong dimensions; replaced with explicit `reshape()` (`fit_models.m`)
+- **Scatter plot column indexing**: Baseline feature scatter plots indexed wrong columns (`plot_scatter_correlations.m`)
+- **Silent dtype clamping and trend line extrapolation**: Plot data was silently clamped to display range, and trend lines extrapolated beyond data bounds (`visualize_results.m`)
+- **Colorbar range error**: Parameter map colorbar limits were set incorrectly (`plot_parameter_maps.m`)
+- **Competing risk fold counting**: Competing risk patients (y=2) were miscounted as events during fold stratification (`make_grouped_folds.m`)
+- **Collinear feature scan-day leakage**: Scan day columns leaked into feature matrix (`filter_collinear_features.m`)
+- **wCV denominator floor guard**: Applied floor guard before division to prevent transient Inf values (`metrics_baseline.m`)
+- **Hardcoded constants in load path**: Fixed hardcoded b-value and indexing constants (`load_dwi_data.m`)
+- **CauseOfDeath case-insensitive mismatch**: Column lookup failed silently when spreadsheet header casing differed across MATLAB versions (`metrics_survival.m`)
+- **NaN-to-logical conversion**: Risk score stratification crashed when assigning NaN to a logical array (`metrics_stats_predictive.m`)
+- **Missing summary_metrics in sanity-skip fallback**: Pipeline crashed when both load and sanity steps were skipped (`run_dwi_pipeline.m`)
+- **Diary restart after load step**: Orchestrator diary was not restarted after load module overrode it (`run_dwi_pipeline.m`)
+- **skip_to_reload fallback for typed DWI runs**: First-run of dnCNN/IVIMnet failed because skip_to_reload was true but no prior .mat files existed (`load_dwi_data.m`)
+
+#### Octave Compatibility
+- `hist()` bin-count vs bin-edge semantics difference producing wrong numerical results (`plot_feature_distribution.m`)
+- SEM computation inconsistency across MATLAB/Octave (`metrics_baseline.m`)
+
+#### Test Suite
+- Boxplot crash when only one outcome group is present (`plot_feature_distribution.m`)
+- Swapped `adc_thresh`/`high_adc_thresh` in 7 test files
+- Test cleanup deleting orchestrator output folder during pipeline runs (`run_all_tests.m`, test files)
+- `testVis_DeviationExcludesPatient` false regex match on comment text
+- `testCauseOfDeathNoWarningWhenPresent` failures from `readtable` dropping empty columns and `verifyWarningFree` conflicts
+- `test_modularity` RepoRoot path computation bug
+- 11 additional test fixes across pipeline modules for consistent error IDs and threshold values
+
+#### UI
+- Waitbar text centering and layout in test suite GUI
+- Test progress bar window sizing and axes centering
+
+### Changed
+- Version references updated from 1.x to 0.x scheme
+- Parallel pool now shuts down at end of standalone test suite runs
+
 ## [0.1.0] - 2026-03-03
 
 ### Added
