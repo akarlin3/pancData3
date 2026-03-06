@@ -43,12 +43,13 @@ This repository uses a three-agent architecture:
 pancData3/
 ├── run_dwi_pipeline.m          # Master orchestrator — main entry point
 ├── execute_all_workflows.m     # Runs all 3 DWI types sequentially
+├── patient_data_check.m        # Pre-pipeline data integrity scanner
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (17 files)
-├── utils/                      # Helper utilities (22 files)
-├── .octave_compat/             # Octave compatibility shims (20 files)
-├── tests/                      # Full test suite (65 test files)
+├── utils/                      # Helper utilities (28 files)
+├── .octave_compat/             # Octave compatibility shims (21 files)
+├── tests/                      # Full test suite (70 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
@@ -78,9 +79,18 @@ Key fields:
   "skip_tests": false,
   "ivim_bthr": 100,
   "adc_thresh": 0.001,
+  "high_adc_thresh": 0.00115,
+  "d_thresh": 0.001,
+  "f_thresh": 0.1,
+  "dstar_thresh": 0.01,
+  "min_vox_hist": 100,
+  "adc_max": 0.003,
+  "use_checkpoints": true,
+  "patient_ids": [],
   "dwi_type": "Standard",
-  "cause_of_death_column": "CauseOfDeath",
-  "clear_cache": false,
+  "td_scan_days": [],
+  "cause_of_death_column": "",
+  "clear_cache": true,
   "core_method": "adc_threshold",
   "core_percentile": 25,
   "core_n_clusters": 2,
@@ -182,6 +192,13 @@ run('tests/run_all_tests.m')
 | `test_visualize_smoke.m` | Visualization output smoke tests |
 | `test_core_methods.m` | Tumor core extraction method validation (all 11 methods) |
 | `test_new_core_methods.m` | Detailed tests for percentile, spectral, and fDM core methods |
+| `test_compute_dice_hausdorff.m` | Dice/Hausdorff distance computation tests |
+| `test_json_set_field.m` | JSON field replacement utility tests |
+| `test_cross_dwi_subvolume.m` | Cross-DWI-type subvolume comparison tests |
+| `test_landmark_cindex.m` | Landmark concordance index tests |
+| `test_source_code_standards.m` | Source code standards enforcement |
+| `test_modularity.m` | Module independence and interface tests |
+| `test_statistical_methods.m` | Statistical methods validation |
 
 ---
 
@@ -236,6 +253,11 @@ run('tests/run_all_tests.m')
 | `parfor_progress.m` | Parallel loop progress reporting |
 | `text_progress_bar.m` | Text-based progress bar display |
 | `extract_tumor_core.m` | Configurable tumor core delineation (11 methods) |
+| `PipelineProgressGUI.m` | Pipeline-aware progress bar wrapper (maps step keys to display names) |
+| `ProgressGUI.m` | Professional custom-figure progress bar for MATLAB pipelines |
+| `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
+| `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
+| `plot_cross_dwi_subvolume_comparison.m` | Cross-DWI-type ADC subvolume comparison visualization |
 
 ### Octave Compatibility (`.octave_compat/`)
 
@@ -243,6 +265,8 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 - `@table/` class implementation (`table.m`, `subsasgn.m`, `subsref.m`, `display.m`)
 - `+matlab/+unittest/` namespace shims (`TestSuite.m`, `TestCase.m`, `TestRunner.m`)
+- `+matlab/+unittest/+fixtures/` shim (`PathFixture.m`)
+- `+matlab/+unittest/+plugins/` shim (`CodeCoveragePlugin.m`)
 - Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
 
 ---
@@ -357,6 +381,29 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
 ---
 
+## Documentation Maintenance (mandatory)
+
+After **every feature implementation** (adding a new file, adding a config field, changing module signatures, adding tests, etc.), you **must** update all affected markdown documentation files before considering the task complete. This is not optional — stale documentation is a recurring problem.
+
+### Files to check and update
+
+| File | What to update |
+|---|---|
+| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils), config example block, key test files, Octave compat listing |
+| `README.md` | File counts (test badge, Repository Structure tree, utils/tests counts), config field table if a user-facing field was added |
+| `MEMORY.md` (auto-memory) | File signatures, new patterns, any architectural decisions made during the feature |
+
+### Checklist (run mentally after each feature)
+
+1. **New `.m` file in `core/` or `utils/`?** → Add to the corresponding CLAUDE.md module table with a one-line purpose. Update the file count in Repository Structure (both CLAUDE.md and README.md).
+2. **New test file?** → Update test file count in Repository Structure (both CLAUDE.md and README.md) and the README test badge number. If it covers a notable area, add to CLAUDE.md Key test files table.
+3. **New config field?** → Add to the CLAUDE.md config JSON block. If user-facing, add to README.md config field table. Ensure `parse_config.m` default exists (per Config Backwards Compatibility rules).
+4. **New `.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
+5. **New top-level `.m` file?** → Add to CLAUDE.md Repository Structure tree.
+6. **Changed module signature?** → Update MEMORY.md File Signatures section.
+
+---
+
 ## Git Workflow
 
 - Development happens on feature branches; never commit directly to `main`.
@@ -374,6 +421,7 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 - Follow the orchestrator pattern — keep pipeline steps modular and independently callable.
 - Preserve checkpointing logic in `load_dwi_data.m`; it is critical for large cohort recovery.
 - Consult `config.example.json` before adding new configuration fields.
+- **Update documentation after every feature implementation** — see [Documentation Maintenance](#documentation-maintenance-mandatory) below.
 
 ### Do Not
 - Modify anything in `dependencies/`.

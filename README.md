@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.0.0--beta.2-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-65%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-70%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -201,7 +201,7 @@ The pipeline executes the following steps in order:
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 65 test files covering:
+The test suite includes 70 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -231,7 +231,7 @@ pancData3/
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (22 files)
+├── utils/                      # Helper utilities (28 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
@@ -239,7 +239,7 @@ pancData3/
 │   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
 │   └── ...
-├── tests/                      # Test suite (65 test files)
+├── tests/                      # Test suite (70 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
