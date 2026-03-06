@@ -42,3 +42,19 @@ function test_varying_patient_dates_median(testCase)
     scan_days = compute_scan_days_from_dates(fx_dates);
     testCase.verifyEqual(scan_days, [0, 6]);  % median of [5, 7] = 6
 end
+
+function test_missing_ref_col_excluded(testCase)
+    % Patients missing the reference fraction should be excluded from the
+    % median rather than using a misaligned fallback that can break
+    % monotonicity.  Here ref_col=2 (3 of 4 patients have Fx2).
+    % Patient 4 has only Fx3.  Old fallback would normalize patient 4 to
+    % its earliest scan (Fx3=day0), contaminating the Fx3 column median.
+    base = datenum('20240101', 'yyyymmdd');
+    fx_dates = {datestr(base, 'yyyymmdd'),   datestr(base+7, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
+                datestr(base, 'yyyymmdd'),   datestr(base+7, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
+                datestr(base, 'yyyymmdd'),   datestr(base+7, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
+                '',                          '',                           datestr(base+90, 'yyyymmdd')};
+    scan_days = compute_scan_days_from_dates(fx_dates);
+    % Patient 4 excluded (missing ref_col=1). Median from patients 1-3.
+    testCase.verifyEqual(scan_days, [0, 7, 90]);
+end

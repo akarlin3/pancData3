@@ -94,6 +94,12 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
                   size(sm.adc_mean_rpt, 2) == nRpt_expected;
         if dims_ok
             summary_metrics = sm;
+            % Ensure fx_dates survives stale checkpoints that pre-date its
+            % addition.  The caller always passes the current fx_dates, so
+            % graft it onto the checkpoint if missing.
+            if ~isfield(summary_metrics, 'fx_dates')
+                summary_metrics.fx_dates = fx_dates;
+            end
             return;
         else
             fprintf('  [CHECKPOINT] Stale checkpoint (dimension mismatch). Recomputing...\n');
