@@ -1,6 +1,6 @@
 # CLAUDE.md — AI Assistant Guide for pancData3
 
-This file provides essential context for AI assistants (Claude, Jules, Antigravity, etc.) working in this repository.
+This file provides essential context for AI assistants (Claude, Antigravity, etc.) working in this repository.
 
 ---
 
@@ -31,11 +31,9 @@ This repository uses a three-agent architecture:
 ### Critical Safety Rules
 
 > **NEVER send patient data, sensitive CSVs, or PHI to any cloud agent or external service.**
-> Only code logic and structure may be shared with Jules or any cloud-based AI.
+> Only code logic and structure may be shared with cloud-based AI.
 
 - Do **not** modify files in the `dependencies/` folder under any circumstances.
-- When Jules submits a PR, notify the researcher for joint review before merging.
-- All cloud agent work (Jules) is limited to: unit tests, documentation, and PEP 8/style fixes.
 
 ---
 
@@ -48,9 +46,9 @@ pancData3/
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (17 files)
-├── utils/                      # Helper utilities (17 files + octave_compat/)
-│   └── octave_compat/          # Octave compatibility shims (20 files)
-├── tests/                      # Full test suite (63 test files)
+├── utils/                      # Helper utilities (22 files)
+├── .octave_compat/             # Octave compatibility shims (20 files)
+├── tests/                      # Full test suite (65 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
@@ -80,7 +78,9 @@ Key fields:
   "skip_tests": false,
   "ivim_bthr": 100,
   "adc_thresh": 0.001,
-  "dwi_type": "Standard"
+  "dwi_type": "Standard",
+  "cause_of_death_column": "CauseOfDeath",
+  "clear_cache": false
 }
 ```
 
@@ -221,8 +221,13 @@ run('tests/run_all_tests.m')
 | `find_gtv_files.m` | Locates GTVp and GTVn masks for complex tumor anatomy |
 | `plot_feature_distribution.m` | Histogram/boxplot with ANOVA p-value annotation |
 | `init_scan_structs.m` | Initializes scan data structures for pipeline processing |
+| `compute_scan_days_from_dates.m` | Derives scan days from DICOM acquisition dates |
+| `format_p_value.m` | Formats p-values for display with appropriate precision |
+| `remove_constant_columns.m` | Removes constant/NaN-only columns from feature matrices |
+| `parfor_progress.m` | Parallel loop progress reporting |
+| `text_progress_bar.m` | Text-based progress bar display |
 
-### Octave Compatibility (`utils/octave_compat/`)
+### Octave Compatibility (`.octave_compat/`)
 
 Contains 20 shim files for GNU Octave compatibility, including:
 
@@ -345,8 +350,7 @@ See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 ## Git Workflow
 
 - Development happens on feature branches; never commit directly to `main`.
-- Branch naming follows: `claude/<description>-<session-id>` for Claude branches, `jules-<description>` for Jules branches.
-- PRs from Jules must be reviewed before merging.
+- Branch naming follows: `claude/<description>-<session-id>` for Claude branches.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
 - After pushing a branch, Claude should create a pull request targeting `main` using `gh pr create` **only if `gh` is available** (check with `which gh` first). Include a summary of changes and a test plan in the PR body. If `gh` is not installed, skip PR creation silently (do not notify the user).
 
