@@ -194,7 +194,7 @@ clinical_data_sheet = fullfile(dataloc, config_struct.clinical_data_sheet);
 % Set to "" (empty string) to explicitly disable competing-risk classification.
 cod_disabled = false;
 if isfield(config_struct, 'cause_of_death_column')
-    cod_column = config_struct.cause_of_death_column;
+    cod_column = char(config_struct.cause_of_death_column);
     if isempty(cod_column)
         cod_disabled = true;
         cod_column = 'CauseOfDeath';
