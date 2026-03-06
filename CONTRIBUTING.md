@@ -88,11 +88,11 @@ run('tests/run_all_tests.m')
 
 ### Octave Compatibility
 
-The pipeline supports GNU Octave via shims in `utils/octave_compat/`. When adding new functionality:
+The pipeline supports GNU Octave via shims in `.octave_compat/`. When adding new functionality:
 
 - Avoid MATLAB-only syntax not covered by the existing shim layer
 - Run `tests/run_all_tests_octave.m` to verify Octave compatibility if available
-- Compatibility shims are in `utils/octave_compat/` -- add new shims there if needed
+- Compatibility shims are in `.octave_compat/` -- add new shims there if needed
 
 ## Code Style
 
@@ -126,7 +126,7 @@ This is a research pipeline with strict leakage prevention requirements. When mo
 - No modification of files in `dependencies/`
 - No hardcoded file paths (uses `config.json`)
 - No unsanitized strings passed to `system()`
-- Octave compatibility preserved (no MATLAB-only syntax without shims)
+- Octave compatibility preserved (no MATLAB-only syntax without shims in `.octave_compat/`)
 
 ## Important Constraints
 

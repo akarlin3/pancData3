@@ -2,13 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-63%20files-brightgreen)](#running-tests)
-[![Octave Compatible](https://img.shields.io/badge/Octave-compatible-orange?logo=gnu)](https://www.gnu.org/software/octave/)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+[![Version](https://img.shields.io/badge/version-0.2.0--beta-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-65%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
+
+**Current version:** 0.2.0-beta — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -36,7 +37,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - **Survival Analysis** -- Competing risks modeling (Cause-Specific Hazards), IPCW weighting, and Kaplan-Meier estimation
 - **Predictive Modeling** -- Cross-validated feature selection with strict data leakage prevention
 - **Robust Checkpointing** -- Parallel-safe `parfor` processing with recovery from interruptions
-- **Octave Compatibility** -- Shim layer for running on GNU Octave environments
+- **Cache Management** -- `clear_cache` option to delete all cached pipeline files before re-execution
 
 ---
 
@@ -101,8 +102,10 @@ Edit `config.json` with your local paths:
 | `dwi_type` | One of: `"Standard"`, `"dnCNN"`, `"IVIMnet"` |
 | `skip_to_reload` | Skip data loading and use cached results |
 | `use_checkpoints` | Enable/disable checkpoint recovery |
+| `clear_cache` | Delete all cached pipeline files before execution |
+| `cause_of_death_column` | Column name for competing risk classification (default: `"CauseOfDeath"`) |
 
-See [`config.example.json`](config.example.json) for all available fields.
+See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 
 ---
 
@@ -193,7 +196,7 @@ The pipeline executes the following steps in order:
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 63 test files covering:
+The test suite includes 65 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -223,16 +226,15 @@ pancData3/
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (19 files)
+├── utils/                      # Helper utilities (22 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
 │   ├── init_scan_structs.m     #   Scan data structure initialization
-│   ├── parfor_progress.m       #   Parallel loop progress reporting
+│   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
-│   ├── octave_compat/          #   Octave compatibility shims (20 files)
 │   └── ...
-├── tests/                      # Test suite (63 test files)
+├── tests/                      # Test suite (65 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
@@ -259,6 +261,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
+  version   = {0.2.0-beta},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {MIT}
 }
