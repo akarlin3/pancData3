@@ -27,7 +27,6 @@ This repository uses a three-agent architecture:
 |---|---|---|
 | **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
-| **Jules** (cloud/background) | Unit testing, documentation, code styling | Cloud — never receives patient data |
 
 ### Critical Safety Rules
 
