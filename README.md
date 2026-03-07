@@ -227,7 +227,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 72 test files covering:
+The test suite includes 78 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -265,7 +265,7 @@ pancData3/
 │   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
 │   └── ...
-├── tests/                      # Test suite (70 test files)
+├── tests/                      # Test suite (78 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
