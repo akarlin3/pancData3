@@ -167,6 +167,39 @@ fdm_responding_pc = nan(length(id_list),nTp,3);
 fdm_progressing_pc = nan(length(id_list),nTp,3);
 fdm_stable_pc = nan(length(id_list),nTp,3);
 
+% --- Multi-method core computation setup ---
+% When run_all_core_methods is true, the pipeline computes sub-volume
+% metrics for all 11 core delineation methods per patient/timepoint,
+% storing them in a nested struct keyed by method name.
+ALL_CORE_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+    'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+    'percentile', 'spectral', 'fdm'};
+n_all_methods = numel(ALL_CORE_METHODS);
+run_all_core = isfield(config_struct, 'run_all_core_methods') && config_struct.run_all_core_methods;
+store_masks = run_all_core && isfield(config_struct, 'store_core_masks') && config_struct.store_core_masks;
+
+if run_all_core
+    per_method = struct();
+    for m_init = 1:n_all_methods
+        mname = ALL_CORE_METHODS{m_init};
+        per_method.(mname).adc_sub_vol = nan(length(id_list), nTp, 3);
+        per_method.(mname).adc_sub_vol_pc = nan(length(id_list), nTp, 3);
+        per_method.(mname).adc_sub_mean = nan(length(id_list), nTp, 3);
+        per_method.(mname).adc_sub_kurt = nan(length(id_list), nTp, 3);
+        per_method.(mname).adc_sub_skew = nan(length(id_list), nTp, 3);
+        per_method.(mname).f_sub_vol = nan(length(id_list), nTp, 3);
+        per_method.(mname).d_sub_mean = nan(length(id_list), nTp, 3);
+        per_method.(mname).d_sub_kurt = nan(length(id_list), nTp, 3);
+        per_method.(mname).d_sub_skew = nan(length(id_list), nTp, 3);
+        per_method.(mname).fdm_responding_pc = nan(length(id_list), nTp, 3);
+        per_method.(mname).fdm_progressing_pc = nan(length(id_list), nTp, 3);
+        per_method.(mname).fdm_stable_pc = nan(length(id_list), nTp, 3);
+        if store_masks
+            per_method.(mname).core_masks = cell(length(id_list), nTp);
+        end
+    end
+end
+
 % --- Whole-GTV summary statistics for ADC ---
 adc_mean = nan(length(id_list),nTp,3);
 adc_kurt = nan(length(id_list),nTp,3);
@@ -660,6 +693,96 @@ for j=1:n_patients_metrics
                 end
             end
 
+            % --- Multi-method core metrics (when enabled) ---
+            % Compute sub-volume metrics for all 11 core delineation methods.
+            % Voxel vectors and 3D mask are already loaded above, so this
+            % only repeats the core extraction + sub-volume stat computation.
+            if run_all_core && ~isempty(adc_vec)
+                unified_set = {'percentile', 'spectral', 'fdm'};
+                rng(42);  % reproducible clustering (GMM, k-means, spectral)
+                for m_idx = 1:n_all_methods
+                    mname = ALL_CORE_METHODS{m_idx};
+                    temp_cfg = config_struct;
+                    temp_cfg.core_method = mname;
+
+                    try
+                        m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                    catch
+                        m_mask = false(size(adc_vec));
+                    end
+
+                    if store_masks
+                        per_method.(mname).core_masks{j, k} = m_mask;
+                    end
+
+                    % ADC sub-volume metrics
+                    m_adc_sub = adc_vec(m_mask);
+                    per_method.(mname).adc_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
+                    if finite_vol > 0
+                        per_method.(mname).adc_sub_vol_pc(j,k,dwi_type) = per_method.(mname).adc_sub_vol(j,k,dwi_type) / finite_vol;
+                    end
+                    if ~isempty(m_adc_sub)
+                        per_method.(mname).adc_sub_mean(j,k,dwi_type) = nanmean(m_adc_sub);
+                    end
+                    if numel(m_adc_sub) >= min_vox_hist
+                        m_adc_finite = m_adc_sub(~isnan(m_adc_sub));
+                        if numel(m_adc_finite) >= min_vox_hist
+                            per_method.(mname).adc_sub_kurt(j,k,dwi_type) = kurtosis(m_adc_finite);
+                            per_method.(mname).adc_sub_skew(j,k,dwi_type) = skewness(m_adc_finite);
+                        end
+                    end
+
+                    % D/f sub-volume metrics
+                    if ~isempty(d_vec)
+                        if any(strcmpi(mname, unified_set))
+                            m_f_sub = f_vec(m_mask);
+                            per_method.(mname).f_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
+                            m_d_sub = d_vec(m_mask);
+                        else
+                            m_f_sub = f_vec(f_vec < f_thresh); %#ok<NASGU>
+                            per_method.(mname).f_sub_vol(j,k,dwi_type) = numel(f_vec(f_vec < f_thresh)) * vox_vol;
+                            m_d_sub = d_vec(d_vec < d_thresh);
+                        end
+                        if ~isempty(m_d_sub)
+                            per_method.(mname).d_sub_mean(j,k,dwi_type) = nanmean(m_d_sub);
+                        end
+                        if numel(m_d_sub) >= min_vox_hist
+                            m_d_finite = m_d_sub(~isnan(m_d_sub));
+                            if numel(m_d_finite) >= min_vox_hist
+                                per_method.(mname).d_sub_kurt(j,k,dwi_type) = kurtosis(m_d_finite);
+                                per_method.(mname).d_sub_skew(j,k,dwi_type) = skewness(m_d_finite);
+                            end
+                        end
+                    end
+
+                    % fDM volume fractions (only for fdm method, post-baseline)
+                    if strcmpi(mname, 'fdm') && k > 1 && isfield(core_opts, 'baseline_adc_vec')
+                        switch lower(config_struct.fdm_parameter)
+                            case 'adc'
+                                fdm_cur = adc_vec;
+                                fdm_bl = core_opts.baseline_adc_vec;
+                            case 'd'
+                                fdm_cur = d_vec;
+                                fdm_bl = core_opts.baseline_d_vec;
+                            otherwise
+                                fdm_cur = adc_vec;
+                                fdm_bl = core_opts.baseline_adc_vec;
+                        end
+                        if ~isempty(fdm_bl) && numel(fdm_bl) == numel(fdm_cur)
+                            fdm_sig_pm = config_struct.fdm_thresh;
+                            delta_pm = fdm_cur - fdm_bl;
+                            valid_pm = ~isnan(delta_pm);
+                            n_valid_pm = sum(valid_pm);
+                            if n_valid_pm > 0
+                                per_method.(mname).fdm_responding_pc(j,k,dwi_type)  = sum(delta_pm(valid_pm) > fdm_sig_pm) / n_valid_pm;
+                                per_method.(mname).fdm_progressing_pc(j,k,dwi_type) = sum(delta_pm(valid_pm) < -fdm_sig_pm) / n_valid_pm;
+                                per_method.(mname).fdm_stable_pc(j,k,dwi_type)      = sum(abs(delta_pm(valid_pm)) <= fdm_sig_pm) / n_valid_pm;
+                            end
+                        end
+                    end
+                end
+            end
+
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
             % Only Fx1 (k==1) has multiple repeat acquisitions. These
             % back-to-back scans (same session, same setup) measure
@@ -1006,6 +1129,11 @@ summary_metrics.core_method = config_struct.core_method;
 summary_metrics.fdm_responding_pc = fdm_responding_pc;
 summary_metrics.fdm_progressing_pc = fdm_progressing_pc;
 summary_metrics.fdm_stable_pc = fdm_stable_pc;
+
+% Package per-method core metrics when multi-method computation was enabled
+if run_all_core
+    summary_metrics.all_core_metrics = per_method;
+end
 
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);

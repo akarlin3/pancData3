@@ -1,4 +1,4 @@
-function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = metrics_dosimetry(m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations)
+function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry] = metrics_dosimetry(m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations)
 % METRICS_DOSIMETRY — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 3/5 of the metrics step. Computes dose metrics (D95, V50) for resistant sub-volumes.
 %
@@ -82,6 +82,28 @@ v50_f_sub = nan(length(m_id_list), nTp);
 
 d95_dstar_sub = nan(length(m_id_list), nTp);
 v50_dstar_sub = nan(length(m_id_list), nTp);
+
+% --- Multi-method dosimetry setup ---
+ALL_CORE_METHODS_DOS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+    'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+    'percentile', 'spectral', 'fdm'};
+n_all_methods_dos = numel(ALL_CORE_METHODS_DOS);
+run_all_dos = nargout >= 9 && isfield(config_struct, 'run_all_core_methods') && config_struct.run_all_core_methods;
+
+per_method_dosimetry = struct();
+if run_all_dos
+    for m_init = 1:n_all_methods_dos
+        mname = ALL_CORE_METHODS_DOS{m_init};
+        per_method_dosimetry.(mname).d95_adc_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).v50_adc_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).d95_d_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).v50_d_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).d95_f_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).v50_f_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).d95_dstar_sub = nan(length(m_id_list), nTp);
+        per_method_dosimetry.(mname).v50_dstar_sub = nan(length(m_id_list), nTp);
+    end
+end
 
 % Cache the last loaded GTV mask to avoid redundant disk I/O.
 % Multiple timepoints for the same patient often share the same GTV mask
@@ -220,7 +242,40 @@ for j = 1:n_pat_dosimetry
                 [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
                 [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
             end
-            
+
+            % --- Multi-method dosimetry (when enabled) ---
+            if run_all_dos
+                unified_set_dos = {'percentile', 'spectral', 'fdm'};
+                rng(42);
+                for m_idx = 1:n_all_methods_dos
+                    mname = ALL_CORE_METHODS_DOS{m_idx};
+                    temp_cfg = config_struct;
+                    temp_cfg.core_method = mname;
+                    try
+                        m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                    catch
+                        m_mask = false(size(adc_vec));
+                    end
+                    [per_method_dosimetry.(mname).d95_adc_sub(j,k), per_method_dosimetry.(mname).v50_adc_sub(j,k)] = ...
+                        calculate_subvolume_metrics(adc_vec, m_mask, dose_vec, has_3d, gtv_mask_3d);
+                    if any(strcmpi(mname, unified_set_dos))
+                        [per_method_dosimetry.(mname).d95_d_sub(j,k), per_method_dosimetry.(mname).v50_d_sub(j,k)] = ...
+                            calculate_subvolume_metrics(d_vec, m_mask, dose_vec, has_3d, gtv_mask_3d);
+                        [per_method_dosimetry.(mname).d95_f_sub(j,k), per_method_dosimetry.(mname).v50_f_sub(j,k)] = ...
+                            calculate_subvolume_metrics(f_vec, m_mask, dose_vec, has_3d, gtv_mask_3d);
+                        [per_method_dosimetry.(mname).d95_dstar_sub(j,k), per_method_dosimetry.(mname).v50_dstar_sub(j,k)] = ...
+                            calculate_subvolume_metrics(dstar_vec, m_mask, dose_vec, has_3d, gtv_mask_3d);
+                    else
+                        [per_method_dosimetry.(mname).d95_d_sub(j,k), per_method_dosimetry.(mname).v50_d_sub(j,k)] = ...
+                            calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
+                        [per_method_dosimetry.(mname).d95_f_sub(j,k), per_method_dosimetry.(mname).v50_f_sub(j,k)] = ...
+                            calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
+                        [per_method_dosimetry.(mname).d95_dstar_sub(j,k), per_method_dosimetry.(mname).v50_dstar_sub(j,k)] = ...
+                            calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
+                    end
+                end
+            end
+
         end
     end
 end

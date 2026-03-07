@@ -49,7 +49,7 @@ pancData3/
 ├── core/                       # Primary pipeline modules (18 files)
 ├── utils/                      # Helper utilities (28 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (71 test files)
+├── tests/                      # Full test suite (72 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
@@ -95,7 +95,10 @@ Key fields:
   "core_percentile": 25,
   "core_n_clusters": 2,
   "fdm_parameter": "adc",
-  "fdm_thresh": 0.0004
+  "fdm_thresh": 0.0004,
+  "run_compare_cores": false,
+  "run_all_core_methods": false,
+  "store_core_masks": false
 }
 ```
 
@@ -201,6 +204,7 @@ run('tests/run_all_tests.m')
 | `test_modularity.m` | Module independence and interface tests |
 | `test_statistical_methods.m` | Statistical methods validation |
 | `test_compare_core_methods.m` | Core method pairwise comparison validation |
+| `test_multi_core_methods.m` | Multi-method core integration and backward compatibility |
 
 ---
 

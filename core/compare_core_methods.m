@@ -117,16 +117,31 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             end
 
             % --- Run all 11 methods ---
+            % Reuse pre-computed masks from compute_summary_metrics when
+            % available (run_all_core_methods + store_core_masks were true).
+            has_precomputed = isfield(summary_metrics, 'all_core_metrics') && ...
+                isstruct(summary_metrics.all_core_metrics) && ...
+                isfield(summary_metrics.all_core_metrics, 'adc_threshold') && ...
+                isfield(summary_metrics.all_core_metrics.adc_threshold, 'core_masks');
+
             masks_1d = cell(n_methods, 1);
             temp_config = config_struct;
 
             for m = 1:n_methods
-                temp_config.core_method = ALL_METHODS{m};
-                try
-                    masks_1d{m} = extract_tumor_core(temp_config, adc_vec, ...
-                        d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
-                catch
-                    masks_1d{m} = false(size(adc_vec));
+                % Try pre-computed mask first
+                if has_precomputed && isfield(summary_metrics.all_core_metrics, ALL_METHODS{m}) && ...
+                        j <= size(summary_metrics.all_core_metrics.(ALL_METHODS{m}).core_masks, 1) && ...
+                        k <= size(summary_metrics.all_core_metrics.(ALL_METHODS{m}).core_masks, 2) && ...
+                        ~isempty(summary_metrics.all_core_metrics.(ALL_METHODS{m}).core_masks{j,k})
+                    masks_1d{m} = summary_metrics.all_core_metrics.(ALL_METHODS{m}).core_masks{j,k};
+                else
+                    temp_config.core_method = ALL_METHODS{m};
+                    try
+                        masks_1d{m} = extract_tumor_core(temp_config, adc_vec, ...
+                            d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                    catch
+                        masks_1d{m} = false(size(adc_vec));
+                    end
                 end
 
                 % Volume fraction

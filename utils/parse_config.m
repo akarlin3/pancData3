@@ -227,6 +227,32 @@ function config_struct = parse_config(json_path)
             config_struct.fdm_thresh = 0.0004;
         end
 
+        % run_compare_cores: When true, the compare_cores step is
+        % automatically included in the default pipeline steps so that
+        % pairwise Dice/Hausdorff agreement across all 11 core methods
+        % is computed without requiring explicit invocation.
+        if ~isfield(config_struct, 'run_compare_cores')
+            config_struct.run_compare_cores = false;
+        end
+
+        % run_all_core_methods: When true, compute_summary_metrics and
+        % metrics_dosimetry run all 11 tumor core delineation methods per
+        % patient/timepoint, storing per-method sub-volume metrics in
+        % summary_metrics.all_core_metrics.<method_name>.  Default false
+        % because this multiplies core extraction cost by 11x.
+        if ~isfield(config_struct, 'run_all_core_methods')
+            config_struct.run_all_core_methods = false;
+        end
+
+        % store_core_masks: When true and run_all_core_methods is true,
+        % also stores the 1D logical core masks for each method in
+        % summary_metrics.all_core_metrics.<method>.core_masks.  Enables
+        % compare_core_methods to skip re-computation.  Default false to
+        % limit memory/disk usage.
+        if ~isfield(config_struct, 'store_core_masks')
+            config_struct.store_core_masks = false;
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % Any JSON syntax error or field-access failure is caught here.

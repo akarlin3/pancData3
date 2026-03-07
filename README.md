@@ -109,6 +109,9 @@ Edit `config.json` with your local paths:
 | `core_n_clusters` | Number of tissue clusters for the `"spectral"` core method (default: `2`) |
 | `fdm_parameter` | Diffusion parameter for the `"fdm"` core method: `"adc"` or `"d"` (default: `"adc"`) |
 | `fdm_thresh` | Fallback fDM significance threshold in mm²/s when no repeat-scan data is available (default: `0.0004`) |
+| `run_compare_cores` | Auto-include `compare_cores` step in the default pipeline (default: `false`) |
+| `run_all_core_methods` | Compute sub-volume metrics for all 11 core methods per patient/timepoint (default: `false`) |
+| `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 
@@ -224,7 +227,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 71 test files covering:
+The test suite includes 72 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness

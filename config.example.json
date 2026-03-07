@@ -24,5 +24,8 @@
     "core_percentile": 25,
     "core_n_clusters": 2,
     "fdm_parameter": "adc",
-    "fdm_thresh": 0.0004
+    "fdm_thresh": 0.0004,
+    "run_compare_cores": false,
+    "run_all_core_methods": false,
+    "store_core_masks": false
 }

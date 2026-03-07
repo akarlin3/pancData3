@@ -36,6 +36,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             testCase.ConfigStruct.min_vox_hist = 100;
             testCase.ConfigStruct.dwi_types_to_run = 1:3;
             testCase.ConfigStruct.use_checkpoints = false;
+            testCase.ConfigStruct.core_method = 'adc_threshold';
 
             % Add core and utils to path so we can call load_dwi_data
             testCase.OriginalPath = path;

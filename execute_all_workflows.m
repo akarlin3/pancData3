@@ -232,6 +232,17 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
          'metrics_longitudinal', 'metrics_dosimetry', ...
          'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
 
+% Conditionally inject compare_cores after metrics_baseline when enabled.
+% Note: eaw_cfg was decoded earlier (~line 163) for the skip_tests check.
+if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_compare_cores') && eaw_cfg.run_compare_cores
+    cc_idx = find(strcmp(steps, 'metrics_baseline'));
+    if ~isempty(cc_idx)
+        steps = [steps(1:cc_idx), {'compare_cores'}, steps(cc_idx+1:end)];
+    else
+        steps{end+1} = 'compare_cores';
+    end
+end
+
 % --- 2. RUN STANDARD PIPELINE ---
 % Standard processing: conventional voxel-wise nonlinear least-squares
 % fitting of the raw (undenoised) DWI signal to IVIM and ADC models.

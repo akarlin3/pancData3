@@ -344,6 +344,19 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     lastwarn(''); % Reset MATLAB warning tracker
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
+    % --- Conditionally inject compare_cores into default steps ---
+    % When run_compare_cores is true in config, automatically include the
+    % compare_cores step (pairwise Dice/Hausdorff across all 11 core
+    % methods) after metrics_baseline in the pipeline.
+    if config_struct.run_compare_cores && ~ismember('compare_cores', steps_to_run)
+        idx = find(strcmp(steps_to_run, 'metrics_baseline'));
+        if ~isempty(idx)
+            steps_to_run = [steps_to_run(1:idx), {'compare_cores'}, steps_to_run(idx+1:end)];
+        else
+            steps_to_run{end+1} = 'compare_cores';
+        end
+    end
+
     % --- Pipeline Progress GUI (GUI environments only) ---
     pipeGUI = [];
     if ProgressGUI.isDisplayAvailable()
@@ -715,10 +728,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     diary(master_diary_file);  % restart master diary after metrics_baseline
     lastwarn('');  % reset warning tracker between steps
 
-    % --- Compare Core Methods (standalone optional step) ---
+    % --- Compare Core Methods ---
     % Runs all 11 tumor core delineation methods on each patient/timepoint
     % and computes pairwise Dice/Hausdorff agreement metrics with summary
-    % figures.  Not included in the default step list — invoke explicitly:
+    % figures.  Can be auto-included by setting "run_compare_cores": true
+    % in config.json, or invoked explicitly:
     %   run_dwi_pipeline('config.json', {'compare_cores'});
     if ismember('compare_cores', steps_to_run)
         if ~isempty(pipeGUI), pipeGUI.startStep('compare_cores'); end
@@ -838,11 +852,18 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if ~isempty(pipeGUI), pipeGUI.startStep('metrics_dosimetry'); end
         try
             fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry...\n', current_name);
-            [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
-                metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
-                                  m_data_vectors_gtvp, summary_metrics.gtv_locations);
+            if config_struct.run_all_core_methods
+                [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry] = ...
+                    metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
+                                      m_data_vectors_gtvp, summary_metrics.gtv_locations);
+            else
+                [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
+                    metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
+                                      m_data_vectors_gtvp, summary_metrics.gtv_locations);
+                per_method_dosimetry = struct();
+            end
 
-            save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub');
+            save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub', 'per_method_dosimetry');
             fprintf('      ✅ Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_dosimetry', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
