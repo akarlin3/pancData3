@@ -127,6 +127,17 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             masks_1d = cell(n_methods, 1);
             temp_config = config_struct;
 
+            % Suppress expected fallback warnings during comparison
+            prev_warn_state = warning('query');
+            warning('off', 'extract_tumor_core:tooFewForSpectral');
+            warning('off', 'extract_tumor_core:no3DForActiveContours');
+            warning('off', 'extract_tumor_core:no3DForRegionGrowing');
+            warning('off', 'extract_tumor_core:fdmBaseline');
+            warning('off', 'extract_tumor_core:fdmNoBaseline');
+            warning('off', 'extract_tumor_core:noDValues');
+            warning('off', 'extract_tumor_core:noIVIMValues');
+            warning('off', 'extract_tumor_core:noSpectralCluster');
+
             for m = 1:n_methods
                 % Try pre-computed mask first
                 if has_precomputed && isfield(summary_metrics.all_core_metrics, ALL_METHODS{m}) && ...
@@ -160,6 +171,9 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                 end
             end
 
+            % Restore warning state
+            warning(prev_warn_state);
+
             % --- Pairwise Dice (1D) ---
             dice_matrix = nan(n_methods, n_methods);
             for a = 1:n_methods
@@ -184,7 +198,11 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
 
             % --- Pairwise Hausdorff (3D, when available) ---
             hd95_matrix = nan(n_methods, n_methods);
+            n_gtv_voxels = 0;
             if has_3d
+                n_gtv_voxels = sum(gtv_mask_3d(:) == 1);
+            end
+            if has_3d && n_gtv_voxels == numel(masks_1d{1})
                 masks_3d = cell(n_methods, 1);
                 for m = 1:n_methods
                     vol_3d = false(size(gtv_mask_3d));
