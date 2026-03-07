@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.1.0--beta.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-71%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-78%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -111,6 +111,7 @@ Edit `config.json` with your local paths:
 | `fdm_thresh` | Fallback fDM significance threshold in mm²/s when no repeat-scan data is available (default: `0.0004`) |
 | `run_compare_cores` | Auto-include `compare_cores` step in the default pipeline (default: `false`) |
 | `run_all_core_methods` | Compute sub-volume metrics for all 11 core methods per patient/timepoint (default: `false`) |
+| `spectral_min_voxels` | Minimum valid voxels required for the `"spectral"` core method (default: `20`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
