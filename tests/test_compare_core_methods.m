@@ -211,5 +211,91 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
                 'fDM at baseline should be flagged as fallback.');
         end
 
+        function testFx1MaskFallback(testCase)
+            % When DIR warps Fx2 vectors to Fx1 space, the native Fx2 mask
+            % has a different voxel count. The code should fall back to the
+            % Fx1 mask, enabling 3D methods like active_contours.
+            n_vox = 100;
+            rng(42);
+
+            % Fx1 mask: 100 voxels (matches vectors)
+            Stvol3d = true(10, 10, 1); %#ok<NASGU>
+            fx1_file = fullfile(testCase.TempDir, 'gtv_fx1_fallback.mat');
+            save(fx1_file, 'Stvol3d');
+
+            % Fx2 mask: 90 voxels (mismatch — simulates native fraction)
+            Stvol3d = true(9, 10, 1); %#ok<NASGU>
+            fx2_file = fullfile(testCase.TempDir, 'gtv_fx2_fallback.mat');
+            save(fx2_file, 'Stvol3d');
+
+            % Set gtv_locations: Fx1 → 100 voxels, Fx2 → 90 voxels
+            sm = testCase.SummaryMetrics;
+            sm.gtv_locations{1, 1, 1} = fx1_file;
+            sm.gtv_locations{1, 2, 1} = fx2_file;
+
+            % Vectors for both timepoints have 100 voxels (Fx1 space)
+            dv = testCase.DataVectors;
+            adc1 = [0.0005 + 0.0001*randn(30,1); 0.0015 + 0.0002*randn(70,1)];
+            d1 = [0.0004 + 0.0001*randn(30,1); 0.0014 + 0.0002*randn(70,1)];
+            f1 = [0.05 + 0.01*randn(30,1); 0.2 + 0.05*randn(70,1)];
+            dstar1 = 0.02 * ones(n_vox, 1);
+            dv(1,2,1).adc_vector = adc1;
+            dv(1,2,1).d_vector = d1;
+            dv(1,2,1).f_vector = f1;
+            dv(1,2,1).dstar_vector = dstar1;
+
+            results = compare_core_methods(dv, sm, testCase.ConfigStruct);
+
+            % Active contours at Fx2 should NOT be flagged as fallback
+            % because the Fx1 mask fallback provides a valid 3D mask.
+            ac_idx = find(strcmp(results.method_names, 'active_contours'));
+            testCase.verifyFalse(results.fallback_flags(1, 2, ac_idx), ...
+                'Active contours at Fx2 should use Fx1 fallback mask, not fall back to ADC threshold.');
+        end
+
+        function testFx1MaskFallbackBothMismatch(testCase)
+            % When both native Fx2 and Fx1 masks mismatch vector length,
+            % 3D methods should gracefully fall back.
+            n_vox = 80;  % Neither mask will match
+            rng(42);
+
+            % Fx1 mask: 100 voxels
+            Stvol3d = true(10, 10, 1); %#ok<NASGU>
+            fx1_file = fullfile(testCase.TempDir, 'gtv_fx1_nomatch.mat');
+            save(fx1_file, 'Stvol3d');
+
+            % Fx2 mask: 90 voxels
+            Stvol3d = true(9, 10, 1); %#ok<NASGU>
+            fx2_file = fullfile(testCase.TempDir, 'gtv_fx2_nomatch.mat');
+            save(fx2_file, 'Stvol3d');
+
+            sm = testCase.SummaryMetrics;
+            sm.gtv_locations{1, 1, 1} = fx1_file;
+            sm.gtv_locations{1, 2, 1} = fx2_file;
+
+            % Vectors have 80 voxels — matches neither mask
+            dv = testCase.DataVectors;
+            dv(1,1,1).adc_vector = 0.001 * ones(n_vox, 1);
+            dv(1,1,1).d_vector = 0.0008 * ones(n_vox, 1);
+            dv(1,1,1).f_vector = 0.15 * ones(n_vox, 1);
+            dv(1,1,1).dstar_vector = 0.01 * ones(n_vox, 1);
+            dv(1,1,1).vox_vol = 0.008;
+            dv(1,1,1).vox_dims = [2 2 2];
+            dv(1,2,1).adc_vector = 0.001 * ones(n_vox, 1);
+            dv(1,2,1).d_vector = 0.0008 * ones(n_vox, 1);
+            dv(1,2,1).f_vector = 0.15 * ones(n_vox, 1);
+            dv(1,2,1).dstar_vector = 0.01 * ones(n_vox, 1);
+            dv(1,2,1).vox_vol = 0.008;
+            dv(1,2,1).vox_dims = [2 2 2];
+
+            % Should not error — 3D methods fall back gracefully
+            results = compare_core_methods(dv, sm, testCase.ConfigStruct);
+
+            % Active contours should be flagged as fallback at Fx2
+            ac_idx = find(strcmp(results.method_names, 'active_contours'));
+            testCase.verifyTrue(results.fallback_flags(1, 2, ac_idx), ...
+                'Active contours should fall back when both masks mismatch.');
+        end
+
     end
 end

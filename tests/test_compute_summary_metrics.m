@@ -210,5 +210,61 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
             testCase.verifyEqual(summary.fx_corrupted(1,1,1), 0.5, 'AbsTol', 1e-10, ...
                 'Motion corruption should flag 50%% of voxels exceeding adc_max.');
         end
+
+        function testFx1MaskFallback(testCase)
+            % When DIR warps Fx2 vectors to Fx1 space, the native Fx2
+            % mask has a different voxel count. The code should fall back
+            % to the Fx1 mask for 3D-dependent core methods.
+            tmp = tempname;
+            mkdir(tmp);
+            cleanup = onCleanup(@() rmdir(tmp, 's'));
+
+            cfg = testCase.ConfigStruct;
+            n_vox = 100;
+
+            % Fx1 mask: 100 voxels (matches warped vectors)
+            Stvol3d = true(10, 10, 1); %#ok<NASGU>
+            fx1_file = fullfile(tmp, 'gtv_fx1.mat');
+            save(fx1_file, 'Stvol3d');
+
+            % Fx2 mask: 90 voxels (native fraction — mismatch)
+            Stvol3d = true(9, 10, 1); %#ok<NASGU>
+            fx2_file = fullfile(tmp, 'gtv_fx2.mat');
+            save(fx2_file, 'Stvol3d');
+
+            gtv_locs = cell(1, 2, 1);
+            gtv_locs{1, 1, 1} = fx1_file;
+            gtv_locs{1, 2, 1} = fx2_file;
+
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], ...
+                'vox_vol', 1);
+            dv = repmat(empty_entry, 1, 2);
+
+            % Both timepoints have 100 voxels (Fx1 space after DIR warp)
+            rng(42);
+            dv(1,1).adc_vector = [0.0005*ones(30,1); 0.0015*ones(70,1)];
+            dv(1,1).d_vector = [0.0004*ones(30,1); 0.0014*ones(70,1)];
+            dv(1,1).f_vector = [0.05*ones(30,1); 0.2*ones(70,1)];
+            dv(1,1).dstar_vector = 0.02*ones(n_vox, 1);
+            dv(1,2).adc_vector = [0.0006*ones(30,1); 0.0016*ones(70,1)];
+            dv(1,2).d_vector = [0.0005*ones(30,1); 0.0015*ones(70,1)];
+            dv(1,2).f_vector = [0.06*ones(30,1); 0.21*ones(70,1)];
+            dv(1,2).dstar_vector = 0.02*ones(n_vox, 1);
+
+            summary = compute_summary_metrics(cfg, dv, ...
+                {'PT_fx1fb'}, {'1111'}, 0, 0, ...
+                gtv_locs, {'/dwi'}, 40, 35, 10);
+
+            % Fx2 sub-volume metrics should be computed (not NaN),
+            % confirming the Fx1 mask fallback provided 3D context.
+            testCase.verifyFalse(isnan(summary.adc_sub_vol_pc(1,2,1)), ...
+                'Fx2 sub-volume should be computed using Fx1 fallback mask.');
+            % Fx1 should also work (native mask matches directly)
+            testCase.verifyFalse(isnan(summary.adc_sub_vol_pc(1,1,1)), ...
+                'Fx1 sub-volume should work with native mask.');
+        end
     end
 end

@@ -38,11 +38,20 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 
     switch core_method
         case 'adc_threshold'
-            % Standard logic: ADC < scalar threshold
+            % ADC (Apparent Diffusion Coefficient) reflects water mobility.
+            % In densely-cellular tumor core, tightly-packed cells restrict
+            % water diffusion → low ADC.  Necrotic or edematous regions
+            % have high ADC due to unimpeded water motion.  A fixed scalar
+            % threshold separates the restricted (core) from unrestricted
+            % (margin/necrosis) compartments.
             core_mask = adc_vec <= config_struct.adc_thresh;
 
         case 'd_threshold'
-            % Better cellularity logic: True Diffusion (D) < threshold
+            % True diffusion (D) from the IVIM biexponential model isolates
+            % tissue cellularity more accurately than ADC, which conflates
+            % true diffusion with microvascular perfusion (pseudo-diffusion).
+            % By removing the perfusion contribution, D provides a purer
+            % measure of cell-packing density.
             if isempty(d_vec) || sum(~isnan(d_vec)) == 0
                 warning('extract_tumor_core:noDValues', 'D values missing. Falling back to ADC threshold.');
                 core_mask = adc_vec <= config_struct.adc_thresh;
@@ -51,7 +60,12 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'df_intersection'
-            % PDAC signature logic: Low Diffusion AND Low Perfusion
+            % Pancreatic ductal adenocarcinoma (PDAC) is characteristically
+            % both hypocellular-stroma-rich (low D from dense desmoplasia)
+            % and hypovascular (low f from poor microvasculature).  The
+            % intersection of low-D AND low-f identifies the desmoplastic
+            % core compartment, distinguishing it from well-perfused normal
+            % pancreas (high f) or necrotic regions (high D).
             if isempty(d_vec) || sum(~isnan(d_vec)) == 0 || isempty(f_vec) || sum(~isnan(f_vec)) == 0
                 warning('extract_tumor_core:noIVIMValues', 'IVIM D/f values missing. Falling back to ADC threshold.');
                 core_mask = adc_vec <= config_struct.adc_thresh;
@@ -60,7 +74,10 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'otsu'
-            % Otsu's optimal thresholding on the ADC distribution
+            % Otsu's method finds the threshold that maximizes inter-class
+            % variance, assuming the ADC histogram is bimodal (core + non-
+            % core).  Data-driven: adapts to each patient's distribution
+            % without requiring a fixed threshold.
             valid_idx = find(~isnan(adc_vec));
             if isempty(valid_idx)
                 return;
@@ -80,7 +97,12 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'gmm'
-            % 2-class Gaussian Mixture Model on ADC
+            % Fits a 2-component Gaussian mixture to the ADC distribution.
+            % Unlike Otsu (hard threshold), GMM models each sub-population
+            % (core/non-core) as a Gaussian, assigning voxels via posterior
+            % probability.  The component with the lower mean (mu) is the
+            % restricted-diffusion core.  More robust to skewed or
+            % overlapping distributions than a single threshold.
             valid_idx = find(~isnan(adc_vec));
             if isempty(valid_idx)
                 return;
@@ -109,7 +131,11 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'kmeans'
-            % K-Means Clustering on ADC (2 classes: Core vs Margin/Necrosis)
+            % K-means partitions ADC values into 2 clusters by minimizing
+            % within-cluster variance.  The cluster with the lower centroid
+            % represents restricted diffusion (core).  Simpler than GMM
+            % (assumes spherical clusters), but faster and deterministic
+            % with fixed random seed.
             valid_idx = find(~isnan(adc_vec));
             if isempty(valid_idx)
                 return;
@@ -129,7 +155,12 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'region_growing'
-            % Region growing from the most restricted voxel
+            % Spatially-contiguous core: starts from the most restricted
+            % voxel (lowest ADC = densest cellularity) and grows outward
+            % through 6-connected neighbors, accepting voxels whose ADC
+            % falls within a data-driven tolerance.  Enforces spatial
+            % coherence — isolated low-ADC voxels (noise) are excluded
+            % because they aren't reachable from the seed.
             if ~has_3d || isempty(gtv_mask_3d)
                 warning('extract_tumor_core:no3DForRegionGrowing', '3D mask required for Region Growing. Falling back to ADC threshold.');
                 core_mask = adc_vec <= config_struct.adc_thresh;
@@ -149,8 +180,11 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                 else
                     [sx, sy, sz] = ind2sub(size(adc_map_3d), min_idx);
                     
-                    % Basic region growing: accept contiguous voxels within a tolerance
-                    % Tolerance: mean + 1 std of the bottom 10%
+                    % Adaptive tolerance derived from the most restricted
+                    % 10% of voxels (the tail of the core distribution).
+                    % mean + 2*SD of that tail captures ~95% of the core
+                    % sub-population's variability while rejecting margin
+                    % tissue whose ADC lies well above that bound.
                     sorted_adc = sort(adc_vec(valid_idx));
                     bot_10_idx = max(1, round(0.1 * length(sorted_adc)));
                     bot_10 = sorted_adc(1:bot_10_idx);
@@ -197,7 +231,10 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             end
 
         case 'active_contours'
-            % Level-set spatial mapping
+            % Level-set segmentation (Chan-Vese model) finds the contour
+            % that best separates the image into two intensity-homogeneous
+            % regions.  Unlike threshold methods, it produces spatially
+            % smooth boundaries that respect tumor geometry.
             if ~has_3d || isempty(gtv_mask_3d)
                 warning('extract_tumor_core:no3DForActiveContours', '3D mask required for Active Contours. Falling back to ADC threshold.');
                 core_mask = adc_vec <= config_struct.adc_thresh;
@@ -225,16 +262,21 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                     % Just initialize with standard threshold as seed
                     init_mask(adc_map_3d <= config_struct.adc_thresh) = true;
                     
-                    % Invert contrast (we want dark ADC to bright for active contour to find the edge)
+                    % Invert contrast: Chan-Vese evolves toward bright
+                    % regions.  Low ADC (core) is dark, so we invert so
+                    % the core becomes the brightest region and the contour
+                    % converges around it.
                     max_adc = max(adc_vec);
                     inf_img = gtv_mask_3d * max_adc;
-                    
+
                     norm_img = zeros(size(gtv_mask_3d));
-                    norm_img(gtv_mask_3d == 1) = max_adc - adc_vec; % Dark core becomes bright
-                    norm_img = norm_img / max(norm_img(:)); % 0-1 range
-                    
+                    norm_img(gtv_mask_3d == 1) = max_adc - adc_vec;
+                    norm_img = norm_img / max(norm_img(:));
+
                     try
-                        % 50 smoothing iterations (standard)
+                        % 50 iterations balances convergence against
+                        % over-smoothing; Chan-Vese is chosen over edge-
+                        % based models because ADC maps lack sharp edges.
                         ac_mask = activecontour(norm_img, init_mask, 50, 'Chan-Vese');
                         core_mask = ac_mask(gtv_mask_3d == 1);
                     catch

@@ -87,7 +87,11 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                 continue;
             end
 
-            % Load 3D GTV mask
+            % Load 3D GTV mask.  The mask must have exactly as many
+            % true-voxels as the parameter vector length, because spatial
+            % methods (active_contours, region_growing) reconstruct 3D
+            % maps via: map_3d(mask == 1) = vec.  A size mismatch would
+            % assign voxels to wrong spatial positions.
             has_3d = false;
             gtv_mask_3d = [];
             if ~isempty(gtv_locations) && ...
@@ -98,6 +102,30 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                     if ~isempty(gtv_mask_3d) && sum(gtv_mask_3d(:) == 1) == numel(adc_vec)
                         has_3d = true;
                     end
+                end
+                % Fx1 mask fallback: at Fx2+, parameter maps are warped
+                % to Fx1 geometry via DIR (imregdemons), so vectors were
+                % extracted using the Fx1 mask.  gtv_locations{j,k,1}
+                % points to the native fraction mask (different voxel
+                % count).  The Fx1 mask has the matching geometry.
+                if ~has_3d && k > 1
+                    fx1_mat = gtv_locations{j, 1, 1};
+                    if ~isempty(fx1_mat) && exist(fx1_mat, 'file')
+                        fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                        if ~isempty(fx1_mask_3d) && sum(fx1_mask_3d(:) == 1) == numel(adc_vec)
+                            gtv_mask_3d = fx1_mask_3d;
+                            has_3d = true;
+                        end
+                    end
+                end
+                % Diagnostic: log when 3D mask is unavailable so the
+                % source of active_contours/region_growing fallbacks
+                % can be traced to specific patients/timepoints.
+                if ~has_3d && ~isempty(gtv_mask_3d)
+                    fprintf('  [3D mask] %s Fx%d: mask has %d voxels, vector has %d (mismatch)\n', ...
+                        id_list{j}, k, sum(gtv_mask_3d(:) == 1), numel(adc_vec));
+                elseif ~has_3d
+                    fprintf('  [3D mask] %s Fx%d: no mask loaded\n', id_list{j}, k);
                 end
             end
 

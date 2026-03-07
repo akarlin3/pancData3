@@ -340,6 +340,44 @@ for j=1:n_patients_metrics
                     has_3d = true;
                 end
             end
+            % Fx1 mask fallback for DIR-warped timepoints:
+            % At Fx2+, process_single_scan warps all parameter maps to
+            % the Fx1 (baseline) coordinate frame via imregdemons, then
+            % extracts voxel vectors using the Fx1 reference mask.  The
+            % vectors therefore have length == sum(Fx1_mask), but
+            % gtv_locations{j,k,1} still points to the native fraction's
+            % mask file which has a different voxel count (the physician
+            % re-contoured on the Fx2+ anatomy).  Substituting the Fx1
+            % mask restores the correct 3D geometry for spatial methods
+            % (active_contours, region_growing) that must map 1D vectors
+            % back into 3D voxel positions.
+            if has_3d && k > 1
+                ref_vec = data_vectors_gtvp(j,k,1).adc_vector;
+                if ~isempty(ref_vec) && sum(gtv_mask_3d(:) == 1) ~= numel(ref_vec)
+                    fx1_mat = gtv_locations{j, 1, 1};
+                    if ~isempty(fx1_mat) && exist(fx1_mat, 'file')
+                        fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                        if ~isempty(fx1_mask_3d) && sum(fx1_mask_3d(:) == 1) == numel(ref_vec)
+                            gtv_mask_3d = fx1_mask_3d;
+                        else
+                            has_3d = false;
+                            gtv_mask_3d = [];
+                        end
+                    else
+                        has_3d = false;
+                        gtv_mask_3d = [];
+                    end
+                end
+            end
+            % Diagnostic: log when 3D mask is unavailable so fallback
+            % sources can be traced to specific patients/timepoints.
+            if ~has_3d
+                ref_vec_diag = data_vectors_gtvp(j,k,1).adc_vector;
+                if ~isempty(ref_vec_diag)
+                    fprintf('  [3D mask] %s Fx%d: no valid 3D mask (vec=%d voxels)\n', ...
+                        id_list{j}, k, numel(ref_vec_diag));
+                end
+            end
         end
 
         for dwi_type = config_struct.dwi_types_to_run
@@ -372,10 +410,11 @@ for j=1:n_patients_metrics
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
             end
 
-            % Validate 3D mask size matches voxel vector length.
-            % When DIR warping maps vectors to Fx1 space, the native
-            % fraction mask may have a different voxel count.  Disable 3D
-            % for methods that need spatial context to avoid wrong-sized masks.
+            % Safety-net: confirm 3D mask voxel count matches this DWI
+            % type's vector length.  The Fx1 fallback above resolves most
+            % mismatches, but this guard catches residual edge cases (e.g.,
+            % Fx1 mask also unavailable, or vector length differs across
+            % DWI types due to pipeline-specific NaN pruning).
             has_3d_iter = has_3d;
             if has_3d && ~isempty(adc_vec) && sum(gtv_mask_3d(:) == 1) ~= numel(adc_vec)
                 has_3d_iter = false;
