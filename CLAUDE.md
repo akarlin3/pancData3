@@ -49,7 +49,7 @@ pancData3/
 ├── core/                       # Primary pipeline modules (18 files)
 ├── utils/                      # Helper utilities (28 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (72 test files)
+├── tests/                      # Full test suite (78 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
@@ -206,6 +206,12 @@ run('tests/run_all_tests.m')
 | `test_statistical_methods.m` | Statistical methods validation |
 | `test_compare_core_methods.m` | Core method pairwise comparison validation |
 | `test_multi_core_methods.m` | Multi-method core integration and backward compatibility |
+| `test_process_single_scan.m` | Per-scan pipeline processing (init, NaN defaults, struct layout) |
+| `test_metrics_stats_comparisons.m` | Wilcoxon rank-sum, BH FDR correction, GLME mixed-effects |
+| `test_format_p_value.m` | P-value formatting for biomedical reporting conventions |
+| `test_pipeline_progress_gui.m` | Pipeline progress bar wrapper (step mapping, lifecycle) |
+| `test_plot_feature_distribution.m` | Feature distribution visualization (histogram/boxplot modes) |
+| `test_filter_collinear_features.m` | Collinearity pruning, AUC tie-breaking, time-stratification |
 
 ---
 
