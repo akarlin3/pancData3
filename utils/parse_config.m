@@ -244,6 +244,17 @@ function config_struct = parse_config(json_path)
             config_struct.run_all_core_methods = false;
         end
 
+        % spectral_min_voxels: Minimum number of valid voxels required for
+        % spectral clustering.  Unlike histogram-based methods that need
+        % ~100 voxels for stable percentile estimates, spectral clustering
+        % via the graph Laplacian can produce meaningful 2-class
+        % separations with as few as 20 voxels.  Default 20 allows the
+        % method to run on small tumors while still preventing degenerate
+        % solutions.
+        if ~isfield(config_struct, 'spectral_min_voxels')
+            config_struct.spectral_min_voxels = 20;
+        end
+
         % store_core_masks: When true and run_all_core_methods is true,
         % also stores the 1D logical core masks for each method in
         % summary_metrics.all_core_metrics.<method>.core_masks.  Enables

@@ -700,6 +700,15 @@ for j=1:n_patients_metrics
             if run_all_core && ~isempty(adc_vec)
                 unified_set = {'percentile', 'spectral', 'fdm'};
                 rng(42);  % reproducible clustering (GMM, k-means, spectral)
+                prev_warn_csm = warning('query');
+                warning('off', 'extract_tumor_core:tooFewForSpectral');
+                warning('off', 'extract_tumor_core:no3DForActiveContours');
+                warning('off', 'extract_tumor_core:no3DForRegionGrowing');
+                warning('off', 'extract_tumor_core:fdmBaseline');
+                warning('off', 'extract_tumor_core:fdmNoBaseline');
+                warning('off', 'extract_tumor_core:noDValues');
+                warning('off', 'extract_tumor_core:noIVIMValues');
+                warning('off', 'extract_tumor_core:noSpectralCluster');
                 for m_idx = 1:n_all_methods
                     mname = ALL_CORE_METHODS{m_idx};
                     temp_cfg = config_struct;
@@ -781,6 +790,7 @@ for j=1:n_patients_metrics
                         end
                     end
                 end
+                warning(prev_warn_csm);
             end
 
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---

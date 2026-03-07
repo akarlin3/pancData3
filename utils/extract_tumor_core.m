@@ -280,7 +280,11 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 
             % Only keep voxels where all features are finite
             valid_idx = find(all(~isnan(features), 2));
-            if numel(valid_idx) < config_struct.min_vox_hist
+            spectral_min = config_struct.min_vox_hist;
+            if isfield(config_struct, 'spectral_min_voxels')
+                spectral_min = config_struct.spectral_min_voxels;
+            end
+            if numel(valid_idx) < spectral_min
                 warning('extract_tumor_core:tooFewForSpectral', ...
                     'Too few valid voxels (%d) for spectral clustering. Falling back to ADC threshold.', ...
                     numel(valid_idx));
