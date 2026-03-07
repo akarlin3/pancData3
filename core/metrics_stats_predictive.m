@@ -290,6 +290,7 @@ for target_fx = 2:nTp
         final_feature_indices = original_feature_indices(keep_final);
 
         w_state_final = warning('off', 'stats:lassoGlm:IterationLimit');
+        warning('off', 'stats:lassoGlm:PerfectSeparation');
         try
             [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
                 'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1e7);

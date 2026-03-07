@@ -284,6 +284,7 @@ for j = 1:n_pat_dosimetry
                     end
                 end
                 warning(prev_warn_dos);
+                lastwarn('');  % clear stale warnings so orchestrator doesn't re-log suppressed ones
             end
 
         end
