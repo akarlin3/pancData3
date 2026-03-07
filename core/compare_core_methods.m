@@ -95,7 +95,7 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                 gtv_mat = gtv_locations{j, k, 1};
                 if ~isempty(gtv_mat) && exist(gtv_mat, 'file')
                     gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
-                    if ~isempty(gtv_mask_3d)
+                    if ~isempty(gtv_mask_3d) && sum(gtv_mask_3d(:) == 1) == numel(adc_vec)
                         has_3d = true;
                     end
                 end
@@ -154,6 +154,10 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                         masks_1d{m} = false(size(adc_vec));
                     end
                 end
+                % Force column vector to prevent implicit expansion in
+                % pairwise Dice/Hausdorff computations (row & column would
+                % produce a matrix via broadcasting).
+                masks_1d{m} = masks_1d{m}(:);
 
                 % Volume fraction
                 n_finite = sum(~isnan(adc_vec));

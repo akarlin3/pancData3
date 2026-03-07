@@ -372,6 +372,15 @@ for j=1:n_patients_metrics
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
             end
 
+            % Validate 3D mask size matches voxel vector length.
+            % When DIR warping maps vectors to Fx1 space, the native
+            % fraction mask may have a different voxel count.  Disable 3D
+            % for methods that need spatial context to avoid wrong-sized masks.
+            has_3d_iter = has_3d;
+            if has_3d && ~isempty(adc_vec) && sum(gtv_mask_3d(:) == 1) ~= numel(adc_vec)
+                has_3d_iter = false;
+            end
+
             % --- Compute ADC summary metrics for this patient/timepoint ---
             % ADC aggregation follows a hierarchy: whole-GTV statistics first,
             % then sub-volume decomposition. This captures both the overall
@@ -436,7 +445,7 @@ for j=1:n_patients_metrics
                             core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
                     end
                 end
-                adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
                 adc_vec_sub = adc_vec(adc_vec_sub_mask);
                 adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
 
@@ -715,7 +724,7 @@ for j=1:n_patients_metrics
                     temp_cfg.core_method = mname;
 
                     try
-                        m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, core_opts);
+                        m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
                     catch
                         m_mask = false(size(adc_vec));
                     end
@@ -791,6 +800,7 @@ for j=1:n_patients_metrics
                     end
                 end
                 warning(prev_warn_csm);
+                lastwarn('');  % clear stale warnings so orchestrator doesn't re-log suppressed ones
             end
 
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
@@ -848,7 +858,7 @@ for j=1:n_patients_metrics
                         end
                         % CORE DELINEATION METHOD ABSTRACTION
                         rpt_core_opts = struct('timepoint_index', k);
-                        adc_vec_sub_mask_rpt = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, rpt_core_opts);
+                        adc_vec_sub_mask_rpt = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, rpt_core_opts);
                         adc_vec_sub = adc_vec(adc_vec_sub_mask_rpt);
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;
