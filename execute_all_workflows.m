@@ -1,4 +1,4 @@
-e uee2223333333333333332222222222222222222222222222222222;2231~z@c % execute_all_workflows.m
+% execute_all_workflows.m
 % Automates the /run_data workflow for sequential modeling pipelines
 %
 % [ANALYTICAL DESIGN RATIONALE — WHY THREE SEQUENTIAL DWI TYPES]:
@@ -292,7 +292,7 @@ config_json = json_set_field(config_json, 'skip_to_reload', true);
 fid = fopen(config_file, 'w');
 if fid < 0
     error('execute_all_workflows:configWriteFailed', ...
-        'Cannot write config.json for gqae run. Check file permissions.');
+        'Cannot write config.json for dnCNN run. Check file permissions.');
 end
 fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
