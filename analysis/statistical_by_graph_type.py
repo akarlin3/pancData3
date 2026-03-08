@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""Filter statistical relevance findings by graph type."""
+
+from __future__ import annotations
+
+import json
+import sys
+from collections import defaultdict
+
+from shared import (
+    extract_correlations,
+    extract_pvalues,
+    load_graph_csv,
+    parse_dwi_info,
+    resolve_folder,
+    setup_utf8_stdout,
+)
+
+setup_utf8_stdout()
+
+
+def main():
+    folder = resolve_folder(sys.argv)
+    rows = load_graph_csv(folder)
+    if not rows:
+        sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
+
+    # Group rows by graph_type
+    by_type = defaultdict(list)
+    for r in rows:
+        by_type[r["graph_type"]].append(r)
+
+    sep = "=" * 80
+    thin = "-" * 80
+
+    # Type ordering by count (descending)
+    type_order = sorted(by_type.keys(), key=lambda t: -len(by_type[t]))
+
+    for graph_type in type_order:
+        type_rows = by_type[graph_type]
+        print(f"\n{sep}")
+        print(f"  GRAPH TYPE: {graph_type.upper()} ({len(type_rows)} graphs)")
+        print(sep)
+
+        # ── Significant p-values ──
+        sig = []
+        nonsig = []
+        for r in type_rows:
+            dwi_type, base_name = parse_dwi_info(r["file_path"])
+            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            pvals = extract_pvalues(all_text)
+            for pval, context in pvals:
+                entry = {
+                    "dwi": dwi_type,
+                    "graph": base_name,
+                    "p": pval,
+                    "context": context,
+                }
+                if pval < 0.05:
+                    sig.append(entry)
+                else:
+                    nonsig.append(entry)
+
+        print(f"\n  {thin}")
+        print(f"  Significant findings (p < 0.05): {len(sig)}")
+        print(f"  {thin}")
+
+        if sig:
+            sig.sort(key=lambda x: x["p"])
+            for f in sig:
+                tag = "***" if f["p"] < 0.001 else "** " if f["p"] < 0.01 else "*  "
+                print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
+                print(f"      {f['context']}")
+        else:
+            print("\n  (none)")
+
+        print(f"\n  Non-significant: {len(nonsig)}")
+        if nonsig:
+            nonsig.sort(key=lambda x: x["p"])
+            for f in nonsig[:5]:  # Show top 5 closest to significance
+                print(f"     p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
+            if len(nonsig) > 5:
+                print(f"     ... and {len(nonsig) - 5} more")
+
+        # ── Correlations ──
+        corrs_found = []
+        for r in type_rows:
+            dwi_type, base_name = parse_dwi_info(r["file_path"])
+            all_text = r["summary"] + " " + r["trends_json"]
+            corrs = extract_correlations(all_text)
+            for rval, context in corrs:
+                if abs(rval) >= 0.3:
+                    corrs_found.append({
+                        "dwi": dwi_type,
+                        "graph": base_name,
+                        "r": rval,
+                        "context": context,
+                    })
+
+        if corrs_found:
+            print(f"\n  {thin}")
+            print(f"  Notable correlations (|r| >= 0.3): {len(corrs_found)}")
+            print(f"  {thin}")
+            corrs_found.sort(key=lambda x: -abs(x["r"]))
+            for c in corrs_found:
+                strength = "STRONG" if abs(c["r"]) >= 0.5 else "MODERATE"
+                direction = "positive" if c["r"] > 0 else "negative"
+                print(f"\n    r={c['r']:.2f} ({strength} {direction})  [{c['dwi']}] {c['graph']}")
+                print(f"      {c['context']}")
+
+        # ── Trend summary ──
+        trends_up = 0
+        trends_down = 0
+        trends_stable = 0
+        trends_other = 0
+        for r in type_rows:
+            trends = json.loads(r["trends_json"])
+            for t in trends:
+                d = t["direction"].lower()
+                if "increas" in d or "upward" in d or "rising" in d:
+                    trends_up += 1
+                elif "decreas" in d or "downward" in d or "declining" in d or "drop" in d:
+                    trends_down += 1
+                elif "stable" in d or "flat" in d or "no " in d or "constant" in d:
+                    trends_stable += 1
+                else:
+                    trends_other += 1
+
+        total_trends = trends_up + trends_down + trends_stable + trends_other
+        if total_trends > 0:
+            print(f"\n  {thin}")
+            print(f"  Trend directions ({total_trends} total):")
+            print(f"  {thin}")
+            print(f"    Increasing: {trends_up}  |  Decreasing: {trends_down}  |  Stable: {trends_stable}  |  Other: {trends_other}")
+
+        # ── Graph list ──
+        print(f"\n  Graphs in this type:")
+        for r in type_rows:
+            dwi_type, base_name = parse_dwi_info(r["file_path"])
+            print(f"    [{dwi_type}] {base_name}")
+
+    # ── Overall summary table ──
+    print(f"\n\n{sep}")
+    print("  SUMMARY TABLE: Statistical Findings by Graph Type")
+    print(sep)
+    print(f"\n  {'Type':<16} {'Count':>5} {'Sig p':>6} {'Non-sig':>8} {'Corr':>5} {'Trends':>7}")
+    print(f"  {'-'*14:<16} {'-----':>5} {'------':>6} {'--------':>8} {'-----':>5} {'-------':>7}")
+
+    for graph_type in type_order:
+        type_rows = by_type[graph_type]
+        n_sig = 0
+        n_nonsig = 0
+        n_corr = 0
+        n_trends = 0
+
+        for r in type_rows:
+            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            pvals = extract_pvalues(all_text)
+            for pval, _ in pvals:
+                if pval < 0.05:
+                    n_sig += 1
+                else:
+                    n_nonsig += 1
+
+            corrs = extract_correlations(r["summary"] + " " + r["trends_json"])
+            n_corr += sum(1 for rval, _ in corrs if abs(rval) >= 0.3)
+
+            trends = json.loads(r["trends_json"])
+            n_trends += len(trends)
+
+        print(f"  {graph_type:<16} {len(type_rows):>5} {n_sig:>6} {n_nonsig:>8} {n_corr:>5} {n_trends:>7}")
+
+    print()
+
+
+if __name__ == "__main__":
+    main()

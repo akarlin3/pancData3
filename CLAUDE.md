@@ -53,6 +53,8 @@ pancData3/
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
+├── analysis/                    # Python post-hoc analysis scripts (10 files)
+│   └── tests/                  # Python test suite — 6 test files, 126 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -284,6 +286,37 @@ Contains 21 shim files for GNU Octave compatibility, including:
 - `+matlab/+unittest/+plugins/` shim (`CodeCoveragePlugin.m`)
 - Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
 
+### Analysis Scripts (`analysis/`)
+
+Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Claude API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
+
+**Requirements:** Python 3.12+, `anthropic`, `pydantic` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `ANTHROPIC_API_KEY` environment variable; all other scripts work without it.
+
+| File | Purpose |
+|---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only` flags |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Claude vision API; outputs structured CSV with axes, trends, inflection points |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
+| `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
+| `generate_report.py` | HTML report generator combining vision CSV, log parsing, and CSV parsing into `analysis_report.html` |
+| `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
+| `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
+| `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
+| `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
+
+**Python Test Suite (pytest):** 6 test files with 126 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+
+| File | What it covers |
+|---|---|
+| `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports |
+| `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
+| `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline regex parsing; integration with log files |
+| `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
+| `test_generate_report.py` | Significance tags, section headers, full Markdown report generation |
+| `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
+
 ---
 
 ## Code Conventions
@@ -406,8 +439,8 @@ After **every feature implementation** (adding a new file, adding a config field
 
 | File | What to update |
 |---|---|
-| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils), config example block, key test files, Octave compat listing |
-| `README.md` | File counts (test badge, Repository Structure tree, utils/tests counts), config field table if a user-facing field was added |
+| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils/Analysis), config example block, key test files, Octave compat listing |
+| `README.md` | File counts (test badge, Repository Structure tree, utils/tests/analysis counts), config field table if a user-facing field was added |
 | `MEMORY.md` (auto-memory) | File signatures, new patterns, any architectural decisions made during the feature |
 
 ### Checklist (run mentally after each feature)
@@ -418,6 +451,7 @@ After **every feature implementation** (adding a new file, adding a config field
 4. **New `.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
 5. **New top-level `.m` file?** → Add to CLAUDE.md Repository Structure tree.
 6. **Changed module signature?** → Update MEMORY.md File Signatures section.
+7. **New Python script in `analysis/`?** → Add to CLAUDE.md Analysis Scripts table. Update the file count in Repository Structure (both CLAUDE.md and README.md).
 
 ---
 
