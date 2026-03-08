@@ -19,12 +19,16 @@ DWI_TYPES = ["Standard", "dnCNN", "IVIMnet"]
 def setup_utf8_stdout():
     """Force UTF-8 stdout/stderr on Windows to avoid cp1252 emoji crashes."""
     if sys.platform == "win32":
-        sys.stdout = io.TextIOWrapper(
-            sys.stdout.buffer, encoding="utf-8", errors="replace"
-        )
-        sys.stderr = io.TextIOWrapper(
-            sys.stderr.buffer, encoding="utf-8", errors="replace"
-        )
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        elif getattr(sys.stdout, "encoding", "").lower() != "utf-8":
+            sys.stdout = io.TextIOWrapper(
+                sys.stdout.buffer, encoding="utf-8", errors="replace",
+            )
+            sys.stderr = io.TextIOWrapper(
+                sys.stderr.buffer, encoding="utf-8", errors="replace",
+            )
 
 
 def find_latest_saved_folder(base_dir: str | None = None) -> Path:
