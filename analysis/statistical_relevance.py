@@ -1,82 +1,30 @@
 #!/usr/bin/env python3
 """Extract statistically significant findings from graph analysis CSV."""
 
-import csv
-import io
+from __future__ import annotations
+
 import json
-import os
-import re
 import sys
 from collections import defaultdict
 
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+from shared import (
+    DWI_TYPES,
+    extract_correlations,
+    extract_pvalues,
+    load_graph_csv,
+    parse_dwi_info,
+    resolve_folder,
+    setup_utf8_stdout,
+)
 
-
-def parse_dwi_info(fp):
-    fp = fp.replace("\\", "/")
-    parts = fp.split("/")
-    dwi_type = "Root"
-    base_name = parts[-1]
-    for i, p in enumerate(parts):
-        if "saved_files" in p and i + 1 < len(parts):
-            if parts[i + 1] in ("Standard", "dnCNN", "IVIMnet"):
-                dwi_type = parts[i + 1]
-            break
-    for t in ["_Standard", "_dnCNN", "_IVIMnet"]:
-        base_name = base_name.replace(t, "")
-    return dwi_type, base_name.replace(".png", "")
-
-
-def extract_pvalues(text):
-    """Extract all p-values from a text string."""
-    results = []
-    # Match p=0.XXX, p<0.XXX, p = 0.XXX, p-value=0.XXX, etc.
-    patterns = [
-        r'p\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)',
-        r'p-value\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)',
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            try:
-                val = float(m.group(1))
-                # Get context around the match
-                start = max(0, m.start() - 80)
-                end = min(len(text), m.end() + 40)
-                context = text[start:end].strip()
-                results.append((val, context))
-            except ValueError:
-                pass
-    return results
-
-
-def extract_correlations(text):
-    """Extract correlation coefficients."""
-    results = []
-    patterns = [
-        r'r\s*=\s*(-?[\d.]+)',
-        r'rs\s*=\s*(-?[\d.]+)',
-        r'r²\s*=\s*([\d.]+)',
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            try:
-                val = float(m.group(1))
-                start = max(0, m.start() - 60)
-                end = min(len(text), m.end() + 60)
-                context = text[start:end].strip()
-                results.append((val, context))
-            except ValueError:
-                pass
-    return results
+setup_utf8_stdout()
 
 
 def main():
-    rows = []
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_files_20260308_010713", "graph_analysis_results.csv")
-    with open(csv_path, encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            rows.append(r)
+    folder = resolve_folder(sys.argv)
+    rows = load_graph_csv(folder)
+    if not rows:
+        sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
 
     groups = defaultdict(dict)
     for r in rows:
@@ -163,7 +111,7 @@ def main():
 
         # Collect p-values per DWI type for this graph
         pvals_by_dwi = {}
-        for dwi_type in ["Standard", "dnCNN", "IVIMnet"]:
+        for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
                 continue
             r = dwi_dict[dwi_type]
@@ -174,7 +122,7 @@ def main():
 
         if len(pvals_by_dwi) >= 2:
             print(f"\n  {base_name}:")
-            for dwi_type in ["Standard", "dnCNN", "IVIMnet"]:
+            for dwi_type in DWI_TYPES:
                 if dwi_type not in pvals_by_dwi:
                     continue
                 pvals = pvals_by_dwi[dwi_type]

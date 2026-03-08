@@ -19,8 +19,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import csv
-import glob
-import io
 import json
 import os
 import re
@@ -28,10 +26,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-# Force UTF-8 stdout on Windows to avoid cp1252 emoji crashes
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+from shared import resolve_folder, setup_utf8_stdout
+
+setup_utf8_stdout()
 
 import anthropic
 from pydantic import BaseModel, Field, ValidationError
@@ -75,15 +72,6 @@ class GraphAnalysis(BaseModel):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-
-def find_latest_saved_folder(base_dir: str) -> Path:
-    """Return the most recently modified saved_files_* directory."""
-    pattern = os.path.join(base_dir, "saved_files_*")
-    dirs = sorted(glob.glob(pattern), reverse=True)
-    if not dirs:
-        sys.exit("ERROR: No saved_files_* folders found in " + base_dir)
-    # Pick the lexicographically last (most recent timestamp)
-    return Path(dirs[0])
 
 
 def collect_images(folder: Path) -> list[Path]:
@@ -295,8 +283,7 @@ def flatten(a: GraphAnalysis) -> dict:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main():
-    base_dir = str(Path(__file__).resolve().parent.parent)
-    folder = find_latest_saved_folder(base_dir)
+    folder = resolve_folder(sys.argv)
     images = collect_images(folder)
 
     if not images:

@@ -1,78 +1,29 @@
 #!/usr/bin/env python3
 """Filter statistical relevance findings by graph type."""
 
-import csv
-import io
+from __future__ import annotations
+
 import json
-import os
-import re
 import sys
 from collections import defaultdict
 
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+from shared import (
+    extract_correlations,
+    extract_pvalues,
+    load_graph_csv,
+    parse_dwi_info,
+    resolve_folder,
+    setup_utf8_stdout,
+)
 
-
-def parse_dwi_info(fp):
-    fp = fp.replace("\\", "/")
-    parts = fp.split("/")
-    dwi_type = "Root"
-    base_name = parts[-1]
-    for i, p in enumerate(parts):
-        if "saved_files" in p and i + 1 < len(parts):
-            if parts[i + 1] in ("Standard", "dnCNN", "IVIMnet"):
-                dwi_type = parts[i + 1]
-            break
-    for t in ["_Standard", "_dnCNN", "_IVIMnet"]:
-        base_name = base_name.replace(t, "")
-    return dwi_type, base_name.replace(".png", "")
-
-
-def extract_pvalues(text):
-    results = []
-    patterns = [
-        r'p\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)',
-        r'p-value\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)',
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            try:
-                val = float(m.group(1))
-                start = max(0, m.start() - 80)
-                end = min(len(text), m.end() + 40)
-                context = text[start:end].strip()
-                results.append((val, context))
-            except ValueError:
-                pass
-    return results
-
-
-def extract_correlations(text):
-    results = []
-    patterns = [
-        r'r\s*=\s*(-?[\d.]+)',
-        r'rs\s*=\s*(-?[\d.]+)',
-        r'r\xb2\s*=\s*([\d.]+)',
-    ]
-    for pat in patterns:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            try:
-                val = float(m.group(1))
-                start = max(0, m.start() - 60)
-                end = min(len(text), m.end() + 60)
-                context = text[start:end].strip()
-                results.append((val, context))
-            except ValueError:
-                pass
-    return results
+setup_utf8_stdout()
 
 
 def main():
-    rows = []
-    csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "saved_files_20260308_010713", "graph_analysis_results.csv")
-    with open(csv_path, encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            rows.append(r)
+    folder = resolve_folder(sys.argv)
+    rows = load_graph_csv(folder)
+    if not rows:
+        sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
 
     # Group rows by graph_type
     by_type = defaultdict(list)
@@ -203,7 +154,6 @@ def main():
         n_trends = 0
 
         for r in type_rows:
-            dwi_type, base_name = parse_dwi_info(r["file_path"])
             all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
             pvals = extract_pvalues(all_text)
             for pval, _ in pvals:

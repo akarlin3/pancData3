@@ -246,32 +246,43 @@ Tests generate a code coverage report for `core/` and `utils/`.
 
 ## Post-Hoc Analysis Scripts
 
-The `analysis/` folder contains Python scripts for automated extraction and cross-referencing of results from pipeline-generated figures.
+The `analysis/` folder contains a comprehensive Python analysis suite for automated extraction, cross-referencing, and reporting of pipeline results.
 
 ### Requirements
 
 - Python 3.12+
-- `pip install anthropic pydantic`
-- `ANTHROPIC_API_KEY` environment variable set
+- `pip install -r analysis/requirements.txt`
+- `ANTHROPIC_API_KEY` environment variable (only needed for vision-based graph analysis)
 
 ### Usage
 
 ```bash
-# 1. Extract structured data from all graph images (requires API key)
+# Full analysis workflow (auto-detects latest output folder)
+python analysis/run_analysis.py
+
+# Skip vision API calls (use existing CSV or only direct parsing)
+python analysis/run_analysis.py --skip-vision
+
+# Only generate the Markdown report from existing data
+python analysis/run_analysis.py --report-only
+
+# Specify a particular output folder
+python analysis/run_analysis.py --folder saved_files_20260308_010713
+
+# Individual scripts can still be run standalone
 python analysis/batch_graph_analysis.py
-
-# 2. Cross-reference findings across DWI types
-python analysis/cross_reference_dwi.py
-python analysis/cross_reference_summary.py
-
-# 3. Statistical significance analysis
-python analysis/statistical_relevance.py
-python analysis/statistical_by_graph_type.py
+python analysis/parse_log_metrics.py [saved_files_path]
+python analysis/statistical_relevance.py [saved_files_path]
 ```
 
 | Script | Description |
 |---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with CLI flags |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, regex extractors |
 | `batch_graph_analysis.py` | Sends all pipeline graph images to Claude vision API; extracts axes, trends, inflection points into a structured CSV |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
+| `parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
+| `generate_report.py` | Markdown report generator combining all data sources into `analysis_report.md` |
 | `cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
 | `cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
@@ -307,8 +318,13 @@ pancData3/
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
-├── analysis/                   # Python post-hoc analysis scripts (5 files)
+├── analysis/                   # Python post-hoc analysis suite (10 files)
+│   ├── run_analysis.py         #   Orchestrator (full workflow runner)
+│   ├── shared.py               #   Shared utilities
 │   ├── batch_graph_analysis.py #   Vision API batch graph extraction
+│   ├── parse_log_metrics.py    #   Direct MATLAB log parsing
+│   ├── parse_csv_results.py    #   Direct CSV export parsing
+│   ├── generate_report.py      #   Markdown report generator
 │   ├── cross_reference_dwi.py  #   Cross-DWI type comparison
 │   ├── cross_reference_summary.py #  Concise cross-DWI summary
 │   ├── statistical_relevance.py #  Statistical significance extraction
