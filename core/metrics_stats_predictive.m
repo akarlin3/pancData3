@@ -844,5 +844,16 @@ for target_fx = 2:nTp
     end
 end
 
+% Clear any PerfectSeparation warning from lastwarn buffer when Firth
+% handled the separation.  The orchestrator (run_dwi_pipeline.m) checks
+% lastwarn after each module and logs it to error.log — clearing it here
+% prevents logging a warning that Firth has already resolved.
+if use_firth
+    [~, last_warn_id] = lastwarn;
+    if strcmp(last_warn_id, 'stats:lassoGlm:PerfectSeparation')
+        lastwarn('');
+    end
+end
+
 diary off;
 end
