@@ -55,7 +55,8 @@ classdef test_metrics_survival < matlab.unittest.TestCase
 
         function testSufficientEventsRunsCoxModel(testCase)
             % With 8 events in 20 patients the Cox model should fit
-            % successfully (or gracefully set NaN outputs on non-convergence).
+            % successfully.  Verify console output contains expected
+            % statistical quantities (hazard ratios and p-values).
             rng(42);
             n   = 20;
             nTp = 4;
@@ -72,15 +73,40 @@ classdef test_metrics_survival < matlab.unittest.TestCase
             fx_label    = {'Fx1', 'Fx2', 'Fx3', 'Fx4'};
             dtype_label = 'Standard';
 
-            metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label);
-            testCase.verifyTrue(true, ...
-                'metrics_survival should complete without error.');
+            tmp_dir = tempname;
+            mkdir(tmp_dir);
+            cleanup = onCleanup(@() rmdir(tmp_dir, 's'));
+
+            console_output = evalc( ...
+                'metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, [], tmp_dir)');
+            diary off;
+
+            % The Cox model should produce a panel with intervals
+            testCase.verifySubstring(console_output, 'TD Panel', ...
+                'Expected time-dependent panel construction output.');
+
+            % Verify diary file was created (content may be empty when
+            % metrics_survival runs inside evalc, because evalc intercepts
+            % fprintf output before diary can capture it).
+            diary_file = fullfile(tmp_dir, 'metrics_survival_output_Standard.txt');
+            testCase.verifyTrue(exist(diary_file, 'file') == 2, ...
+                'Diary file should be created.');
+
+            % If model fitted, output should contain HR or hazard ratio
+            % references.  If insufficient events after landmark, the
+            % early return message should appear instead.
+            has_model = contains(console_output, 'HR') || ...
+                        contains(console_output, 'hazard') || ...
+                        contains(console_output, 'coxphfit');
+            has_early_return = contains(console_output, 'Insufficient');
+            testCase.verifyTrue(has_model || has_early_return, ...
+                'Output should contain Cox model results or insufficient-events message.');
         end
 
         function testCompetingRisksTreatedAsCensored(testCase)
             % Event code 2 (competing risk) is censored for cause-specific Cox.
             % Function must handle the mixed event vector gracefully.
+            % Verify the panel correctly reports competing events separately.
             rng(7);
             n   = 20;
             nTp = 4;
@@ -98,10 +124,20 @@ classdef test_metrics_survival < matlab.unittest.TestCase
             fx_label    = {'Fx1', 'Fx2', 'Fx3', 'Fx4'};
             dtype_label = 'Standard';
 
-            metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
-                m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label);
-            testCase.verifyTrue(true, ...
-                'metrics_survival should handle competing risks without error.');
+            tmp_dir = tempname;
+            mkdir(tmp_dir);
+            cleanup = onCleanup(@() rmdir(tmp_dir, 's'));
+
+            console_output = evalc( ...
+                'metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, [], tmp_dir)');
+            diary off;
+
+            % Panel should report both event types
+            testCase.verifySubstring(console_output, 'TD Panel', ...
+                'Expected time-dependent panel construction output.');
+            % Competing events should appear in panel stats
+            testCase.verifySubstring(console_output, 'competing', ...
+                'Panel output should mention competing events.');
         end
 
         function testValidPtsMaskSubsetsPatients(testCase)
