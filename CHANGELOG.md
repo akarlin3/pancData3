@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.2.0-alpha.1] - 2026-03-08
+
+### Changed
+- Version bump to 1.2.0-alpha.1 to begin 1.2.0 development cycle
+
 ## [1.1.0-rc.1] - 2026-03-08
 
 ### Added
