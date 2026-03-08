@@ -93,6 +93,8 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
             adc_sd = rand(n, nTp, 3) * 0.5e-3;
             m_gtv_vol = rand(n, nTp) * 50 + 5;
 
+            cfg = struct('use_firth_refit', true);
+
             args = {valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, ...
                     m_gtv_vol, adc_sd, ...
                     ADC_abs, D_abs, f_abs, Dstar_abs, ...
@@ -103,7 +105,7 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
                     d95_f_sub,   v50_f_sub, ...
                     d95_dstar_sub, v50_dstar_sub, ...
                     id_list, dtype, dl_provenance, x_labels, ...
-                    m_lf, m_total_time, m_total_follow_up_time};
+                    m_lf, m_total_time, m_total_follow_up_time, cfg};
         end
     end
 
@@ -265,6 +267,41 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
                 testCase.verifySubstring(ME.message, leaky_id, ...
                     'Leakage error message should name the offending patient ID.');
             end
+        end
+
+        function testBackwardCompatWithout34thArg(testCase)
+            % When config_struct (34th arg) is omitted, function must still
+            % work — nargin guard defaults use_firth_refit to true.
+            n   = 5;
+            nTp = 1;   % fast no-op path
+            args = testCase.buildMinimalArgs(n, nTp, 1);
+            args = args(1:33);  % drop the config_struct arg
+
+            [risk_scores_all, is_high_risk, times_km, events_km] = ...
+                metrics_stats_predictive(args{:});
+
+            testCase.verifyEmpty(risk_scores_all, ...
+                'Backward-compat: outputs should be empty for nTp=1.');
+            testCase.verifyEmpty(is_high_risk, ...
+                'Backward-compat: is_high_risk should be empty for nTp=1.');
+            testCase.verifyEmpty(times_km, ...
+                'Backward-compat: times_km should be empty for nTp=1.');
+            testCase.verifyEmpty(events_km, ...
+                'Backward-compat: events_km should be empty for nTp=1.');
+        end
+
+        function testFirthDisabledRunsWithoutError(testCase)
+            % When use_firth_refit is false, the function must run the
+            % elastic-net-only path without error.
+            n   = 5;
+            nTp = 1;
+            args = testCase.buildMinimalArgs(n, nTp, 1);
+            args{34} = struct('use_firth_refit', false);
+
+            [risk_scores_all, ~, ~, ~] = metrics_stats_predictive(args{:});
+
+            testCase.verifyEmpty(risk_scores_all, ...
+                'Firth disabled: outputs should be empty for nTp=1.');
         end
 
     end

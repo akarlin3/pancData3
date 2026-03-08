@@ -99,7 +99,8 @@ Key fields:
   "spectral_min_voxels": 20,
   "run_compare_cores": false,
   "run_all_core_methods": false,
-  "store_core_masks": false
+  "store_core_masks": false,
+  "use_firth_refit": true
 }
 ```
 

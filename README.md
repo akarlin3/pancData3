@@ -112,6 +112,7 @@ Edit `config.json` with your local paths:
 | `run_compare_cores` | Auto-include `compare_cores` step in the default pipeline (default: `false`) |
 | `run_all_core_methods` | Compute sub-volume metrics for all 11 core methods per patient/timepoint (default: `false`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
+| `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 

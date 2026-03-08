@@ -264,6 +264,16 @@ function config_struct = parse_config(json_path)
             config_struct.store_core_masks = false;
         end
 
+        % use_firth_refit: When true, the predictive modeling step refits
+        % the final model (and each LOOCV fold) using Firth penalized
+        % logistic regression after elastic net feature selection.  Firth's
+        % Jeffreys-prior penalty produces finite coefficient estimates even
+        % under perfect/quasi-perfect separation, which is common in small
+        % pancreatic cancer cohorts.  Default true.
+        if ~isfield(config_struct, 'use_firth_refit')
+            config_struct.use_firth_refit = true;
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % Any JSON syntax error or field-access failure is caught here.

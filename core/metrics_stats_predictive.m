@@ -1,4 +1,4 @@
-function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time)
+function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time, config_struct)
 % METRICS_STATS_PREDICTIVE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 4b/5 of the metrics step: Predictive Modeling (Elastic Net & Cox prep).
 % Performs multivariate feature selection via Elastic Net logistic regression
@@ -56,6 +56,13 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 %   d95_*, v50_*      - Sub-volume dose coverage arrays
 %   dl_provenance     - Matrix or struct ensuring training leak prevention in cross-val
 %   x_labels          - Labels for the time component
+%   config_struct     - (Optional, 34th arg) Pipeline config struct.  When
+%                       config_struct.use_firth_refit is true, the final model
+%                       and each LOOCV fold are refitted using Firth penalized
+%                       logistic regression (Jeffreys prior) on the features
+%                       selected by elastic net.  This produces finite, bias-
+%                       corrected coefficient estimates even under perfect or
+%                       quasi-perfect separation.  Default: use_firth_refit=true.
 %
 % Outputs:
 %   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores
@@ -63,6 +70,15 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 %   times_km          - Times used for subsequent Kaplan-Meier models
 %   events_km         - Events matched to times_km
 %
+
+% Backward-compatible: config_struct is optional (34th arg).
+if nargin < 34 || isempty(config_struct)
+    config_struct = struct();
+end
+if ~isfield(config_struct, 'use_firth_refit')
+    config_struct.use_firth_refit = true;
+end
+use_firth = config_struct.use_firth_refit;
 
 fprintf('  --- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 
@@ -303,6 +319,26 @@ for target_fx = 2:nTp
 
             fprintf('Elastic Net Selected Features for %s (Opt Lambda=%.4f): %s\n', ...
                 fx_label, opt_lambda, strjoin(feat_names_lasso_full(selected_indices), ', '));
+
+            % --- Firth refit on elastic-net-selected features ---
+            % Elastic net selects features via L1 sparsity; Firth produces
+            % finite, bias-corrected coefficients on the selected subset.
+            % This is especially important when perfect separation occurs
+            % (common in small pancreatic cancer cohorts), where standard
+            % MLE coefficients diverge to infinity.
+            if use_firth && ~isempty(selected_indices)
+                try
+                    X_firth = X_clean_kept(:, nz_in_kept);
+                    mdl_firth = fitglm(X_firth, y_clean, ...
+                        'Distribution', 'binomial', ...
+                        'LikelihoodPenalty', 'jeffreys-prior');
+                    fprintf('  Firth refit successful for %s (%d features).\n', ...
+                        fx_label, numel(selected_indices));
+                catch ME_firth
+                    fprintf('  ⚠️  Firth refit failed for %s: %s. Using elastic net coefficients.\n', ...
+                        fx_label, ME_firth.message);
+                end
+            end
         catch
             cv_failed = true;
         end
@@ -366,7 +402,8 @@ for target_fx = 2:nTp
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
         
-        w_state_loo = warning('off', 'all');
+        w_state_loo = warning('off', 'stats:lassoGlm:PerfectSeparation');
+        warning('off', 'stats:lassoGlm:IterationLimit');
         try
             inn_fold_id = make_grouped_folds(id_tr_loo, y_tr_fold, 5);
             n_inn_folds = max(inn_fold_id);
@@ -397,6 +434,27 @@ for target_fx = 2:nTp
                 'Alpha', 0.5, 'Lambda', opt_lam_loo, 'Standardize', true, 'MaxIter', 1e7);
             coefs_loo = B_loo;
             intercept_loo = FitInfo_loo.Intercept;
+
+            % --- Firth refit in LOOCV ---
+            % Refit selected features with Firth to produce finite
+            % coefficients when elastic net encounters separation.
+            if use_firth
+                nz_loo = find(coefs_loo ~= 0);
+                if ~isempty(nz_loo)
+                    try
+                        mdl_firth_loo = fitglm(X_tr_kept(:, nz_loo), y_tr_fold, ...
+                            'Distribution', 'binomial', ...
+                            'LikelihoodPenalty', 'jeffreys-prior');
+                        % Replace coefficients with Firth estimates
+                        firth_coefs = zeros(size(coefs_loo));
+                        firth_coefs(nz_loo) = mdl_firth_loo.Coefficients.Estimate(2:end);
+                        coefs_loo = firth_coefs;
+                        intercept_loo = mdl_firth_loo.Coefficients.Estimate(1);
+                    catch
+                        % Firth failed — keep elastic net coefficients
+                    end
+                end
+            end
         catch
             % Mark this patient's risk score as NaN rather than producing a
             % meaningless zero-coefficient prediction that could corrupt
@@ -729,8 +787,14 @@ for target_fx = 2:nTp
 
                 % NOTE: Decision boundary is fitted on the full displayed
                 % dataset (not cross-validated) for visualization only.
+                % Firth penalty produces stable boundaries under separation.
                 w_state = warning('off', 'all');
-                mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1e7));
+                if use_firth
+                    mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', ...
+                        'LikelihoodPenalty', 'jeffreys-prior', 'Options', statset('MaxIter', 1e7));
+                else
+                    mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1e7));
+                end
                 warning(w_state);
                 coefs = mdl.Coefficients.Estimate;
                 if numel(coefs) >= 3 && coefs(3) ~= 0
@@ -744,8 +808,13 @@ for target_fx = 2:nTp
                 xlabel(xl, 'FontSize', 12, 'FontWeight', 'bold');
                 ylabel(yl, 'FontSize', 12, 'FontWeight', 'bold');
                 title(sprintf('Biomarker Interaction: Separation of LC vs LF (%s, %s)', fx_label, dtype_label), 'FontSize', 14);
+                if use_firth
+                    boundary_label = 'Firth Boundary (illustrative, not CV)';
+                else
+                    boundary_label = 'Logistic Boundary (illustrative, not CV)';
+                end
                 if numel(coefs) >= 3 && coefs(3) ~= 0
-                    legend({'Local Control', 'Local Failure', 'Logistic Boundary (illustrative, not CV)'}, 'Location', 'NorthWest');
+                    legend({'Local Control', 'Local Failure', boundary_label}, 'Location', 'NorthWest');
                 else
                     legend({'Local Control', 'Local Failure'}, 'Location', 'NorthWest');
                 end
