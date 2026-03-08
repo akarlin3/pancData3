@@ -54,6 +54,7 @@ pancData3/
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (10 files)
+│   └── tests/                  # Python test suite — 6 test files, 126 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -303,6 +304,18 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
+
+**Python Test Suite (pytest):** 6 test files with 126 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+
+| File | What it covers |
+|---|---|
+| `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports |
+| `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
+| `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline regex parsing; integration with log files |
+| `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
+| `test_generate_report.py` | Significance tags, section headers, full Markdown report generation |
+| `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
 
 ---
 
