@@ -53,7 +53,7 @@ pancData3/
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
-├── analysis/                    # Python post-hoc analysis scripts (5 files)
+├── analysis/                    # Python post-hoc analysis scripts (10 files)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -287,13 +287,18 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 ### Analysis Scripts (`analysis/`)
 
-Python scripts for post-hoc analysis of pipeline graph outputs. These use the Anthropic API (Claude Sonnet 4 vision model) to extract structured data from generated figures, then cross-reference and compute statistical significance across DWI types.
+Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Claude API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
 
-**Requirements:** Python 3.12+, `anthropic`, `pydantic` (install via `pip install anthropic pydantic`). Requires `ANTHROPIC_API_KEY` environment variable.
+**Requirements:** Python 3.12+, `anthropic`, `pydantic` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `ANTHROPIC_API_KEY` environment variable; all other scripts work without it.
 
 | File | Purpose |
 |---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only` flags |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Claude vision API; outputs structured CSV with axes, trends, inflection points |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
+| `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
+| `generate_report.py` | Markdown report generator combining vision CSV, log parsing, and CSV parsing into `analysis_report.md` |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
