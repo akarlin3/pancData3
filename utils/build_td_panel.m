@@ -92,6 +92,17 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     n_pts  = length(lf_vec);
     n_feat = length(feat_arrays);
 
+    % Validate that all feature arrays have consistent row counts matching
+    % the number of patients.  Mismatched dimensions would cause silent
+    % data corruption or cryptic indexing errors deep in the loop.
+    for fi = 1:n_feat
+        if size(feat_arrays{fi}, 1) ~= n_pts
+            error('build_td_panel:rowMismatch', ...
+                'feat_arrays{%d} has %d rows but lf_vec has %d entries.', ...
+                fi, size(feat_arrays{fi}, 1), n_pts);
+        end
+    end
+
     % --- Default scan-day schedule (fraction days from RT start) ---
     % The default [0, 5, 10, 15, 20, 90] corresponds to weekly scans
     % during a standard 5-fraction SBRT course (Fx1 on day 0 through Fx5
