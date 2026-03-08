@@ -22,6 +22,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - [Usage](#usage)
 - [Pipeline Steps](#pipeline-steps)
 - [Running Tests](#running-tests)
+- [Post-Hoc Analysis Scripts](#post-hoc-analysis-scripts)
 - [Repository Structure](#repository-structure)
 - [Contributing](#contributing)
 - [Citation](#citation)
@@ -243,6 +244,41 @@ Tests generate a code coverage report for `core/` and `utils/`.
 
 ---
 
+## Post-Hoc Analysis Scripts
+
+The `analysis/` folder contains Python scripts for automated extraction and cross-referencing of results from pipeline-generated figures.
+
+### Requirements
+
+- Python 3.12+
+- `pip install anthropic pydantic`
+- `ANTHROPIC_API_KEY` environment variable set
+
+### Usage
+
+```bash
+# 1. Extract structured data from all graph images (requires API key)
+python analysis/batch_graph_analysis.py
+
+# 2. Cross-reference findings across DWI types
+python analysis/cross_reference_dwi.py
+python analysis/cross_reference_summary.py
+
+# 3. Statistical significance analysis
+python analysis/statistical_relevance.py
+python analysis/statistical_by_graph_type.py
+```
+
+| Script | Description |
+|---|---|
+| `batch_graph_analysis.py` | Sends all pipeline graph images to Claude vision API; extracts axes, trends, inflection points into a structured CSV |
+| `cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
+| `cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
+| `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
+| `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
+
+---
+
 ## Repository Structure
 
 ```
@@ -271,6 +307,12 @@ pancData3/
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
+├── analysis/                   # Python post-hoc analysis scripts (5 files)
+│   ├── batch_graph_analysis.py #   Vision API batch graph extraction
+│   ├── cross_reference_dwi.py  #   Cross-DWI type comparison
+│   ├── cross_reference_summary.py #  Concise cross-DWI summary
+│   ├── statistical_relevance.py #  Statistical significance extraction
+│   └── statistical_by_graph_type.py # Stats filtered by graph type
 ├── dependencies/               # Third-party scripts (read-only)
 └── .agents/                    # AI agent configuration
     ├── rules/                  #   Agent safety rules
