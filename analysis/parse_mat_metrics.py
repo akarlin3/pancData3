@@ -15,12 +15,17 @@ import json
 import os
 from pathlib import Path
 
+import typing
+
 try:
-    import scipy.io
-    import numpy as np
+    import scipy.io  # type: ignore
+    import numpy as np  # type: ignore
+    scipy_io: typing.Any = scipy.io
+    numpy_np: typing.Any = np
 except ImportError:
     print("Warning: scipy or numpy not found. Please pip install scipy numpy.")
-    scipy = None
+    scipy_io = None
+    numpy_np = None
 
 
 def parse_mat_files_for_dwi(folder: Path, dwi: str):
@@ -30,14 +35,14 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
         "dosimetry": {},
         "longitudinal": {},
     }
-    if not scipy:
+    if not scipy_io or not numpy_np:
         return out_data
 
     # Parse Core Method Comparison
     core_mat = folder / f"{dwi}" / f"compare_core_results_{dwi}.mat"
     if core_mat.exists():
         try:
-            mat = scipy.io.loadmat(str(core_mat), squeeze_me=True, struct_as_record=False)
+            mat: typing.Any = scipy_io.loadmat(str(core_mat), squeeze_me=True, struct_as_record=False)
             results = mat.get("compare_results")
             if results:
                 # Extract matrix and labels
@@ -47,7 +52,7 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                 mean_dice = results.mean_dice_matrix
                 out_data["core_method"] = {
                     "methods": [str(m) for m in methods],
-                    "mean_dice_matrix": np.nan_to_num(mean_dice).tolist() if hasattr(mean_dice, "tolist") else [],
+                    "mean_dice_matrix": numpy_np.nan_to_num(mean_dice).tolist() if hasattr(mean_dice, "tolist") else [],
                 }
         except Exception as e:
             print(f"Error parsing {core_mat.name}: {e}")
@@ -56,13 +61,13 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     dosimetry_mat = folder / f"{dwi}" / f"metrics_dosimetry_results_{dwi}.mat"
     if dosimetry_mat.exists():
         try:
-            mat = scipy.io.loadmat(str(dosimetry_mat), squeeze_me=True)
+            mat: typing.Any = scipy_io.loadmat(str(dosimetry_mat), squeeze_me=True)
             # Find arrays like 'd95_adc_sub', 'v50_adc_sub'
             out_data["dosimetry"] = {
-                "d95_adc_mean": np.nanmean(mat.get("d95_adc_sub", np.nan)),
-                "v50_adc_mean": np.nanmean(mat.get("v50_adc_sub", np.nan)),
-                "d95_d_mean": np.nanmean(mat.get("d95_d_sub", np.nan)),
-                "v50_d_mean": np.nanmean(mat.get("v50_d_sub", np.nan)),
+                "d95_adc_mean": numpy_np.nanmean(mat.get("d95_adc_sub", numpy_np.nan)),
+                "v50_adc_mean": numpy_np.nanmean(mat.get("v50_adc_sub", numpy_np.nan)),
+                "d95_d_mean": numpy_np.nanmean(mat.get("d95_d_sub", numpy_np.nan)),
+                "v50_d_mean": numpy_np.nanmean(mat.get("v50_d_sub", numpy_np.nan)),
             }
         except Exception as e:
             print(f"Error parsing {dosimetry_mat.name}: {e}")
@@ -71,7 +76,7 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     summary_mat = folder / f"{dwi}" / f"summary_metrics_{dwi}.mat"
     if summary_mat.exists():
         try:
-            mat = scipy.io.loadmat(str(summary_mat), squeeze_me=True, struct_as_record=False)
+            mat: typing.Any = scipy_io.loadmat(str(summary_mat), squeeze_me=True, struct_as_record=False)
             # Check for fields like 'ADC_abs', 'D_abs'
             summary = mat.get("summary_metrics")
             # For simplicity, we just confirm its presence to show we processed it,

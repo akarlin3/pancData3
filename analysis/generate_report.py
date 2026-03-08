@@ -28,6 +28,8 @@ from shared import (
     resolve_folder,
     setup_utf8_stdout,
 )
+from parse_csv_results import parse_all_csvs
+from parse_log_metrics import parse_all_logs
 
 setup_utf8_stdout()
 
@@ -210,15 +212,12 @@ def generate_report(folder: Path) -> str:
     timestamp = folder.name.replace("saved_files_", "")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Try to import sibling modules for direct parsing
     try:
-        from parse_csv_results import parse_all_csvs
         csv_data = parse_all_csvs(folder)
     except Exception:
         csv_data = None
 
     try:
-        from parse_log_metrics import parse_all_logs
         log_data = parse_all_logs(folder)
     except Exception:
         log_data = None
@@ -239,7 +238,13 @@ def generate_report(folder: Path) -> str:
     groups = group_by_graph_name(rows) if rows else {}
 
     # Detect which DWI types are present
-    dwi_types_present = [d for d in DWI_TYPES if (folder / d).is_dir()]
+    dwi_types_present = []
+    if log_data is not None:
+        for d in DWI_TYPES:
+            if d in log_data:
+                dwi_types_present.append(d)
+    if not dwi_types_present:
+        dwi_types_present = [d for d in DWI_TYPES if (folder / d).is_dir()]
 
     h = []  # html chunks
     h.append("<!DOCTYPE html>")
@@ -386,7 +391,10 @@ def generate_report(folder: Path) -> str:
             all_trends: dict[str, list] = {}
             for dt in DWI_TYPES:
                 if dt in dwi_dict:
-                    all_trends[dt] = json.loads(dwi_dict[dt]["trends_json"])
+                    try:
+                        all_trends[dt] = json.loads(str(dwi_dict[dt].get("trends_json", "[]")))
+                    except Exception:
+                        pass
 
             if all_trends:
                 all_series: set[str] = set()
@@ -405,8 +413,9 @@ def generate_report(folder: Path) -> str:
                         if dt not in all_trends:
                             continue
                         for t in all_trends[dt]:
-                            if (t.get("series") or "overall") == series:
-                                directions[dt] = t["direction"]
+                            if isinstance(t, dict):
+                                if (t.get("series") or "overall") == series:
+                                    directions[dt] = str(t.get("direction", ""))
 
                     if len(directions) >= 2:
                         vals = list(directions.values())
@@ -423,15 +432,26 @@ def generate_report(folder: Path) -> str:
 
     # Cross-reference from CSV
     if csv_data and csv_data.get("cross_reference"):
-        inconsistent = [c for c in csv_data["cross_reference"] if not c["consistent"]]
+        cross_ref_list = csv_data["cross_reference"]
+        inconsistent = []
+        if isinstance(cross_ref_list, list):
+            for c in cross_ref_list:
+                if isinstance(c, dict) and not c.get("consistent", True):
+                    inconsistent.append(c)
         if inconsistent:
             h.append("<h3>Cross-DWI Significance Inconsistencies</h3>")
             h.append("<table><thead><tr><th>Metric</th><th>Timepoint</th>"
                      "<th>Significant In</th><th>Not Significant In</th></tr></thead><tbody>")
             for c in inconsistent:
-                h.append(f"<tr><td>{_esc(c['metric'])}</td><td>{_esc(c['timepoint'])}</td>"
-                         f"<td>{_esc(', '.join(c['significant_in']))}</td>"
-                         f"<td>{_esc(', '.join(c['not_significant_in']))}</td></tr>")
+                sig_in = c.get("significant_in", [])
+                nsig_in = c.get("not_significant_in", [])
+                
+                sig_str = ", ".join(sig_in) if isinstance(sig_in, list) else "-"
+                nsig_str = ", ".join(nsig_in) if isinstance(nsig_in, list) else "-"
+                
+                h.append(f"<tr><td>{_esc(str(c.get('metric', '')))}</td><td>{_esc(str(c.get('timepoint', '')))}</td>"
+                         f"<td>{_esc(sig_str)}</td>"
+                         f"<td>{_esc(nsig_str)}</td></tr>")
             h.append("</tbody></table>")
 
     # ── 5. Correlations ──
@@ -482,12 +502,18 @@ def generate_report(folder: Path) -> str:
                         summary = summary[:200] + "..."
                     h.append(f"<li>{_dwi_badge(dt)}: {_esc(summary)}")
 
-                    ips = json.loads(r["inflection_points_json"])
-                    if ips:
+                    ips_str = r.get("inflection_points_json", "[]") if isinstance(r, dict) else "[]"
+                    try:
+                        ips = json.loads(str(ips_str))
+                    except Exception:
+                        ips = []
+                        
+                    if isinstance(ips, list) and ips:
                         h.append("<ul>")
                         for ip in ips:
-                            x = ip.get("approximate_x", "?")
-                            h.append(f"<li>Inflection at x={_esc(str(x))}: {_esc(ip['description'])}</li>")
+                            if isinstance(ip, dict):
+                                x = ip.get("approximate_x", "?")
+                                h.append(f"<li>Inflection at x={_esc(str(x))}: {_esc(str(ip.get('description', '')))}</li>")
                         h.append("</ul>")
                     h.append("</li>")
                 h.append("</ul>")
@@ -504,11 +530,14 @@ def generate_report(folder: Path) -> str:
             roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
             for r in roc:
                 has_roc = True
-                auc = f"{r['auc']:.3f}" if "auc" in r else "-"
-                sens = f"{r['sensitivity']:.1f}%" if "sensitivity" in r else "-"
-                spec = f"{r['specificity']:.1f}%" if "specificity" in r else "-"
+                auc_val = r.get("auc")
+                sens_val = r.get("sensitivity")
+                spec_val = r.get("specificity")
+                auc = f"{auc_val:.3f}" if isinstance(auc_val, (int, float)) else "-"
+                sens = f"{sens_val:.1f}%" if isinstance(sens_val, (int, float)) else "-"
+                spec = f"{spec_val:.1f}%" if isinstance(spec_val, (int, float)) else "-"
                 roc_rows_html.append(
-                    f"<tr><td>{_dwi_badge(dwi_type)}</td><td>{_esc(r['timepoint'])}</td>"
+                    f"<tr><td>{_dwi_badge(str(dwi_type))}</td><td>{_esc(str(r.get('timepoint', '-')))}</td>"
                     f"<td>{auc}</td><td>{sens}</td><td>{spec}</td></tr>"
                 )
 
@@ -550,13 +579,14 @@ def generate_report(folder: Path) -> str:
                 h.append("<table><thead><tr><th>Covariate</th><th>HR</th>"
                          "<th>95% CI</th><th>p</th></tr></thead><tbody>")
                 for hr in hrs:
-                    ci = f"[{hr['ci_lo']:.3f}, {hr['ci_hi']:.3f}]"
-                    sig = _sig_tag(hr["p"])
-                    cls = _sig_class(hr["p"])
+                    ci = f"[{hr.get('ci_lo', 0):.3f}, {hr.get('ci_hi', 0):.3f}]"
+                    p_val = hr.get("p", 1.0)
+                    sig = _sig_tag(p_val)
+                    cls = _sig_class(p_val)
                     cls_attr = f' class="{cls}"' if cls else ""
-                    h.append(f"<tr><td>{_esc(hr['covariate'])}</td>"
-                             f"<td>{hr['hr']:.3f}</td><td>{ci}</td>"
-                             f"<td{cls_attr}>{hr['p']:.4f} {_esc(sig)}</td></tr>")
+                    h.append(f"<tr><td>{_esc(str(hr.get('covariate', '')))}</td>"
+                             f"<td>{hr.get('hr', 0):.3f}</td><td>{ci}</td>"
+                             f"<td{cls_attr}>{p_val:.4f} {_esc(sig)}</td></tr>")
                 h.append("</tbody></table>")
                 lrt = sv.get("global_lrt")
                 if lrt:
