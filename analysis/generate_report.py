@@ -16,6 +16,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import markdown
+
 from shared import (
     DWI_TYPES,
     extract_correlations,
@@ -28,6 +30,105 @@ from shared import (
 )
 
 setup_utf8_stdout()
+
+HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  :root {{
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --accent: #0f3460;
+    --accent-light: #e8eef6;
+    --border: #d0d7de;
+    --table-stripe: #f6f8fa;
+    --sig-strong: #d32f2f;
+    --sig-moderate: #e65100;
+    --sig-mild: #f9a825;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }}
+  h1 {{
+    font-size: 1.8rem;
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }}
+  h2 {{
+    font-size: 1.4rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3rem;
+    margin-top: 2rem;
+    margin-bottom: 0.8rem;
+  }}
+  h3 {{
+    font-size: 1.15rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }}
+  p {{ margin-bottom: 0.6rem; }}
+  code {{
+    background: var(--accent-light);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-size: 0.9em;
+  }}
+  table {{
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.8rem 0 1.2rem;
+    font-size: 0.92rem;
+  }}
+  th, td {{
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.7rem;
+    text-align: left;
+  }}
+  th {{
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }}
+  tr:nth-child(even) {{ background: var(--table-stripe); }}
+  tr:hover {{ background: var(--accent-light); }}
+  ul, ol {{ margin: 0.5rem 0 0.5rem 1.5rem; }}
+  li {{ margin-bottom: 0.25rem; }}
+  strong {{ color: var(--accent); }}
+  hr {{
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+  }}
+  em {{ color: #555; }}
+  .footer {{
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: #666;
+  }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""
 
 
 def _esc(text: str) -> str:
@@ -475,14 +576,27 @@ def generate_report(folder: Path) -> str:
     return "\n".join(h)
 
 
+def markdown_to_html(md_text: str, title: str) -> str:
+    """Convert Markdown text to a styled standalone HTML document."""
+    body = markdown.markdown(
+        md_text,
+        extensions=["tables", "fenced_code", "toc"],
+    )
+    return HTML_TEMPLATE.format(title=title, body=body)
+
+
 def main():
     folder = resolve_folder(sys.argv)
-    report = generate_report(folder)
+    md_report = generate_report(folder)
+
+    timestamp = folder.name.replace("saved_files_", "")
+    title = f"Analysis Report — {timestamp}"
+    html_report = markdown_to_html(md_report, title)
 
     out_path = folder / "analysis_report.html"
-    out_path.write_text(report, encoding="utf-8")
+    out_path.write_text(html_report, encoding="utf-8")
     print(f"Report written to: {out_path}")
-    print(f"  Length: {len(report)} characters, {report.count(chr(10))} lines")
+    print(f"  Length: {len(html_report)} characters")
 
 
 if __name__ == "__main__":

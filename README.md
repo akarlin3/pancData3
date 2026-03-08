@@ -288,6 +288,14 @@ python analysis/statistical_relevance.py [saved_files_path]
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
 
+### Analysis Test Suite
+
+The analysis scripts have a Python test suite (126 tests across 6 files) using pytest:
+
+```bash
+cd analysis/tests && python -m pytest -v
+```
+
 ---
 
 ## Repository Structure
@@ -319,6 +327,7 @@ pancData3/
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
 ├── analysis/                   # Python post-hoc analysis suite (10 files)
+│   └── tests/                  # Python test suite (6 test files, 126 tests)
 │   ├── run_analysis.py         #   Orchestrator (full workflow runner)
 │   ├── shared.py               #   Shared utilities
 │   ├── batch_graph_analysis.py #   Vision API batch graph extraction
