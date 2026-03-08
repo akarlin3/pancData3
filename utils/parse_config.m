@@ -179,6 +179,15 @@ function config_struct = parse_config(json_path)
             config_struct.cause_of_death_column = 'CauseOfDeath';
         end
 
+        % patient_ids: Optional cell array of patient ID strings to process.
+        % When empty (default), all patients found in the data directory
+        % are processed.  When populated, only the specified patients are
+        % included - useful for debugging a single case or re-running a
+        % subset of the cohort without modifying the data directory.
+        if ~isfield(config_struct, 'patient_ids')
+            config_struct.patient_ids = {};
+        end
+
         % clear_cache: When true, deletes all cached .mat files from the
         % data directory before pipeline execution (dwi_vectors_*.mat,
         % summary_metrics_*.mat, per-patient checkpoints).  Useful when

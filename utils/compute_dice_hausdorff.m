@@ -36,6 +36,14 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
     mask_a = logical(mask_a);
     mask_b = logical(mask_b);
 
+    % Validate that both masks have the same dimensions to prevent
+    % silent wrong results from element-count coincidences.
+    if ~isequal(size(mask_a), size(mask_b))
+        error('compute_dice_hausdorff:dimensionMismatch', ...
+            'mask_a (%s) and mask_b (%s) must have the same dimensions.', ...
+            mat2str(size(mask_a)), mat2str(size(mask_b)));
+    end
+
     sum_a = sum(mask_a(:));
     sum_b = sum(mask_b(:));
 

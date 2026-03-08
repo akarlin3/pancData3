@@ -58,6 +58,12 @@ function escaped_arg = escape_shell_arg(arg, style)
         % not interpreted as the closing delimiter.
         escaped_arg = strrep(arg, '"', '\"');
 
+        % --- Percent Sign Hazard ---
+        % On Windows cmd.exe, percent signs trigger environment variable
+        % expansion (e.g., %PATH%). Double them so each is treated as a
+        % literal percent character rather than a variable delimiter.
+        escaped_arg = strrep(escaped_arg, '%', '%%');
+
         % --- Trailing Backslash Hazard ---
         % On Windows, a trailing backslash immediately before the closing double
         % quote (e.g., "C:\data\") would be interpreted as escaping the quote
