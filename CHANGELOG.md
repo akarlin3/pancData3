@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0-rc.1] - 2026-03-08
+
+### Added
+- **Predictive modeling** (`metrics_stats_predictive.m`): Elastic Net with nested LOOCV for pancreatic cancer treatment response prediction, integrated into pipeline orchestration
+- **Centralized configuration** (`parse_config.m`): Configuration parsing with field defaults and file I/O error handling, integrated into `run_dwi_pipeline.m` and `execute_all_workflows.m`
+- New tests for `process_single_scan`, `metrics_stats_comparisons`, `format_p_value`, `PipelineProgressGUI`, `plot_feature_distribution`, and `filter_collinear_features`
+
+### Fixed
+- Error message in `execute_all_workflows.m` incorrectly referenced `'gqae run'` instead of `'dnCNN run'`
+- Extraneous characters in `metrics_stats_predictive.m` file header
+- Missing `spectral_min_voxels` field in `config.example.json`
+
 ## [1.1.0-beta.1] - 2026-03-07
 
 ### Added
