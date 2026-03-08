@@ -298,7 +298,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Claude vision API; outputs structured CSV with axes, trends, inflection points |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
-| `generate_report.py` | Markdown report generator combining vision CSV, log parsing, and CSV parsing into `analysis_report.md` |
+| `generate_report.py` | HTML report generator combining vision CSV, log parsing, and CSV parsing into `analysis_report.html` |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |

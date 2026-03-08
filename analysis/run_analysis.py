@@ -5,7 +5,7 @@ Runs the full post-pipeline analysis workflow:
 1. Vision-based graph analysis (batch_graph_analysis.py)
 2. Direct log file parsing (parse_log_metrics.py)
 3. Direct CSV parsing (parse_csv_results.py)
-4. Markdown report generation (generate_report.py)
+4. HTML report generation (generate_report.py)
 
 Usage:
     python run_analysis.py                     # auto-detect latest folder
@@ -70,7 +70,7 @@ def main():
     parser.add_argument(
         "--report-only",
         action="store_true",
-        help="Only generate the Markdown report from existing data",
+        help="Only generate the HTML report from existing data",
     )
     args = parser.parse_args()
 
@@ -123,7 +123,7 @@ def main():
         icon = "OK" if status is True else ("SKIP" if status == "skipped" else "FAIL")
         print(f"  [{icon:>4}] {step}")
 
-    report_path = folder / "analysis_report.md"
+    report_path = folder / "analysis_report.html"
     if report_path.exists():
         print(f"\n  Report: {report_path}")
     print()
