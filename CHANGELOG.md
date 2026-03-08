@@ -8,8 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.2.0-alpha.1] - 2026-03-08
 
+### Added
+- **Python post-hoc analysis scripts** (`analysis/`): Five new scripts for automated graph extraction and cross-DWI comparison using Claude vision API
+  - `batch_graph_analysis.py`: Async batch processing of pipeline graph images via Claude vision API; outputs structured CSV with axes, trends, and inflection points
+  - `cross_reference_dwi.py`: Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries
+  - `cross_reference_summary.py`: Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement
+  - `statistical_relevance.py`: Extracts p-values and correlation coefficients; reports significant findings and cross-DWI significance
+  - `statistical_by_graph_type.py`: Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map)
+
 ### Changed
 - Version bump to 1.2.0-alpha.1 to begin 1.2.0 development cycle
+- Updated documentation (`CLAUDE.md`, `README.md`) with analysis script descriptions and requirements
 
 ## [1.1.0-rc.1] - 2026-03-08
 
