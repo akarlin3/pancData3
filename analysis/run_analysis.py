@@ -112,6 +112,9 @@ def main():
         # Step 3: Parse CSV exports
         results["csvs"] = _run_script("parse_csv_results.py", folder)
 
+        # Step 3.5: Parse MAT files
+        results["mat"] = _run_script("parse_mat_metrics.py", folder)
+
     # Step 4: Generate report
     results["report"] = _run_script("generate_report.py", folder)
 
