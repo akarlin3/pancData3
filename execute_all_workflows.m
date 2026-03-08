@@ -202,6 +202,10 @@ end
 % formatting (indentation, field order, numeric precision) is preserved
 % during intermediate writes.  The original string is kept for rollback.
 fid = fopen(config_file, 'r');
+if fid < 0
+    error('execute_all_workflows:fileOpenFailed', ...
+        'Cannot open %s for reading. Check file exists and permissions.', config_file);
+end
 raw = fread(fid, inf);
 str = char(raw');
 fclose(fid);
@@ -255,7 +259,12 @@ if ~isempty(wfGUI) && wfGUI.isValid()
 end
 config_json = json_set_field(config_json, 'dwi_type', 'Standard');
 config_json = json_set_field(config_json, 'skip_to_reload', false);
-fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
+fid = fopen(config_file, 'w');
+if fid < 0
+    error('execute_all_workflows:configWriteFailed', ...
+        'Cannot write config.json for Standard run. Check file permissions.');
+end
+fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
@@ -280,7 +289,12 @@ if ~isempty(wfGUI) && wfGUI.isValid()
 end
 config_json = json_set_field(config_json, 'dwi_type', 'dnCNN');
 config_json = json_set_field(config_json, 'skip_to_reload', true);
-fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
+fid = fopen(config_file, 'w');
+if fid < 0
+    error('execute_all_workflows:configWriteFailed', ...
+        'Cannot write config.json for dnCNN run. Check file permissions.');
+end
+fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 
@@ -307,7 +321,12 @@ if ~isempty(wfGUI) && wfGUI.isValid()
 end
 config_json = json_set_field(config_json, 'dwi_type', 'IVIMnet');
 config_json = json_set_field(config_json, 'skip_to_reload', true);
-fid = fopen(config_file, 'w'); fwrite(fid, config_json); fclose(fid);
+fid = fopen(config_file, 'w');
+if fid < 0
+    error('execute_all_workflows:configWriteFailed', ...
+        'Cannot write config.json for IVIMnet run. Check file permissions.');
+end
+fwrite(fid, config_json); fclose(fid);
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
 diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
 

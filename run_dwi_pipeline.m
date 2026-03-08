@@ -567,8 +567,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             sanity_results_file = fullfile(config_struct.output_folder, sprintf('sanity_checks_results_%s.txt', current_name));
             fid = fopen(sanity_results_file, 'w');
-            fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
-            fclose(fid);
+            if fid < 0
+                warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', sanity_results_file);
+            else
+                fprintf(fid, 'is_valid: %d\nvalidation_msg: %s\n', is_valid, validation_msg);
+                fclose(fid);
+            end
             fprintf('      💾 Saved sanity check results to %s\n', sanity_results_file);
             [warn_msg, warn_id] = lastwarn;  % read current warning
             lastwarn('');                       % then clear
@@ -794,8 +798,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                                  nTp, dtype_label, config_struct.output_folder, m_lf);
             longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
             fid = fopen(longitudinal_results_file, 'w');
-            fprintf(fid, 'Longitudinal metrics generated successfully.\n');
-            fclose(fid);
+            if fid < 0
+                warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', longitudinal_results_file);
+            else
+                fprintf(fid, 'Longitudinal metrics generated successfully.\n');
+                fclose(fid);
+            end
             fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
             fprintf('      ✅ Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_longitudinal', 'success'); end
@@ -962,8 +970,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
             fid = fopen(comparisons_results_file, 'w');
-            fprintf(fid, 'Stats Comparisons generated successfully.\n');
-            fclose(fid);
+            if fid < 0
+                warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', comparisons_results_file);
+            else
+                fprintf(fid, 'Stats Comparisons generated successfully.\n');
+                fclose(fid);
+            end
             fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
             fprintf('      ✅ Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_stats_comparisons', 'success'); end
@@ -1124,8 +1136,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             visualize_results(validated_data_gtvp, summary_metrics, calculated_results, config_struct);
             visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
             fid = fopen(visualize_results_file, 'w');
-            fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
-            fclose(fid);
+            if fid < 0
+                warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', visualize_results_file);
+            else
+                fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
+                fclose(fid);
+            end
             fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
             if ~isempty(pipeGUI), pipeGUI.completeStep('visualize', 'success'); end
             [warn_msg, warn_id] = lastwarn;  % read current warning
@@ -1212,8 +1228,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             survival_results_file = fullfile(config_struct.output_folder, sprintf('metrics_survival_results_%s.txt', current_name));
             fid = fopen(survival_results_file, 'w');
-            fprintf(fid, 'Survival metrics generated successfully.\n');
-            fclose(fid);
+            if fid < 0
+                warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', survival_results_file);
+            else
+                fprintf(fid, 'Survival metrics generated successfully.\n');
+                fclose(fid);
+            end
             fprintf('      💾 Saved survival results log to %s\n', survival_results_file);
             fprintf('      ✅ Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'success'); end
