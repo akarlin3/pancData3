@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-08
+
+### Added
+- **Predictive modeling** (`metrics_stats_predictive.m`): Elastic Net with nested LOOCV for pancreatic cancer treatment response prediction, integrated into pipeline orchestration
+- **Centralized configuration** (`parse_config.m`): Configuration parsing with field defaults and file I/O error handling, integrated into `run_dwi_pipeline.m` and `execute_all_workflows.m`
+- New tests for `process_single_scan`, `metrics_stats_comparisons`, `format_p_value`, `PipelineProgressGUI`, `plot_feature_distribution`, and `filter_collinear_features`
+
+### Fixed
+- Error message in `execute_all_workflows.m` incorrectly referenced `'gqae run'` instead of `'dnCNN run'`
+- Extraneous characters in `metrics_stats_predictive.m` file header
+- Missing `spectral_min_voxels` field in `config.example.json`
+- Missing `patient_ids` backwards-compatible default in `parse_config.m`
+- Windows `%` characters in paths not escaped for cmd.exe (`escape_shell_arg.m`)
+- `compute_dice_hausdorff.m` did not validate mask dimensions before comparison
+- `build_td_panel.m` did not validate feature array row counts against patient count
+
+### Test Suite
+- Upgraded `test_metrics_survival.m` assertions from `verifyTrue(true)` to actual content verification via `evalc()`
+- Added n=24 LOOCV path test with signal injection to `test_metrics_stats_predictive.m`
+- Added content assertions to `test_dwi_pipeline.m` end-to-end test (load `.mat` files, verify finite values)
+
 ## [1.1.0-rc.1] - 2026-03-08
 
 ### Added
