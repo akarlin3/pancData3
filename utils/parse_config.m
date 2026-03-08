@@ -55,6 +55,14 @@ function config_struct = parse_config(json_path)
 
         % Assign defaults for missing fields
 
+        % skip_to_reload: When true, bypasses raw DICOM discovery and model
+        % fitting (Sections 1-3 of load_dwi_data), jumping straight to
+        % loading cached dwi_vectors.mat.  Default false forces the full
+        % compute path, which is the safe default for first-time runs.
+        if ~isfield(config_struct, 'skip_to_reload')
+            config_struct.skip_to_reload = false;
+        end
+
         % skip_tests: When true, bypasses the pre-flight test suite before
         % pipeline execution.  Default false ensures data integrity checks
         % always run, catching regressions before processing patient data.

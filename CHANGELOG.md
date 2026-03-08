@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [1.1.0-alpha.1] - 2026-03-06
+## [1.1.0-beta.1] - 2026-03-07
 
 ### Added
 - **Tumor core method comparison** (`compare_core_methods.m`): Pairwise comparison of all 11 tumor core delineation methods with Dice coefficient and Hausdorff distance metrics, integrated as an optional `compare_cores` pipeline step

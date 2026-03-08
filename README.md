@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0--alpha.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-71%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-1.1.0--beta.1-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-78%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 1.1.0-alpha.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 1.1.0-beta.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -111,6 +111,7 @@ Edit `config.json` with your local paths:
 | `fdm_thresh` | Fallback fDM significance threshold in mm²/s when no repeat-scan data is available (default: `0.0004`) |
 | `run_compare_cores` | Auto-include `compare_cores` step in the default pipeline (default: `false`) |
 | `run_all_core_methods` | Compute sub-volume metrics for all 11 core methods per patient/timepoint (default: `false`) |
+| `spectral_min_voxels` | Minimum valid voxels required for the `"spectral"` core method (default: `20`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 | `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
 
@@ -228,7 +229,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 72 test files covering:
+The test suite includes 78 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -266,7 +267,7 @@ pancData3/
 │   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
 │   └── ...
-├── tests/                      # Test suite (70 test files)
+├── tests/                      # Test suite (78 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
@@ -293,7 +294,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {1.1.0-alpha.1},
+  version   = {1.1.0-beta.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {MIT}
 }
