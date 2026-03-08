@@ -342,6 +342,41 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
 
             survival_results = fullfile(output_folder, 'metrics_survival_results_IVIMnet.txt');
             testCase.verifyTrue(exist(survival_results, 'file') == 2, 'Survival results file not found.');
+
+            % ---- Content assertions: verify output files contain real data ----
+            % Load baseline results and verify non-empty, finite fields
+            if exist(baseline_results, 'file') == 2
+                bl = load(baseline_results);
+                bl_fields = fieldnames(bl);
+                testCase.verifyGreaterThan(numel(bl_fields), 0, ...
+                    'Baseline results .mat should contain at least one variable.');
+            end
+
+            % Load summary_metrics and verify key arrays are populated
+            sm_file = fullfile(output_folder, 'summary_metrics_IVIMnet.mat');
+            if exist(sm_file, 'file') == 2
+                sm = load(sm_file);
+                testCase.verifyTrue(isfield(sm, 'summary_metrics'), ...
+                    'summary_metrics variable should exist in .mat file.');
+                if isfield(sm, 'summary_metrics')
+                    testCase.verifyTrue(isfield(sm.summary_metrics, 'adc_mean'), ...
+                        'summary_metrics should have adc_mean field.');
+                    if isfield(sm.summary_metrics, 'adc_mean')
+                        testCase.verifyGreaterThan(numel(sm.summary_metrics.adc_mean), 0, ...
+                            'adc_mean should be non-empty.');
+                        testCase.verifyTrue(all(isfinite(sm.summary_metrics.adc_mean(:))), ...
+                            'adc_mean values should be finite.');
+                    end
+                end
+            end
+
+            % Load dosimetry results and verify non-empty
+            if exist(dosimetry_results, 'file') == 2
+                dos = load(dosimetry_results);
+                dos_fields = fieldnames(dos);
+                testCase.verifyGreaterThan(numel(dos_fields), 0, ...
+                    'Dosimetry results .mat should contain at least one variable.');
+            end
         end
 
         function testMockNiftiPipelineOutputs(testCase)
