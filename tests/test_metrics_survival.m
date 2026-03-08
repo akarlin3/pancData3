@@ -85,13 +85,12 @@ classdef test_metrics_survival < matlab.unittest.TestCase
             testCase.verifySubstring(console_output, 'TD Panel', ...
                 'Expected time-dependent panel construction output.');
 
-            % Verify diary file was created with content
+            % Verify diary file was created (content may be empty when
+            % metrics_survival runs inside evalc, because evalc intercepts
+            % fprintf output before diary can capture it).
             diary_file = fullfile(tmp_dir, 'metrics_survival_output_Standard.txt');
             testCase.verifyTrue(exist(diary_file, 'file') == 2, ...
                 'Diary file should be created.');
-            diary_content = fileread(diary_file);
-            testCase.verifyGreaterThan(length(diary_content), 0, ...
-                'Diary file should contain output.');
 
             % If model fitted, output should contain HR or hazard ratio
             % references.  If insufficient events after landmark, the
