@@ -24,6 +24,7 @@ import sys
 
 from shared import (
     DWI_TYPES,
+    get_config,
     group_by_graph_name,
     load_graph_csv,
     resolve_folder,
@@ -48,19 +49,8 @@ def main():
     print(sep)
 
     # Curated list of clinically interesting graphs to compare across DWI types.
-    # These cover dose-response, longitudinal trajectories, feature distributions,
-    # and tumor core method agreement.
-    priority_graphs = [
-        "Dose_vs_Diffusion",
-        "Longitudinal_Mean_Metrics",
-        "Longitudinal_Mean_Metrics_ByOutcome",
-        "Longitudinal_Mean_Metrics_LC",
-        "Longitudinal_Mean_Metrics_LF",
-        "Feature_BoxPlots",
-        "Feature_Histograms",
-        "core_method_dice_heatmap",
-        "core_method_volume_comparison",
-    ]
+    # Loaded from the centralised analysis config.
+    priority_graphs = get_config()["priority_graphs"]
 
     for base_name in priority_graphs:
         if base_name not in groups:

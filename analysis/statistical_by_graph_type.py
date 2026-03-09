@@ -26,6 +26,7 @@ from collections import defaultdict
 from shared import (
     extract_correlations,
     extract_pvalues,
+    get_config,
     load_graph_csv,
     parse_dwi_info,
     resolve_folder,
@@ -41,6 +42,10 @@ def main():
     rows = load_graph_csv(folder)
     if not rows:
         sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
+
+    stats_cfg = get_config()["statistics"]
+    p_threshold = stats_cfg["p_noteworthy"]
+    corr_threshold = stats_cfg["correlation_threshold"]
 
     # Group rows by their graph_type field (line, scatter, box, etc.).
     by_type: dict[str, list[dict]] = defaultdict(list)
@@ -74,19 +79,21 @@ def main():
                     "p": pval,
                     "context": context,
                 }
-                if pval < 0.05:
+                if pval < p_threshold:
                     sig.append(entry)
                 else:
                     nonsig.append(entry)
 
         print(f"\n  {thin}")
-        print(f"  Significant findings (p < 0.05): {len(sig)}")
+        print(f"  Significant findings (p < {p_threshold}): {len(sig)}")
         print(f"  {thin}")
 
         if sig:
             sig.sort(key=lambda x: x["p"])
             for f in sig:
-                tag = "***" if f["p"] < 0.001 else "** " if f["p"] < 0.01 else "*  "
+                p_hi = stats_cfg["p_highly_significant"]
+                p_sig = stats_cfg["p_significant"]
+                tag = "***" if f["p"] < p_hi else "** " if f["p"] < p_sig else "*  "
                 print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
                 print(f"      {f['context']}")
         else:
@@ -108,7 +115,7 @@ def main():
             all_text = r["summary"] + " " + r["trends_json"]
             corrs = extract_correlations(all_text)
             for rval, context in corrs:
-                if abs(rval) >= 0.3:
+                if abs(rval) >= corr_threshold:
                     corrs_found.append({
                         "dwi": dwi_type,
                         "graph": base_name,
@@ -118,7 +125,7 @@ def main():
 
         if corrs_found:
             print(f"\n  {thin}")
-            print(f"  Notable correlations (|r| >= 0.3): {len(corrs_found)}")
+            print(f"  Notable correlations (|r| >= {corr_threshold}): {len(corrs_found)}")
             print(f"  {thin}")
             # Sort by absolute correlation strength (strongest first).
             corrs_found.sort(key=lambda x: -abs(x["r"]))
@@ -179,13 +186,13 @@ def main():
             all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
             pvals = extract_pvalues(all_text)
             for pval, _ in pvals:
-                if pval < 0.05:
+                if pval < p_threshold:
                     n_sig += 1
                 else:
                     n_nonsig += 1
 
             corrs = extract_correlations(r["summary"] + " " + r["trends_json"])
-            n_corr += sum(1 for rval, _ in corrs if abs(rval) >= 0.3)
+            n_corr += sum(1 for rval, _ in corrs if abs(rval) >= corr_threshold)
 
             trends = json.loads(r["trends_json"])
             n_trends += len(trends)

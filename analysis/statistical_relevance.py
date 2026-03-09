@@ -33,6 +33,7 @@ from shared import (
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
+    get_config,
     load_graph_csv,
     parse_dwi_info,
     resolve_folder,
@@ -55,11 +56,15 @@ def main():
         dwi_type, base_name = parse_dwi_info(r["file_path"])
         groups[base_name][dwi_type] = r
 
+    stats_cfg = get_config()["statistics"]
+    p_threshold = stats_cfg["p_noteworthy"]
+    corr_threshold = stats_cfg["correlation_threshold"]
+
     sep = "=" * 80
 
     # ── 1. Significant p-values ──────────────────────────────────────────────
     print(sep)
-    print("  STATISTICALLY SIGNIFICANT FINDINGS (p < 0.05)")
+    print(f"  STATISTICALLY SIGNIFICANT FINDINGS (p < {p_threshold})")
     print(sep)
 
     sig_findings = []
@@ -78,7 +83,7 @@ def main():
                 "p": pval,
                 "context": context,
             }
-            if pval < 0.05:
+            if pval < p_threshold:
                 sig_findings.append(entry)
             else:
                 nonsig_findings.append(entry)
@@ -87,8 +92,9 @@ def main():
     if sig_findings:
         sig_findings.sort(key=lambda x: x["p"])
         for f in sig_findings:
-            # Significance markers: *** (p<0.001), ** (p<0.01), * (p<0.05)
-            tag = "***" if f["p"] < 0.001 else "** " if f["p"] < 0.01 else "*  "
+            p_hi = stats_cfg["p_highly_significant"]
+            p_sig = stats_cfg["p_significant"]
+            tag = "***" if f["p"] < p_hi else "** " if f["p"] < p_sig else "*  "
             print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
             print(f"      {f['context']}")
     else:
@@ -96,7 +102,7 @@ def main():
 
     # ── 2. Non-significant findings (for comparison) ─────────────────────────
     print(f"\n{sep}")
-    print("  NON-SIGNIFICANT FINDINGS (p >= 0.05)")
+    print(f"  NON-SIGNIFICANT FINDINGS (p >= {p_threshold})")
     print(sep)
 
     if nonsig_findings:
@@ -107,7 +113,7 @@ def main():
 
     # ── 3. Strong correlations ───────────────────────────────────────────────
     print(f"\n{sep}")
-    print("  NOTABLE CORRELATIONS (|r| >= 0.3)")
+    print(f"  NOTABLE CORRELATIONS (|r| >= {corr_threshold})")
     print(sep)
 
     for r in rows:
@@ -116,7 +122,7 @@ def main():
         corrs = extract_correlations(all_text)
 
         for rval, context in corrs:
-            if abs(rval) >= 0.3:
+            if abs(rval) >= corr_threshold:
                 # Classify correlation strength and direction.
                 strength = "STRONG" if abs(rval) >= 0.5 else "MODERATE"
                 direction = "positive" if rval > 0 else "negative"
@@ -155,9 +161,9 @@ def main():
                 if dwi_type not in pvals_by_dwi:
                     continue
                 pvals = pvals_by_dwi[dwi_type]
-                sig_count = sum(1 for p, _ in pvals if p < 0.05)
+                sig_count = sum(1 for p, _ in pvals if p < p_threshold)
                 total = len(pvals)
-                pval_strs = [f"p={p:.3f}{'*' if p < 0.05 else ''}" for p, _ in pvals]
+                pval_strs = [f"p={p:.3f}{'*' if p < p_threshold else ''}" for p, _ in pvals]
                 print(f"    {dwi_type}: {sig_count}/{total} significant  [{', '.join(pval_strs)}]")
 
     print()
