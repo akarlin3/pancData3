@@ -324,7 +324,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 
 | File | Purpose |
 |---|---|
-| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf` flags |
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html` flags |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |

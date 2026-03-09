@@ -379,13 +379,15 @@ def main():
     folder = resolve_folder(sys.argv)
 
     skip_pdf = "--no-pdf" in sys.argv
+    skip_html = "--no-html" in sys.argv
 
     html_report = generate_report(folder)
 
     out_path = folder / "analysis_report.html"
-    out_path.write_text(html_report, encoding="utf-8")
-    print(f"Report written to: {out_path}")
-    print(f"  Length: {len(html_report)} characters")
+    if not skip_html:
+        out_path.write_text(html_report, encoding="utf-8")
+        print(f"Report written to: {out_path}")
+        print(f"  Length: {len(html_report)} characters")
 
     # Generate PDF version
     if not skip_pdf:
