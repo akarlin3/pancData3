@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Concise cross-DWI summary focusing on clinically priority graphs.
+"""Concise cross-DWI summary comparing all graphs across DWI types.
 
 Unlike :mod:`cross_reference_dwi` (which prints every matched graph in full
-detail), this script focuses on a curated list of clinically important graph
-types and provides a compact comparison:
+detail), this script provides a compact comparison of all graphs, with
+priority graphs listed first:
 
 1. **Trend agreement/disagreement** -- per data series, shows whether
    Standard, dnCNN, and IVIMnet agree on the direction ("AGREE" vs "DIFFER").
@@ -50,14 +50,15 @@ def main():
     print("  CROSS-DWI TYPE SUMMARY: Key Differences")
     print(sep)
 
-    # Curated list of clinically interesting graphs to compare across DWI types.
-    # Loaded from the centralised analysis config.
+    # Compare all graph groups that have at least 2 DWI types.
+    # Priority graphs are listed first, then remaining graphs in sorted order.
     priority_graphs = get_config()["priority_graphs"]
+    priority_set = set(priority_graphs)
+    ordered_names = [g for g in priority_graphs if g in groups]
+    ordered_names += sorted(g for g in groups if g not in priority_set)
 
-    for base_name in tqdm(priority_graphs, desc="Comparing priority graphs", unit="graph",
+    for base_name in tqdm(ordered_names, desc="Comparing graphs", unit="graph",
                           bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
-        if base_name not in groups:
-            continue
         dwi_dict = groups[base_name]
         # Need at least 2 real DWI types (not Root) for comparison.
         real = [t for t in dwi_dict if t != "Root"]

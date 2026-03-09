@@ -90,7 +90,7 @@ class TestLoadAnalysisConfig:
             matlab_config_path=tmp_path / "nonexistent.json",
         )
         assert cfg["dwi_types"] == ["Standard", "dnCNN", "IVIMnet"]
-        assert cfg["vision"]["gemini_model"] == "gemini-3.1-flash"
+        assert cfg["vision"]["gemini_model"] == "gemini-2.5-flash"
         assert cfg["statistics"]["p_noteworthy"] == 0.05
 
     def test_analysis_config_overrides_defaults(self, tmp_path: Path):
