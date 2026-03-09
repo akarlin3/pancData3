@@ -39,6 +39,7 @@ _DEFAULTS: dict = {
         "max_retries": 4,
         "max_output_tokens": 2048,
         "backoff_base_seconds": 15,
+        "request_timeout_seconds": 120,
     },
     "statistics": {
         "p_highly_significant": 0.001,

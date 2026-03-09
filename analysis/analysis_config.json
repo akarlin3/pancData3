@@ -6,7 +6,8 @@
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 2048,
-        "backoff_base_seconds": 15
+        "backoff_base_seconds": 15,
+        "request_timeout_seconds": 120
     },
 
     "statistics": {
