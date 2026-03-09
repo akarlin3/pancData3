@@ -9,12 +9,17 @@ concurrency:
 
 jobs:
   test:
-    name: Run Tests (MATLAB)
-    runs-on: ubuntu-latest
+    name: Run Tests (MATLAB, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
       checks: write
       pull-requests: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Check out repository
@@ -28,8 +33,14 @@ jobs:
             Statistics_and_Machine_Learning_Toolbox
             Image_Processing_Toolbox
 
-      - name: Hide Octave shims from MATLAB test runner
+      - name: Hide Octave shims from MATLAB test runner (Unix)
+        if: runner.os != 'Windows'
         run: mv utils/octave_compat .octave_compat
+
+      - name: Hide Octave shims from MATLAB test runner (Windows)
+        if: runner.os == 'Windows'
+        run: Move-Item utils\octave_compat .octave_compat
+        shell: pwsh
 
       - name: Run test suite
         uses: matlab-actions/run-tests@v2
@@ -39,15 +50,20 @@ jobs:
           code-coverage-cobertura: results/coverage.xml
           select-by-folder: tests
 
-      - name: Restore Octave shims
-        if: always()
+      - name: Restore Octave shims (Unix)
+        if: always() && runner.os != 'Windows'
         run: mv .octave_compat utils/octave_compat
+
+      - name: Restore Octave shims (Windows)
+        if: always() && runner.os == 'Windows'
+        run: Move-Item .octave_compat utils\octave_compat
+        shell: pwsh
 
       - name: Publish test results
         if: always()
         uses: dorny/test-reporter@v1
         with:
-          name: MATLAB Test Results
+          name: MATLAB Test Results (${{ matrix.os }})
           path: results/test-results.xml
           reporter: java-junit
           fail-on-error: false
@@ -56,8 +72,32 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: test-results-${{ matrix.os }}
           path: results/
+
+  python-analysis-test:
+    name: Python Analysis Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r analysis/requirements.txt
+
+      - name: Run pytest
+        run: python -m pytest analysis/tests/ -v --tb=short
 
   octave-test:
     name: Smoke Test (Octave)

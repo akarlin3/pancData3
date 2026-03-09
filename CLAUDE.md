@@ -16,6 +16,7 @@ This file provides essential context for AI assistants (Claude, Antigravity, etc
 **Language:** MATLAB (R2021a+)
 **License:** MIT (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
+**Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
 
 ---
 
@@ -334,7 +335,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
 | `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, print styles, escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table numbering, citation system, references, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, hypothesis, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
+| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, hypothesis, graph issues, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -373,6 +374,15 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 - `parsave_dir_cache.m` enables safe `save` inside `parfor`.
 - Checkpointing allows recovery from interruptions mid-cohort.
 - Parallel pool capped at 2 workers (`execute_all_workflows.m`).
+
+### Cross-Platform Compatibility
+
+- `escape_shell_arg.m` auto-detects `ispc()` for Windows (double-quote) vs Unix (single-quote) shell escaping.
+- All file paths use `fullfile()`, `filesep`, and `pathsep` — never hardcoded separators.
+- `ProgressBarPlugin.m` uses `isunix`/`ispc` for platform-specific terminal width detection.
+- `test_convert_dicom.m` generates `.bat` scripts on Windows and shell scripts on Unix.
+- Python analysis scripts use `pathlib.Path` throughout and reconfigure `stdout` to UTF-8 on Windows for emoji support.
+- CI runs the full MATLAB and Python test suites on Linux, macOS, and Windows.
 
 ### Security
 
@@ -501,6 +511,7 @@ After **every feature implementation** (adding a new file, adding a config field
 - Branch naming follows: `claude/<description>-<session-id>` for Claude branches.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
 - After pushing a branch, Claude should create a pull request targeting `main` using `gh pr create` **only if `gh` is available** (check with `which gh` first). Include a summary of changes and a test plan in the PR body. If `gh` is not installed, skip PR creation silently (do not notify the user).
+- CI (`.github/workflows/ci.yml`) runs MATLAB tests and Python analysis tests on all three platforms (Linux, macOS, Windows) plus an Octave smoke test on Linux.
 
 ---
 

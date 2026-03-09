@@ -89,6 +89,7 @@ class GraphAnalysis(BaseModel):
     color_axis: Optional[Axis] = Field(None, description="Colorbar / color-axis if present")
     trends: list[Trend] = Field(default_factory=list, description="List of observed trends")
     inflection_points: list[InflectionPoint] = Field(default_factory=list, description="Notable inflection points")
+    issues: list[str] = Field(default_factory=list, description="List of detected quality issues with the graph")
     summary: str = Field(..., description="One-paragraph plain-English summary of the graph")
 
 
@@ -178,6 +179,7 @@ no commentary, no code fences):
   "inflection_points": [
     {"approximate_x": ..., "approximate_y": ..., "description": "..."}
   ],
+  "issues": ["description of issue 1", "description of issue 2"],
   "summary": "..."
 }
 
@@ -187,6 +189,11 @@ Rules:
 - For heatmaps (Dice, Hausdorff), extract axis labels as the methods being compared.
 - Inflection points apply mainly to line/trajectory plots; for other types, return an empty list.
 - Keep the summary concise (2-4 sentences).
+- For "issues", report any quality problems you observe in the graph. Common issues include:
+  missing or unreadable axis labels, truncated or clipped data, overlapping text or legends,
+  axis scale problems (e.g., misleading origin), empty or nearly empty plots, outliers that
+  distort the scale, low sample size warnings visible on the graph, rendering artefacts,
+  and missing titles or legends. Return an empty list if no issues are found.
 """
 
 
@@ -345,6 +352,8 @@ CSV_COLUMNS = [
     "trends_json",
     "num_inflection_points",
     "inflection_points_json",
+    "num_issues",
+    "issues_json",
     "summary",
 ]
 
@@ -392,6 +401,8 @@ def flatten(a: GraphAnalysis) -> dict:
     row["trends_json"] = json.dumps([t.model_dump() for t in a.trends])
     row["num_inflection_points"] = len(a.inflection_points)
     row["inflection_points_json"] = json.dumps([ip.model_dump() for ip in a.inflection_points])
+    row["num_issues"] = len(a.issues)
+    row["issues_json"] = json.dumps(a.issues)
     row["summary"] = a.summary
     return row
 

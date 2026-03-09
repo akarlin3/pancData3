@@ -391,6 +391,7 @@ NAV_SECTIONS = [
     ("data-quality", "Data Quality"),
     ("hypothesis", "Hypothesis"),
     ("graph-overview", "Graphs"),
+    ("graph-issues", "Issues"),
     ("stats-by-type", "By Type"),
     ("significance", "Statistics"),
     ("effect-sizes", "Effect Sizes"),
