@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from shared import resolve_folder, setup_utf8_stdout
+from shared import get_config, resolve_folder, setup_utf8_stdout
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -198,19 +198,28 @@ Rules:
 
 
 # ── Gemini model configuration ──────────────────────────────────────────────
+# Loaded from the centralised analysis config (analysis_config.json /
+# shared._DEFAULTS).  Values can be overridden without editing source code.
+_vision_cfg = get_config()["vision"]
 
 # Model to use for vision analysis.
-GEMINI_MODEL = "gemini-3.5-pro"
+GEMINI_MODEL = _vision_cfg["gemini_model"]
 
 # ── Async API call ───────────────────────────────────────────────────────────
 
 # Concurrency limit for API requests.  Kept low (2) to stay well within
 # Gemini's rate limits.
-SEM_LIMIT = 2
+SEM_LIMIT = _vision_cfg["max_concurrent_requests"]
 
 # Number of retries on rate-limit (429) errors.  Uses exponential
 # backoff: 15s, 30s, 60s, 120s.
-MAX_RETRIES = 4
+MAX_RETRIES = _vision_cfg["max_retries"]
+
+# Base seconds for exponential backoff on rate-limit retries.
+BACKOFF_BASE = _vision_cfg["backoff_base_seconds"]
+
+# Maximum output tokens for the vision model response.
+MAX_OUTPUT_TOKENS = _vision_cfg["max_output_tokens"]
 
 
 async def analyze_image(
@@ -261,7 +270,7 @@ async def analyze_image(
                     ],
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_PROMPT,
-                        max_output_tokens=2048,
+                        max_output_tokens=MAX_OUTPUT_TOKENS,
                     ),
                 )
                 break  # Success: exit the retry loop.
@@ -270,8 +279,8 @@ async def analyze_image(
                 err_str = str(e).lower()
                 is_rate_limit = "429" in err_str or "rate" in err_str or "resource" in err_str or "quota" in err_str
                 if is_rate_limit and attempt < MAX_RETRIES:
-                    # Exponential backoff: 15s, 30s, 60s, 120s
-                    wait = 2 ** attempt * 15
+                    # Exponential backoff: base*1, base*2, base*4, base*8
+                    wait = 2 ** attempt * BACKOFF_BASE
                     print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
                     await asyncio.sleep(wait)
                 elif is_rate_limit:

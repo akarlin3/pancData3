@@ -54,8 +54,8 @@ pancData3/
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
-├── analysis/                    # Python post-hoc analysis scripts (13 files)
-│   └── tests/                  # Python test suite — 9 test files, 230 tests (pytest)
+├── analysis/                    # Python post-hoc analysis scripts (14 files)
+│   └── tests/                  # Python test suite — 10 test files, 237 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -323,11 +323,14 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 
 **Requirements:** Python 3.12+, `google-genai`, `pydantic`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies.
 
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, and `--config` CLI flags.
+
 | File | Purpose |
 |---|---|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html` flags |
-| `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
-| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, quality issues |
+| `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
@@ -339,7 +342,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 9 test files with 230 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 10 test files with 237 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -353,6 +356,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
 | `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus |
 | `test_parse_mat_metrics.py` | MAT file parsing, dosimetry/core/longitudinal extraction, scipy graceful degradation |
+| `test_analysis_config.py` | Config loading, deep merge, layered overrides, MATLAB config integration, caching |
 
 ---
 

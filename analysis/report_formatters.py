@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import html as _html
 
+from shared import get_config
+
 
 # ── Table / Figure numbering ─────────────────────────────────────────────────
 # A simple counter-based numbering system for publication-quality
@@ -134,11 +136,9 @@ def _section(title: str, level: int = 2) -> str:
 def _sig_tag(p: float) -> str:
     """Return asterisk significance markers for a p-value.
 
-    Follows biomedical convention:
-    - ``***`` for p < 0.001
-    - ``**``  for p < 0.01
-    - ``*``   for p < 0.05
-    - ``""``  for p >= 0.05
+    Thresholds are read from the centralised analysis config
+    (``statistics.p_highly_significant``, ``p_significant``,
+    ``p_noteworthy``).
 
     Parameters
     ----------
@@ -150,11 +150,12 @@ def _sig_tag(p: float) -> str:
     str
         Significance marker string.
     """
-    if p < 0.001:
+    stats = get_config()["statistics"]
+    if p < stats["p_highly_significant"]:
         return "***"
-    if p < 0.01:
+    if p < stats["p_significant"]:
         return "**"
-    if p < 0.05:
+    if p < stats["p_noteworthy"]:
         return "*"
     return ""
 
@@ -163,7 +164,8 @@ def _sig_class(p: float) -> str:
     """Return a CSS class name for the significance level.
 
     Classes ``sig-1``, ``sig-2``, ``sig-3`` map to amber, red, and bold-red
-    styling defined in :data:`CSS`.
+    styling defined in :data:`CSS`.  Thresholds are read from the
+    centralised analysis config.
 
     Parameters
     ----------
@@ -175,11 +177,12 @@ def _sig_class(p: float) -> str:
     str
         CSS class name, or empty string if not significant.
     """
-    if p < 0.001:
+    stats = get_config()["statistics"]
+    if p < stats["p_highly_significant"]:
         return "sig-3"
-    if p < 0.01:
+    if p < stats["p_significant"]:
         return "sig-2"
-    if p < 0.05:
+    if p < stats["p_noteworthy"]:
         return "sig-1"
     return ""
 
@@ -517,7 +520,8 @@ def _forest_plot_cell(hr: float, ci_lo: float, ci_hi: float, p: float,
 def _effect_size_class(d: float) -> str:
     """Return a CSS class for an effect size magnitude.
 
-    Uses Cohen's conventions: small (0.2), medium (0.5), large (0.8).
+    Thresholds are read from the centralised analysis config
+    (``statistics.effect_size_medium``, ``effect_size_large``).
 
     Parameters
     ----------
@@ -529,16 +533,19 @@ def _effect_size_class(d: float) -> str:
     str
         CSS class name.
     """
+    stats = get_config()["statistics"]
     d = abs(d)
-    if d >= 0.8:
+    if d >= stats["effect_size_large"]:
         return "effect-lg"
-    if d >= 0.5:
+    if d >= stats["effect_size_medium"]:
         return "effect-md"
     return "effect-sm"
 
 
 def _effect_size_label(d: float) -> str:
     """Return a human-readable label for an effect size magnitude.
+
+    Thresholds are read from the centralised analysis config.
 
     Parameters
     ----------
@@ -550,10 +557,11 @@ def _effect_size_label(d: float) -> str:
     str
         One of ``"Large"``, ``"Medium"``, or ``"Small"``.
     """
+    stats = get_config()["statistics"]
     d = abs(d)
-    if d >= 0.8:
+    if d >= stats["effect_size_large"]:
         return "Large"
-    if d >= 0.5:
+    if d >= stats["effect_size_medium"]:
         return "Medium"
     return "Small"
 

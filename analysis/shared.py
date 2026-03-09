@@ -19,15 +19,173 @@ from __future__ import annotations
 import csv
 import glob
 import io
+import json
 import os
 import re
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+# ── Analysis configuration ───────────────────────────────────────────────────
+# Centralised defaults for all analysis scripts.  These are overridden by
+# values in ``analysis_config.json`` (if present) and, for ``dwi_types``,
+# optionally by the MATLAB ``config.json`` at the repository root.
+
+_DEFAULTS: dict = {
+    "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
+    "vision": {
+        "gemini_model": "gemini-3.5-pro",
+        "max_concurrent_requests": 2,
+        "max_retries": 4,
+        "max_output_tokens": 2048,
+        "backoff_base_seconds": 15,
+    },
+    "statistics": {
+        "p_highly_significant": 0.001,
+        "p_significant": 0.01,
+        "p_noteworthy": 0.05,
+        "correlation_threshold": 0.3,
+        "effect_size_medium": 0.5,
+        "effect_size_large": 0.8,
+    },
+    "priority_graphs": [
+        "Dose_vs_Diffusion",
+        "Longitudinal_Mean_Metrics",
+        "Longitudinal_Mean_Metrics_ByOutcome",
+        "Longitudinal_Mean_Metrics_LC",
+        "Longitudinal_Mean_Metrics_LF",
+        "Feature_BoxPlots",
+        "Feature_Histograms",
+        "core_method_dice_heatmap",
+        "core_method_volume_comparison",
+    ],
+}
+
+# Resolved at first access via :func:`get_config`.
+_config_cache: dict | None = None
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge *override* into *base*, returning a new dict.
+
+    Scalar values in *override* replace those in *base*; nested dicts are
+    merged recursively so that partial overrides work correctly (e.g.
+    overriding only ``vision.gemini_model`` without touching the other
+    vision keys).  Lists are shallow-copied to prevent mutation of the
+    originals.
+    """
+    import copy
+    merged = {}
+    for key, val in base.items():
+        if isinstance(val, dict):
+            merged[key] = _deep_merge(val, {})
+        elif isinstance(val, list):
+            merged[key] = list(val)
+        else:
+            merged[key] = val
+    for key, val in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
+            merged[key] = _deep_merge(merged[key], val)
+        elif isinstance(val, list):
+            merged[key] = list(val)
+        else:
+            merged[key] = val
+    return merged
+
+
+def load_analysis_config(
+    config_path: str | Path | None = None,
+    matlab_config_path: str | Path | None = None,
+) -> dict:
+    """Load the analysis configuration with layered overrides.
+
+    Resolution order (later wins):
+    1. Built-in defaults (``_DEFAULTS``).
+    2. ``analysis_config.json`` (next to this file, or *config_path*).
+    3. MATLAB ``config.json`` at the repository root — only ``dwi_type``
+       is read (mapped to ``dwi_types`` list for consistency).
+
+    Parameters
+    ----------
+    config_path : str or Path, optional
+        Explicit path to the analysis config JSON.  If ``None``, the
+        function looks for ``analysis_config.json`` in the same directory
+        as this module.
+    matlab_config_path : str or Path, optional
+        Explicit path to the MATLAB pipeline ``config.json``.  If
+        ``None``, the function looks for ``config.json`` at the
+        repository root (one level above ``analysis/``).
+
+    Returns
+    -------
+    dict
+        Fully resolved configuration dictionary.
+    """
+    cfg = dict(_DEFAULTS)
+    # Deep-copy nested dicts so mutations don't pollute the template.
+    cfg = _deep_merge({}, cfg)
+
+    analysis_dir = Path(__file__).resolve().parent
+
+    # ── Layer 2: analysis_config.json ──
+    if config_path is None:
+        config_path = analysis_dir / "analysis_config.json"
+    else:
+        config_path = Path(config_path)
+
+    if config_path.is_file():
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                overrides = json.load(f)
+            cfg = _deep_merge(cfg, overrides)
+        except (json.JSONDecodeError, OSError):
+            pass  # Silently fall back to defaults on bad JSON.
+
+    # ── Layer 3: MATLAB config.json (dwi_type only) ──
+    if matlab_config_path is None:
+        matlab_config_path = analysis_dir.parent / "config.json"
+    else:
+        matlab_config_path = Path(matlab_config_path)
+
+    if matlab_config_path.is_file():
+        try:
+            with open(matlab_config_path, encoding="utf-8") as f:
+                matlab_cfg = json.load(f)
+            dwi_type = matlab_cfg.get("dwi_type")
+            if dwi_type and isinstance(dwi_type, str):
+                # The MATLAB config stores a single active type; we don't
+                # override the full list, but we can ensure it's present.
+                if dwi_type not in cfg["dwi_types"]:
+                    cfg["dwi_types"].append(dwi_type)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return cfg
+
+
+def get_config() -> dict:
+    """Return the cached analysis configuration (loading it on first call).
+
+    This is the primary entry point for scripts that need config values.
+    The result is cached so that repeated calls do not re-read disk.
+    """
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = load_analysis_config()
+    return _config_cache
+
+
+def reset_config_cache() -> None:
+    """Clear the cached config (useful in tests)."""
+    global _config_cache
+    _config_cache = None
+
+
 # Canonical DWI type names in the order the pipeline processes them.
 # Used throughout the suite for iteration and labelling.
-DWI_TYPES = ["Standard", "dnCNN", "IVIMnet"]
+# NOTE: This is kept as a module-level constant for backward compatibility;
+# scripts that need the configurable list should use ``get_config()["dwi_types"]``.
+DWI_TYPES = list(_DEFAULTS["dwi_types"])
 
 
 def setup_utf8_stdout():

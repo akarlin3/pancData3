@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from shared import find_latest_saved_folder, setup_utf8_stdout
+from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -137,7 +137,37 @@ def main():
         action="store_true",
         help="Also write the HTML report to disk (default: PDF only)",
     )
+    parser.add_argument(
+        "--gemini-model",
+        type=str,
+        default=None,
+        help="Override the Gemini vision model (e.g. gemini-2.0-flash)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=None,
+        help="Max concurrent Gemini API requests (default: from config)",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to analysis_config.json (default: auto-detect)",
+    )
     args = parser.parse_args()
+
+    # ── Apply CLI overrides to the centralised config ──
+    # Load the config (from file or defaults), then patch with CLI args.
+    import shared as _shared_mod
+    cfg = load_analysis_config(config_path=args.config)
+    if args.gemini_model:
+        cfg["vision"]["gemini_model"] = args.gemini_model
+    if args.concurrency is not None:
+        cfg["vision"]["max_concurrent_requests"] = args.concurrency
+    # Install the patched config into the shared module cache so that
+    # child scripts (imported as modules) see the CLI overrides.
+    _shared_mod._config_cache = cfg
 
     # ── Resolve output folder ──
     if args.folder:
@@ -164,6 +194,8 @@ def main():
         print(f"  Output folder: {folder}")
         print(f"  Skip vision:   {args.skip_vision}")
         print(f"  Report only:   {args.report_only}")
+        print(f"  Gemini model:  {cfg['vision']['gemini_model']}")
+        print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()
 
