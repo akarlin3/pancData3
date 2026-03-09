@@ -81,16 +81,21 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testPercentileSafetyFloor(testCase)
-            % When prctile(adc, 25) > adc_thresh, result is capped
+            % The safety floor ensures the percentile cutoff never exceeds
+            % adc_thresh. Here core_percentile=50 would normally select
+            % ~50 voxels, but adc_thresh=0.0003 is so restrictive that
+            % only the very lowest ADC voxels qualify. This prevents
+            % clinically implausible core sizes when the percentile is set
+            % too aggressively.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'percentile';
             cfg.core_percentile = 50;
-            cfg.adc_thresh = 0.0003; % very low cap
+            cfg.adc_thresh = 0.0003; % Very restrictive cap
 
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, false, []);
 
-            % All core voxels should be <= adc_thresh
+            % Every selected core voxel must have ADC <= the safety threshold
             core_vals = testCase.AdcVec(mask);
             if ~isempty(core_vals)
                 testCase.verifyLessThanOrEqual(max(core_vals), cfg.adc_thresh);

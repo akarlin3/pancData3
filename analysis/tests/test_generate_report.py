@@ -59,14 +59,17 @@ class TestSection:
     """Verify Markdown section header generation."""
 
     def test_default_h2(self):
+        """Default heading level is 2 (##)."""
         result = _section("My Section")
         assert result == "\n## My Section\n"
 
     def test_h3(self):
+        """Explicit level=3 produces a ### heading."""
         result = _section("Subsection", level=3)
         assert result == "\n### Subsection\n"
 
     def test_h1(self):
+        """level=1 produces a top-level # heading."""
         result = _section("Title", level=1)
         assert result == "\n# Title\n"
 
@@ -85,6 +88,7 @@ class TestGenerateReport:
         assert "20260301_120000" in report
 
     def test_report_contains_dwi_types(self, saved_files_with_graph_csv: Path):
+        """All three DWI types should be mentioned somewhere in the report."""
         report = generate_report(saved_files_with_graph_csv)
         assert "Standard" in report
         assert "dnCNN" in report

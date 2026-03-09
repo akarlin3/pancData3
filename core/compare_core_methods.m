@@ -349,15 +349,17 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
         'XTickLabelRotation', 45, 'FontSize', 8);
     title(sprintf('Mean Pairwise Dice Coefficient (%s)', dwi_type_name));
 
-    % Overlay numeric values
+    % Overlay numeric values on each cell for precise reading.
+    % Use black text on light (high-Dice) cells and white on dark (low-Dice)
+    % cells for legibility against the Parula colormap background.
     for i = 1:n_methods
         for j = 1:n_methods
             val = results.mean_dice_matrix(i, j);
             if ~isnan(val)
                 if val > 0.5
-                    txt_color = [0 0 0];
+                    txt_color = [0 0 0];   % black text on light background
                 else
-                    txt_color = [1 1 1];
+                    txt_color = [1 1 1];   % white text on dark background
                 end
                 text(j, i, sprintf('%.2f', val), 'HorizontalAlignment', 'center', ...
                     'FontSize', 7, 'Color', txt_color);

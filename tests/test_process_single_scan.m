@@ -130,7 +130,8 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_data_gtvn_initialized(testCase)
-            % data_gtvn should also be initialized
+            % The GTVn (nodal tumor) data struct should be initialized
+            % analogously to GTVp, with at least an adc_vector field.
             ctx = testCase.makeMinimalCtx();
             ctx.dicomloc = '';
             ctx.struct_file = '';
@@ -143,7 +144,9 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_kurtosis_needs_four_elements(testCase)
-            % adc_kurtosis should remain NaN when no voxels exist
+            % Kurtosis requires at least 4 data points to be meaningful.
+            % When no voxels exist (empty data), adc_kurtosis and
+            % d_kurtosis should remain NaN rather than erroring.
             ctx = testCase.makeMinimalCtx();
             ctx.dicomloc = '';
             ctx.struct_file = '';

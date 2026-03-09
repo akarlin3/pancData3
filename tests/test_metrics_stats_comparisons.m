@@ -96,7 +96,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_multiple_metric_sets(testCase)
-            % Test with multiple metric sets (as in real pipeline)
+            % Verifies handling of multiple metric sets (as in the real
+            % pipeline where absolute and percent-change metrics are
+            % separate sets). Each set should produce its own figure PNG.
             rng(42);
             nPat = 20;
             nTp = 2;
@@ -125,7 +127,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_all_nan_metric_graceful(testCase)
-            % All-NaN metric data should not crash
+            % Verifies graceful handling when a metric is entirely NaN
+            % across all patients and timepoints. The Wilcoxon test should
+            % be skipped (no valid data), and no error should be thrown.
             nPat = 20;
             nTp = 2;
 
