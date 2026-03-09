@@ -131,13 +131,15 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .toc-list a { color: var(--accent); text-decoration: none; }
 .toc-list a:hover { text-decoration: underline; }
 .word-count { display: inline-block; font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
+@page { size: A4; margin: 1.5cm 1.2cm; }
 @media print {
-    body { max-width: none; padding: 1cm; font-size: 10pt; line-height: 1.5; }
+    body { max-width: none; padding: 0; font-size: 10pt; line-height: 1.5; }
     nav.toc { display: none; }
     h1 { font-size: 14pt; }
     h2 { font-size: 12pt; page-break-after: avoid; }
     h3 { font-size: 11pt; page-break-after: avoid; }
-    table { font-size: 8pt; page-break-inside: avoid; }
+    table { font-size: 8pt; page-break-inside: avoid; table-layout: fixed; width: 100%; overflow-wrap: break-word; word-break: break-word; }
+    td, th { overflow: hidden; text-overflow: ellipsis; max-width: 0; }
     th { background: #333 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     tr:nth-child(even) td { background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .stat-grid { grid-template-columns: repeat(4, 1fr); }
@@ -154,6 +156,7 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     details > summary::before { content: ""; }
     .copy-btn { display: none; }
     .word-count { display: none; }
+    img { max-width: 100%; height: auto; }
 }
 """
 
