@@ -31,6 +31,7 @@ from shared import (
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
+    get_config,
     parse_dwi_info,
 )
 from report_formatters import (
@@ -358,6 +359,20 @@ def _section_cohort_overview(mat_data, log_data, dwi_types_present) -> list[str]
                          f"<td><strong>{n_pat}</strong></td>"
                          f"<td>{n_tp}</td></tr>")
             h.append("</tbody></table>")
+
+            # Warn about small sample sizes that affect statistical power.
+            max_patients = max(r[1] for r in cohort_rows)
+            if max_patients < 30:
+                h.append(
+                    '<div class="warn-box">'
+                    f"\u26a0\ufe0f <strong>Small sample size (n\u2009=\u2009{max_patients}):</strong> "
+                    "Results should be interpreted with caution. With fewer than 30 patients, "
+                    "statistical power is limited and effect size estimates may be imprecise. "
+                    "Wide confidence intervals are expected, and non-significant results do not "
+                    "rule out clinically meaningful effects. Validation in a larger cohort is "
+                    "recommended before clinical application."
+                    "</div>"
+                )
 
     # Cross-DWI data quality summary
     if log_data:
@@ -1384,11 +1399,11 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
     if groups:
         h.append(_h2("Cross-DWI Comparison", "cross-dwi"))
 
-        priority_graphs = [
+        priority_graphs = get_config().get("priority_graphs", [
             "Dose_vs_Diffusion", "Longitudinal_Mean_Metrics",
             "Longitudinal_Mean_Metrics_ByOutcome", "Feature_BoxPlots",
             "Feature_Histograms", "core_method_dice_heatmap",
-        ]
+        ])
 
         # Build the list of all graph groups with 2+ DWI types, priority first
         all_comparable = []
@@ -1795,6 +1810,26 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                     )
                 h.append("</tbody></table>")
 
+        # Firth penalised-likelihood refits
+        has_firth = False
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            firth = log_data[dwi_type].get("stats_predictive", {}).get("firth_refits", [])
+            if firth:
+                if not has_firth:
+                    h.append("<h3>Firth Penalised-Likelihood Refits</h3>")
+                    h.append(f'<p class="meta">Firth bias reduction{_cite("firth")} was applied '
+                             "to address separation or convergence issues in the logistic model.</p>")
+                    has_firth = True
+                firth_parts = []
+                for fr in firth:
+                    tp = _esc(fr["timepoint"])
+                    nf = fr["n_features"]
+                    firth_parts.append(f"<code>{tp}</code> ({nf} features)")
+                h.append(f"<p>{_dwi_badge(dwi_type)}: Firth refit successful at "
+                         f"{', '.join(firth_parts)}</p>")
+
         # Lambda trend analysis
         if all_lambdas:
             h.append("<h4>Regularisation Trend</h4>")
@@ -1893,12 +1928,26 @@ def _section_mat_data(mat_data) -> list[str]:
                 dos = mat_data[dt]["dosimetry"]
                 if not dos:
                     continue
+
+                def _fmt_gy(val):
+                    """Format a dose value in Gy, handling missing data."""
+                    if isinstance(val, (int, float)) and val == val:  # NaN check
+                        return f"{val:.2f}"
+                    return "N/A"
+
+                def _fmt_pct(val):
+                    """Format a fractional value as percentage, handling missing data."""
+                    if isinstance(val, (int, float)) and val == val:  # NaN check
+                        pct = val * 100 if val <= 1.0 else val
+                        return f"{pct:.1f}%"
+                    return "N/A"
+
                 h.append(
                     f"<tr><td>{_dwi_badge(dt)}</td>"
-                    f"<td>{dos.get('d95_adc_mean', 'N/A'):.2f}</td>"
-                    f"<td>{dos.get('v50_adc_mean', 'N/A') * 100:.1f}%</td>"
-                    f"<td>{dos.get('d95_d_mean', 'N/A'):.2f}</td>"
-                    f"<td>{dos.get('v50_d_mean', 'N/A') * 100:.1f}%</td></tr>"
+                    f"<td>{_fmt_gy(dos.get('d95_adc_mean'))}</td>"
+                    f"<td>{_fmt_pct(dos.get('v50_adc_mean'))}</td>"
+                    f"<td>{_fmt_gy(dos.get('d95_d_mean'))}</td>"
+                    f"<td>{_fmt_pct(dos.get('v50_d_mean'))}</td></tr>"
                 )
             h.append("</tbody></table>")
 

@@ -405,6 +405,7 @@ NAV_SECTIONS = [
     ("supplemental", "Supplemental"),
     ("limitations", "Limitations"),
     ("conclusions", "Conclusions"),
+    ("data-availability", "Data"),
     ("references", "References"),
     ("appendix", "All Graphs"),
 ]

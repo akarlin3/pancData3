@@ -333,15 +333,25 @@ def extract_pvalues(text: str) -> list[tuple[float, str]]:
     """
     results: list[tuple[float, str]] = []
     patterns = [
-        # Matches: p = 0.03, p<0.001, p > 1.2e-4
-        r"p\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)",
-        # Matches: p-value = 0.04, p-value<0.001
+        # Matches: p-value = 0.04, p-value<0.001 (checked first, more specific)
         r"p-value\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)",
+        # Matches: p = 0.03, p<0.001, p > 1.2e-4
+        # (?<![a-zA-Z]) prevents matching "up = 2.5", "group = ...", etc.
+        r"(?<![a-zA-Z])p\s*[=<>]\s*([\d.]+(?:e[+-]?\d+)?)",
     ]
+    seen_spans: set[tuple[int, int]] = set()
     for pat in patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
+            # Deduplicate overlapping matches (p-value pattern is a superset).
+            span = (m.start(), m.end())
+            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+                continue
+            seen_spans.add(span)
             try:
                 val = float(m.group(1))
+                # Skip values that are clearly not p-values (> 1.0 or negative).
+                if val > 1.0:
+                    continue
                 # Extract surrounding context for downstream display.
                 start = max(0, m.start() - 80)
                 end = min(len(text), m.end() + 40)
@@ -371,17 +381,26 @@ def extract_correlations(text: str) -> list[tuple[float, str]]:
     """
     results: list[tuple[float, str]] = []
     patterns = [
+        # Spearman rank correlation: "rs = 0.65" (checked first, more specific)
+        r"(?<![a-zA-Z])rs\s*=\s*(-?[\d.]+)",
+        # Coefficient of determination: "r² = 0.61"  (\xb2 = superscript 2)
+        r"(?<![a-zA-Z])r\xb2\s*=\s*([\d.]+)",
         # Pearson r: "r = 0.78" or "r = -0.45"
-        r"r\s*=\s*(-?[\d.]+)",
-        # Spearman rank correlation: "rs = 0.65"
-        r"rs\s*=\s*(-?[\d.]+)",
-        # Coefficient of determination: "r\u00b2 = 0.61"  (\xb2 = superscript 2)
-        r"r\xb2\s*=\s*([\d.]+)",
+        # (?<![a-zA-Z]) prevents matching "parameter = ...", "error = ...", etc.
+        r"(?<![a-zA-Z])r\s*=\s*(-?[\d.]+)",
     ]
+    seen_spans: set[tuple[int, int]] = set()
     for pat in patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
+            span = (m.start(), m.end())
+            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+                continue
+            seen_spans.add(span)
             try:
                 val = float(m.group(1))
+                # Skip values that are clearly not correlation coefficients.
+                if abs(val) > 1.0:
+                    continue
                 start = max(0, m.start() - 60)
                 end = min(len(text), m.end() + 60)
                 context = text[start:end].strip()

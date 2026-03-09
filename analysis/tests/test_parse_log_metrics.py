@@ -141,11 +141,32 @@ class TestParseStatsPredictive:
         assert result["roc_analyses"][0]["auc"] == pytest.approx(0.78)
         assert result["roc_analyses"][1]["auc"] == pytest.approx(0.65)
 
+    def test_firth_refit(self):
+        """Firth penalised-likelihood refit line is captured."""
+        text = "Firth refit successful for Fx5 (3 features)\n"
+        result = parse_stats_predictive(text)
+        assert len(result["firth_refits"]) == 1
+        assert result["firth_refits"][0]["timepoint"] == "Fx5"
+        assert result["firth_refits"][0]["n_features"] == 3
+
+    def test_multiple_firth_refits(self):
+        """Multiple Firth refit lines at different timepoints."""
+        text = (
+            "Firth refit successful for BL (5 features)\n"
+            "Firth refit successful for W2 (3 features)\n"
+        )
+        result = parse_stats_predictive(text)
+        assert len(result["firth_refits"]) == 2
+        assert result["firth_refits"][0]["timepoint"] == "BL"
+        assert result["firth_refits"][1]["timepoint"] == "W2"
+        assert result["firth_refits"][1]["n_features"] == 3
+
     def test_empty_text(self):
         """Empty input yields empty lists for both feature selections and ROC analyses."""
         result = parse_stats_predictive("")
         assert result["feature_selections"] == []
         assert result["roc_analyses"] == []
+        assert result["firth_refits"] == []
 
 
 # ---------------------------------------------------------------------------
