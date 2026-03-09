@@ -49,12 +49,12 @@ pancData3/
 ├── core/                       # Primary pipeline modules (18 files)
 ├── utils/                      # Helper utilities (39 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (78 test files)
+├── tests/                      # Full test suite (83 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (13 files)
-│   └── tests/                  # Python test suite — 7 test files, 158 tests (pytest)
+│   └── tests/                  # Python test suite — 9 test files, 227 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -229,6 +229,11 @@ run('tests/run_all_tests.m')
 | `test_init_scan_structs.m` | Scan data structure initialization |
 | `test_compute_scan_days_from_dates.m` | DICOM-derived scan day computation |
 | `test_perform_statistical_test.m` | Wilcoxon rank-sum with NaN-safe extraction |
+| `test_remove_constant_columns.m` | Zero-variance and all-NaN column removal |
+| `test_execute_pipeline_step.m` | Non-fatal step executor: success, error, warning, diary |
+| `test_load_data_from_disk.m` | DWI vector loading with legacy fallback |
+| `test_compute_adc_metrics.m` | ADC metric computation (volume, sub-volume, histogram, KS) |
+| `test_compute_ivim_metrics.m` | IVIM metric computation (failed-fit filtering, unified methods) |
 
 ---
 
@@ -333,7 +338,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 7 test files with 158 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 9 test files with 227 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -345,6 +350,8 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `test_generate_report.py` | Significance tags, section headers, full Markdown report generation |
 | `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
+| `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus |
+| `test_parse_mat_metrics.py` | MAT file parsing, dosimetry/core/longitudinal extraction, scipy graceful degradation |
 
 ---
 

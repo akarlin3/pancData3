@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.1.0-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-78%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-83%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -230,7 +230,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 78 test files covering:
+The test suite includes 83 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -291,7 +291,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 
 ### Analysis Test Suite
 
-The analysis scripts have a Python test suite (158 tests across 7 files) using pytest:
+The analysis scripts have a Python test suite (227 tests across 9 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -323,12 +323,12 @@ pancData3/
 │   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
 │   └── ...
-├── tests/                      # Test suite (78 test files)
+├── tests/                      # Test suite (83 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
 ├── analysis/                   # Python post-hoc analysis suite (13 files)
-│   └── tests/                  # Python test suite (7 test files, 142 tests)
+│   └── tests/                  # Python test suite (9 test files, 227 tests)
 │   ├── run_analysis.py         #   Orchestrator (full workflow runner)
 │   ├── shared.py               #   Shared utilities
 │   ├── batch_graph_analysis.py #   Vision API batch graph extraction
