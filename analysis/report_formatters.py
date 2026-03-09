@@ -40,26 +40,35 @@ class _NumberingContext:
     """Thread-local numbering state for tables and figures.
 
     Call :meth:`reset` at the start of each report generation to begin
-    numbering from 1.
+    numbering from 1.  Also tracks titles for generating a List of Tables
+    and List of Figures at the end of the report.
     """
 
     def __init__(self):
         self.table_num = 0
         self.figure_num = 0
+        self.table_titles: list[tuple[int, str]] = []
+        self.figure_titles: list[tuple[int, str]] = []
 
     def reset(self):
         """Reset all counters (call at the start of report generation)."""
         self.table_num = 0
         self.figure_num = 0
+        self.table_titles = []
+        self.figure_titles = []
 
-    def next_table(self) -> int:
+    def next_table(self, title: str = "") -> int:
         """Increment and return the next table number."""
         self.table_num += 1
+        if title:
+            self.table_titles.append((self.table_num, title))
         return self.table_num
 
-    def next_figure(self) -> int:
+    def next_figure(self, title: str = "") -> int:
         """Increment and return the next figure number."""
         self.figure_num += 1
+        if title:
+            self.figure_titles.append((self.figure_num, title))
         return self.figure_num
 
 
@@ -69,6 +78,11 @@ _numbering = _NumberingContext()
 def reset_numbering() -> None:
     """Reset table/figure counters for a new report."""
     _numbering.reset()
+
+
+def get_numbering() -> _NumberingContext:
+    """Return the global numbering context (for generating table/figure indices)."""
+    return _numbering
 
 
 def _table_caption(title: str, description: str = "") -> str:
@@ -86,7 +100,7 @@ def _table_caption(title: str, description: str = "") -> str:
     str
         HTML ``<caption>`` element.
     """
-    num = _numbering.next_table()
+    num = _numbering.next_table(title)
     desc_html = f" {_html.escape(description)}" if description else ""
     return (
         f'<caption style="caption-side:top;text-align:left;font-size:0.9rem;'
@@ -293,6 +307,25 @@ details[open] > summary { margin-bottom: 0.4rem; }
 .ref-list li::before { content: "[" counter(ref-counter) "] "; font-weight: 600; color: var(--accent); }
 .cite { color: var(--accent); font-size: 0.82rem; vertical-align: super; font-weight: 600; cursor: help; }
 caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151; padding: 0.4rem 0; font-weight: 600; }
+.copy-btn {
+    display: inline-block; padding: 0.25em 0.6em; border: 1px solid var(--border);
+    border-radius: 4px; background: var(--row-alt); color: var(--accent);
+    font-size: 0.78rem; cursor: pointer; margin-left: 0.5rem; vertical-align: middle;
+    transition: background 0.15s, border-color 0.15s;
+}
+.copy-btn:hover { background: var(--accent-light); border-color: var(--accent); }
+.copy-btn.copied { background: #dcfce7; border-color: var(--green); color: var(--green); }
+.manuscript-sentence { background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 0.5rem 0.75rem; margin: 0.3rem 0; font-size: 0.9rem; line-height: 1.5; position: relative; }
+.manuscript-sentence .copy-btn { position: absolute; top: 0.35rem; right: 0.5rem; }
+.checklist-table td:first-child { font-weight: 600; white-space: nowrap; }
+.checklist-done { color: var(--green); }
+.checklist-partial { color: var(--amber); }
+.checklist-na { color: var(--muted); font-style: italic; }
+.toc-list { column-count: 2; column-gap: 2rem; font-size: 0.88rem; margin: 0.5rem 0 1rem; }
+.toc-list li { break-inside: avoid; margin-bottom: 0.2rem; }
+.toc-list a { color: var(--accent); text-decoration: none; }
+.toc-list a:hover { text-decoration: underline; }
+.word-count { display: inline-block; font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
 @media print {
     body { max-width: none; padding: 1cm; font-size: 10pt; line-height: 1.5; }
     nav.toc { display: none; }
@@ -314,6 +347,34 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     details { display: block; }
     details > summary { list-style: none; }
     details > summary::before { content: ""; }
+    .copy-btn { display: none; }
+    .word-count { display: none; }
+}
+"""
+
+# ── JavaScript for interactive features (copy-to-clipboard) ──────────────────
+REPORT_JS = """\
+function copyText(el) {
+    var target = el.closest('[data-copy]') || el.parentElement;
+    var text = target.getAttribute('data-copy') || target.innerText;
+    // Strip the button text from the copy content
+    text = text.replace(/Copy(?: to clipboard)?\\s*$/m, '').trim();
+    navigator.clipboard.writeText(text).then(function() {
+        el.textContent = 'Copied!';
+        el.classList.add('copied');
+        setTimeout(function() { el.textContent = 'Copy'; el.classList.remove('copied'); }, 1500);
+    });
+}
+function copyById(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var text = el.getAttribute('data-copy') || el.innerText;
+    navigator.clipboard.writeText(text).then(function() {
+        var btn = el.querySelector('.copy-btn');
+        if (btn) { btn.textContent = 'Copied!'; btn.classList.add('copied');
+            setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+        }
+    });
 }
 """
 
@@ -386,6 +447,7 @@ def _trend_tag(direction: str) -> str:
 
 NAV_SECTIONS = [
     ("exec-summary", "Abstract"),
+    ("manuscript-findings", "Manuscript"),
     ("methods", "Methods"),
     ("cohort", "Cohort"),
     ("patient-flow", "Flow"),
@@ -410,6 +472,8 @@ NAV_SECTIONS = [
     ("supplemental", "Supplemental"),
     ("limitations", "Limitations"),
     ("conclusions", "Conclusions"),
+    ("reporting-checklist", "Checklist"),
+    ("table-index", "Tables"),
     ("data-availability", "Data"),
     ("references", "References"),
     ("appendix", "All Graphs"),
@@ -580,43 +644,184 @@ REFERENCES: list[dict[str, str]] = [
     {"key": "wilcoxon",
      "text": "Mann HB, Whitney DR. On a test of whether one of two random "
              "variables is stochastically larger than the other. Ann Math "
-             "Stat. 1947;18(1):50\u201360."},
+             "Stat. 1947;18(1):50\u201360.",
+     "bibtex": "@article{mann1947test,\n"
+               "  author  = {Mann, H. B. and Whitney, D. R.},\n"
+               "  title   = {On a test of whether one of two random variables is "
+               "stochastically larger than the other},\n"
+               "  journal = {Annals of Mathematical Statistics},\n"
+               "  year    = {1947},\n"
+               "  volume  = {18},\n"
+               "  number  = {1},\n"
+               "  pages   = {50--60}\n"
+               "}"},
     {"key": "bh_fdr",
      "text": "Benjamini Y, Hochberg Y. Controlling the false discovery rate: "
              "a practical and powerful approach to multiple testing. J R Stat "
-             "Soc Series B. 1995;57(1):289\u2013300."},
+             "Soc Series B. 1995;57(1):289\u2013300.",
+     "bibtex": "@article{benjamini1995controlling,\n"
+               "  author  = {Benjamini, Yoav and Hochberg, Yosef},\n"
+               "  title   = {Controlling the false discovery rate: a practical and "
+               "powerful approach to multiple testing},\n"
+               "  journal = {Journal of the Royal Statistical Society: Series B},\n"
+               "  year    = {1995},\n"
+               "  volume  = {57},\n"
+               "  number  = {1},\n"
+               "  pages   = {289--300}\n"
+               "}"},
     {"key": "cox_ph",
      "text": "Cox DR. Regression models and life-tables. J R Stat Soc Series B. "
-             "1972;34(2):187\u2013220."},
+             "1972;34(2):187\u2013220.",
+     "bibtex": "@article{cox1972regression,\n"
+               "  author  = {Cox, David R.},\n"
+               "  title   = {Regression models and life-tables},\n"
+               "  journal = {Journal of the Royal Statistical Society: Series B},\n"
+               "  year    = {1972},\n"
+               "  volume  = {34},\n"
+               "  number  = {2},\n"
+               "  pages   = {187--220}\n"
+               "}"},
     {"key": "elastic_net",
      "text": "Zou H, Hastie T. Regularization and variable selection via the "
-             "elastic net. J R Stat Soc Series B. 2005;67(2):301\u2013320."},
+             "elastic net. J R Stat Soc Series B. 2005;67(2):301\u2013320.",
+     "bibtex": "@article{zou2005regularization,\n"
+               "  author  = {Zou, Hui and Hastie, Trevor},\n"
+               "  title   = {Regularization and variable selection via the elastic net},\n"
+               "  journal = {Journal of the Royal Statistical Society: Series B},\n"
+               "  year    = {2005},\n"
+               "  volume  = {67},\n"
+               "  number  = {2},\n"
+               "  pages   = {301--320}\n"
+               "}"},
     {"key": "hosmer_lemeshow",
      "text": "Hosmer DW, Lemeshow S. Applied Logistic Regression. 2nd ed. "
-             "New York: Wiley; 2000."},
+             "New York: Wiley; 2000.",
+     "bibtex": "@book{hosmer2000applied,\n"
+               "  author    = {Hosmer, David W. and Lemeshow, Stanley},\n"
+               "  title     = {Applied Logistic Regression},\n"
+               "  edition   = {2nd},\n"
+               "  publisher = {Wiley},\n"
+               "  address   = {New York},\n"
+               "  year      = {2000}\n"
+               "}"},
     {"key": "ipcw",
      "text": "Robins JM, Finkelstein DM. Correcting for noncompliance and "
              "dependent censoring in an AIDS clinical trial with inverse "
              "probability of censoring weighted (IPCW) log-rank tests. "
-             "Biometrics. 2000;56(3):779\u2013788."},
+             "Biometrics. 2000;56(3):779\u2013788.",
+     "bibtex": "@article{robins2000correcting,\n"
+               "  author  = {Robins, James M. and Finkelstein, Dianne M.},\n"
+               "  title   = {Correcting for noncompliance and dependent censoring in an "
+               "AIDS clinical trial with inverse probability of censoring weighted "
+               "(IPCW) log-rank tests},\n"
+               "  journal = {Biometrics},\n"
+               "  year    = {2000},\n"
+               "  volume  = {56},\n"
+               "  number  = {3},\n"
+               "  pages   = {779--788}\n"
+               "}"},
     {"key": "firth",
      "text": "Firth D. Bias reduction of maximum likelihood estimates. "
-             "Biometrika. 1993;80(1):27\u201338."},
+             "Biometrika. 1993;80(1):27\u201338.",
+     "bibtex": "@article{firth1993bias,\n"
+               "  author  = {Firth, David},\n"
+               "  title   = {Bias reduction of maximum likelihood estimates},\n"
+               "  journal = {Biometrika},\n"
+               "  year    = {1993},\n"
+               "  volume  = {80},\n"
+               "  number  = {1},\n"
+               "  pages   = {27--38}\n"
+               "}"},
     {"key": "ivim",
      "text": "Le Bihan D, Breton E, Lallemand D, Aubin ML, Vignaud J, "
              "Laval-Jeantet M. Separation of diffusion and perfusion in "
              "intravoxel incoherent motion MR imaging. Radiology. "
-             "1988;168(2):497\u2013505."},
+             "1988;168(2):497\u2013505.",
+     "bibtex": "@article{lebihan1988separation,\n"
+               "  author  = {Le Bihan, Denis and Breton, Eric and Lallemand, "
+               "Denis and Aubin, Marie-Louise and Vignaud, Jean and "
+               "Laval-Jeantet, Michel},\n"
+               "  title   = {Separation of diffusion and perfusion in intravoxel "
+               "incoherent motion MR imaging},\n"
+               "  journal = {Radiology},\n"
+               "  year    = {1988},\n"
+               "  volume  = {168},\n"
+               "  number  = {2},\n"
+               "  pages   = {497--505}\n"
+               "}"},
     {"key": "cohen_d",
      "text": "Cohen J. Statistical Power Analysis for the Behavioral Sciences. "
-             "2nd ed. Hillsdale, NJ: Lawrence Erlbaum Associates; 1988."},
+             "2nd ed. Hillsdale, NJ: Lawrence Erlbaum Associates; 1988.",
+     "bibtex": "@book{cohen1988statistical,\n"
+               "  author    = {Cohen, Jacob},\n"
+               "  title     = {Statistical Power Analysis for the Behavioral Sciences},\n"
+               "  edition   = {2nd},\n"
+               "  publisher = {Lawrence Erlbaum Associates},\n"
+               "  address   = {Hillsdale, NJ},\n"
+               "  year      = {1988}\n"
+               "}"},
     {"key": "dice",
      "text": "Dice LR. Measures of the amount of ecologic association between "
-             "species. Ecology. 1945;26(3):297\u2013302."},
+             "species. Ecology. 1945;26(3):297\u2013302.",
+     "bibtex": "@article{dice1945measures,\n"
+               "  author  = {Dice, Lee R.},\n"
+               "  title   = {Measures of the amount of ecologic association between "
+               "species},\n"
+               "  journal = {Ecology},\n"
+               "  year    = {1945},\n"
+               "  volume  = {26},\n"
+               "  number  = {3},\n"
+               "  pages   = {297--302}\n"
+               "}"},
     {"key": "dncnn",
      "text": "Zhang K, Zuo W, Chen Y, Meng D, Zhang L. Beyond a Gaussian "
              "denoiser: residual learning of deep CNN for image denoising. "
-             "IEEE Trans Image Process. 2017;26(7):3142\u20133155."},
+             "IEEE Trans Image Process. 2017;26(7):3142\u20133155.",
+     "bibtex": "@article{zhang2017beyond,\n"
+               "  author  = {Zhang, Kai and Zuo, Wangmeng and Chen, Yunjin and "
+               "Meng, Deyu and Zhang, Lei},\n"
+               "  title   = {Beyond a Gaussian denoiser: residual learning of deep "
+               "CNN for image denoising},\n"
+               "  journal = {IEEE Transactions on Image Processing},\n"
+               "  year    = {2017},\n"
+               "  volume  = {26},\n"
+               "  number  = {7},\n"
+               "  pages   = {3142--3155}\n"
+               "}"},
+    {"key": "strobe",
+     "text": "von Elm E, Altman DG, Egger M, Pocock SJ, G\u00f8tzsche PC, "
+             "Vandenbroucke JP. The Strengthening the Reporting of "
+             "Observational Studies in Epidemiology (STROBE) statement: "
+             "guidelines for reporting observational studies. Ann Intern Med. "
+             "2007;147(8):573\u2013577.",
+     "bibtex": "@article{vonelm2007strobe,\n"
+               "  author  = {von Elm, Erik and Altman, Douglas G. and Egger, Matthias "
+               "and Pocock, Stuart J. and G{\\o}tzsche, Peter C. and "
+               "Vandenbroucke, Jan P.},\n"
+               "  title   = {The {STROBE} statement: guidelines for reporting "
+               "observational studies},\n"
+               "  journal = {Annals of Internal Medicine},\n"
+               "  year    = {2007},\n"
+               "  volume  = {147},\n"
+               "  number  = {8},\n"
+               "  pages   = {573--577}\n"
+               "}"},
+    {"key": "remark",
+     "text": "McShane LM, Altman DG, Sauerbrei W, Taube SE, Gion M, Clark GM. "
+             "REporting recommendations for tumour MARKer prognostic studies "
+             "(REMARK). Br J Cancer. 2005;93(4):387\u2013391.",
+     "bibtex": "@article{mcshane2005remark,\n"
+               "  author  = {McShane, Lisa M. and Altman, Douglas G. and "
+               "Sauerbrei, Willi and Taube, Sheila E. and Gion, Massimo and "
+               "Clark, Gary M.},\n"
+               "  title   = {{REMARK}: {REporting} recommendations for tumour "
+               "{MARKer} prognostic studies},\n"
+               "  journal = {British Journal of Cancer},\n"
+               "  year    = {2005},\n"
+               "  volume  = {93},\n"
+               "  number  = {4},\n"
+               "  pages   = {387--391}\n"
+               "}"},
 ]
 
 _REF_INDEX = {r["key"]: i + 1 for i, r in enumerate(REFERENCES)}
@@ -641,8 +846,51 @@ def _cite(*keys: str) -> str:
     return f'<sup class="cite">[{",".join(str(n) for n in nums)}]</sup>'
 
 
+def _copy_button(target_id: str = "", onclick: str = "") -> str:
+    """Return an HTML copy-to-clipboard button.
+
+    Parameters
+    ----------
+    target_id : str, optional
+        Element ID to copy from (uses ``copyById``).
+    onclick : str, optional
+        Custom onclick handler (overrides target_id).
+
+    Returns
+    -------
+    str
+        HTML ``<button>`` element.
+    """
+    if onclick:
+        return f'<button class="copy-btn" onclick="{onclick}">Copy</button>'
+    if target_id:
+        return f'<button class="copy-btn" onclick="copyById(\'{target_id}\')">Copy</button>'
+    return '<button class="copy-btn" onclick="copyText(this)">Copy</button>'
+
+
+def _manuscript_sentence(text: str) -> str:
+    """Return a copyable manuscript-ready sentence block.
+
+    Parameters
+    ----------
+    text : str
+        Publication-ready sentence text.
+
+    Returns
+    -------
+    str
+        HTML block with the sentence and a copy button.
+    """
+    return (
+        f'<div class="manuscript-sentence" data-copy="{_html.escape(text)}">'
+        f'{_html.escape(text)}'
+        f'<button class="copy-btn" onclick="copyText(this)">Copy</button>'
+        f'</div>'
+    )
+
+
 def _references_section() -> list[str]:
-    """Build the References section HTML.
+    """Build the References section HTML with BibTeX export.
 
     Returns
     -------
@@ -655,6 +903,22 @@ def _references_section() -> list[str]:
     for ref in REFERENCES:
         h.append(f"<li>{_html.escape(ref['text'])}</li>")
     h.append("</ol>")
+
+    # BibTeX export block
+    all_bibtex = "\n\n".join(
+        ref.get("bibtex", "") for ref in REFERENCES if ref.get("bibtex")
+    )
+    if all_bibtex:
+        escaped_bibtex = _html.escape(all_bibtex)
+        h.append('<details><summary><strong>Export BibTeX</strong></summary>')
+        h.append(f'<div id="bibtex-block" data-copy="{escaped_bibtex}">')
+        h.append(f'<button class="copy-btn" onclick="copyById(\'bibtex-block\')">Copy All BibTeX</button>')
+        h.append(f'<pre style="background:#f8fafc;border:1px solid #e2e8f0;'
+                 f'border-radius:6px;padding:1rem;font-size:0.82rem;'
+                 f'overflow-x:auto;margin-top:0.5rem;white-space:pre-wrap">'
+                 f'{escaped_bibtex}</pre>')
+        h.append('</div></details>')
+
     return h
 
 
