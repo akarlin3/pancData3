@@ -199,6 +199,24 @@ details[open] > summary { margin-bottom: 0.4rem; }
 
 
 def _dwi_badge(dwi_type: str) -> str:
+    """Return a colour-coded HTML badge ``<span>`` for a DWI type.
+
+    Each DWI type gets a distinct background colour:
+    - Standard: blue
+    - dnCNN: green
+    - IVIMnet: amber
+    - Other/Root: grey
+
+    Parameters
+    ----------
+    dwi_type : str
+        DWI type name.
+
+    Returns
+    -------
+    str
+        HTML ``<span class="badge ...">`` string.
+    """
     cls = {
         "Standard": "badge-standard", "dnCNN": "badge-dncnn",
         "IVIMnet": "badge-ivimnet",
@@ -207,23 +225,44 @@ def _dwi_badge(dwi_type: str) -> str:
 
 
 def _trend_tag(direction: str) -> str:
+    """Return a directional arrow badge ``<span>`` for a trend direction.
+
+    Keyword matching on the direction string determines the arrow and
+    colour class:
+    - Increasing/up/higher/rising: green with up-arrow
+    - Decreasing/down/lower/falling/drop: red with down-arrow
+    - Flat/stable/constant: grey with right-arrow
+    - Anything else (non-monotonic, U-shaped): purple, no arrow
+
+    Parameters
+    ----------
+    direction : str
+        Trend direction text from the vision model.
+
+    Returns
+    -------
+    str
+        HTML ``<span class="trend-tag ...">`` string.
+    """
     d = direction.lower()
     if "increas" in d or "up" in d or "higher" in d or "rising" in d:
         cls = "trend-incr"
-        arrow = "\u2191\u00a0"
+        arrow = "\u2191\u00a0"  # Up arrow + non-breaking space
     elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
         cls = "trend-decr"
-        arrow = "\u2193\u00a0"
+        arrow = "\u2193\u00a0"  # Down arrow
     elif "flat" in d or "stable" in d or "constant" in d:
         cls = "trend-flat"
-        arrow = "\u2192\u00a0"
+        arrow = "\u2192\u00a0"  # Right arrow
     else:
-        cls = "trend-nm"
+        cls = "trend-nm"  # Non-monotonic
         arrow = ""
     return f'<span class="trend-tag {cls}">{arrow}{_esc(direction)}</span>'
 
 
 # ── Navigation sections ────────────────────────────────────────────────────────
+# Defines the order and labels for the sticky top-of-page navigation bar.
+# Each tuple is (anchor_id, display_label).
 
 NAV_SECTIONS = [
     ("exec-summary", "Executive Summary"),
@@ -242,6 +281,13 @@ NAV_SECTIONS = [
 
 
 def _nav_bar() -> str:
+    """Build the sticky navigation bar HTML from :data:`NAV_SECTIONS`.
+
+    Returns
+    -------
+    str
+        HTML ``<nav class="toc">`` element with anchor links.
+    """
     links = "".join(
         f'<a href="#{anchor}">{_esc(label)}</a>'
         for anchor, label in NAV_SECTIONS
@@ -250,10 +296,43 @@ def _nav_bar() -> str:
 
 
 def _h2(text: str, anchor: str) -> str:
+    """Return an ``<h2>`` element with an ``id`` attribute for anchor linking.
+
+    Parameters
+    ----------
+    text : str
+        Heading text.
+    anchor : str
+        HTML ``id`` attribute (used by navigation bar links).
+
+    Returns
+    -------
+    str
+        HTML ``<h2>`` string.
+    """
     return f'<h2 id="{anchor}">{_esc(text)}</h2>'
 
 
 def _stat_card(label: str, value: str, sub: str = "") -> str:
+    """Return a summary statistic card HTML block.
+
+    Cards are displayed in a CSS grid and show a label (small caps),
+    a large value, and an optional subtitle.
+
+    Parameters
+    ----------
+    label : str
+        Card label (e.g. "Best AUC").
+    value : str
+        Main display value (e.g. "0.843").
+    sub : str, optional
+        Subtitle text below the value (e.g. "across all DWI types").
+
+    Returns
+    -------
+    str
+        HTML ``<div class="stat-card">`` block.
+    """
     sub_html = f'<div class="sub">{_esc(sub)}</div>' if sub else ""
     return (
         f'<div class="stat-card">'
@@ -264,6 +343,22 @@ def _stat_card(label: str, value: str, sub: str = "") -> str:
 
 
 def _get_consensus(trend_list: list[str]) -> str:
+    """Determine the consensus trend direction from a list of direction strings.
+
+    Uses simple keyword voting: counts how many entries contain increasing-
+    related keywords vs decreasing-related keywords.
+
+    Parameters
+    ----------
+    trend_list : list[str]
+        Direction strings (e.g. ``["increasing", "decreasing", "rising"]``).
+
+    Returns
+    -------
+    str
+        One of ``"increasing"``, ``"decreasing"``, ``"stable"``, or
+        ``"unknown"`` (if the list is empty).
+    """
     if not trend_list: return "unknown"
     increasers = sum(1 for x in trend_list if "increas" in x or "higher" in x or "up" in x)
     decreasers = sum(1 for x in trend_list if "decreas" in x or "lower" in x or "down" in x)
@@ -272,6 +367,10 @@ def _get_consensus(trend_list: list[str]) -> str:
     return "stable"
 
 
+# ── HTML template for Markdown-to-HTML conversion ────────────────────────────
+# Used by generate_report.markdown_to_html() to wrap rendered Markdown in a
+# styled HTML document.  The ``{title}`` and ``{body}`` placeholders are
+# filled via str.format().  Curly braces in CSS are doubled to escape them.
 HTML_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">

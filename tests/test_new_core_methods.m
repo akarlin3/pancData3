@@ -276,6 +276,12 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testFdmUsesD(testCase)
+            % Verifies that fDM can operate on the D parameter (tissue
+            % diffusivity from IVIM) instead of ADC. Here all voxels have
+            % D decreased by 0.001, well exceeding fdm_thresh=0.0003, so
+            % all should be classified as progressing (core). The ADC
+            % values are intentionally high (0.002), which would NOT be
+            % core under ADC thresholding -- proving the method uses D.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
             cfg.fdm_parameter = 'd';
@@ -283,9 +289,8 @@ classdef test_new_core_methods < matlab.unittest.TestCase
 
             n = 60;
             baseline_d = 0.0008 * ones(n, 1);
-            % D decreased everywhere → all should be core
-            current_d = baseline_d - 0.001;
-            current_adc = 0.002 * ones(n, 1); % high ADC (would not be core by threshold)
+            current_d = baseline_d - 0.001; % Large decrease = progressing
+            current_adc = 0.002 * ones(n, 1); % High ADC (irrelevant for D-based fDM)
 
             opts = struct('timepoint_index', 3);
             opts.baseline_d_vec = baseline_d;
@@ -296,16 +301,21 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testFdmVectorMismatchFallback(testCase)
+            % When the baseline vector length does not match the current
+            % vector length (e.g., due to GTV mask changes between
+            % timepoints after deformable registration), voxel-level delta
+            % computation is impossible. The method must fall back to
+            % simple ADC thresholding rather than crashing.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
 
             opts = struct('timepoint_index', 2);
-            opts.baseline_adc_vec = rand(50, 1); % wrong length (100 vs 50)
+            opts.baseline_adc_vec = rand(50, 1); % 50 vs 100: length mismatch
 
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, false, [], opts);
 
-            % Should fall back to adc_threshold
+            % Verify exact equivalence with the threshold fallback
             expected = testCase.AdcVec <= cfg.adc_thresh;
             testCase.verifyEqual(mask, expected);
         end

@@ -109,9 +109,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testCompetingRisksTreatedAsCensored(testCase)
-            % Event code 2 (competing risk) is censored for cause-specific Cox.
-            % Function must handle the mixed event vector gracefully.
-            % Verify the panel correctly reports competing events separately.
+            % Verifies Cause-Specific Hazards model handling: event code 2
+            % (competing risk, e.g., non-pancreatic death) is treated as
+            % censored for the primary event (local failure). The function
+            % should handle the mixed event vector [1, 2, 0] gracefully
+            % and report competing events in the panel output.
             rng(7);
             n   = 20;
             nTp = 4;
@@ -146,8 +148,10 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testValidPtsMaskSubsetsPatients(testCase)
-            % valid_pts selects a subset; excluded patients should not influence
-            % the model.  Function must accept mixed logical masks.
+            % Verifies that valid_pts correctly subsets the patient cohort:
+            % only the first 15 of 25 patients are marked valid. The
+            % excluded 10 patients should not contribute to the Cox model.
+            % Tests that mixed logical masks (true/false) are handled.
             rng(13);
             n_total    = 25;
             nTp        = 4;

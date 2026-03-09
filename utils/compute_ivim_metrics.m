@@ -70,22 +70,31 @@ if isempty(d_vec)
     return;
 end
 
-% Exclude exact-zero f values that co-occur with failed D* fits
-% (D* == 0 or NaN), preserving genuine zero perfusion.
+% Filter failed IVIM fits: when the bi-exponential IVIM model fails to
+% converge, it often returns f=0 with D*=0 or D*=NaN. These are numerical
+% artefacts, not genuine zero-perfusion voxels. We NaN them out so they
+% don't bias the perfusion fraction statistics downward.
+% Genuine f=0 voxels (where D* has a valid nonzero value) are preserved.
 failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
 f_vec(failed_fit) = nan;
 dstar_vec(failed_fit) = nan;
 ivim_out.f_vec = f_vec;
 ivim_out.dstar_vec = dstar_vec;
 
-% For unified core methods (percentile, spectral, fdm),
-% the core mask replaces individual parameter thresholds.
+% For unified core methods (percentile, spectral, fdm), a single core mask
+% (computed from ADC in compute_adc_metrics) is applied to all parameters.
+% This ensures D, f, and D* sub-volumes are spatially identical rather than
+% each using its own independent threshold, which is more anatomically
+% meaningful (same voxels define the "core" for all parameters).
 unified_methods = {'percentile', 'spectral', 'fdm'};
 if any(strcmpi(config_struct.core_method, unified_methods))
+    % Unified: use the ADC-derived core mask for f and D sub-volumes
     f_vec_sub = f_vec(adc_vec_sub_mask);
     ivim_out.f_sub_vol_val = sum(adc_vec_sub_mask) * vox_vol;
     d_vec_sub = d_vec(adc_vec_sub_mask);
 else
+    % Independent thresholds: each parameter uses its own cutoff
+    % f_thresh = low perfusion; d_thresh = restricted diffusion
     f_vec_sub = f_vec(f_vec < f_thresh);
     ivim_out.f_sub_vol_val = numel(f_vec_sub) * vox_vol;
     d_vec_sub = d_vec(d_vec < d_thresh);
