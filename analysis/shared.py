@@ -37,7 +37,7 @@ _DEFAULTS: dict = {
         "gemini_model": "gemini-2.5-flash",
         "max_concurrent_requests": 2,
         "max_retries": 4,
-        "max_output_tokens": 2048,
+        "max_output_tokens": 10000,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
         "script_timeout_seconds": 1800,
@@ -325,6 +325,20 @@ def parse_dwi_info(file_path: str) -> tuple[str, str]:
     for t in ["_Standard", "_dnCNN", "_IVIMnet"]:
         base_name = base_name.replace(t, "")
     return dwi_type, base_name.replace(".png", "")
+
+
+def safe_text(row: dict, *keys: str) -> str:
+    """Safely concatenate multiple CSV row fields into one string.
+
+    Returns a single space-joined string.  Missing or ``None``-valued
+    fields are silently replaced with empty strings so that downstream
+    regex extraction never crashes on incomplete vision CSV rows.
+    """
+    parts = []
+    for k in keys:
+        v = row.get(k, "") or ""
+        parts.append(v)
+    return " ".join(parts)
 
 
 def extract_pvalues(text: str) -> list[tuple[float, str]]:

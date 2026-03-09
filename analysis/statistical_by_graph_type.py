@@ -32,6 +32,7 @@ from shared import (
     load_graph_csv,
     parse_dwi_info,
     resolve_folder,
+    safe_text,
     setup_utf8_stdout,
 )
 
@@ -73,7 +74,7 @@ def main():
         for r in type_rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
             # Concatenate all text fields to search for p-value patterns.
-            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
             pvals = extract_pvalues(all_text)
             for pval, context in pvals:
                 entry = {
@@ -115,7 +116,7 @@ def main():
         corrs_found: list[dict] = []
         for r in type_rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
-            all_text = r["summary"] + " " + r["trends_json"]
+            all_text = safe_text(r, "summary", "trends_json")
             corrs = extract_correlations(all_text)
             for rval, context in corrs:
                 if abs(rval) >= corr_threshold:
@@ -145,9 +146,14 @@ def main():
         trends_stable = 0
         trends_other = 0
         for r in type_rows:
-            trends = json.loads(r["trends_json"])
+            try:
+                trends = json.loads(r.get("trends_json", "[]") or "[]")
+            except Exception:
+                trends = []
             for t in trends:
-                d = t["direction"].lower()
+                if not isinstance(t, dict):
+                    continue
+                d = (t.get("direction") or "").lower()
                 if "increas" in d or "up" in d or "higher" in d or "rising" in d:
                     trends_up += 1
                 elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
@@ -186,7 +192,7 @@ def main():
         n_trends = 0
 
         for r in type_rows:
-            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
             pvals = extract_pvalues(all_text)
             for pval, _ in pvals:
                 if pval < p_threshold:
@@ -194,10 +200,13 @@ def main():
                 else:
                     n_nonsig += 1
 
-            corrs = extract_correlations(r["summary"] + " " + r["trends_json"])
+            corrs = extract_correlations(safe_text(r, "summary", "trends_json"))
             n_corr += sum(1 for rval, _ in corrs if abs(rval) >= corr_threshold)
 
-            trends = json.loads(r["trends_json"])
+            try:
+                trends = json.loads(r.get("trends_json", "[]") or "[]")
+            except Exception:
+                trends = []
             n_trends += len(trends)
 
         print(f"  {graph_type:<16} {len(type_rows):>5} {n_sig:>6} {n_nonsig:>8} {n_corr:>5} {n_trends:>7}")

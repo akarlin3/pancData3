@@ -285,6 +285,39 @@ class _RateLimitCoordinator:
             self._consecutive_hits = 0
 
 
+def _repair_truncated_json(raw: str) -> dict | None:
+    """Attempt to repair JSON truncated by token limits.
+
+    Progressively closes open strings, arrays, and objects from the end
+    of the raw text.  Returns the parsed dict on success, or ``None``
+    if the response is beyond salvage.
+    """
+    text = raw.rstrip()
+    # Try closing open structures (up to a handful of attempts).
+    closers = ['"', "]", "}", "]", "}"]
+    for i in range(1, len(closers) + 1):
+        candidate = text + "".join(closers[:i])
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            continue
+    # Brute-force: strip back to last complete key-value, close object.
+    # Find the last complete value (ends with , or a closing bracket).
+    for trim in range(1, min(300, len(text))):
+        stub = text[:-trim].rstrip().rstrip(",")
+        for suffix in ["}", "]}", "\"}", "\"]}", "\"]}",
+                        "]}", "\"]}", "\"]}}"]:
+            try:
+                data = json.loads(stub + suffix)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
 def _is_rate_limit_error(exc: Exception) -> bool:
     """Check whether *exc* is a rate-limit / quota error."""
     err_str = str(exc).lower()
@@ -385,19 +418,22 @@ async def analyze_image(
         raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
         raw_text = re.sub(r"\s*```$", "", raw_text)
 
-    # ── JSON parsing ──
+    # ── JSON parsing (with truncation repair) ──
     try:
         data = json.loads(raw_text)
-    except json.JSONDecodeError as e:
-        if progress_bar is not None:
-            progress_bar.update(1)
-        else:
-            print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
-        return GraphAnalysis(
-            file_path=rel_path,
-            graph_type="unknown",
-            summary=f"JSON parse error: {e}. Raw response: {raw_text[:200]}",
-        )
+    except json.JSONDecodeError:
+        # Attempt to repair truncated JSON from token-limited responses.
+        data = _repair_truncated_json(raw_text)
+        if data is None:
+            if progress_bar is not None:
+                progress_bar.update(1)
+            else:
+                print(f"  \u274c  JSON parse error for {image_path.name}", flush=True)
+            return GraphAnalysis(
+                file_path=rel_path,
+                graph_type="unknown",
+                summary=f"JSON parse error (unrepairable). Raw response: {raw_text[:200]}",
+            )
 
     # Inject the file path (not returned by the model).
     data["file_path"] = rel_path

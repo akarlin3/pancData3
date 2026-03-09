@@ -75,7 +75,10 @@ def main():
             if dwi_type not in dwi_dict:
                 continue
             r = dwi_dict[dwi_type]
-            trends = json.loads(r["trends_json"])
+            try:
+                trends = json.loads(r.get("trends_json", "[]") or "[]")
+            except Exception:
+                trends = []
             all_trends[dwi_type] = trends
 
         # ── Compare trend directions across DWI types ──

@@ -74,32 +74,42 @@ def main():
                 continue
             r = dwi_dict[dwi_type]
             print(f"\n  [{dwi_type}]")
-            print(f"    Type: {r['graph_type']}")
-            if r["x_axis_label"]:
-                print(f"    X-axis: {r['x_axis_label']} ({r['x_axis_units'] or 'no units'})")
-            if r["y_axis_label"]:
-                print(f"    Y-axis: {r['y_axis_label']} ({r['y_axis_units'] or 'no units'})")
+            print(f"    Type: {r.get('graph_type', 'unknown')}")
+            if r.get("x_axis_label"):
+                print(f"    X-axis: {r['x_axis_label']} ({r.get('x_axis_units') or 'no units'})")
+            if r.get("y_axis_label"):
+                print(f"    Y-axis: {r['y_axis_label']} ({r.get('y_axis_units') or 'no units'})")
 
             # Parse and display trend list from JSON string.
-            trends = json.loads(r["trends_json"])
+            try:
+                trends = json.loads(r.get("trends_json", "[]") or "[]")
+            except Exception:
+                trends = []
             if trends:
                 print(f"    Trends ({len(trends)}):")
                 for t in trends:
+                    if not isinstance(t, dict):
+                        continue
                     series = t.get("series") or ""
                     pfx = f"[{series}] " if series else ""
-                    print(f"      - {pfx}{t['direction']}: {t['description']}")
+                    print(f"      - {pfx}{t.get('direction', '')}: {t.get('description', '')}")
 
             # Parse and display inflection points from JSON string.
-            inflections = json.loads(r["inflection_points_json"])
+            try:
+                inflections = json.loads(r.get("inflection_points_json", "[]") or "[]")
+            except Exception:
+                inflections = []
             if inflections:
                 print(f"    Inflection points ({len(inflections)}):")
                 for ip in inflections:
+                    if not isinstance(ip, dict):
+                        continue
                     x = ip.get("approximate_x", "?")
                     y = ip.get("approximate_y", "?")
-                    print(f"      - ({x}, {y}): {ip['description']}")
+                    print(f"      - ({x}, {y}): {ip.get('description', '')}")
 
             # Truncate long summaries for readability.
-            summary = r["summary"]
+            summary = r.get("summary", "") or ""
             if len(summary) > 250:
                 summary = summary[:250] + "..."
             print(f"    Summary: {summary}")

@@ -10,6 +10,7 @@ from shared import (
     extract_correlations,
     extract_pvalues,
     parse_dwi_info,
+    safe_text,
 )
 from report_formatters import (
     _cite,
@@ -108,7 +109,7 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     if rows:
         n_corr = 0
         for r in rows:
-            all_text = r.get("summary", "") + " " + r.get("trends_json", "")
+            all_text = safe_text(r, "summary", "trends_json")
             for rval, _ in extract_correlations(all_text):
                 if abs(rval) >= 0.3:
                     n_corr += 1
@@ -764,7 +765,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
     if rows:
         for r in rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
-            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
             for pval, context in extract_pvalues(all_text):
                 if pval < 0.05:
                     sig_findings.append((pval, dwi_type, base_name, context))
@@ -985,9 +986,7 @@ def _section_treatment_response(groups) -> list[str]:
                         h.append(f' <span class="axis-info">[{" | ".join(axis_parts)}]</span>')
 
                     # Extract any p-values mentioned in this specific graph
-                    all_text = (r.get("summary", "") + " " +
-                                r.get("trends_json", "") + " " +
-                                r.get("inflection_points_json", ""))
+                    all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
                     graph_pvals = extract_pvalues(all_text)
                     graph_corrs = extract_correlations(all_text)
                     if graph_pvals or graph_corrs:

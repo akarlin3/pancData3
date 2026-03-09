@@ -39,6 +39,7 @@ from shared import (
     load_graph_csv,
     parse_dwi_info,
     resolve_folder,
+    safe_text,
     setup_utf8_stdout,
 )
 
@@ -76,7 +77,7 @@ def main():
                   bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
         dwi_type, base_name = parse_dwi_info(r["file_path"])
         # Concatenate all text fields to search for p-value patterns.
-        all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+        all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
         pvals = extract_pvalues(all_text)
 
         for pval, context in pvals:
@@ -121,7 +122,7 @@ def main():
 
     for r in rows:
         dwi_type, base_name = parse_dwi_info(r["file_path"])
-        all_text = r["summary"] + " " + r["trends_json"]
+        all_text = safe_text(r, "summary", "trends_json")
         corrs = extract_correlations(all_text)
 
         for rval, context in corrs:
@@ -152,7 +153,7 @@ def main():
             if dwi_type not in dwi_dict:
                 continue
             r = dwi_dict[dwi_type]
-            all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
+            all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
             pvals = extract_pvalues(all_text)
             if pvals:
                 pvals_by_dwi[dwi_type] = pvals

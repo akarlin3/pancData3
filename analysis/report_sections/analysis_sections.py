@@ -10,6 +10,7 @@ from shared import (
     extract_pvalues,
     get_config,
     parse_dwi_info,
+    safe_text,
 )
 from report_formatters import (
     _dwi_badge,
@@ -84,9 +85,7 @@ def _section_graph_overview(rows) -> list[str]:
             for r in rows:
                 if r.get("graph_type", "unknown") != gt:
                     continue
-                all_text = (r.get("summary", "") + " " +
-                            r.get("trends_json", "") + " " +
-                            r.get("inflection_points_json", ""))
+                all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
                 gt_pvals += sum(1 for p, _ in extract_pvalues(all_text) if p < 0.05)
                 gt_corrs += sum(1 for rv, _ in extract_correlations(all_text) if abs(rv) >= 0.3)
             if gt_pvals > 0 or gt_corrs > 0:
@@ -237,7 +236,7 @@ def _section_stats_by_graph_type(rows) -> list[str]:
         ts["count"] += 1
 
         # P-values
-        all_text = r.get("summary", "") + " " + r.get("trends_json", "") + " " + r.get("inflection_points_json", "")
+        all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
         for pval, _ in extract_pvalues(all_text):
             if pval < 0.05:
                 ts["sig_p"] += 1
@@ -469,7 +468,7 @@ def _section_correlations(rows) -> list[str]:
         corr_findings = []
         for r in rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
-            all_text = r["summary"] + " " + r["trends_json"]
+            all_text = safe_text(r, "summary", "trends_json")
             for rval, context in extract_correlations(all_text):
                 if abs(rval) >= 0.3:
                     corr_findings.append((abs(rval), rval, dwi_type, base_name, context))

@@ -11,6 +11,7 @@ from shared import (
     extract_correlations,
     extract_pvalues,
     parse_dwi_info,
+    safe_text,
 )
 from report_formatters import (
     _dwi_badge,
@@ -595,9 +596,7 @@ def _section_appendix(rows) -> list[str]:
                     trends_cell = "<br>".join(trend_parts)
 
                 # Statistics cell: extract p-values and correlations
-                all_text = (r.get("summary", "") + " " +
-                            r.get("trends_json", "") + " " +
-                            r.get("inflection_points_json", ""))
+                all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
                 pvals = extract_pvalues(all_text)
                 corrs = extract_correlations(all_text)
                 stats_parts = []
