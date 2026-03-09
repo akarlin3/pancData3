@@ -157,7 +157,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testAllIdenticalValues(testCase)
-            % All identical ADC values should produce zero SD
+            % Edge case: all voxels have identical values. Standard
+            % deviation should be exactly zero, and mean should equal
+            % the constant value. Tests that the statistics handle
+            % zero-variance distributions correctly.
             cfg = testCase.ConfigStruct;
             empty_entry = struct( ...
                 'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
@@ -180,7 +183,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testAllNaNVoxelVectors(testCase)
-            % All-NaN voxel vectors should produce NaN mean
+            % Edge case: all voxels are NaN (complete model fitting failure).
+            % nanmean of all-NaN should return NaN, not 0 or error.
+            % This scenario occurs when IVIM fitting diverges for every
+            % voxel in a small or motion-corrupted GTV.
             cfg = testCase.ConfigStruct;
             empty_entry = struct( ...
                 'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
