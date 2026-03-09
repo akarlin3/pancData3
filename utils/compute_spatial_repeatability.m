@@ -36,22 +36,34 @@ dice_d = NaN; hd_max_d = NaN; hd95_d = NaN;
 dice_f = NaN; hd_max_f = NaN; hd95_f = NaN;
 dice_dstar = NaN; hd_max_dstar = NaN; hd95_dstar = NaN;
 
-% Determine voxel dimensions for physical Hausdorff distances
+% Determine voxel dimensions for physical Hausdorff distances (mm).
+% Hausdorff distance measures worst-case spatial disagreement between
+% two binary masks; it must be in physical units (mm) rather than voxel
+% indices so that results are comparable across different scan protocols
+% with varying voxel sizes.
 rpt_vox_dims = data_vectors_gtvp(j,1,1).vox_dims;
 if isempty(rpt_vox_dims) || ~isnumeric(rpt_vox_dims) || numel(rpt_vox_dims) ~= 3
+    % Fallback: estimate isotropic voxel dimensions from voxel volume.
+    % vox_vol is stored in cm^3, so convert to mm^3 (* 1000) before
+    % taking the cube root to get the side length in mm.
     rpt_vox_vol = data_vectors_gtvp(j,1,1).vox_vol;
     if ~isempty(rpt_vox_vol) && ~isnan(rpt_vox_vol) && rpt_vox_vol > 0
         side_mm = (rpt_vox_vol * 1000) ^ (1/3);
         rpt_vox_dims = [side_mm, side_mm, side_mm];
     else
+        % Last resort: assume unit voxel spacing (results in voxel-space distances)
         rpt_vox_dims = [1, 1, 1];
     end
 end
 
-% Collect valid repeat indices and their parameter vectors
+% Collect valid repeat indices and their parameter vectors.
+% Fx1 (fraction 1) scans may have multiple repeat acquisitions (same day)
+% to assess test-retest reproducibility of diffusion measurements.
+% The 3rd dimension of data_vectors_gtvp indexes these repeat scans.
 valid_rpis = [];
 rpt_vecs = struct('adc', {{}}, 'd', {{}}, 'f', {{}}, 'dstar', {{}});
 for rpi2 = 1:size(data_vectors_gtvp, 3)
+    % Extract DWI-type-specific parameter vectors (Standard/DnCNN/IVIMnet)
     [rv_adc, rv_d, rv_f, rv_ds] = select_dwi_vectors(data_vectors_gtvp, j, 1, rpi2, dwi_type);
     if ~isempty(rv_adc) || ~isempty(rv_d)
         valid_rpis(end+1) = rpi2; %#ok<AGROW>
@@ -62,26 +74,38 @@ for rpi2 = 1:size(data_vectors_gtvp, 3)
     end
 end
 
+% Need at least 2 valid repeats to compute pairwise spatial overlap
 if numel(valid_rpis) < 2
     return;
 end
 
-% Load 3D GTV masks for each valid repeat
+% Load 3D GTV masks for each valid repeat.
+% The 3D mask is needed to embed 1D voxel parameter vectors back into
+% their spatial positions for morphological cleanup and Dice/Hausdorff
+% computation. Without 3D masks, spatial repeatability cannot be assessed.
 rpt_masks_3d = cell(numel(valid_rpis), 1);
 rpt_has_3d = true;
 for ri = 1:numel(valid_rpis)
     rpi_idx = valid_rpis(ri);
     gtv_mat_path = gtv_locations{j, 1, rpi_idx};
     if ~isempty(gtv_mat_path)
+        % Normalize path separators for cross-platform compatibility
+        % (strsplit on both / and \ handles Windows and Unix paths)
         path_parts = strsplit(gtv_mat_path, {'/', '\'});
         gtv_mat_path = fullfile(path_parts{:});
+        % Restore leading slash for absolute Unix paths (strsplit produces
+        % an empty first element for paths starting with /)
         if isunix && ~startsWith(gtv_mat_path, filesep) && isempty(path_parts{1})
             gtv_mat_path = [filesep gtv_mat_path]; %#ok<AGROW>
         end
         if exist(gtv_mat_path, 'file')
+            % Cache the last loaded mask to avoid redundant disk I/O when
+            % multiple repeats share the same GTV contour file
             if strcmp(gtv_mat_path, last_rpt_gtv_mat)
                 rpt_masks_3d{ri} = last_rpt_gtv_mask;
             else
+                % safe_load_mask validates variable type before loading
+                % to prevent arbitrary code execution from malicious .mat files
                 rpt_masks_3d{ri} = safe_load_mask(gtv_mat_path, 'Stvol3d');
                 last_rpt_gtv_mat = gtv_mat_path;
                 last_rpt_gtv_mask = rpt_masks_3d{ri};
@@ -93,6 +117,7 @@ for ri = 1:numel(valid_rpis)
     end
 end
 
+% All repeats must have valid 3D masks for spatial comparison
 if ~rpt_has_3d
     return;
 end

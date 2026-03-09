@@ -1,5 +1,15 @@
 function tests = test_landmark_cindex
-% TEST_LANDMARK_CINDEX Validates immortal time bias prevention logic
+% TEST_LANDMARK_CINDEX Validates immortal time bias prevention logic.
+%
+% This test file verifies the data science logic required for a Landmark
+% Survival Model, specifically:
+%   1. Correct exclusion of patients whose events/censoring occur at or
+%      before the landmark time (Immortal Time Bias prevention).
+%   2. Proper left-truncation (time shifting) of intervals so that time
+%      zero corresponds to the landmark time.
+%   3. Correct handling of multi-interval (time-dependent) patient data.
+%
+% Uses MATLAB's function-based test framework (functiontests/localfunctions).
     tests = functiontests(localfunctions);
 
 end

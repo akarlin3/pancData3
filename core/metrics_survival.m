@@ -171,6 +171,8 @@ if ~td_ok
     return;
 end
 
+% Copy the default half-life (18-month) panel into working variables for
+% landmark subsetting and Cox fitting below.
 X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
 
 % ---- Landmark analysis: discard intervals before end-of-RT -----------
@@ -387,6 +389,10 @@ try
     stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
+    % Map coefficients from the reduced (non-constant) column space back to
+    % the full feature space. Removed columns get beta=0 (no effect),
+    % SE=NaN, p=NaN (indeterminate), so they print as NaN in the results
+    % table and do not contribute to the hazard ratio.
     b_td = zeros(td_n_feat, 1);
     b_td(keep_main) = b_td_short;
     stats_td.se = nan(td_n_feat, 1);
@@ -464,6 +470,8 @@ try
         end
     end
 
+    % LRT statistic follows chi-squared distribution under the null.
+    % max(0, ...) guards against numerical rounding producing negative values.
     LRT_stat = 2 * (logl_model_lrt - logl_null_lrt);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
     LRT_p    = 1 - chi2cdf(max(0, LRT_stat), LRT_df);
@@ -482,6 +490,8 @@ end
 fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'HR ', 'CI_lo', 'CI_hi', 'p');
 fprintf('  %s\n', repmat('-', 1, 52));
 for fi = 1:td_n_feat
+    % Convert log-hazard coefficients to hazard ratios via exponentiation.
+    % 95% CI uses the Wald interval: exp(beta +/- 1.96 * SE(beta)).
     hr_i  = exp(b_td(fi));
     ci_lo = exp(b_td(fi) - 1.96*stats_td.se(fi));
     ci_hi = exp(b_td(fi) + 1.96*stats_td.se(fi));
@@ -504,6 +514,10 @@ fprintf('\n');
 for hl_idx = 1:length(half_life_grid)
     pnl = td_panels{hl_idx};
     try
+        % For each half-life, repeat the full analysis chain: landmark
+        % subset, z-score scaling, IPCW weighting, and Cox PH fitting.
+        % This ensures the sensitivity analysis is self-consistent and
+        % not contaminated by the default half-life's statistics.
         % Apply landmark subsetting to match the primary analysis
         lm_keep_hl = (pnl.t_start >= landmark_day);
         if ~any(lm_keep_hl), error('sensitivity:noData', 'No post-landmark intervals.'); end

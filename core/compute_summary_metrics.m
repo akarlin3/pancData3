@@ -64,11 +64,15 @@ function summary_metrics = compute_summary_metrics(config_struct, data_vectors_g
 
 if nargin < 12, fx_dates = {}; end
 
+% Build a DWI-type-specific filename suffix so that Standard, dnCNN, and
+% IVIMnet runs do not overwrite each other's cached summary metrics.
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
 else
     file_prefix = '';
 end
+% Checkpoint file for summary metrics — allows skipping expensive
+% recomputation on subsequent pipeline runs with the same cohort/config.
 summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_prefix '.mat']);
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     checkpoint_loaded = false;
@@ -301,25 +305,37 @@ hd_max_rpt_dstar = nan(length(id_list), 3);
 hd95_rpt_dstar = nan(length(id_list), 3);
 
 % Morphological structuring element for sub-volume cleanup (same as
-% calculate_subvolume_metrics.m).
+% calculate_subvolume_metrics.m).  A 3D sphere of radius 1 voxel is used
+% for morphological opening to remove single-voxel noise from threshold-
+% defined sub-volumes.  Without this cleanup, isolated voxels that just
+% happen to fall below the ADC threshold (due to noise, not biology)
+% would inflate the sub-volume size and corrupt spatial repeatability.
 if exist('OCTAVE_VERSION', 'builtin')
+    % Octave lacks strel('sphere'), so we build a 6-connected cross kernel
     sphere_kernel = zeros(3, 3, 3);
     sphere_kernel(2,2,:) = 1; sphere_kernel(2,:,2) = 1; sphere_kernel(:,2,2) = 1;
     morph_se = strel('arbitrary', sphere_kernel);
 else
     morph_se = strel('sphere', 1);
 end
-morph_min_cc = 10;  % minimum connected component size (voxels)
+morph_min_cc = 10;  % minimum connected component size (voxels) — clusters
+                    % smaller than this are discarded as noise artifacts
 
 % Cache for GTV mask loading (avoids repeated disk I/O for same file)
 last_rpt_gtv_mat = '';
 last_rpt_gtv_mask = [];
 
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
+% This triple-nested loop (patient × timepoint × DWI type) is the
+% computational core that transforms voxel-level parameter vectors into
+% the patient-level summary statistics used by all downstream modules.
 n_patients_metrics = length(id_list);
 for j=1:n_patients_metrics
     text_progress_bar(j, n_patients_metrics, 'Computing summary metrics');
     for k=1:nTp
+        % Extract per-voxel volume (cm^3) for converting voxel counts to
+        % physical volumes.  A scalar vox_vol indicates valid GTV data;
+        % an empty or multi-element value indicates missing/corrupt data.
         if length(data_vectors_gtvp(j,k,1).vox_vol) == 1
             vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
         else
@@ -382,8 +398,13 @@ for j=1:n_patients_metrics
 
         for dwi_type = config_struct.dwi_types_to_run
 
-            % Select the appropriate voxel vectors depending on pipeline
+            % Select the appropriate voxel vectors depending on pipeline.
+            % Each DWI type stores its parameter vectors in different struct
+            % fields (e.g., d_vector vs d_vector_dncnn vs d_vector_ivimnet).
+            % The helper function abstracts this field selection.
             [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, 1, dwi_type);
+            % Baseline (Fx1) vectors are needed for KS tests (distributional
+            % shift from baseline) and fDM (functional diffusion map) computation.
             [adc_baseline, d_baseline, ~, ~]   = select_dwi_vectors(data_vectors_gtvp, j, 1, 1, dwi_type);
 
             % Safety-net: confirm 3D mask voxel count matches this DWI
@@ -561,6 +582,10 @@ for j=1:n_patients_metrics
     end
 end
 
+% --- Package all computed metrics into a single output struct ---
+% This struct is the primary interface between the 'load' step and all
+% downstream analysis modules (sanity_checks, visualize_results,
+% metrics_baseline, metrics_longitudinal, metrics_survival, etc.).
 summary_metrics = struct();
 summary_metrics.adc_mean = adc_mean;
 summary_metrics.adc_kurt = adc_kurt;
@@ -644,6 +669,8 @@ end
 end
 
 function result = nanmean_safe(v)
+% NANMEAN_SAFE — Octave-compatible NaN-ignoring mean.
+% MATLAB's nanmean is in the Statistics Toolbox; Octave may lack it.
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -657,6 +684,7 @@ end
 end
 
 function result = nanstd_safe(v)
+% NANSTD_SAFE — Octave-compatible NaN-ignoring standard deviation.
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -670,6 +698,10 @@ end
 end
 
 function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
+% COMPUTE_KURT_SKEW — Compute kurtosis and skewness with minimum sample guard.
+% Returns NaN if the number of finite voxels is below min_vox_hist, because
+% higher-order moments are unreliable with too few data points (kurtosis
+% formally requires n >= 4, but practical stability needs more).
 kurt_val = NaN;
 skew_val = NaN;
 if numel(v) >= min_vox_hist
@@ -682,9 +714,16 @@ end
 end
 
 function p1 = compute_histogram_laplace(vec, bin_edges)
+% COMPUTE_HISTOGRAM_LAPLACE — Laplace-smoothed probability distribution.
+% Adds 1 pseudo-count per bin (Laplace smoothing / additive smoothing) to
+% prevent zero-probability bins that would cause log(0) = -Inf in KL
+% divergence or other information-theoretic comparisons.  The smoothing
+% has negligible effect when n_binned >> nbins (typical for >100 voxels).
 if exist('OCTAVE_VERSION', 'builtin')
     vec_f = vec(~isnan(vec));
     c1 = histc(vec_f, bin_edges);
+    % histc includes a count for exact matches of the last edge; merge it
+    % into the penultimate bin to match histcounts behavior.
     c1(end-1) = c1(end-1) + c1(end);
     c1 = c1(1:end-1);
 else
@@ -693,6 +732,7 @@ end
 n_binned = sum(c1);
 nbins = length(c1);
 if n_binned > 0
+    % Laplace smoothing: P(bin) = (count + 1) / (total + n_bins)
     p1 = (c1 + 1) / (n_binned + nbins);
 else
     p1 = zeros(size(c1));

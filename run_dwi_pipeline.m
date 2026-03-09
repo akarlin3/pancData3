@@ -111,7 +111,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     % ----------------------------
 
-    log_fid = -1; % Error log file handle (opened after output folder is determined)
+    % Error log file handle — initialized to invalid; opened after the output
+    % folder is determined in the config parsing block below.  The onCleanup
+    % guard (cleanup_log) ensures it is closed even on early return or error.
+    log_fid = -1;
 
     % Suppress figure windows for the entire pipeline run — all plots are
     % saved to disk via saveas(), so visible windows are unnecessary.
@@ -220,7 +223,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
     end
     cleanup_log = onCleanup(@() safe_fclose_log(log_fid));
-    lastwarn(''); % Reset MATLAB warning tracker
+    % Reset the MATLAB warning tracker so that lastwarn() after each module
+    % captures only warnings from THAT module, not stale warnings from setup.
+    lastwarn('');
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
     % --- Conditionally inject compare_cores into default steps ---
@@ -256,8 +261,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % mean D, etc.) derived from the voxel distributions.
     % calculated_results_*.mat contains predictive model outputs (risk scores,
     % high-risk classification) for downstream survival analysis and visualization.
+    % Construct type-specific file paths for the three primary pipeline artifacts.
+    % All are suffixed with the DWI processing method name to prevent cross-type contamination.
     dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
-    fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+    fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');  % Legacy unsuffixed path (Standard only)
     summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
     results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
@@ -502,6 +509,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     %
     % The large number of output variables reflects the comprehensive set of
     % features extracted for subsequent statistical and predictive modeling.
+    % Path for persisting metrics_baseline outputs to disk, enabling
+    % downstream steps to be re-run independently without re-running baseline.
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
 
     if ismember('metrics_baseline', steps_to_run)
@@ -695,6 +704,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         set_names{4} = {'V50 GTVp (whole)', 'V50 Sub(ADC)', 'V50 Sub(D)', 'V50 Sub(f)', 'V50 Sub(D*)'};
     end
 
+    % Path for persisting predictive model outputs (risk scores, high-risk
+    % flags, Kaplan-Meier inputs) so that metrics_survival can be re-run
+    % without re-running the full predictive modeling pipeline.
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
     % [ANALYTICAL RATIONALE — STATISTICAL GROUP COMPARISONS]:

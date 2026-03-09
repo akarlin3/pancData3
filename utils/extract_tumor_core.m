@@ -29,6 +29,7 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 
     core_method = lower(config_struct.core_method);
     n_voxels = length(adc_vec);
+    % Default: no voxels belong to the core (conservative)
     core_mask = false(n_voxels, 1);
 
     % Fallback if ADC vector is entirely empty or NaN
@@ -111,13 +112,17 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             if length(valid_vals) > config_struct.min_vox_hist
                 try
                     if exist('OCTAVE_VERSION', 'builtin')
-                        % Fallback to k-means for octave
+                        % Octave lacks fitgmdist; fall back to k-means
                         [idx, C] = kmeans(valid_vals, 2);
                         [~, min_cluster] = min(C);
                         core_mask_valid = (idx == min_cluster);
                     else
+                        % 3 replicates with 500 max iterations guards against
+                        % local optima in the EM algorithm
                         gm = fitgmdist(valid_vals, 2, 'Replicates', 3, 'Options', statset('MaxIter', 500));
                         idx = cluster(gm, valid_vals);
+                        % The component with the smaller mean (mu) corresponds
+                        % to the restricted-diffusion (core) population
                         [~, min_c_idx] = min(gm.mu);
                         core_mask_valid = (idx == min_c_idx);
                     end
@@ -193,15 +198,18 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                         tol_upper = config_struct.adc_thresh;
                     end
                     
-                    % Grow mask
+                    % BFS-based region growing from the seed voxel
                     rg_mask = false(size(adc_map_3d));
                     rg_mask(sx, sy, sz) = true;
-                    queue = [sx, sy, sz];
-                    
-                    % 6-connected neighborhood shifts
+                    queue = [sx, sy, sz];  % FIFO queue of voxels to explore
+
+                    % 6-connected neighborhood shifts (face-adjacent only;
+                    % excludes diagonal neighbors to prevent "leaking"
+                    % through thin tissue boundaries)
                     shifts = [1 0 0; -1 0 0; 0 1 0; 0 -1 0; 0 0 1; 0 0 -1];
-                    
+
                     while ~isempty(queue)
+                        % Dequeue the next voxel to process
                         cx = queue(1,1); cy = queue(1,2); cz = queue(1,3);
                         queue(1,:) = [];
                         
@@ -226,6 +234,8 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                         end
                     end
                     
+                    % Map 3D region-grown mask back to 1D voxel vector
+                    % (same ordering as the GTV mask linearization)
                     core_mask = rg_mask(gtv_mask_3d == 1);
                 end
             end
@@ -257,9 +267,11 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                     adc_map_3d = nan(size(gtv_mask_3d));
                     adc_map_3d(gtv_mask_3d == 1) = adc_vec;
                     
-                    % Create initial roughly-central circular mask
+                    % Initialize the level-set with a threshold-based seed mask.
+                    % Chan-Vese evolves this initial contour toward the
+                    % optimal two-region partition; the seed need not be
+                    % perfect but should overlap with the core.
                     init_mask = false(size(gtv_mask_3d));
-                    % Just initialize with standard threshold as seed
                     init_mask(adc_map_3d <= config_struct.adc_thresh) = true;
                     
                     % Invert contrast: Chan-Vese evolves toward bright
@@ -267,8 +279,8 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                     % the core becomes the brightest region and the contour
                     % converges around it.
                     max_adc = max(adc_vec);
-                    inf_img = gtv_mask_3d * max_adc;
 
+                    % Build a normalized inverted ADC image within the GTV
                     norm_img = zeros(size(gtv_mask_3d));
                     norm_img(gtv_mask_3d == 1) = max_adc - adc_vec;
                     norm_img = norm_img / max(norm_img(:));
@@ -334,7 +346,7 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                 return;
             end
 
-            n_clusters = config_struct.core_n_clusters;
+            n_clusters = config_struct.core_n_clusters;  % typically 2 (core vs non-core)
             valid_features = features(valid_idx, :);
 
             % Z-score normalize so parameters on different scales
@@ -374,6 +386,7 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
             % treatment-resistant core as voxels where diffusivity
             % decreased (progressing = increased cellularity).
 
+            % Timepoint index: 1 = baseline (Fx1), 2+ = follow-up fractions
             k_idx = 0;
             if isfield(opts, 'timepoint_index')
                 k_idx = opts.timepoint_index;
@@ -432,6 +445,8 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                 return;
             end
 
+            % Voxel-wise change: positive delta = increased diffusivity (responding),
+            % negative delta = decreased diffusivity (progressing/resistant)
             delta = current_vec - baseline_vec;
 
             % Classification:

@@ -215,6 +215,20 @@ run('tests/run_all_tests.m')
 | `test_pipeline_progress_gui.m` | Pipeline progress bar wrapper (step mapping, lifecycle) |
 | `test_plot_feature_distribution.m` | Feature distribution visualization (histogram/boxplot modes) |
 | `test_filter_collinear_features.m` | Collinearity pruning, AUC tie-breaking, time-stratification |
+| `test_metrics_dosimetry.m` | Dosimetry metric computation (D95, V50, DVH) |
+| `test_metrics_longitudinal.m` | Longitudinal change analysis |
+| `test_metrics_survival.m` | Survival analysis, competing risks, IPCW |
+| `test_metrics_stats_predictive.m` | Predictive modeling, elastic net, LOOCV |
+| `test_compute_summary_metrics.m` | Voxel-to-summary-metric aggregation |
+| `test_build_td_panel.m` | Time-dependent panel construction |
+| `test_scale_td_panel.m` | Timepoint-specific feature scaling |
+| `test_parse_config.m` | Config loading, defaults, backwards compatibility |
+| `test_discover_patient_files.m` | Patient file system navigation |
+| `test_apply_dir_mask_propagation.m` | Deformable image registration and mask alignment |
+| `test_calculate_subvolume_metrics.m` | Dose coverage within diffusion-defined subvolumes |
+| `test_init_scan_structs.m` | Scan data structure initialization |
+| `test_compute_scan_days_from_dates.m` | DICOM-derived scan day computation |
+| `test_perform_statistical_test.m` | Wilcoxon rank-sum with NaN-safe extraction |
 
 ---
 

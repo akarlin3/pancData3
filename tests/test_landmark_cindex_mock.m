@@ -1,5 +1,20 @@
 % test_landmark_cindex_mock.m
-% Generate some mock data for the Landmark validation logic
+% End-to-end mock validation of the Competing-Risks Concordance Index
+% (Wolbers' CIF-Weighted IPCW) using synthetic patient data.
+%
+% This script exercises the full LOOCV + IPCW C-index computation pipeline:
+%   1. Generates random time-dependent DWI features for 40 mock patients
+%   2. Builds a time-dependent panel via build_td_panel
+%   3. Runs Leave-One-Out Cross-Validation with Fine-Gray competing risks
+%      (with Firth logistic fallback when Cox fails on mock data)
+%   4. Fits covariate-adjusted IPCW censoring models (Cox PH + KM fallback)
+%   5. Optionally stabilizes censoring weights via an AFT (Weibull) model
+%   6. Computes Aalen-Johansen CIF estimates for the competing event
+%   7. Evaluates concordant/discordant pairs using both standard IPCW and
+%      Wolbers' competing-risk extension (CIF-weighted pairs)
+%
+% NOTE: This is a script (not a test function), intended for interactive
+% validation and debugging. It prints results to stdout.
 
 % Add necessary paths
 baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
@@ -7,12 +22,12 @@ addpath(fullfile(baseDir, 'core'));
 addpath(fullfile(baseDir, 'utils'));
 addpath(fullfile(baseDir, 'dependencies'));
 
-rng(42);
+rng(42);  % Fixed seed for reproducibility
 clc;
-n_vp = 40;
-valid_pts = true(n_vp, 1);
-td_n_feat = 4;
-td_scan_days = [0, 5, 10, 15, 20, 90]; 
+n_vp = 40;             % Number of virtual patients
+valid_pts = true(n_vp, 1);  % All patients initially valid
+td_n_feat = 4;         % Number of time-dependent features (ADC, D, f, D*)
+td_scan_days = [0, 5, 10, 15, 20, 90];  % Scan schedule (days from baseline)
 nTp = length(td_scan_days);
 
 ADC_abs = rand(n_vp, nTp) * 2;

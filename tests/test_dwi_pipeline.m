@@ -12,13 +12,17 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     %   results = runtests('tests/test_dwi_pipeline.m');
 
     properties
-        % Define properties that can be shared across tests if needed
+        % MockDataDir — temporary directory used as a stand-in for the real
+        %   patient data location (dataloc); cleaned up after each test.
+        % ConfigStruct — pipeline configuration struct populated with safe
+        %   defaults and lowered thresholds suitable for small mock datasets.
         MockDataDir
         ConfigStruct
     end
 
     methods(TestMethodSetup)
-        % Setup for each test
+        % Setup runs before each test method: creates a minimal config,
+        % a temporary data directory, and adds pipeline source paths.
         function createMockConfig(testCase)
             % Suppress figure pop-ups during pipeline execution
             set(0, 'DefaultFigureVisible', 'off');
@@ -56,7 +60,8 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     end
 
     methods(TestMethodTeardown)
-        % Cleanup after each test
+        % Teardown runs after each test: restores the MATLAB path and
+        % removes the temporary mock data directory.
         function removeMockData(testCase)
             % Restore path BEFORE deleting mock_data to avoid
             % "Removed ... from the MATLAB path" warnings.
