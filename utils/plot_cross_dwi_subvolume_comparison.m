@@ -30,15 +30,22 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
 %   Outputs:
 %       None.  Saves figure as PNG.
 
+    % The three DWI processing pipelines to compare:
+    %   1 = Standard (raw DWI, mono-exponential ADC fit)
+    %   2 = dnCNN   (deep-learning denoised DWI, then ADC fit)
+    %   3 = IVIMnet (Standard ADC + neural-network IVIM parameters)
     dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
 
-    % --- 1. Load summary_metrics for all available DWI types ---
-    all_sm = cell(1, 3);
-    types_available = false(1, 3);
+    % --- 1. Load summary_metrics checkpoint files for all available DWI types ---
+    % Each checkpoint is saved by the pipeline after compute_summary_metrics runs.
+    all_sm = cell(1, 3);       % summary_metrics structs, one per DWI type
+    types_available = false(1, 3);  % tracks which types have valid data
 
     for t = 1:3
         sm = load_type_checkpoint(dwi_type_names{t}, config_struct.dataloc);
         if ~isempty(sm) && isfield(sm, 'adc_sub_vol_pc')
+            % adc_sub_vol_pc is (nPatients x nTimepoints x nDWITypes);
+            % check that column 1 (Fx1 baseline) for this DWI type has data
             col = sm.adc_sub_vol_pc(:, 1, t);
             if any(~isnan(col))
                 all_sm{t} = sm;
@@ -54,6 +61,9 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
     end
 
     % --- 2. Verify patient alignment across checkpoints ---
+    % Different DWI type runs may have processed different patient subsets
+    % (e.g., if a patient's dnCNN checkpoint was missing). Align to the
+    % intersection so paired comparisons are valid.
     avail_idx = find(types_available);
     ref_ids = all_sm{avail_idx(1)}.id_list;
     for ai = 2:numel(avail_idx)
@@ -61,6 +71,7 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
         if ~isequal(ref_ids, other_ids)
             fprintf('  ⚠️ Patient ID mismatch between DWI type checkpoints. Using intersection.\n');
             [ref_ids, ia, ~] = intersect(ref_ids, other_ids, 'stable');
+            % Re-index all checkpoint data to the common patient set
             for aj = 1:numel(avail_idx)
                 [~, idx] = ismember(ref_ids, all_sm{avail_idx(aj)}.id_list);
                 all_sm{avail_idx(aj)}.adc_sub_vol_pc = all_sm{avail_idx(aj)}.adc_sub_vol_pc(idx, :, :);
@@ -68,19 +79,22 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
                     all_sm{avail_idx(aj)}.adc_sub_vol_pc_rpt = all_sm{avail_idx(aj)}.adc_sub_vol_pc_rpt(idx, :, :);
                 end
             end
-            break;
+            break;  % intersection computed once against first mismatch
         end
     end
     nPat = numel(ref_ids);
 
-    % --- 3. Extract Fx1 subvolume data ---
+    % --- 3. Extract Fx1 (baseline) subvolume data ---
     % adc_sub_vol_pc is stored as a fraction (0-1); convert to percentage
-    fx1_data = nan(nPat, 3);
+    % for clinical interpretability. Column 1 = Fx1 baseline timepoint.
+    fx1_data = nan(nPat, 3);  % nPatients x 3 DWI types
     for t = avail_idx
         fx1_data(:, t) = all_sm{t}.adc_sub_vol_pc(:, 1, t) * 100;
     end
 
-    % Detect Standard-IVIMnet identity
+    % Detect whether Standard and IVIMnet produce identical ADC subvolumes.
+    % This is expected because IVIMnet only changes D/f/D* (IVIM parameters),
+    % not the mono-exponential ADC fit which is pipeline-independent.
     std_ivimnet_identical = false;
     if types_available(1) && types_available(3)
         d = fx1_data(:, 1) - fx1_data(:, 3);
@@ -89,13 +103,14 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
         end
     end
 
-    % Check for repeat scan data
+    % Check for Fx1 repeat scan data (back-to-back acquisitions for
+    % test-retest reproducibility assessment)
     has_rpt_data = false;
     rpt_data = [];
     rpt_type_idx = avail_idx(1);  % Use first available type for repeat panel
     if isfield(all_sm{rpt_type_idx}, 'adc_sub_vol_pc_rpt')
         rpt_raw = all_sm{rpt_type_idx}.adc_sub_vol_pc_rpt(:, :, rpt_type_idx);
-        % Count patients with >= 2 repeat scans
+        % Need at least one patient with >= 2 repeat scans for variability plot
         n_valid_rpts = sum(~isnan(rpt_raw), 2);
         if any(n_valid_rpts >= 2)
             has_rpt_data = true;
@@ -113,6 +128,10 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
     end
 
     % --- 5. Create figure ---
+    % Layout: 2 or 3 panels depending on whether repeat scan data exists.
+    %   Panel 1: Cross-DWI-type box plots (always shown)
+    %   Panel 2: Repeat scan variability (only if repeat data available)
+    %   Panel 3: Bland-Altman paired difference Standard vs dnCNN (always last)
     if has_rpt_data
         n_panels = 3;
         fig_width = 1800;
@@ -140,12 +159,14 @@ function plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct)
 
     sgtitle('ADC Restricted Subvolume (ADC < threshold) — Fx1 Cross-DWI Comparison', ...
             'FontSize', 13, 'FontWeight', 'bold');
-    % Shift subplots down to avoid supertitle overlap
+    % Compress subplots vertically by 8% to make room for the sgtitle,
+    % which otherwise overlaps the top of the first subplot row.
     allAx = findall(gcf, 'Type', 'Axes');
     for k = 1:numel(allAx)
         pos = get(allAx(k), 'Position');
         set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
     end
+    % Remove interactive axis toolbars for cleaner exported PNG
     set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 
     out_file = fullfile(save_folder, 'Cross_DWI_ADC_Subvolume_Fx1.png');
@@ -160,6 +181,8 @@ end
 
 function sm = load_type_checkpoint(type_name, dataloc)
 % Load summary_metrics checkpoint file for a specific DWI type.
+% Returns empty [] if the checkpoint file does not exist or lacks
+% the expected 'summary_metrics' variable.
     sm = [];
     f = fullfile(dataloc, sprintf('summary_metrics_%s.mat', type_name));
     if exist(f, 'file')
@@ -192,7 +215,8 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
     boxplot(box_data, 'Labels', labels, 'Positions', positions, ...
             'Widths', 0.5, 'Colors', [0.3 0.3 0.3]);
 
-    % Overlay individual patient points with jitter
+    % Overlay individual patient data points with random horizontal jitter
+    % to prevent overplotting; reveals the underlying distribution shape
     colors = lines(n_types);
     jitter_width = 0.15;
     for i = 1:n_types
@@ -202,7 +226,9 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
         scatter(x_jitter, vals(valid), 25, colors(i, :), 'filled', 'MarkerFaceAlpha', 0.5);
     end
 
-    % Connect same-patient points
+    % Connect same-patient data points across DWI types with gray lines.
+    % This spaghetti plot reveals whether patients track consistently
+    % across processing methods (parallel lines = systematic shift).
     for p = 1:size(box_data, 1)
         pt_vals = box_data(p, :);
         valid = ~isnan(pt_vals);
@@ -211,7 +237,8 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
         end
     end
 
-    % Signed-rank test between Standard and dnCNN if both available
+    % Wilcoxon signed-rank test: non-parametric paired test for systematic
+    % difference in subvolume between Standard and dnCNN processing.
     if types_available(1) && types_available(2)
         std_vals = fx1_data(:, 1);
         dncnn_vals = fx1_data(:, 2);
@@ -292,7 +319,10 @@ function plot_repeat_variability(rpt_data, type_label)
         end
     end
 
-    % Compute and display wCV
+    % Compute within-subject coefficient of variation (wCV) across repeat scans.
+    % wCV = SD / mean for each patient; the median across patients gives a
+    % robust estimate of measurement reproducibility. This is the noise floor
+    % for using subvolume as a longitudinal biomarker.
     pts_with_rpts = sum(~isnan(rpt_data), 2) >= 2;
     if sum(pts_with_rpts) >= 3
         rpt_subset = rpt_data(pts_with_rpts, :);
@@ -303,6 +333,7 @@ function plot_repeat_variability(rpt_data, type_label)
             pt_means = mean(rpt_subset, 2, 'omitnan');
             pt_sds = std(rpt_subset, 0, 2, 'omitnan');
         end
+        % Guard against division by zero for patients with 0% subvolume
         pt_means(pt_means == 0) = NaN;
         wcv_vals = pt_sds ./ pt_means;
         median_wcv = median(wcv_vals, 'omitnan') * 100;
@@ -318,7 +349,9 @@ function plot_repeat_variability(rpt_data, type_label)
 end
 
 function plot_paired_difference(fx1_data, types_available)
-% Right panel: Bland-Altman-style paired difference (Standard - dnCNN).
+% Right panel: Bland-Altman plot of paired differences (Standard - dnCNN).
+% X-axis = mean of the two measurements; Y-axis = difference.
+% Horizontal lines show mean difference (bias) and 95% limits of agreement.
     hold on;
 
     if ~types_available(1) || ~types_available(2)
@@ -342,18 +375,21 @@ function plot_paired_difference(fx1_data, types_available)
         return;
     end
 
+    % Bland-Altman convention: difference on Y, mean on X
     diff_vals = std_vals(paired_valid) - dncnn_vals(paired_valid);
     mean_vals = (std_vals(paired_valid) + dncnn_vals(paired_valid)) / 2;
 
     scatter(mean_vals, diff_vals, 40, [0.2 0.4 0.8], 'filled', 'MarkerFaceAlpha', 0.6);
 
-    % Mean difference line
+    % Mean difference (bias): if DnCNN systematically reduces subvolume,
+    % mean_diff > 0 indicates Standard yields larger subvolumes
     mean_diff = mean(diff_vals, 'omitnan');
     xl = xlim;
-    plot(xl, [mean_diff mean_diff], 'r-', 'LineWidth', 1.5);
-    plot(xl, [0 0], 'k--', 'LineWidth', 0.8);
+    plot(xl, [mean_diff mean_diff], 'r-', 'LineWidth', 1.5);  % bias line
+    plot(xl, [0 0], 'k--', 'LineWidth', 0.8);                  % zero reference
 
-    % Limits of agreement (mean +/- 1.96*SD)
+    % 95% Limits of Agreement (LoA): mean +/- 1.96*SD
+    % Points outside LoA indicate clinically meaningful disagreement
     sd_diff = std(diff_vals, 'omitnan');
     loa_upper = mean_diff + 1.96 * sd_diff;
     loa_lower = mean_diff - 1.96 * sd_diff;

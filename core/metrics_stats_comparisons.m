@@ -64,8 +64,13 @@ figure_titles = {
     '4. Target Coverage (V50): Whole GTV vs Resistant Sub-volumes (Wilcoxon Rank-Sum)'
 };
 
+% Storage for all raw p-values from Wilcoxon rank-sum tests, indexed by
+% metric set.  These are collected across all timepoints and metrics,
+% then passed to the global BH FDR correction in Section 8.
 p_val_store = struct('p_vals', {});
 
+% Iterate over metric sets (Set 1: absolute values, Set 2: percent changes,
+% and optionally Sets 3-4 for dose coverage metrics).
 n_metric_sets = length(metric_sets);
 for s = 1:n_metric_sets
     text_progress_bar(s, n_metric_sets, 'Univariate analysis');
@@ -228,27 +233,9 @@ if total_count > 0
     all_set_idx = all_set_idx(1:total_count);
     all_met_idx = all_met_idx(1:total_count);
 
-    % Benjamini-Hochberg FDR procedure on the full family of comparisons.
-    % BH controls the expected proportion of false discoveries (FDR) at
-    % alpha=0.05, which is less conservative than Bonferroni but more
-    % appropriate for exploratory biomarker screening where some false
-    % positives are acceptable as long as the overall discovery rate is
-    % controlled.  The step-up procedure assigns q-values (adjusted p)
-    % that can be interpreted as the minimum FDR at which each test
-    % would be called significant.
+    % Benjamini-Hochberg FDR correction on the full family of comparisons.
+    q_unsorted = benjamini_hochberg_fdr(all_pvals);
     n_all = length(all_pvals);
-    [p_sort, sort_id] = sort(all_pvals);
-    q_all = zeros(n_all, 1);
-    q_all(n_all) = p_sort(n_all);  % largest p-value: q = p
-    for ii = n_all-1:-1:1
-        % Step-up: q(i) = min(q(i+1), p(i) * n/i)
-        % The n/i scaling adjusts for the rank position — earlier ranks
-        % (smaller p) get less aggressive correction.
-        q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
-    end
-    q_all = min(q_all, 1);  % cap at 1.0
-    q_unsorted = zeros(n_all, 1);
-    q_unsorted(sort_id) = q_all;  % map q-values back to original order
 
     fprintf('  Global family size = %d comparisons\n', n_all);
 end
@@ -318,7 +305,9 @@ else
     disp('No significant differences survived FDR correction (BH q < 0.05).');
 end
 
-% Full FDR table for reference
+% Full FDR table for reference — export all tests (significant and not)
+% as a CSV for downstream analysis scripts (parse_csv_results.py) to
+% compare significance patterns across DWI processing pipelines.
 if total_count > 0
     fdr_table = table(all_labels, all_pvals, q_unsorted, ...
         'VariableNames', {'Metric_Timepoint', 'Raw_P', 'FDR_Q'});
@@ -346,9 +335,15 @@ if exist('OCTAVE_VERSION', 'builtin')
     fprintf('  Skipped: fitglme/categorical not available in Octave.\n');
 else
     fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
+    % Construct the long-format data table required by fitglme.  Each row
+    % is one patient-timepoint observation.  The wide-format arrays
+    % (patients x timepoints) are "melted" into columns so that the mixed-
+    % effects model can estimate within-patient correlation via the random
+    % effects specification.
     patient_indices = find(valid_pts);
     max_obs = length(patient_indices) * nTp;
 
+    % Pre-allocate long-format columns (will be trimmed after population)
     long_PatientID = nan(max_obs, 1);
     long_Timepoint = nan(max_obs, 1);
     long_ADC = nan(max_obs, 1);
@@ -403,7 +398,11 @@ else
     long_Dstar = long_Dstar(1:obs_idx);
     long_LF = long_LF(1:obs_idx);
 
-    % Filter to complete cases before table construction
+    % Filter to complete cases before table construction.  GLME requires
+    % all predictors to be non-NaN for each observation.  Rows with any
+    % NaN biomarker are dropped.  This reduces sample size but avoids
+    % bias from asymmetric missingness (e.g., IVIM D* missing more often
+    % than ADC due to bi-exponential fitting failures).
     clean_idx = ~isnan(long_ADC) & ~isnan(long_D) & ~isnan(long_f) & ~isnan(long_Dstar);
     long_PatientID = long_PatientID(clean_idx);
     long_Timepoint = long_Timepoint(clean_idx);

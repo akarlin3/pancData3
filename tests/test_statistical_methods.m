@@ -338,7 +338,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testCorrFilter_ChainDropping(testCase)
             % If A-B correlated and B-C correlated, dropping B means C
-            % is evaluated against A only. Verify transitive behaviour.
+            % is evaluated against A only. Verify transitive behaviour:
+            % b is dropped (r(a,b) > 0.8), then c is compared to a only,
+            % and since r(a,c) ~ 0.7 < 0.8, c is retained.
             rng(11);
             n = 100;
             a = randn(n, 1);
@@ -455,8 +457,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testLOOCV_FeatureSelectionBase_Mapping(testCase)
             % Verify the mod-based mapping from 8-feature index to base
-            % metric index: indices 1-4 = Absolute, 5-8 = Percent-Change.
-            % base = mod(sel - 1, 4) + 1
+            % metric index: indices 1-4 = Absolute values (ADC, D, f, D*),
+            % indices 5-8 = Percent-Change values (same order).
+            % base = mod(sel - 1, 4) + 1 maps both groups to [1,2,3,4].
             expected_base = [1, 2, 3, 4, 1, 2, 3, 4];
             for idx = 1:8
             base = mod(idx - 1, 4) + 1;
@@ -565,12 +568,17 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         function testImpute_RetainsPartialDataRows(testCase)
             % Synthetic test: a patient with partial NaN data should be retained
             % after imputation, not dropped as in listwise deletion.
+            % Row 1: complete data, Row 2: one missing value (kept after fill),
+            % Row 3: all NaN (dropped -- no usable imaging data),
+            % Row 4: complete data.
             X = [1 2 3; 4 NaN 6; NaN NaN NaN; 7 8 9];
             y = [0; 1; 0; 1];
+            % Keep rows that have at least one non-NaN imaging value
             has_any = any(~isnan(X), 2);
             mask = has_any & ~isnan(y);
             X_imp = X(mask, :);
             y_out = y(mask);
+            % Fill remaining NaNs with column medians
             X_out = fillmissing(X_imp, 'constant', median(X_imp, 1, 'omitnan'));
             % Row 2 (partial NaN) should be kept; row 3 (all NaN) dropped
             testCase.verifyTrue(size(X_out, 1) == 3, ...
@@ -629,8 +637,10 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         end
 
         function testDIR_IdenticalImagesPreserveMask(testCase)
-            % When fixed == moving (no deformation), the warped mask should
-            % closely match the original mask.
+            % When fixed == moving (no deformation needed), the warped mask
+            % should closely match the original mask (Dice > 0.95).
+            % This verifies that the DIR pipeline does not corrupt the mask
+            % in the trivial identity-transform case.
             sz = [32 32 16];
             img = randn(sz) * 100 + 500;
             mask = false(sz);
@@ -692,7 +702,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         % =================================================================
 
         function testTD_PanelHasMoreRowsThanPatients(testCase)
-            % Synthetic 3-patient, 3-timepoint panel
+            % Time-dependent panels expand each patient into multiple
+            % intervals (one per timepoint transition). With 3 patients
+            % and 3 timepoints, the panel should have more rows than 3.
             arr1 = [1.0e-3 1.1e-3 1.2e-3;   % patient 1
             0.9e-3 0.85e-3 0.8e-3;  % patient 2
             1.5e-3 1.6e-3 NaN];      % patient 3 (missing tp3)
@@ -704,6 +716,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         end
 
         function testTD_NoEventBeforeFinalInterval(testCase)
+            % In counting-process format, the event indicator must be 1
+            % only on the patient's final interval. Earlier intervals for
+            % the same patient must have event=0 (they are still at risk).
             arr1 = [1.0e-3 1.1e-3 1.2e-3; 0.9e-3 0.85e-3 0.8e-3];
             lf_td  = [1; 0];
             tot_td = [20; 100];
@@ -716,6 +731,8 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         end
 
         function testTD_StartAlwaysLessThanStop(testCase)
+            % Every interval must have strictly positive duration (t_start < t_stop).
+            % Zero-length or negative-duration intervals would break Cox models.
             arr1 = [1.0e-3 1.1e-3; 0.9e-3 0.8e-3; 1.5e-3 1.6e-3];
             lf_td  = [1; 0; 1];
             tot_td = [15; 50; 8];

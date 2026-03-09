@@ -41,8 +41,12 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
     % ------------------------------------------------------------------ %
     methods(Access = private)
         function args = buildMinimalArgs(testCase, n, nTp, dtype)
-            % Returns a cell array of all positional arguments for
-            % metrics_stats_predictive given n patients and nTp timepoints.
+            % Constructs a cell array of all 34 positional arguments for
+            % metrics_stats_predictive. Generates synthetic but finite
+            % feature matrices (ADC, D, f, D*, dose metrics), patient IDs,
+            % DL provenance, outcome labels, and survival times. The dtype
+            % parameter (1=Standard, 2=DnCNN, 3=IVIMnet) controls which
+            % DL provenance field is populated.
             rng(42);
             valid_pts  = true(n, 1);
             lf_group   = [ones(ceil(n/2), 1); zeros(floor(n/2), 1)];
@@ -112,8 +116,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
     methods(Test)
 
         function testNoopWhenNTpIsOne(testCase)
-            % nTp = 1 → the for-loop (target_fx = 2:1) never executes.
-            % All four outputs must be empty.
+            % Verifies the no-op path when nTp=1: the predictive modeling
+            % loop iterates over target_fx = 2:nTp, which is 2:1 (empty
+            % range), so no elastic net or LOOCV runs. All four outputs
+            % (risk_scores, is_high_risk, times_km, events_km) must be empty.
             n   = 5;
             nTp = 1;
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -128,8 +134,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testAllNaNFeaturesReturnsEmptyOutputs(testCase)
-            % All feature matrices are NaN → no imputable patients →
-            % elastic net cannot run → n_sig = 0 → outputs remain empty.
+            % Verifies graceful degradation when ALL feature matrices are
+            % NaN. The imputation step finds no valid patients, elastic net
+            % cannot run (n_sig=0), and all outputs remain empty. This
+            % tests the guard clauses before model fitting.
             n   = 8;
             nTp = 2;
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -154,8 +162,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testOutputTypesAreNumericOrLogical(testCase)
-            % Even when the elastic net fails gracefully, the returned
-            % variables must be numeric or logical (never cell arrays).
+            % Verifies the type contract: all four outputs must be numeric
+            % or logical (never cell arrays or strings), even when the
+            % elastic net does not run. This prevents type errors in
+            % downstream consumers (e.g., metrics_survival).
             n   = 6;
             nTp = 1;   % fast no-op path
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -270,8 +280,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testBackwardCompatWithout34thArg(testCase)
-            % When config_struct (34th arg) is omitted, function must still
-            % work — nargin guard defaults use_firth_refit to true.
+            % Verifies backward compatibility: calling with only 33
+            % arguments (omitting config_struct) should still work. The
+            % nargin guard in metrics_stats_predictive defaults
+            % use_firth_refit to true when the 34th argument is absent.
             n   = 5;
             nTp = 1;   % fast no-op path
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -291,7 +303,8 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testFirthDisabledRunsWithoutError(testCase)
-            % When use_firth_refit is false, the function must run the
+            % Verifies that setting use_firth_refit=false disables Firth
+            % penalized logistic regression and falls back to the
             % elastic-net-only path without error.
             n   = 5;
             nTp = 1;
@@ -306,9 +319,12 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
 
 
         function testLOOCVProducesNonEmptyRiskScores(testCase)
-            % With n=24 patients and a strong separable signal, elastic net
-            % should select features and the LOOCV loop should produce
-            % non-empty risk scores and risk stratification.
+            % Integration test with n=24 patients: injects a strong signal
+            % into ADC_abs column 2 (perfectly separating LF vs LC groups)
+            % so that elastic net selects at least one feature and the
+            % nested LOOCV loop produces non-empty, finite risk scores.
+            % Also verifies that is_high_risk is numeric (not logical)
+            % to support NaN assignment for invalid folds.
             n   = 24;
             nTp = 3;
             args = testCase.buildMinimalArgs(n, nTp, 1);

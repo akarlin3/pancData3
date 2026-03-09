@@ -171,6 +171,8 @@ if ~td_ok
     return;
 end
 
+% Copy the default half-life (18-month) panel into working variables for
+% landmark subsetting and Cox fitting below.
 X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
 
 % ---- Landmark analysis: discard intervals before end-of-RT -----------
@@ -235,98 +237,9 @@ event_td_csh = event_td;
 event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
 
 % IPCW corrects for informative *administrative* censoring only.
-% Competing events are NOT uninformative censoring — including them in
-% the censoring model violates the IPCW independence assumption and can
-% bias hazard ratios in either direction (Robins & Finkelstein 2000).
-% We therefore exclude competing-event rows from the IPCW censoring
-% model and only model the probability of true administrative censoring.
-ipcw_weights = ones(size(event_td));   % default: unweighted
-% Identify terminal intervals (last row per patient).  In the counting-
-% process representation, non-terminal intervals have event_td==0 but are
-% NOT censoring events — the patient simply transitions to the next
-% interval.  Only the terminal interval with event_td==0 is a true
-% administrative censoring event.
-is_terminal_td = false(size(event_td));
-[~, last_idx_td] = unique(pat_id_td, 'last');
-is_terminal_td(last_idx_td) = true;
-is_admin_cens_event = is_terminal_td & (event_td == 0);
-has_admin_cens = any(is_admin_cens_event);
-if has_admin_cens
-    try
-        % Restrict IPCW model to rows that are NOT competing events.
-        % In this subset, the censoring "event" occurs only at the terminal
-        % interval of admin-censored patients; all other rows (non-terminal
-        % and LF-terminal) are right-censored in the censoring model.
-        not_competing = (event_td ~= 2);
-        is_admin_cens_subset = double(is_admin_cens_event(not_competing));
-        T_cens = [t_start_td(not_competing), t_stop_td(not_competing)];
-        X_cens_subset = X_td_global(not_competing, :);
-        [X_cens_clean, keep_ipcw] = remove_constant_columns(X_cens_subset);
-        if size(X_cens_clean, 2) == 0
-            error('IPCW:NoVariableColumns', 'All covariate columns are constant.');
-        end
-        w_ipcw = warning('off', 'all');
-        [b_cens_short, ~, ~, stats_cens] = coxphfit(X_cens_clean, T_cens, ...
-            'Censoring', (is_admin_cens_subset == 0), 'Ties', 'breslow');
-        warning(w_ipcw);
-        b_cens = zeros(td_n_feat, 1);
-        b_cens(keep_ipcw) = b_cens_short;
-
-        % Compute cumulative censoring survival function G(t|X) via Cox.
-        % Use the censoring model coefficients (fit on non-competing subset)
-        % to compute censoring probabilities for ALL rows.
-        %
-        % IMPORTANT: G_hat must be cumulative across each patient's
-        % intervals so that the IPCW weight for interval (s, t] uses
-        % G(s|X) — the probability of NOT being censored up to time s.
-        % A per-interval (non-cumulative) G_hat would underweight later
-        % intervals by ignoring censoring hazard from earlier periods.
-        lp_cens = X_td_global * b_cens;           % linear predictor (all rows)
-        % Baseline hazard estimated from the non-competing subset only
-        lp_cens_sub = X_cens_subset * b_cens;
-        t_start_sub = t_start_td(not_competing);
-        t_stop_sub  = t_stop_td(not_competing);
-        uniq_times = sort(unique(t_stop_sub));
-
-        % Step 1: Compute cumulative baseline hazard H0(t) at each
-        % unique censoring event time.
-        h0_increments = zeros(length(uniq_times), 1);
-        for ui = 1:length(uniq_times)
-            t_u = uniq_times(ui);
-            at_risk_sub  = (t_start_sub < t_u) & (t_stop_sub >= t_u);
-            events_u_sub = at_risk_sub & (t_stop_sub == t_u) & (is_admin_cens_subset == 1);
-            if any(events_u_sub) && any(at_risk_sub)
-                h0_increments(ui) = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
-            end
-        end
-        H0_cumulative = cumsum(h0_increments);
-
-        % Step 2: For each interval, evaluate G(t_start | X) using the
-        % cumulative baseline hazard up to the interval's start time.
-        % This ensures later intervals inherit censoring from all
-        % earlier time periods for that patient.
-        G_hat = ones(size(t_stop_td));             % P(C > t_start | X)
-        for ri = 1:length(t_stop_td)
-            ts = t_start_td(ri);
-            % Find cumulative hazard at the latest event time <= ts
-            idx = find(uniq_times <= ts, 1, 'last');
-            if ~isempty(idx)
-                G_hat(ri) = exp(-H0_cumulative(idx) * exp(lp_cens(ri)));
-            end
-            % else: no censoring events before ts → G_hat remains 1
-        end
-
-        % Stabilised weights: G_marginal / G_conditional (truncated)
-        G_hat = max(G_hat, 0.05);                  % truncate to avoid extreme weights
-        ipcw_weights = 1 ./ G_hat;
-        ipcw_weights = ipcw_weights / mean(ipcw_weights);  % stabilise
-        fprintf('  IPCW weights applied (admin censoring model, %d competing events excluded). Range: [%.2f, %.2f]\n', ...
-            sum(event_td == 2), min(ipcw_weights), max(ipcw_weights));
-    catch ME_ipcw
-        fprintf('  ⚠️  IPCW weight estimation failed (%s). Proceeding unweighted.\n', ME_ipcw.message);
-        ipcw_weights = ones(size(event_td));
-    end
-end
+% Competing events are excluded from the censoring model to preserve
+% the IPCW independence assumption (Robins & Finkelstein 2000).
+ipcw_weights = compute_ipcw_weights(event_td, t_start_td, t_stop_td, X_td_global, pat_id_td);
 
 % ---- Fit the time-dependent Cox PH model ------------------------------
 % The Cox PH model estimates the hazard function:
@@ -387,6 +300,10 @@ try
     stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
 
     % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
+    % Map coefficients from the reduced (non-constant) column space back to
+    % the full feature space. Removed columns get beta=0 (no effect),
+    % SE=NaN, p=NaN (indeterminate), so they print as NaN in the results
+    % table and do not contribute to the hazard ratio.
     b_td = zeros(td_n_feat, 1);
     b_td(keep_main) = b_td_short;
     stats_td.se = nan(td_n_feat, 1);
@@ -464,6 +381,8 @@ try
         end
     end
 
+    % LRT statistic follows chi-squared distribution under the null.
+    % max(0, ...) guards against numerical rounding producing negative values.
     LRT_stat = 2 * (logl_model_lrt - logl_null_lrt);
     LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
     LRT_p    = 1 - chi2cdf(max(0, LRT_stat), LRT_df);
@@ -482,6 +401,8 @@ end
 fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'HR ', 'CI_lo', 'CI_hi', 'p');
 fprintf('  %s\n', repmat('-', 1, 52));
 for fi = 1:td_n_feat
+    % Convert log-hazard coefficients to hazard ratios via exponentiation.
+    % 95% CI uses the Wald interval: exp(beta +/- 1.96 * SE(beta)).
     hr_i  = exp(b_td(fi));
     ci_lo = exp(b_td(fi) - 1.96*stats_td.se(fi));
     ci_hi = exp(b_td(fi) + 1.96*stats_td.se(fi));
@@ -504,6 +425,10 @@ fprintf('\n');
 for hl_idx = 1:length(half_life_grid)
     pnl = td_panels{hl_idx};
     try
+        % For each half-life, repeat the full analysis chain: landmark
+        % subset, z-score scaling, IPCW weighting, and Cox PH fitting.
+        % This ensures the sensitivity analysis is self-consistent and
+        % not contaminated by the default half-life's statistics.
         % Apply landmark subsetting to match the primary analysis
         lm_keep_hl = (pnl.t_start >= landmark_day);
         if ~any(lm_keep_hl), error('sensitivity:noData', 'No post-landmark intervals.'); end

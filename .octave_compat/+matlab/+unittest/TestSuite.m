@@ -1,3 +1,18 @@
+% TESTSUITE  Octave-compatible shim for MATLAB's matlab.unittest.TestSuite.
+%
+%   MATLAB's TestSuite class (part of the unittest framework, R2013a+)
+%   provides test discovery and organization. Octave does not ship with
+%   this framework, so this shim reimplements the fromFolder() discovery
+%   method by parsing classdef files on disk.
+%
+%   Behavioral differences from MATLAB's TestSuite:
+%   - Only fromFolder() is implemented (no fromClass, fromMethod, etc.).
+%   - Test discovery is file-based: finds test_*.m and benchmark_*.m files,
+%     verifies they are classdef files (not scripts), and parses method
+%     names from methods(Test) blocks via regex.
+%   - Returns a struct array instead of a TestSuite object array; the
+%     TestRunner shim consumes this struct format.
+%   - Does not support test parameterization or shared fixtures.
 classdef TestSuite
     % TestSuite  Minimal shim for matlab.unittest.TestSuite under Octave.
     properties
@@ -8,7 +23,13 @@ classdef TestSuite
 
     methods (Static)
         function suite = fromFolder(folder, varargin)
-            % Discover test classes in folder (and optionally subfolders).
+            % FROMFOLDER  Discover test classes in a folder.
+            %   suite = TestSuite.fromFolder(folder) scans for test_*.m files.
+            %   suite = TestSuite.fromFolder(folder, 'IncludingSubfolders', true)
+            %   also recurses into subdirectories and picks up benchmark_*.m.
+            %
+            %   Returns a struct array with fields: Name, TestClass,
+            %   TestMethod, FilePath, Folder -- one entry per test method.
             includeSubfolders = false;
             for k = 1:2:numel(varargin)
                 if strcmpi(varargin{k}, 'IncludingSubfolders')
@@ -25,10 +46,12 @@ classdef TestSuite
                 files = dir(fullfile(folder, 'test_*.m'));
             end
 
+            % Build the suite by iterating over discovered files.
             suite = [];
             for i = 1:numel(files)
                 [~, className, ~] = fileparts(files(i).name);
-                % Skip non-classdef files (script-based tests) by peeking at first line
+                % Skip non-classdef files (script-based tests) by peeking at first line.
+                % MATLAB's fromFolder also skips scripts, so this matches that behavior.
                 fpath = fullfile(files(i).folder, files(i).name);
                 fid = fopen(fpath, 'r');
                 if fid == -1; continue; end
@@ -38,7 +61,8 @@ classdef TestSuite
                     continue;
                 end
 
-                % Find all Test methods by parsing the file
+                % Find all Test methods by parsing the file's source text.
+                % MATLAB introspects class metadata; we parse regex instead.
                 methods_list = TestSuite.parseTestMethods(fpath);
                 for j = 1:numel(methods_list)
                     entry = struct();
@@ -59,13 +83,20 @@ classdef TestSuite
 
     methods (Static, Access = private)
         function methods_list = parseTestMethods(filepath)
-            % Parse a classdef file and extract method names from methods(Test) blocks
+            % PARSETESTMETHODS  Extract test method names from a classdef file.
+            %   Reads the file as text and uses a simple state machine to find
+            %   methods(Test) blocks, then extracts function names within them.
+            %   Tracks nesting depth to correctly handle the closing 'end' of
+            %   the methods block vs. individual function 'end' keywords.
             methods_list = {};
             fid = fopen(filepath, 'r');
             if fid == -1; return; end
             txt = fread(fid, '*char')';
             fclose(fid);
 
+            % State machine: in_test_block tracks whether we are inside a
+            % methods(Test) block; brace_depth counts nested function/end pairs
+            % so we know when the methods block itself closes.
             in_test_block = false;
             brace_depth = 0;
             lines = strsplit(txt, '\n');

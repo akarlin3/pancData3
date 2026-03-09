@@ -34,7 +34,9 @@ function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_loca
 
 % List all patient folders, excluding any 'template' directories
 % (template folders contain example data structures, not patient data)
+% clean_dir_command wraps dir() and removes '.' and '..' entries.
 patlist = clean_dir_command(dataloc);
+% Exclude template directories (contain example folder structures, not real data)
 patlist = patlist(cellfun(@isempty, strfind({patlist.name},'template')));
 
 % Sort patients by numeric ID extracted from folder names.
@@ -56,6 +58,7 @@ valid_idx = ~isnan(id_num);
 patlist = patlist(valid_idx);
 id_num = id_num(valid_idx);
 
+% Sort ascending by numeric ID so row index in output arrays is deterministic
 [~,id_sort] = sort(id_num,'ascend');
 patlist = patlist(id_sort);
 
@@ -90,9 +93,9 @@ n_pat_discover = length(patlist);
 for j=1:n_pat_discover
     text_progress_bar(j, n_pat_discover, 'Discovering patient files');
     basefolder = fullfile(dataloc, patlist(j).name);
-    basefolder_contents = clean_dir_command(basefolder);
+    basefolder_contents = clean_dir_command(basefolder);  % list all subdirectories (Fx1, Fx2, ...)
     id_list{j} = patlist(j).name;
-    have_mrn = 0;    % flag: MRN already extracted for this patient
+    have_mrn = 0;    % flag: MRN already extracted for this patient (only need one per patient)
 
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
@@ -117,6 +120,8 @@ for j=1:n_pat_discover
             % they contain structural (not diffusion) data and would cause
             % model fitting to fail silently with meaningless parameter values.
             dwi_search = clean_dir_command(fullfile(fxfolder, '*DWI*'));
+            % Fallback: if no DWI-specific folder, try generic DICOM folders
+            % but exclude T2-weighted dirs (structural, not diffusion data)
             if isempty(dwi_search), dwi_search = clean_dir_command(fullfile(fxfolder, '*DICOM*')); dwi_search = dwi_search(cellfun(@isempty, strfind({dwi_search.name}, 't2'))); end
 
             % Verify each candidate folder actually contains .dcm files.
@@ -167,6 +172,9 @@ for j=1:n_pat_discover
                     end
 
                     % --- Locate GTV mask .mat files for this DWI repeat ---
+                    % find_gtv_files searches for GTVp (primary tumor) and
+                    % GTVn (nodal disease) mask files with flexible naming
+                    % patterns (e.g., "gtv_1.mat", "GTV_p.mat", etc.)
                     [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, patlist(j).name);
 
                     if ~isempty(gtvp_path)

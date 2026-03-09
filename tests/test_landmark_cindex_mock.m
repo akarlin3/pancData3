@@ -1,5 +1,20 @@
 % test_landmark_cindex_mock.m
-% Generate some mock data for the Landmark validation logic
+% End-to-end mock validation of the Competing-Risks Concordance Index
+% (Wolbers' CIF-Weighted IPCW) using synthetic patient data.
+%
+% This script exercises the full LOOCV + IPCW C-index computation pipeline:
+%   1. Generates random time-dependent DWI features for 40 mock patients
+%   2. Builds a time-dependent panel via build_td_panel
+%   3. Runs Leave-One-Out Cross-Validation with Fine-Gray competing risks
+%      (with Firth logistic fallback when Cox fails on mock data)
+%   4. Fits covariate-adjusted IPCW censoring models (Cox PH + KM fallback)
+%   5. Optionally stabilizes censoring weights via an AFT (Weibull) model
+%   6. Computes Aalen-Johansen CIF estimates for the competing event
+%   7. Evaluates concordant/discordant pairs using both standard IPCW and
+%      Wolbers' competing-risk extension (CIF-weighted pairs)
+%
+% NOTE: This is a script (not a test function), intended for interactive
+% validation and debugging. It prints results to stdout.
 
 % Add necessary paths
 baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
@@ -7,14 +22,16 @@ addpath(fullfile(baseDir, 'core'));
 addpath(fullfile(baseDir, 'utils'));
 addpath(fullfile(baseDir, 'dependencies'));
 
-rng(42);
+rng(42);  % Fixed seed for reproducibility
 clc;
-n_vp = 40;
-valid_pts = true(n_vp, 1);
-td_n_feat = 4;
-td_scan_days = [0, 5, 10, 15, 20, 90]; 
+n_vp = 40;             % Number of virtual patients
+valid_pts = true(n_vp, 1);  % All patients initially valid
+td_n_feat = 4;         % Number of time-dependent features (ADC, D, f, D*)
+td_scan_days = [0, 5, 10, 15, 20, 90];  % Scan schedule (days from baseline)
 nTp = length(td_scan_days);
 
+% Generate random DWI parameter arrays [n_patients x n_timepoints]
+% Values are scaled to approximate realistic ranges (arbitrary units for mock)
 ADC_abs = rand(n_vp, nTp) * 2;
 D_abs   = rand(n_vp, nTp) * 1.5;
 f_abs   = rand(n_vp, nTp);
@@ -22,18 +39,21 @@ Dstar_abs = rand(n_vp, nTp) * 0.5;
 
 td_feat_arrays = {ADC_abs, D_abs, f_abs, Dstar_abs};
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
-td_tot_time = randi([10, 200], n_vp, 1);
+td_tot_time = randi([10, 200], n_vp, 1);  % Random overall survival times (days)
 % Event indicator: 0 = censored, 1 = disease progression (event of interest),
 % 2 = competing risk (e.g., non-cancer death).
 td_lf = randi([0, 2], n_vp, 1); 
 m_id_list = arrayfun(@(x) sprintf('Pt%d', x), 1:n_vp, 'UniformOutput', false);
 
-m_gtv_vol = rand(n_vp, nTp) * 100;
+m_gtv_vol = rand(n_vp, nTp) * 100;  % Mock GTV volumes (cm^3)
 
-% minimal provenance
+% Minimal DL provenance struct (empty = no leakage exclusions needed)
 dl_provenance = struct();
-dtype = 1;
+dtype = 1;  % DWI type index: 1=Standard (no DL leakage checks apply)
 
+% Build the time-dependent (counting process) panel:
+% Each patient is expanded into multiple intervals [t_start, t_stop)
+% with covariates from the corresponding scan timepoint.
 [X_td, t_start_td, t_stop_td, event_td, pat_id_td, frac_td] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
 
@@ -47,11 +67,17 @@ surv_event_all = td_lf;
 valid_idx_pts = find(valid_pts);
 n_vp = length(valid_idx_pts);
 
+% oof_risk_history stores per-patient out-of-fold risk predictions,
+% censoring model parameters, and CIF estimates for the C-index computation.
 oof_risk_history = cell(n_vp, 1);
 
+% --- LOOCV loop: leave one patient out, train on remaining ---
 for p_idx = 1:n_vp
     pt_id = m_id_list{valid_idx_pts(p_idx)};
     
+    % Check for DL training leakage: skip patients who were in the DL
+    % training set to prevent data contamination (only relevant for
+    % dtype=2 (dnCNN) or dtype=3 (IVIMnet))
     is_leaky = false;
     if dtype == 2 && isfield(dl_provenance, 'dncnn_train_ids') && any(strcmp(dl_provenance.dncnn_train_ids, pt_id))
         is_leaky = true;
@@ -62,9 +88,10 @@ for p_idx = 1:n_vp
         continue;
     end
     
+    % Partition data: all intervals NOT belonging to held-out patient
     train_mask = (pat_id_td ~= p_idx);
-    
-    % Scale specifically for this LOOCV fold
+
+    % Scale features using only training patients (prevents leakage)
     train_pat_ids = unique(pat_id_td(train_mask));
     X_td_scaled = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, train_pat_ids);
 
@@ -109,10 +136,13 @@ for p_idx = 1:n_vp
         end
     end
     warning(w_state);
+    % When both Cox and Firth fitting fail, assign plausible mock coefficients
+    % so the C-index computation can still be exercised end-to-end.
     if all(isnan(b_loo))
-        b_loo = [0.1; -0.2; 0.05; -0.1]; % Simulating some effects for mock data
+        b_loo = [0.1; -0.2; 0.05; -0.1];
     end
-    
+
+    % Store out-of-fold linear predictor (risk score) and interval bounds
     oof_risk_history{p_idx} = struct('risk', X_test * b_loo, 't_start', T_start_test, 't_stop', T_stop_test);
     
     train_pat_mask = true(n_vp, 1);
@@ -185,6 +215,11 @@ for p_idx = 1:n_vp
 end
 
 fprintf('  Found %d events (type 1) out of %d patients.\n', sum(surv_event_all == 1), n_vp);
+
+% --- Compute IPCW-weighted concordance index ---
+% For each pair (i, j) where patient i has the event of interest at T_i
+% and patient j survives past T_i, count concordant/discordant pairs
+% weighted by the inverse probability of censoring (IPCW).
 concordant = 0; discordant = 0; weights_sum = 0;
 
 for i = 1:n_vp
@@ -238,6 +273,7 @@ for i = 1:n_vp
         elseif G_Ti < 0.05
             G_Ti = 0.05;
         end
+        % IPCW weight: inverse squared censoring probability at event time
         W_i = 1 / (G_Ti^2);
         
         for j = 1:n_vp
@@ -323,6 +359,7 @@ for i = 1:n_vp
     end
 end
 
+% Final C-index: ratio of concordant to total comparable pairs
 if weights_sum > 0
     IPCW_C = concordant / weights_sum;
     fprintf('  Competing-Risks Concordance Index (Wolbers, CIF-weighted IPCW): %.4f\n\n', IPCW_C);

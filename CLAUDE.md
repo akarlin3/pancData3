@@ -16,6 +16,7 @@ This file provides essential context for AI assistants (Claude, Antigravity, etc
 **Language:** MATLAB (R2021a+)
 **License:** MIT (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
+**Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
 
 ---
 
@@ -47,12 +48,15 @@ pancData3/
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (18 files)
-├── utils/                      # Helper utilities (28 files)
+├── utils/                      # Helper utilities (44 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (78 test files)
+├── tests/                      # Full test suite (83 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
+├── analysis/                    # Python post-hoc analysis scripts (20 files)
+│   ├── report_sections/        # Report section builders (8 files)
+│   └── tests/                  # Python test suite — 10 test files, 367 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -213,6 +217,25 @@ run('tests/run_all_tests.m')
 | `test_pipeline_progress_gui.m` | Pipeline progress bar wrapper (step mapping, lifecycle) |
 | `test_plot_feature_distribution.m` | Feature distribution visualization (histogram/boxplot modes) |
 | `test_filter_collinear_features.m` | Collinearity pruning, AUC tie-breaking, time-stratification |
+| `test_metrics_dosimetry.m` | Dosimetry metric computation (D95, V50, DVH) |
+| `test_metrics_longitudinal.m` | Longitudinal change analysis |
+| `test_metrics_survival.m` | Survival analysis, competing risks, IPCW |
+| `test_metrics_stats_predictive.m` | Predictive modeling, elastic net, LOOCV |
+| `test_compute_summary_metrics.m` | Voxel-to-summary-metric aggregation |
+| `test_build_td_panel.m` | Time-dependent panel construction |
+| `test_scale_td_panel.m` | Timepoint-specific feature scaling |
+| `test_parse_config.m` | Config loading, defaults, backwards compatibility |
+| `test_discover_patient_files.m` | Patient file system navigation |
+| `test_apply_dir_mask_propagation.m` | Deformable image registration and mask alignment |
+| `test_calculate_subvolume_metrics.m` | Dose coverage within diffusion-defined subvolumes |
+| `test_init_scan_structs.m` | Scan data structure initialization |
+| `test_compute_scan_days_from_dates.m` | DICOM-derived scan day computation |
+| `test_perform_statistical_test.m` | Wilcoxon rank-sum with NaN-safe extraction |
+| `test_remove_constant_columns.m` | Zero-variance and all-NaN column removal |
+| `test_execute_pipeline_step.m` | Non-fatal step executor: success, error, warning, diary |
+| `test_load_data_from_disk.m` | DWI vector loading with legacy fallback |
+| `test_compute_adc_metrics.m` | ADC metric computation (volume, sub-volume, histogram, KS) |
+| `test_compute_ivim_metrics.m` | IVIM metric computation (failed-fit filtering, unified methods) |
 
 ---
 
@@ -273,6 +296,22 @@ run('tests/run_all_tests.m')
 | `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
 | `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
 | `plot_cross_dwi_subvolume_comparison.m` | Cross-DWI-type ADC subvolume comparison visualization |
+| `compute_adc_metrics.m` | ADC summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
+| `compute_ivim_metrics.m` | IVIM (D/f/D*) summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
+| `compute_spatial_repeatability.m` | Dice and Hausdorff spatial repeatability between Fx1 repeat sub-volumes |
+| `compute_multi_core_metrics.m` | Multi-method (11 core methods) sub-volume metrics per patient/timepoint |
+| `assemble_predictive_features.m` | Builds 22-column feature matrix for elastic net (extracted from metrics_stats_predictive) |
+| `run_elastic_net_cv.m` | 5-fold elastic net CV + final model fitting (extracted from metrics_stats_predictive) |
+| `run_loocv_risk_scores.m` | Nested LOOCV for unbiased out-of-fold risk scores (extracted from metrics_stats_predictive) |
+| `plot_predictive_diagnostics.m` | ROC curve, sanity check panels, and 2D scatter plots (extracted from metrics_stats_predictive) |
+| `execute_pipeline_step.m` | Generic non-fatal pipeline step executor with try-catch, diary, GUI, warning logging (extracted from run_dwi_pipeline) |
+| `initialize_pipeline.m` | Pipeline initialization: path setup, pre-flight tests, toolbox license checks (extracted from run_dwi_pipeline) |
+| `load_data_from_disk.m` | Load DWI vectors and summary metrics from disk with legacy fallback (extracted from run_dwi_pipeline) |
+| `normalize_patient_ids.m` | Octave-compatible patient ID normalization for spreadsheet/folder matching |
+| `select_dwi_vectors.m` | Extract ADC/D/f/D* voxel vectors by DWI processing type (Standard/dnCNN/IVIMnet) |
+| `write_sentinel_file.m` | Write pipeline step completion sentinel files |
+| `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
+| `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
 
 ### Octave Compatibility (`.octave_compat/`)
 
@@ -283,6 +322,48 @@ Contains 21 shim files for GNU Octave compatibility, including:
 - `+matlab/+unittest/+fixtures/` shim (`PathFixture.m`)
 - `+matlab/+unittest/+plugins/` shim (`CodeCoveragePlugin.m`)
 - Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
+
+### Analysis Scripts (`analysis/`)
+
+Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
+
+**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
+
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, and `--skip-checks` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
+
+| File | Purpose |
+|---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks` flags; verifies requirements and runs tests before starting |
+| `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
+| `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
+| `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
+| `report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
+| `report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
+| `report_sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
+| `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
+| `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
+| `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
+| `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
+
+**Python Test Suite (pytest):** 10 test files with 367 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+
+| File | What it covers |
+|---|---|
+| `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports |
+| `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
+| `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
+| `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
+| `test_generate_report.py` | Significance tags, section headers, full HTML report generation, data completeness, feature overlap, power analysis, manuscript findings, reporting checklist, table/figure index, copy helpers, BibTeX export, draft Results section, figure gallery, journal guide |
+| `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
+| `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
+| `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus, figure captions, nav sections |
+| `test_parse_mat_metrics.py` | MAT file parsing, dosimetry/core/longitudinal extraction, scipy graceful degradation |
+| `test_analysis_config.py` | Config loading, deep merge, layered overrides, MATLAB config integration, caching |
 
 ---
 
@@ -300,6 +381,15 @@ Contains 21 shim files for GNU Octave compatibility, including:
 - `parsave_dir_cache.m` enables safe `save` inside `parfor`.
 - Checkpointing allows recovery from interruptions mid-cohort.
 - Parallel pool capped at 2 workers (`execute_all_workflows.m`).
+
+### Cross-Platform Compatibility
+
+- `escape_shell_arg.m` auto-detects `ispc()` for Windows (double-quote) vs Unix (single-quote) shell escaping.
+- All file paths use `fullfile()`, `filesep`, and `pathsep` — never hardcoded separators.
+- `ProgressBarPlugin.m` uses `isunix`/`ispc` for platform-specific terminal width detection.
+- `test_convert_dicom.m` generates `.bat` scripts on Windows and shell scripts on Unix.
+- Python analysis scripts use `pathlib.Path` throughout and reconfigure `stdout` to UTF-8 on Windows for emoji support.
+- CI runs the full MATLAB and Python test suites on Linux, macOS, and Windows.
 
 ### Security
 
@@ -406,8 +496,8 @@ After **every feature implementation** (adding a new file, adding a config field
 
 | File | What to update |
 |---|---|
-| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils), config example block, key test files, Octave compat listing |
-| `README.md` | File counts (test badge, Repository Structure tree, utils/tests counts), config field table if a user-facing field was added |
+| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils/Analysis), config example block, key test files, Octave compat listing |
+| `README.md` | File counts (test badge, Repository Structure tree, utils/tests/analysis counts), config field table if a user-facing field was added |
 | `MEMORY.md` (auto-memory) | File signatures, new patterns, any architectural decisions made during the feature |
 
 ### Checklist (run mentally after each feature)
@@ -418,6 +508,7 @@ After **every feature implementation** (adding a new file, adding a config field
 4. **New `.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
 5. **New top-level `.m` file?** → Add to CLAUDE.md Repository Structure tree.
 6. **Changed module signature?** → Update MEMORY.md File Signatures section.
+7. **New Python script in `analysis/`?** → Add to CLAUDE.md Analysis Scripts table. Update the file count in Repository Structure (both CLAUDE.md and README.md).
 
 ---
 
@@ -427,6 +518,7 @@ After **every feature implementation** (adding a new file, adding a config field
 - Branch naming follows: `claude/<description>-<session-id>` for Claude branches.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
 - After pushing a branch, Claude should create a pull request targeting `main` using `gh pr create` **only if `gh` is available** (check with `which gh` first). Include a summary of changes and a test plan in the PR body. If `gh` is not installed, skip PR creation silently (do not notify the user).
+- CI (`.github/workflows/ci.yml`) runs MATLAB tests and Python analysis tests on all three platforms (Linux, macOS, Windows) plus an Octave smoke test on Linux.
 
 ---
 

@@ -335,59 +335,12 @@ end
 
 % [PERFORMANCE OPTIMIZATION]:
 % Pre-compute normalized strings outside the loop to avoid redundant strrep calls.
-% Ensure T.Pat is a cellstr before passing to strrep
-if exist('OCTAVE_VERSION', 'builtin')
-    % iscategorical is missing or mocked, T.Pat might be char array, need to make sure it's cellstr
-    if isfield(T, 'Pat')
-        T_Pat_cell_tmp = T.Pat;
-        if ischar(T_Pat_cell_tmp)
-            if size(T_Pat_cell_tmp, 1) > 1
-                % if multiple rows
-                T_Pat_cell = {};
-                for i_pat_row = 1:size(T_Pat_cell_tmp, 1)
-                    T_Pat_cell{i_pat_row} = strtrim(T_Pat_cell_tmp(i_pat_row, :));
-                end
-            else
-                T_Pat_cell = {T_Pat_cell_tmp};
-            end
-        elseif isnumeric(T_Pat_cell_tmp)
-            T_Pat_cell = {};
-        elseif iscell(T_Pat_cell_tmp)
-            T_Pat_cell = T_Pat_cell_tmp;
-        else
-            T_Pat_cell = {T_Pat_cell_tmp};
-        end
-    else
-        T_Pat_cell = {};
-    end
+% Uses shared normalize_patient_ids utility for Octave-compatible ID matching.
+if isfield(T, 'Pat')
+    [T_Pat_normalized, id_list_normalized] = normalize_patient_ids(T.Pat, id_list);
 else
-    if iscategorical(T.Pat)
-        T_Pat_cell = cellstr(T.Pat);
-    else
-        T_Pat_cell = T.Pat;
-    end
-end
-
-if isempty(T_Pat_cell)
     T_Pat_normalized = {};
-else
-    try
-        % Strip leading/trailing single quotes that Excel may embed in text cells
-        T_Pat_cell = strrep(T_Pat_cell, '''', '');
-        T_Pat_normalized = strrep(T_Pat_cell, '_', '-');
-    catch
-        T_Pat_normalized = {};
-    end
-end
-
-if isempty(id_list)
     id_list_normalized = {};
-else
-    try
-        id_list_normalized = strrep(id_list, '_', '-');
-    catch
-        id_list_normalized = {};
-    end
 end
 
 % --- DEBUG: print spreadsheet vs folder patient IDs for matching diagnosis ---
@@ -694,7 +647,9 @@ for j = 1:n_reconstruct
     end
 end
 
-% Flatten bad_dwi_locations
+% Flatten bad_dwi_locations from per-patient cell arrays into a single
+% cohort-wide list.  These flagged acquisitions are reported in the
+% pipeline log for the physicist to review and decide on exclusion.
 bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
 bad_dwi_count = length(bad_dwi_locations);
 
@@ -706,7 +661,9 @@ fprintf('\n--- SECTION 3: Save Results ---\n');
 %  to resume from here in future runs.
 
 datasave = fullfile(dataloc, 'dwi_vectors.mat');
-% Create a date-stamped backup before overwriting
+% Create a date-stamped backup before overwriting to prevent accidental
+% data loss from re-running the pipeline.  Backups accumulate in dataloc
+% but are small relative to the imaging data (~10-50 MB per cohort).
 if exist(datasave,'file')
     dt = datetime('now');
     dateString = char(dt, 'yyyy_MMM_dd');
@@ -714,12 +671,16 @@ if exist(datasave,'file')
     copyfile(datasave,newfilename);
     fprintf('backed up existing save to %s\n',newfilename);
 end
+% Save to a DWI-type-specific file so that Standard, dnCNN, and IVIMnet
+% results coexist on disk without overwriting each other.
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
 else
     file_prefix = '';
 end
 datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+% Persist all cohort-level arrays.  This .mat file is the checkpoint that
+% allows Section 4 (reload) to bypass the expensive Section 1-3 processing.
 save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
 fprintf('saved %s\n',datasave);
 

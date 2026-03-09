@@ -271,13 +271,8 @@ else
     rtstartdate = repmat(datetime(NaT), length(id_list), 1);
     rtenddate = repmat(datetime(NaT), length(id_list), 1);
 
-    % Strip embedded single quotes that Excel may add to text cells,
-    % matching the same normalization applied in load_dwi_data.m (line 263).
-    pat_raw = T.Pat;
-    if iscategorical(pat_raw), pat_raw = cellstr(pat_raw); end
-    pat_raw = strrep(pat_raw, '''', '');
-    pat_normalized = strrep(pat_raw, '_', '-');
-    id_list_normalized = strrep(id_list,'_','-');
+    % Normalize patient IDs for spreadsheet/folder matching using shared utility.
+    [pat_normalized, id_list_normalized] = normalize_patient_ids(T.Pat, id_list);
 
     n_ids_clinical = length(id_list);
     for j = 1:n_ids_clinical
@@ -518,6 +513,11 @@ if exclude_missing_baseline
 end
 
 if exclude_outliers
+    % Apply the outlier mask after the baseline filter so indices align.
+    % Outlier patients are "soft-excluded" by setting their data to NaN
+    % rather than removing rows, which preserves array alignment with
+    % valid_pts and lf_group.  Downstream nanmean/ranksum operations
+    % automatically skip NaN entries.
     if exclude_missing_baseline
         outlier_current = ~non_outlier(valid_baseline);
     else
@@ -527,6 +527,7 @@ if exclude_outliers
     if ~isempty(outlier_ids)
         fprintf('  ⚠️  Removed %d patients as outliers (IDs: %s)\n', numel(outlier_ids), strjoin(outlier_ids, ', '));
     end
+    % NaN-out all metrics for outlier patients across all timepoints
     m_adc_mean(outlier_current,:,:)             = NaN;
     m_d_mean(outlier_current,:,:)               = NaN;
     m_f_mean(outlier_current,:,:)               = NaN;

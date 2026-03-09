@@ -8,7 +8,7 @@ authors:
     affiliation: Memorial Sloan Kettering Cancer Center
 repository-code: "https://github.com/akarlin3/pancData3"
 license: MIT
-version: "1.1.1"
+version: "2.0.0-alpha.1"
 date-released: "2026-03-09"
 keywords:
   - diffusion-weighted imaging

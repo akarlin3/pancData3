@@ -2,19 +2,20 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-78%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.0.0--alpha.1-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-83%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 1.1.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.0.0-alpha.1 — see [CHANGELOG.md](CHANGELOG.md) for details. Both v2.0.0-alpha.1 and v1.1.0 (stable) are supported.
 
 ---
 
 ## Table of Contents
 
+- [Supported Platforms](#supported-platforms)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -22,6 +23,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - [Usage](#usage)
 - [Pipeline Steps](#pipeline-steps)
 - [Running Tests](#running-tests)
+- [Post-Hoc Analysis Scripts](#post-hoc-analysis-scripts)
 - [Repository Structure](#repository-structure)
 - [Contributing](#contributing)
 - [Citation](#citation)
@@ -41,6 +43,23 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ---
 
+## Supported Platforms
+
+| Platform | MATLAB Pipeline | Python Analysis | CI Tested |
+|---|---|---|---|
+| **Linux** (Ubuntu 22.04+) | Yes | Yes | Yes |
+| **macOS** (13 Ventura+) | Yes | Yes | Yes |
+| **Windows** (10/11) | Yes | Yes | Yes |
+
+The codebase uses platform-aware code paths throughout:
+
+- **Shell escaping** -- `escape_shell_arg.m` detects `ispc()` and applies Windows (double-quote) or Unix (single-quote) escaping for all `system()` calls
+- **Path handling** -- All paths use `fullfile()`, `filesep`, and `pathsep` (MATLAB) or `pathlib.Path` (Python) instead of hardcoded separators
+- **Console encoding** -- Python analysis scripts reconfigure `stdout` to UTF-8 on Windows to handle emoji log prefixes
+- **Mock test scripts** -- Tests generate `.bat` files on Windows and shell scripts on Unix
+
+---
+
 ## Requirements
 
 ### MATLAB Toolboxes
@@ -53,9 +72,9 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ### External Tools
 
-| Tool | Purpose |
-|---|---|
-| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion |
+| Tool | Purpose | Installation |
+|---|---|---|
+| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion | [Download](https://github.com/rordenlab/dcm2niix/releases) for Windows, macOS, or Linux. Must be on your system PATH or specified in `config.json` as `dcm2nii_call`. |
 
 ---
 
@@ -229,7 +248,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('tests/run_all_tests.m')
 ```
 
-The test suite includes 78 test files covering:
+The test suite includes 83 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -240,6 +259,67 @@ The test suite includes 78 test files covering:
 - **Static analysis** -- Source code standards and naming conventions
 
 Tests generate a code coverage report for `core/` and `utils/`.
+
+---
+
+## Post-Hoc Analysis Scripts
+
+The `analysis/` folder contains a comprehensive Python analysis suite for automated extraction, cross-referencing, and reporting of pipeline results.
+
+### Requirements
+
+- Python 3.12+
+- `pip install -r analysis/requirements.txt`
+- `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
+
+### Usage
+
+```bash
+# Full analysis workflow (auto-detects latest output folder)
+python analysis/run_analysis.py
+
+# Skip vision API calls (use existing CSV or only direct parsing)
+python analysis/run_analysis.py --skip-vision
+
+# Only generate the HTML report from existing data
+python analysis/run_analysis.py --report-only
+
+# Also keep the HTML report on disk (default: PDF only)
+python analysis/run_analysis.py --html
+
+# Specify a particular output folder
+python analysis/run_analysis.py --folder saved_files_20260308_010713
+
+# Skip pre-flight checks (requirements verification and test suite)
+python analysis/run_analysis.py --skip-checks
+
+# Individual scripts can still be run standalone
+python analysis/batch_graph_analysis.py
+python analysis/parse_log_metrics.py [saved_files_path]
+python analysis/statistical_relevance.py [saved_files_path]
+```
+
+| Script | Description |
+|---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with CLI flags |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, regex extractors |
+| `batch_graph_analysis.py` | Sends all pipeline graph images to Google Gemini vision API; extracts axes, trends, inflection points into a structured CSV |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
+| `parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
+| `generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
+| `cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
+| `cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
+| `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
+| `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
+| `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON |
+
+### Analysis Test Suite
+
+The analysis scripts have a Python test suite (367 tests across 10 files) using pytest:
+
+```bash
+cd analysis/tests && python -m pytest -v
+```
 
 ---
 
@@ -259,7 +339,7 @@ pancData3/
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (28 files)
+├── utils/                      # Helper utilities (44 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
@@ -267,10 +347,23 @@ pancData3/
 │   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
 │   ├── text_progress_bar.m     #   Text-based progress bar display
 │   └── ...
-├── tests/                      # Test suite (78 test files)
+├── tests/                      # Test suite (83 test files)
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
+├── analysis/                   # Python post-hoc analysis suite (20 files)
+│   └── tests/                  # Python test suite (10 test files, 367 tests)
+│   ├── run_analysis.py         #   Orchestrator (full workflow runner)
+│   ├── shared.py               #   Shared utilities
+│   ├── batch_graph_analysis.py #   Vision API batch graph extraction
+│   ├── parse_log_metrics.py    #   Direct MATLAB log parsing
+│   ├── parse_csv_results.py    #   Direct CSV export parsing
+│   ├── generate_report.py      #   HTML report generator
+│   ├── cross_reference_dwi.py  #   Cross-DWI type comparison
+│   ├── cross_reference_summary.py #  Concise cross-DWI summary
+│   ├── statistical_relevance.py #  Statistical significance extraction
+│   ├── statistical_by_graph_type.py # Stats filtered by graph type
+│   └── parse_mat_metrics.py    #   MATLAB .mat file parser (core/dosimetry/summary → JSON)
 ├── dependencies/               # Third-party scripts (read-only)
 └── .agents/                    # AI agent configuration
     ├── rules/                  #   Agent safety rules
@@ -294,7 +387,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {1.1.1},
+  version   = {2.0.0-alpha.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {MIT}
 }

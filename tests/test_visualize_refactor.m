@@ -1,5 +1,13 @@
 classdef test_visualize_refactor < matlab.unittest.TestCase
-    % TEST_VISUALIZE_REFACTOR Unit tests for visualization path construction
+    % TEST_VISUALIZE_REFACTOR Unit tests for visualization path construction.
+    %
+    % This test file validates that visualize_results.m constructs file paths
+    % correctly using fullfile() rather than string concatenation. A common bug
+    % pattern is [dataloc id '/'] which fails when dataloc lacks a trailing
+    % separator, producing malformed paths like ".../TempDirP01/" instead of
+    % ".../TempDir/P01/". The test creates a minimal patient directory with
+    % dummy NIfTI files and verifies that the visualization module can locate
+    % them, confirming correct path construction.
     properties
         TempDir
         ConfigStruct
@@ -9,7 +17,8 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function setupEnvironment(testCase)
-            % Create temp dir
+            % Create a temporary directory tree mimicking the patient data layout
+            % expected by visualize_results: dataloc/PatientID/nii/*.nii.gz
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -22,13 +31,16 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             fclose(fopen(fullfile(niiDir, 'fx1_dwi1.nii.gz'), 'w'));
             fclose(fopen(fullfile(niiDir, 'fx1_gtv1.nii.gz'), 'w'));
 
-            % Create dummy .bval
+            % Create a dummy .bval file with 4 b-values (required by visualize_results
+            % to determine the number of diffusion weightings)
             fid = fopen(fullfile(niiDir, 'fx1_dwi1.bval'), 'w');
             fprintf(fid, '0 30 150 550');
             fclose(fid);
 
-            % Setup inputs
-            % IMPORTANT: We deliberately do NOT add a trailing separator to test fullfile robustness
+            % Setup config inputs.
+            % IMPORTANT: We deliberately do NOT add a trailing separator to test fullfile robustness.
+            % This is the crux of the test: if the code uses string concatenation instead of
+            % fullfile(), the path will be malformed.
             testCase.ConfigStruct.dataloc = testCase.TempDir;
             testCase.ConfigStruct.output_folder = fullfile(testCase.TempDir, 'output');
             testCase.ConfigStruct.dwi_types_to_run = 1;
@@ -36,7 +48,8 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             testCase.SummaryMetrics.id_list = {patID};
             testCase.SummaryMetrics.mrn_list = {'MRN01'};
             testCase.SummaryMetrics.lf = [0];
-            % Initialize summary arrays with NaNs/Ones
+            % Initialize summary arrays with ones: dimensions are [nPatients, nTimepoints, nDWITypes]
+            % These placeholder values allow visualize_results to proceed past data checks.
             testCase.SummaryMetrics.adc_mean = ones(1,6,3);
             testCase.SummaryMetrics.d_mean = ones(1,6,3);
             testCase.SummaryMetrics.f_mean = ones(1,6,3);
@@ -44,10 +57,12 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
             testCase.SummaryMetrics.d95_gtvp = ones(1,6);
             testCase.SummaryMetrics.dmean_gtvp = ones(1,6);
 
-            % Setup DataVectors with a non-empty struct to pass the "isempty" check
+            % Setup DataVectors with a non-empty struct so visualize_results does not
+            % short-circuit on the isempty() guard at the top of the function.
             testCase.DataVectors = struct('adc_vector', {ones(10,1)});
 
-            % Add core/utils to path
+            % Add core/utils/dependencies to the MATLAB path so visualize_results
+            % and its helpers are accessible.
             baseDir = fileparts(fileparts(mfilename('fullpath')));
             addpath(fullfile(baseDir, 'core'));
             addpath(fullfile(baseDir, 'utils'));
@@ -57,7 +72,10 @@ classdef test_visualize_refactor < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function cleanup(testCase)
-            diary off;  % close any diary opened by the function under test
+            % Close any diary opened by visualize_results before removing the temp
+            % directory; otherwise the diary file lock (especially on Windows)
+            % prevents rmdir from succeeding.
+            diary off;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
             end

@@ -12,13 +12,17 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     %   results = runtests('tests/test_dwi_pipeline.m');
 
     properties
-        % Define properties that can be shared across tests if needed
+        % MockDataDir — temporary directory used as a stand-in for the real
+        %   patient data location (dataloc); cleaned up after each test.
+        % ConfigStruct — pipeline configuration struct populated with safe
+        %   defaults and lowered thresholds suitable for small mock datasets.
         MockDataDir
         ConfigStruct
     end
 
     methods(TestMethodSetup)
-        % Setup for each test
+        % Setup runs before each test method: creates a minimal config,
+        % a temporary data directory, and adds pipeline source paths.
         function createMockConfig(testCase)
             % Suppress figure pop-ups during pipeline execution
             set(0, 'DefaultFigureVisible', 'off');
@@ -56,7 +60,8 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     end
 
     methods(TestMethodTeardown)
-        % Cleanup after each test
+        % Teardown runs after each test: restores the MATLAB path and
+        % removes the temporary mock data directory.
         function removeMockData(testCase)
             % Restore path BEFORE deleting mock_data to avoid
             % "Removed ... from the MATLAB path" warnings.
@@ -78,15 +83,29 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
 
     methods(Access = private)
         function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = generateValidMockData(testCase)
-            % Helper function to generate mock data structures that pass sanity_checks
-            % and have sufficient dimensionality for downstream metrics
+            % Generates a complete set of mock pipeline data (voxel vectors
+            % and summary metrics) that passes sanity checks and is
+            % dimensionally compatible with all downstream metric modules.
+            %
+            % Returns:
+            %   data_vectors_gtvp — [nPat x nTp x nRpt] struct array of
+            %       primary GTV voxel-level data (ADC, D, f, D*, dose).
+            %   data_vectors_gtvn — same structure for nodal GTV.
+            %   summary_metrics  — struct with patient-level aggregated
+            %       metrics, repeatability fields, dose fields, and mock
+            %       DICOM dates for scan-day derivation.
 
             nPat = 3;
-            nTp = 4; % Need at least 2 timepoints for longitudinal, say Fx1, Fx2, Fx3, Post
+            nTp = 4; % 4 timepoints: Fx1, Fx2, Fx3, Post (need >=2 for longitudinal)
             nDwiType = 3; % Standard, DnCNN, IVIMnet
 
             % 1. Create Data Vectors
-            % Generate dummy voxel data
+            % Generate dummy voxel data with physically plausible base values:
+            %   ADC ~1.0e-3 mm^2/s (typical pancreatic tissue)
+            %   D ~0.8e-3 mm^2/s (diffusion component of IVIM)
+            %   f ~0.15 (perfusion fraction)
+            %   D* ~0.05 mm^2/s (pseudo-diffusion coefficient)
+            %   dose ~2 Gy per fraction (scales with timepoint index)
             nvox = 50;
             base_adc = 0.001;
             base_d = 0.0008;
@@ -227,6 +246,14 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
     methods(Test)
 
         function testRunDwiPipelineEndToEnd(testCase)
+            % Verifies that the full DWI pipeline (sanity through survival)
+            % executes end-to-end on mock data without error and produces
+            % all expected output files (sanity log, visualization state,
+            % baseline/longitudinal/dosimetry/comparisons/predictive/survival
+            % results). Also validates that output .mat files contain
+            % non-empty, finite data — ensuring the pipeline is not just
+            % creating empty placeholders.
+
             % Create mock data
             [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = testCase.generateValidMockData();
 
@@ -380,6 +407,13 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
         end
 
         function testMockNiftiPipelineOutputs(testCase)
+            % Verifies that a mono-exponential ADC fit on synthetic 4D DWI
+            % data produces physically valid results: no negative ADC values,
+            % no NaNs, and the fitted ADC is within 15% of the known ground
+            % truth (true_adc = 0.001 mm^2/s). This tests the mathematical
+            % correctness of the log-linear OLS fitting approach used by
+            % the pipeline's ADC model.
+            %
             % -----------------------------------------------------------------
             % BOILERPLATE MOCK 3D NIFTI ARRAY TEST
             % -----------------------------------------------------------------
@@ -397,7 +431,8 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             end
             mockSignal(mockSignal < 1) = 1; % Prevent negative noise from causing log(0)
 
-            % Generate a corresponding 3D GTV mask
+            % Generate a corresponding 3D GTV mask — a 3x3x3 central cube
+            % simulating a tumor ROI within the 5x5x5 volume (27 voxels)
             mockMask = zeros(5, 5, 5);
             mockMask(2:4, 2:4, 2:4) = 1; % Active central core
 
@@ -410,12 +445,12 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             S_2d = reshape(mockSignal, [prod(sz(1:3)), length(bvals)]);
             adc_vec = zeros(numel(mockMask), 1);
 
-            % Simple OLS log-linear fit for demonstration
+            % Simple OLS log-linear fit: ADC = -b \ ln(S(b)/S(0))
+            % This mirrors the mono-exponential model S(b) = S(0)*exp(-b*ADC)
             S_a = S_2d;
-            % (-b(2:end) \ log(S(b>0)/S(b=0)))
             adc_vec = (-bvals(2:end)' \ log(S_a(:,2:end) ./ S_a(:,1))')';
 
-            % Extract GTV only
+            % Extract only GTV-masked voxels for downstream assertions
             final_adc_features = adc_vec(mockMask == 1);
 
             % -----------------------------------------------------------------

@@ -19,6 +19,12 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function createMockInputs(testCase)
+            % Creates mock inputs for compute_summary_metrics:
+            %   - Config with standard thresholds (ADC<1.15e-3, f<0.1, etc.)
+            %   - 2 patients, 3 timepoints with varying data scenarios:
+            %     PT1/TP1: good data (3 voxels), PT1/TP2: empty (missing scan),
+            %     PT1/TP3: contains NaN voxels, PT2/TP1: all f below threshold
+            %   - Supporting metadata (IDs, MRNs, LF status, dose metrics)
             testCase.ConfigStruct = struct('dataloc', pwd, 'adc_thresh', 1e-3, ...
                 'high_adc_thresh', 1.15e-3, 'd_thresh', 1e-3, 'f_thresh', 0.1, ...
                 'dstar_thresh', 0.01, 'use_checkpoints', false, ...
@@ -69,7 +75,11 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
 
     methods(Test)
         function testBasicCalculation(testCase)
-            % Ensure basic calculations run without error and output is correct structure
+            % Verifies basic metric computation: output is a struct with
+            % correct patient IDs, expected array dimensions [2 x 3 x 3]
+            % (patients x timepoints x DWI types), correct mean values for
+            % known inputs, NaN-aware mean for vectors with NaN entries,
+            % and NaN output for missing (empty) timepoints.
             summary = compute_summary_metrics(testCase.ConfigStruct, testCase.DataVectors, ...
                 testCase.IDList, testCase.MRNList, testCase.LF, testCase.Immuno, ...
                 testCase.GTVLoc, testCase.DWILoc, testCase.Dmean, testCase.D95, testCase.V50Gy);
@@ -94,6 +104,11 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testSubvolumeCalculation(testCase)
+            % Verifies threshold-based sub-volume calculations:
+            %   PT1/TP1 ADC: values [0.001, 0.002, 0.0015] with high_adc_thresh=0.00115.
+            %     Only 0.001 < 0.00115, so adc_sub_vol_pc = 1/3.
+            %   PT2/TP1 f: values [0.05, 0.05, 0.05] with f_thresh=0.1.
+            %     All 3 voxels < threshold, so f_sub_vol = 3 (all qualify).
             summary = compute_summary_metrics(testCase.ConfigStruct, testCase.DataVectors, ...
                 testCase.IDList, testCase.MRNList, testCase.LF, testCase.Immuno, ...
                 testCase.GTVLoc, testCase.DWILoc, testCase.Dmean, testCase.D95, testCase.V50Gy);
@@ -109,8 +124,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testSingleVoxelGTV(testCase)
-            % Single-voxel GTV is an edge case for kurtosis/skewness
-            % (undefined for n=1). Should produce NaN for those metrics.
+            % Edge case: single-voxel GTV. Higher-order statistics
+            % (kurtosis, skewness) are undefined for n=1 and should be NaN
+            % when the voxel count is below min_vox_hist (set to 2 here).
+            % The mean should still be valid (equal to the single value).
             cfg = testCase.ConfigStruct;
             cfg.min_vox_hist = 2;  % require at least 2 voxels for higher-order stats
 
@@ -140,7 +157,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testAllIdenticalValues(testCase)
-            % All identical ADC values should produce zero SD
+            % Edge case: all voxels have identical values. Standard
+            % deviation should be exactly zero, and mean should equal
+            % the constant value. Tests that the statistics handle
+            % zero-variance distributions correctly.
             cfg = testCase.ConfigStruct;
             empty_entry = struct( ...
                 'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
@@ -163,7 +183,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testAllNaNVoxelVectors(testCase)
-            % All-NaN voxel vectors should produce NaN mean
+            % Edge case: all voxels are NaN (complete model fitting failure).
+            % nanmean of all-NaN should return NaN, not 0 or error.
+            % This scenario occurs when IVIM fitting diverges for every
+            % voxel in a small or motion-corrupted GTV.
             cfg = testCase.ConfigStruct;
             empty_entry = struct( ...
                 'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
@@ -187,7 +210,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testMotionCorruptionFlag(testCase)
-            % Voxels exceeding adc_max should be flagged
+            % Verifies the motion corruption detection: voxels with ADC
+            % values exceeding adc_max (0.002 here) are flagged as
+            % motion-corrupted. With 2 of 4 voxels above threshold,
+            % fx_corrupted should be 0.5 (50% corruption rate).
             cfg = testCase.ConfigStruct;
             cfg.adc_max = 0.002;
 
@@ -212,9 +238,13 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testFx1MaskFallback(testCase)
-            % When DIR warps Fx2 vectors to Fx1 space, the native Fx2
-            % mask has a different voxel count. The code should fall back
-            % to the Fx1 mask for 3D-dependent core methods.
+            % Verifies the Fx1 mask fallback for deformable image
+            % registration (DIR) scenarios. When Fx2 vectors are warped to
+            % Fx1 space, the native Fx2 GTV mask (90 voxels) does not
+            % match the warped vector length (100 voxels). The function
+            % should detect this mismatch and fall back to the Fx1 mask
+            % (100 voxels) for 3D-dependent core methods, producing valid
+            % (non-NaN) sub-volume metrics for both timepoints.
             tmp = tempname;
             mkdir(tmp);
             cleanup = onCleanup(@() rmdir(tmp, 's'));
