@@ -229,7 +229,7 @@ def generate_report(folder: Path) -> str:
     if not has_quality_data:
         h.append('<p class="meta">No baseline quality data found in logs.</p>')
 
-    h.extend(_section_hypothesis(groups))
+    h.extend(_section_hypothesis(groups, log_data))
     h.extend(_section_graph_overview(rows))
     h.extend(_section_stats_by_graph_type(rows))
     h.extend(_section_statistical_significance(rows, csv_data, log_data, dwi_types_present))

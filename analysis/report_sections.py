@@ -250,7 +250,7 @@ def _section_cohort_overview(mat_data, log_data, dwi_types_present) -> list[str]
     return h
 
 
-def _section_hypothesis(groups) -> list[str]:
+def _section_hypothesis(groups, log_data=None) -> list[str]:
     """Build the Data-Driven Hypothesis section.
 
     Analyses longitudinal trend and inflection-point data from the
@@ -262,10 +262,19 @@ def _section_hypothesis(groups) -> list[str]:
     - **Vascular response** (f, D* trends) -- perfusion changes.
     - **Outcome trajectory** -- combined interpretation.
 
+    A fourth axis, **Suggested Treatment Plan**, is appended when enough
+    data is available.  It combines trend consensus with survival (hazard
+    ratios) and predictive (AUC, selected features) results from
+    ``log_data`` to propose data-driven treatment considerations.
+
     Parameters
     ----------
     groups : dict[str, dict[str, dict]]
         Graph rows grouped by base name and DWI type.
+    log_data : dict or None, optional
+        Parsed log metrics keyed by DWI type (from ``parse_all_logs``).
+        Used to enrich the treatment plan with survival and predictive
+        model results.
 
     Returns
     -------
@@ -409,6 +418,150 @@ def _section_hypothesis(groups) -> list[str]:
                  "may remain at higher risk for Local Failure or harbor therapy-resistant sub-volumes.</li>")
 
     h.append("</ul>")
+
+    # ── Suggested Treatment Plan ──
+    # Combine trend consensus with survival and predictive data to propose
+    # data-driven treatment considerations.
+    plan_points: list[str] = []
+
+    # -- Core recommendation based on cellular + vascular response --
+    if d_trend_consensus == "increasing" and f_trend_consensus == "decreasing":
+        plan_points.append(
+            "The current radiotherapy regimen appears effective. "
+            "Continue the prescribed fractionation scheme and monitor "
+            "for sustained increases in <em>D</em> and decreases in <em>f</em> "
+            "to confirm durable tumor response."
+        )
+    elif d_trend_consensus in ("stable", "decreasing", "unknown") and f_trend_consensus == "decreasing":
+        plan_points.append(
+            "Vascular disruption is evident (decreasing <em>f</em>), but "
+            "cellular kill remains limited (stable/decreasing <em>D</em>). "
+            "Consider dose escalation to the gross tumor volume (GTV) or "
+            "the addition of a radiosensitizing agent (e.g., gemcitabine or "
+            "capecitabine) to augment cell kill while the vascular supply is "
+            "compromised."
+        )
+    elif d_trend_consensus == "increasing" and f_trend_consensus in ("stable", "increasing", "unknown"):
+        plan_points.append(
+            "Cellular response is observed (increasing <em>D</em>), but the "
+            "tumor vasculature remains intact or is increasing (<em>f</em> "
+            "stable/rising). Consider combination with an anti-angiogenic agent "
+            "to disrupt residual vascular supply, or evaluate whether a "
+            "hypofractionated boost to hyperperfused sub-volumes may enhance "
+            "local control."
+        )
+    else:
+        plan_points.append(
+            "Neither strong cellular kill nor significant vascular disruption "
+            "is observed. Consider a multidisciplinary review to evaluate "
+            "alternative treatment strategies, such as treatment intensification, "
+            "concurrent systemic therapy, or adaptive replanning with dose "
+            "escalation to resistant sub-volumes identified by persistently "
+            "low <em>D</em> regions."
+        )
+
+    # -- Inflection-point-driven timing guidance --
+    if cellular_inflections or vascular_inflections:
+        # Extract fraction labels from inflection descriptions.
+        fx_labels: list[str] = []
+        for desc in cellular_inflections + vascular_inflections:
+            fx_match = re.search(r'(Fx\d+|baseline)', desc)
+            if fx_match and fx_match.group(1) not in fx_labels:
+                fx_labels.append(fx_match.group(1))
+        if fx_labels:
+            plan_points.append(
+                f"Key inflection points were identified around "
+                f"{', '.join(fx_labels)}. These timepoints represent "
+                f"optimal windows for adaptive replanning or mid-treatment "
+                f"imaging assessment to confirm the trajectory before "
+                f"continuing or modifying the plan."
+            )
+
+    # -- Survival-informed guidance (hazard ratios) --
+    sig_covariates: list[str] = []
+    protective_covariates: list[str] = []
+    risk_covariates: list[str] = []
+    if log_data:
+        for dt in DWI_TYPES:
+            surv = (log_data.get(dt) or {}).get("survival")
+            if not surv:
+                continue
+            for hr_entry in surv.get("hazard_ratios", []):
+                p = hr_entry.get("p", 1.0)
+                hr = hr_entry.get("hr", 1.0)
+                cov = hr_entry.get("covariate", "")
+                if p < 0.05 and cov and cov not in sig_covariates:
+                    sig_covariates.append(cov)
+                    if hr < 1.0:
+                        protective_covariates.append(cov)
+                    else:
+                        risk_covariates.append(cov)
+        if sig_covariates:
+            parts = []
+            if protective_covariates:
+                parts.append(
+                    f"Parameters <code>{_esc('</code>, <code>'.join(protective_covariates))}</code> "
+                    f"showed protective hazard ratios (HR &lt; 1), suggesting that higher "
+                    f"values of these metrics correlate with improved local control."
+                )
+            if risk_covariates:
+                parts.append(
+                    f"Parameters <code>{_esc('</code>, <code>'.join(risk_covariates))}</code> "
+                    f"showed elevated hazard ratios (HR &gt; 1), identifying them as "
+                    f"potential risk factors. Patients with unfavorable values of these "
+                    f"metrics may benefit from intensified monitoring or treatment adaptation."
+                )
+            plan_points.append(" ".join(parts))
+
+    # -- Predictive-model-informed guidance (AUC, features) --
+    best_auc = 0.0
+    best_tp = ""
+    selected_features: list[str] = []
+    if log_data:
+        for dt in DWI_TYPES:
+            pred = (log_data.get(dt) or {}).get("stats_predictive")
+            if not pred:
+                continue
+            for roc in pred.get("roc_analyses", []):
+                auc = roc.get("auc", 0.0)
+                if auc > best_auc:
+                    best_auc = auc
+                    best_tp = roc.get("timepoint", "")
+            for fs in pred.get("feature_selections", []):
+                for feat in fs.get("features", []):
+                    if feat not in selected_features:
+                        selected_features.append(feat)
+        if best_auc >= 0.65 and selected_features:
+            confidence = "moderate"
+            if best_auc >= 0.8:
+                confidence = "high"
+            elif best_auc >= 0.7:
+                confidence = "good"
+            tp_note = f" at timepoint {_esc(best_tp)}" if best_tp else ""
+            plan_points.append(
+                f"Predictive modeling achieved {confidence} discriminative ability "
+                f"(AUC = {best_auc:.3f}{tp_note}), with key features: "
+                f"<code>{_esc('</code>, <code>'.join(selected_features[:5]))}</code>. "
+                f"These features should be prioritized in longitudinal monitoring "
+                f"protocols to enable early detection of treatment failure and "
+                f"timely intervention."
+            )
+
+    if plan_points:
+        h.append('<div class="summary-box" style="border-left-color: var(--green);">')
+        h.append("<p><strong>Suggested Treatment Plan:</strong> "
+                 "Based on the observed diffusion and perfusion trends, "
+                 "survival analysis, and predictive modeling, the following "
+                 "data-driven treatment considerations are proposed. "
+                 "<em>These suggestions are hypothesis-generating and should "
+                 "be reviewed by the treating physician in the context of the "
+                 "individual patient's clinical picture.</em></p>")
+        h.append("<ul>")
+        for pt in plan_points:
+            h.append(f"<li>{pt}</li>")
+        h.append("</ul>")
+        h.append("</div>")
+
     h.append("</div>")
     return h
 
