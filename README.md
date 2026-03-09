@@ -282,7 +282,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 | `batch_graph_analysis.py` | Sends all pipeline graph images to Google Gemini vision API; extracts axes, trends, inflection points into a structured CSV |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
-| `generate_report.py` | HTML report generator combining all data sources into `analysis_report.html` |
+| `generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
 | `cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |

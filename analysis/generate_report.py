@@ -46,6 +46,8 @@ from report_formatters import (  # noqa: F401
     CSS,
     HTML_TEMPLATE,
     NAV_SECTIONS,
+    REFERENCES,
+    _cite,
     _dwi_badge,
     _effect_size_class,
     _effect_size_label,
@@ -54,11 +56,14 @@ from report_formatters import (  # noqa: F401
     _get_consensus,
     _h2,
     _nav_bar,
+    _references_section,
     _section,
     _sig_class,
     _sig_tag,
     _stat_card,
+    _table_caption,
     _trend_tag,
+    reset_numbering,
 )
 
 # Re-export section builders for backward compatibility.
@@ -68,6 +73,7 @@ from report_sections import (  # noqa: F401
     _section_conclusions,
     _section_correlations,
     _section_cross_dwi_comparison,
+    _section_data_availability,
     _section_effect_sizes,
     _section_executive_summary,
     _section_graph_overview,
@@ -78,6 +84,7 @@ from report_sections import (  # noqa: F401
     _section_model_diagnostics,
     _section_multiple_comparisons,
     _section_predictive_performance,
+    _section_publication_header,
     _section_stats_by_graph_type,
     _section_statistical_significance,
     _section_treatment_response,
@@ -146,6 +153,9 @@ def generate_report(folder: Path) -> str:
     if not dwi_types_present:
         dwi_types_present = [d for d in DWI_TYPES if (folder / d).is_dir()]
 
+    # Reset table/figure numbering for this report.
+    reset_numbering()
+
     h = []  # Accumulator for HTML chunks (joined at the end).
     h.append("<!DOCTYPE html>")
     h.append('<html lang="en">')
@@ -168,6 +178,9 @@ def generate_report(folder: Path) -> str:
     if rows:
         h.append(f"<span><strong>Graphs analysed:</strong> {len(rows)}</span>")
     h.append("</div>")
+
+    # ── Publication metadata (author/institution placeholders) ──
+    h.extend(_section_publication_header())
 
     h.extend(_section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data))
 
@@ -294,6 +307,8 @@ def generate_report(folder: Path) -> str:
     h.extend(_section_mat_data(mat_data))
     h.extend(_section_limitations(log_data, dwi_types_present, mat_data))
     h.extend(_section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups))
+    h.extend(_section_data_availability())
+    h.extend(_references_section())
     h.extend(_section_appendix(rows))
 
     # Footer
@@ -330,15 +345,55 @@ def markdown_to_html(md_text: str, title: str) -> str:
     return HTML_TEMPLATE.format(title=title, body=body)
 
 
+def html_to_pdf(html_content: str, pdf_path: Path) -> bool:
+    """Convert an HTML report string to a PDF file using WeasyPrint.
+
+    Parameters
+    ----------
+    html_content : str
+        Complete HTML document string.
+    pdf_path : Path
+        Output path for the PDF file.
+
+    Returns
+    -------
+    bool
+        True if PDF generation succeeded, False otherwise.
+    """
+    try:
+        from weasyprint import HTML as WeasyprintHTML  # type: ignore[import-untyped]
+        WeasyprintHTML(string=html_content).write_pdf(str(pdf_path))
+        return True
+    except ImportError:
+        print("  WeasyPrint not installed. Install with: pip install weasyprint")
+        print("  Skipping PDF generation; HTML report is still available.")
+        return False
+    except Exception as e:
+        print(f"  PDF generation failed: {e}")
+        print("  HTML report is still available.")
+        return False
+
+
 def main():
     """CLI entry point: generate the HTML report and write it to disk."""
     folder = resolve_folder(sys.argv)
+
+    skip_pdf = "--no-pdf" in sys.argv
+
     html_report = generate_report(folder)
 
     out_path = folder / "analysis_report.html"
     out_path.write_text(html_report, encoding="utf-8")
     print(f"Report written to: {out_path}")
     print(f"  Length: {len(html_report)} characters")
+
+    # Generate PDF version
+    if not skip_pdf:
+        pdf_path = folder / "analysis_report.pdf"
+        print(f"Generating PDF: {pdf_path}")
+        if html_to_pdf(html_report, pdf_path):
+            print(f"  PDF written: {pdf_path}")
+            print(f"  Size: {pdf_path.stat().st_size / 1024:.0f} KB")
 
 
 if __name__ == "__main__":
