@@ -406,7 +406,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
                     h.append("</tr>")
                 h.append("</tbody></table>")
 
-    # GLME interaction details from logs
+    # ── Source 3: GLME interaction details from log parsing ──
     if log_data:
         has_glme = any(
             log_data[d].get("stats_comparisons", {}).get("glme_details")
@@ -486,6 +486,27 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
 
 
 def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
+    """Build the Cross-DWI Comparison section.
+
+    For priority graphs that exist in multiple DWI types, displays a
+    trend-direction comparison table showing whether Standard, dnCNN,
+    and IVIMnet agree or differ on each data series' direction.
+
+    Also includes a significance inconsistency table from the CSV
+    cross-reference (metrics significant in some DWI types but not others).
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+    csv_data : dict or None
+        Parsed pipeline CSV exports (contains ``cross_reference`` key).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the cross-DWI comparison section.
+    """
     # ── 4. Cross-DWI Comparison ──
     h: list[str] = []
     if groups:
