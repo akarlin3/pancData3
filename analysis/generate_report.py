@@ -288,6 +288,82 @@ def generate_report(folder: Path) -> str:
             h.append("</ul>")
     h.append("</div>")
 
+    # ── 1.5. Data-Driven Hypothesis ──
+    h.append("<h2>Data-Driven Hypothesis</h2>")
+    h.append('<div class="summary-box">')
+    
+    # Analyze trends for dynamic hypothesis
+    d_trend_consensus = "unknown"
+    f_trend_consensus = "unknown"
+    
+    if groups and "Longitudinal_Mean_Metrics" in groups:
+        d_trends = []
+        f_trends = []
+        for dt, r in groups["Longitudinal_Mean_Metrics"].items():
+            if dt == "Root": continue
+            try:
+                trends = json.loads(str(r.get("trends_json", "[]")))
+                for t in trends:
+                    if not isinstance(t, dict): continue
+                    series = t.get("series", "")
+                    direction = t.get("direction", "").lower()
+                    if series == "Mean D":
+                        d_trends.append(direction)
+                    elif series == "Mean f":
+                        f_trends.append(direction)
+            except Exception:
+                pass
+                
+        def _get_consensus(trend_list: list[str]) -> str:
+            if not trend_list: return "unknown"
+            increasers = sum(1 for x in trend_list if "increas" in x or "higher" in x or "up" in x)
+            decreasers = sum(1 for x in trend_list if "decreas" in x or "lower" in x or "down" in x)
+            if increasers > decreasers: return "increasing"
+            if decreasers > increasers: return "decreasing"
+            return "stable"
+            
+        d_trend_consensus = _get_consensus(d_trends)
+        f_trend_consensus = _get_consensus(f_trends)
+
+    h.append("<p>Based on the quantitative metrics and longitudinal trends extracted from the data, the following radiological-pathological hypothesis is proposed:</p>")
+    h.append("<ul>")
+    
+    # Cellular Response
+    if d_trend_consensus == "increasing":
+        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows an increase in true diffusion (<em>D</em>) over time. "
+                 "This suggests that effective radiation therapy is inducing cellular necrosis and apoptosis, "
+                 "leading to a breakdown of cell membranes. This expands the extracellular space, explaining the increased water mobility.</li>")
+    elif d_trend_consensus == "decreasing":
+        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows a decrease in true diffusion (<em>D</em>) over time. "
+                 "This suggests limited cell kill or potential cellular swelling (cytotoxic edema), indicating a highly cellular, densely packed tumor resistant to therapy.</li>")
+    else:
+        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows relatively stable or variable true diffusion (<em>D</em>) over time. "
+                 "This suggests a steady state between cellular destruction and tumor proliferation, or a timeline where major necrotic changes are not yet dominant.</li>")
+
+    # Vascular Response
+    if f_trend_consensus == "decreasing":
+        h.append("<li><strong>Vascular Response (f, D*):</strong> The data reveals drops in microcapillary perfusion fraction (<em>f</em>) and/or pseudo-diffusion (<em>D*</em>). "
+                 "These decreases indicate that radiation causes early endothelial damage and vascular regression, effectively cutting off the tumor's blood supply.</li>")
+    elif f_trend_consensus == "increasing":
+        h.append("<li><strong>Vascular Response (f, D*):</strong> The data shows an increase in microcapillary perfusion fraction (<em>f</em>). "
+                 "This suggests reactive angiogenesis, hyperemic inflammatory response, or a robust vascular supply aiding tumor survival and radiation resistance.</li>")
+    else:
+        h.append("<li><strong>Vascular Response (f, D*):</strong> The microcapillary perfusion fraction (<em>f</em>) remains relatively stable, "
+                 "suggesting that the tumor's vascular network has not been significantly altered or compromised by the treatment doses applied so far.</li>")
+
+    # Outcome Trajectory
+    if d_trend_consensus == "increasing" and f_trend_consensus == "decreasing":
+        h.append("<li><strong>Outcome Trajectory:</strong> The combination of early decreases in perfusion coupled with "
+                 "subsequent increases in diffusion strongly supports the hypothesis that the tumor is responding effectively to treatment, "
+                 "correlating with long-term Local Control.</li>")
+    else:
+        h.append("<li><strong>Outcome Trajectory:</strong> The observed variation in diffusion and perfusion responses suggests "
+                 "a heterogeneous or limited overall treatment effect. Tumors not exhibiting strong, concomitant increases in diffusion and decreases in perfusion "
+                 "may remain at higher risk for Local Failure or harbor therapy-resistant sub-volumes.</li>")
+
+    h.append("</ul>")
+    h.append("</div>")
+
     # ── 2. Graph Analysis Overview ──
     if rows:
         h.append("<h2>Graph Analysis Overview</h2>")
