@@ -34,7 +34,10 @@ from shared import (
 )
 from report_formatters import (
     _dwi_badge,
+    _effect_size_class,
+    _effect_size_label,
     _esc,
+    _forest_plot_cell,
     _get_consensus,
     _h2,
     _sig_class,
@@ -75,7 +78,8 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     # ── 1. Executive Summary ──
     h: list[str] = []
     h.append(_h2("Executive Summary", "exec-summary"))
-    h.append('<div class="summary-box">')
+    h.append('<div class="abstract-box">')
+    h.append(f"<h4>Study Overview</h4>")
     h.append(f"<p>Pipeline run <code>{_esc(timestamp)}</code> processed "
              f"<strong>{len(dwi_types_present)}</strong> DWI type(s): "
              f"{', '.join(_dwi_badge(d) for d in dwi_types_present)}.</p>")
@@ -148,6 +152,81 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         h.append('<div class="stat-grid">')
         h.extend(cards)
         h.append("</div>")
+
+    # ── Structured abstract subsections ──
+    h.append("<h4>Objective</h4>")
+    h.append("<p>To evaluate the predictive value of diffusion-weighted MRI (DWI) "
+             "biomarkers\u2014including ADC, IVIM-derived D, f, and D*\u2014for "
+             "treatment response assessment in pancreatic cancer patients receiving "
+             "radiotherapy, using Standard, DnCNN-denoised, and IVIMnet-processed "
+             "DWI acquisition strategies.</p>")
+
+    h.append("<h4>Methods</h4>")
+    methods_parts = []
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                lon = mat_data[dt]["longitudinal"]
+                n_pat = lon.get("num_patients", 0)
+                n_tp = lon.get("num_timepoints", 0)
+                if n_pat > 0:
+                    methods_parts.append(
+                        f"Longitudinal DWI data from {n_pat} patients across "
+                        f"{n_tp} timepoints were analysed."
+                    )
+                    break
+    methods_parts.append(
+        "Statistical analysis included Wilcoxon rank-sum tests with Benjamini\u2013Hochberg "
+        "FDR correction, generalised linear mixed-effects (GLME) interaction models, "
+        "elastic-net regularised logistic regression with LOOCV, and cause-specific "
+        "Cox proportional hazards models with IPCW for competing risks."
+    )
+    h.append(f"<p>{' '.join(methods_parts)}</p>")
+
+    h.append("<h4>Key Results</h4>")
+    result_bullets = []
+    if total_sig > 0:
+        result_bullets.append(f"{total_sig} GLME interaction(s) achieved significance after FDR correction")
+    if csv_data and csv_data.get("fdr_global"):
+        n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
+        if n_fdr > 0:
+            result_bullets.append(f"{n_fdr} metric(s) survived Benjamini\u2013Hochberg FDR correction globally")
+    if sig_hrs > 0:
+        result_bullets.append(f"{sig_hrs} of {total_hrs} Cox PH covariate(s) were statistically significant (p < 0.05)")
+    # Best AUC across all types
+    best_overall_auc = 0
+    best_auc_type = ""
+    if log_data:
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
+            for r_item in roc:
+                a = r_item.get("auc", 0)
+                if a > best_overall_auc:
+                    best_overall_auc = a
+                    best_auc_type = dwi_type
+    if best_overall_auc > 0:
+        result_bullets.append(f"Peak discriminative performance: AUC = {best_overall_auc:.3f} ({best_auc_type})")
+    if result_bullets:
+        h.append("<ul>")
+        for rb in result_bullets:
+            h.append(f"<li>{_esc(rb)}</li>")
+        h.append("</ul>")
+    else:
+        h.append("<p>See detailed sections below for full results.</p>")
+
+    h.append("<h4>Conclusions</h4>")
+    if best_overall_auc >= 0.75:
+        h.append("<p>DWI-derived biomarkers demonstrate promising discriminative ability for "
+                 "treatment response prediction. Cross-DWI-type analysis enables assessment "
+                 "of robustness across acquisition and post-processing strategies. "
+                 "Longitudinal trends and inflection-point analysis provide mechanistic "
+                 "insight into the temporal dynamics of tumour response.</p>")
+    else:
+        h.append("<p>DWI-derived biomarkers show preliminary potential for treatment response "
+                 "assessment. Further investigation with larger cohorts is warranted to "
+                 "confirm clinical utility across acquisition strategies.</p>")
 
     h.append("</div>")
     return h
@@ -1710,6 +1789,871 @@ def _section_mat_data(mat_data) -> list[str]:
                     max_dice = max(off_diag)
                     h.append(f'<div class="info-box">Mean pairwise Dice: <strong>{avg_dice:.3f}</strong> '
                              f'(range: {min_dice:.3f}\u2013{max_dice:.3f} across {len(off_diag)} pairs)</div>')
+    return h
+
+
+def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
+    """Build the Methods section describing statistical methodology.
+
+    Provides a publication-ready description of all statistical and
+    analytical methods used in the pipeline, including IVIM modelling,
+    group comparisons, multiple comparison correction, survival analysis,
+    and predictive modelling.
+
+    Parameters
+    ----------
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+    log_data : dict or None
+        Parsed log metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the methods section.
+    """
+    h: list[str] = []
+    h.append(_h2("Statistical Methods", "methods"))
+    h.append('<div class="methods-box">')
+
+    # ── DWI Acquisition & Processing ──
+    h.append("<h3>DWI Acquisition and Processing</h3>")
+    h.append(
+        "<p>Diffusion-weighted images were acquired and processed using three "
+        "complementary strategies: <strong>Standard</strong> (conventional DWI), "
+        "<strong>DnCNN</strong> (deep learning denoised using a convolutional neural "
+        "network), and <strong>IVIMnet</strong> (deep learning IVIM parameter estimation). "
+        "For each strategy, apparent diffusion coefficient (ADC) maps were computed via "
+        "mono-exponential fitting, and intravoxel incoherent motion (IVIM) parameters "
+        "\u2014 true diffusion coefficient (<em>D</em>), perfusion fraction (<em>f</em>), "
+        "and pseudo-diffusion coefficient (<em>D*</em>) \u2014 were estimated using "
+        "segmented and Bayesian fitting approaches.</p>"
+    )
+
+    # ── Tumour Delineation ──
+    h.append("<h3>Tumour Sub-volume Delineation</h3>")
+    h.append(
+        "<p>Tumour core sub-volumes were identified using configurable delineation "
+        "methods (default: ADC thresholding). Eleven methods were compared pairwise "
+        "using Dice similarity coefficient and Hausdorff distance, including threshold-based "
+        "(ADC, D, D\u00b7f intersection), clustering-based (Otsu, GMM, k-means, spectral), "
+        "region-based (region growing, active contours), percentile-based, and functional "
+        "diffusion map (fDM) approaches.</p>"
+    )
+
+    # ── Group Comparisons ──
+    h.append("<h3>Group Comparisons</h3>")
+    h.append(
+        "<p>Differences between treatment outcome groups (Local Failure vs Local Control) "
+        "were assessed using the <strong>Wilcoxon rank-sum test</strong> (Mann\u2013Whitney U), "
+        "a non-parametric test appropriate for small sample sizes and non-normally distributed "
+        "DWI-derived biomarkers. Tests were performed independently at each imaging timepoint.</p>"
+    )
+
+    # ── GLME ──
+    h.append("<h3>Mixed-Effects Modelling</h3>")
+    h.append(
+        "<p><strong>Generalised linear mixed-effects models (GLME)</strong> were used to test "
+        "for time\u00d7outcome interaction effects, with patient as a random intercept to account "
+        "for repeated measures. This approach tests whether the trajectory of each DWI metric "
+        "differs significantly between outcome groups over time, while accounting for "
+        "within-patient correlation.</p>"
+    )
+
+    # ── Multiple Comparisons ──
+    h.append("<h3>Multiple Comparison Correction</h3>")
+    h.append(
+        "<p>To control the false discovery rate across the large number of metrics tested, "
+        "the <strong>Benjamini\u2013Hochberg (BH) procedure</strong> was applied. Each "
+        "metric\u2019s p-value was compared to an individually adjusted significance "
+        "threshold (\u03b1<sub>adj</sub> = 0.05 \u00d7 rank / total tests), rather than a "
+        "fixed \u03b1 = 0.05. This controls the expected proportion of false discoveries "
+        "among rejected hypotheses at 5%.</p>"
+    )
+
+    # ── Predictive Modelling ──
+    h.append("<h3>Predictive Modelling</h3>")
+    pred_text_parts = [
+        "<p><strong>Elastic-net regularised logistic regression</strong> (mixing parameter "
+        "\u03b1 = 0.5) was used for binary outcome prediction at each timepoint. "
+        "The optimal regularisation parameter (\u03bb) was selected via 5-fold "
+        "cross-validation with patient-stratified folds to prevent data leakage.",
+    ]
+    # Check if LOOCV was used
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                roc = log_data[dt].get("stats_predictive", {}).get("roc_analyses", [])
+                if roc:
+                    pred_text_parts.append(
+                        " Discriminative performance was evaluated using leave-one-out "
+                        "cross-validation (LOOCV) to generate unbiased out-of-fold risk "
+                        "scores, reported as area under the receiver operating "
+                        "characteristic curve (AUC)."
+                    )
+                    break
+    pred_text_parts.append(
+        " Feature collinearity was addressed by pruning highly correlated "
+        "features (|r| > 0.8) prior to model fitting, retaining the feature with "
+        "higher univariate AUC.</p>"
+    )
+    h.append("".join(pred_text_parts))
+
+    # ── Survival Analysis ──
+    h.append("<h3>Survival Analysis</h3>")
+    ipcw_used = False
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data and log_data[dt].get("survival", {}).get("ipcw"):
+                ipcw_used = True
+                break
+    surv_text = (
+        "<p><strong>Cause-specific Cox proportional hazards models</strong> were "
+        "used to estimate hazard ratios (HR) with 95% confidence intervals for "
+        "DWI-derived covariates. To account for competing risks (non-tumour-related "
+        "mortality), "
+    )
+    if ipcw_used:
+        surv_text += (
+            "<strong>inverse probability of censoring weighting (IPCW)</strong> "
+            "was applied to adjust for informative censoring bias. "
+        )
+    else:
+        surv_text += "competing-risk patients were excluded from the analysis. "
+    surv_text += (
+        "Model significance was assessed using the global likelihood ratio test (LRT). "
+        "Where separation or convergence issues arose, Firth\u2019s penalised likelihood "
+        "method was used as a bias-reduction technique.</p>"
+    )
+    h.append(surv_text)
+
+    # ── Software ──
+    h.append("<h3>Software and Reproducibility</h3>")
+    h.append(
+        "<p>All pipeline computations were performed in MATLAB (R2021a+) with the "
+        "Statistics and Machine Learning Toolbox and Image Processing Toolbox. "
+        "Post-hoc analysis and report generation used Python 3.12+. "
+        "Parallel processing was limited to 2 workers with deterministic checkpointing "
+        "for reproducibility. All analyses used patient-stratified splits with explicit "
+        "temporal leakage prevention in imputation, scaling, and cross-validation.</p>"
+    )
+
+    h.append("</div>")
+    return h
+
+
+def _section_effect_sizes(log_data, dwi_types_present, csv_data) -> list[str]:
+    """Build the Effect Size and Sample Size Reporting section.
+
+    Reports effect sizes alongside p-values to distinguish statistical
+    from clinical significance, following best practices for biomedical
+    publication.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the effect size section.
+    """
+    h: list[str] = []
+    h.append(_h2("Effect Size Analysis", "effect-sizes"))
+    h.append(
+        '<p class="meta">Effect sizes provide a measure of practical significance '
+        'independent of sample size. Hazard ratios are reported with 95% confidence '
+        'intervals; HR > 1 indicates increased risk of the endpoint. The log(HR) is '
+        'used as an approximate effect size metric (|log(HR)| \u2265 0.5 \u2248 '
+        'medium effect).</p>'
+    )
+
+    has_data = False
+
+    if log_data:
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            sv = log_data[dwi_type].get("survival", {})
+            hrs = sv.get("hazard_ratios", [])
+            if not hrs:
+                continue
+
+            has_data = True
+            h.append(f"<h3>{_dwi_badge(dwi_type)} Hazard Ratio Effect Sizes</h3>")
+            h.append("<table><thead><tr>"
+                     "<th>Covariate</th><th>HR</th><th>95% CI</th>"
+                     "<th>p-value</th><th>log(HR)</th><th>Effect</th>"
+                     "<th>Forest Plot</th>"
+                     "</tr></thead><tbody>")
+
+            import math
+            for hr in sorted(hrs, key=lambda x: x.get("p", 1)):
+                hr_val = hr.get("hr", 1.0)
+                ci_lo = hr.get("ci_lo", hr_val)
+                ci_hi = hr.get("ci_hi", hr_val)
+                p_val = hr.get("p", 1.0)
+                log_hr = math.log(hr_val) if hr_val > 0 else 0
+                eff_cls = _effect_size_class(log_hr)
+                eff_lbl = _effect_size_label(log_hr)
+                sig = _sig_tag(p_val)
+                p_cls = _sig_class(p_val)
+                p_attr = f' class="{p_cls}"' if p_cls else ""
+
+                forest = _forest_plot_cell(hr_val, ci_lo, ci_hi, p_val)
+
+                h.append(
+                    f"<tr><td><code>{_esc(str(hr.get('covariate', '')))}</code></td>"
+                    f"<td><strong>{hr_val:.3f}</strong></td>"
+                    f"<td class=\"ci-text\">[{ci_lo:.3f}, {ci_hi:.3f}]</td>"
+                    f"<td{p_attr}>{p_val:.4f} {_esc(sig)}</td>"
+                    f"<td>{log_hr:+.3f}</td>"
+                    f'<td class="{eff_cls}">{_esc(eff_lbl)}</td>'
+                    f"<td>{forest}</td></tr>"
+                )
+            h.append("</tbody></table>")
+
+            # CI width commentary
+            narrow_ci = [hr for hr in hrs if hr.get("ci_hi", 1) - hr.get("ci_lo", 1) < 0.5]
+            wide_ci = [hr for hr in hrs if hr.get("ci_hi", 1) - hr.get("ci_lo", 1) >= 1.5]
+            if wide_ci:
+                h.append(f'<div class="warn-box">{len(wide_ci)} covariate(s) have wide '
+                         f'confidence intervals (CI width \u2265 1.5), suggesting imprecise '
+                         f'effect estimates likely due to limited sample size.</div>')
+            if narrow_ci:
+                h.append(f'<div class="info-box">{len(narrow_ci)} covariate(s) have narrow '
+                         f'CIs (width < 0.5), indicating precise effect estimation.</div>')
+
+        # ── ROC/AUC effect size interpretation ──
+        auc_data = []
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
+            for r_item in roc:
+                auc_val = r_item.get("auc", 0)
+                if auc_val > 0:
+                    auc_data.append((dwi_type, r_item.get("timepoint", "?"), auc_val))
+
+        if auc_data:
+            has_data = True
+            h.append("<h3>Discriminative Performance Interpretation</h3>")
+            h.append(
+                '<p class="meta">AUC interpretation: 0.5 = no discrimination, '
+                '0.6\u20130.7 = poor, 0.7\u20130.8 = acceptable, '
+                '0.8\u20130.9 = excellent, > 0.9 = outstanding '
+                '(Hosmer &amp; Lemeshow, 2000).</p>'
+            )
+            h.append("<table><thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
+                     "<th>Discrimination</th></tr></thead><tbody>")
+            for dwi, tp, auc_val in sorted(auc_data, key=lambda x: -x[2]):
+                if auc_val >= 0.9:
+                    disc = "Outstanding"
+                    cls = "effect-lg"
+                elif auc_val >= 0.8:
+                    disc = "Excellent"
+                    cls = "effect-lg"
+                elif auc_val >= 0.7:
+                    disc = "Acceptable"
+                    cls = "effect-md"
+                elif auc_val >= 0.6:
+                    disc = "Poor"
+                    cls = "effect-sm"
+                else:
+                    disc = "No discrimination"
+                    cls = "effect-sm"
+                h.append(
+                    f"<tr><td>{_dwi_badge(dwi)}</td>"
+                    f"<td>{_esc(str(tp))}</td>"
+                    f"<td><strong>{auc_val:.3f}</strong></td>"
+                    f'<td class="{cls}">{_esc(disc)}</td></tr>'
+                )
+            h.append("</tbody></table>")
+
+    if not has_data:
+        h.append('<p class="meta">No effect size data available (requires survival or predictive log data).</p>')
+
+    return h
+
+
+def _section_multiple_comparisons(log_data, dwi_types_present, csv_data) -> list[str]:
+    """Build the Multiple Comparisons Correction Summary section.
+
+    Provides a comprehensive overview of raw vs adjusted p-values
+    across all metrics and DWI types, showing the impact of FDR
+    correction.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the multiple comparisons section.
+    """
+    h: list[str] = []
+    h.append(_h2("Multiple Comparison Correction Summary", "mult-comp"))
+
+    has_data = False
+
+    if log_data:
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            sc = log_data[dwi_type].get("stats_comparisons", {})
+            glme_details = sc.get("glme_details", [])
+            if not glme_details:
+                continue
+
+            has_data = True
+            n_total = len(glme_details)
+            n_raw_sig = len([g for g in glme_details if g["p"] < 0.05])
+            n_fdr_sig = len([g for g in glme_details if g["p"] < g["adj_alpha"]])
+
+            h.append(f"<h3>{_dwi_badge(dwi_type)} \u2014 BH-FDR Correction Impact</h3>")
+            h.append('<div class="stat-grid">')
+            h.append(_stat_card("Total Tests", str(n_total)))
+            h.append(_stat_card("Raw Significant", f"{n_raw_sig}/{n_total}",
+                                f"at \u03b1 = 0.05"))
+            h.append(_stat_card("FDR Significant", f"{n_fdr_sig}/{n_total}",
+                                f"at adjusted \u03b1"))
+            lost = n_raw_sig - n_fdr_sig
+            if lost > 0:
+                h.append(_stat_card("Lost to Correction", str(lost),
+                                    "would be false discoveries"))
+            h.append("</div>")
+
+            # Detailed table: raw p-value vs adjusted threshold
+            h.append("<table><thead><tr>"
+                     "<th>Metric</th><th>Raw p-value</th>"
+                     "<th>BH Adj. \u03b1</th><th>Raw Sig?</th>"
+                     "<th>FDR Sig?</th><th>Status</th>"
+                     "</tr></thead><tbody>")
+            for g in sorted(glme_details, key=lambda x: x["p"]):
+                raw_sig = g["p"] < 0.05
+                fdr_sig = g["p"] < g["adj_alpha"]
+                raw_mark = "\u2713" if raw_sig else "\u2717"
+                fdr_mark = "\u2713" if fdr_sig else "\u2717"
+
+                if fdr_sig:
+                    status = "Confirmed"
+                    status_cls = "agree"
+                elif raw_sig and not fdr_sig:
+                    status = "Rejected by FDR"
+                    status_cls = "differ"
+                else:
+                    status = "Not significant"
+                    status_cls = ""
+
+                p_cls = _sig_class(g["p"]) if fdr_sig else ""
+                p_attr = f' class="{p_cls}"' if p_cls else ""
+                s_attr = f' class="{status_cls}"' if status_cls else ""
+                h.append(
+                    f"<tr><td><code>{_esc(g['metric'])}</code></td>"
+                    f"<td{p_attr}>{g['p']:.4f}</td>"
+                    f"<td>{g['adj_alpha']:.4f}</td>"
+                    f"<td>{raw_mark}</td><td>{fdr_mark}</td>"
+                    f"<td{s_attr}><strong>{_esc(status)}</strong></td></tr>"
+                )
+            h.append("</tbody></table>")
+
+    # Also show FDR global from CSV
+    if csv_data and csv_data.get("fdr_global"):
+        fdr_global = csv_data["fdr_global"]
+        n_total_fdr = sum(len(v) for v in fdr_global.values())
+        if n_total_fdr > 0:
+            has_data = True
+            h.append("<h3>Global FDR-Surviving Metrics</h3>")
+            h.append(f"<p><strong>{n_total_fdr}</strong> metric(s) survived global "
+                     f"Benjamini\u2013Hochberg correction across the full feature "
+                     f"set, distributed as follows:</p>")
+            h.append("<ul>")
+            for dt in DWI_TYPES:
+                if dt in fdr_global and fdr_global[dt]:
+                    h.append(f"<li>{_dwi_badge(dt)}: {len(fdr_global[dt])} metric(s)</li>")
+            h.append("</ul>")
+
+    if not has_data:
+        h.append('<p class="meta">No multiple comparison data available.</p>')
+
+    return h
+
+
+def _section_model_diagnostics(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build the Model Diagnostics section.
+
+    Reports on model assumptions, convergence, and potential issues
+    that should be disclosed in a publication.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the model diagnostics section.
+    """
+    h: list[str] = []
+    h.append(_h2("Model Diagnostics", "model-diag"))
+
+    diagnostics_found = False
+
+    if log_data:
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+
+            issues: list[str] = []
+
+            # IPCW weight range check
+            sv = log_data[dwi_type].get("survival", {})
+            ipcw = sv.get("ipcw")
+            if ipcw:
+                max_w = ipcw.get("max_weight", 1.0)
+                min_w = ipcw.get("min_weight", 1.0)
+                if max_w > 5.0:
+                    issues.append(
+                        f"IPCW maximum weight = {max_w:.2f} (>5.0). Extreme weights "
+                        f"may indicate near-violation of the positivity assumption "
+                        f"or sparse censoring strata. Consider weight truncation."
+                    )
+                elif max_w > 2.0:
+                    issues.append(
+                        f"IPCW weight range [{min_w:.2f}, {max_w:.2f}] is moderately "
+                        f"dispersed. Monitor for undue influence of high-weight observations."
+                    )
+                else:
+                    issues.append(
+                        f"IPCW weight range [{min_w:.2f}, {max_w:.2f}] is well-behaved, "
+                        f"suggesting adequate censoring model specification."
+                    )
+
+            # Competing-risk exclusions
+            sc = log_data[dwi_type].get("stats_comparisons", {})
+            glme_excl = sc.get("glme_excluded")
+            if glme_excl:
+                pct = glme_excl.get("pct", 0)
+                if pct > 20:
+                    issues.append(
+                        f"High competing-risk exclusion rate: {pct:.1f}% of patients. "
+                        f"This substantially reduces effective sample size and may "
+                        f"introduce selection bias."
+                    )
+                elif pct > 10:
+                    issues.append(
+                        f"Moderate competing-risk exclusion: {pct:.1f}% of patients. "
+                        f"Results should be interpreted in the context of the remaining cohort."
+                    )
+
+            # Baseline exclusions
+            bl = log_data[dwi_type].get("baseline", {})
+            baseline_exc = bl.get("baseline_exclusion")
+            if baseline_exc:
+                n_exc = baseline_exc.get("n_excluded", 0)
+                n_tot = baseline_exc.get("n_total", 1)
+                exc_pct = 100 * n_exc / n_tot if n_tot > 0 else 0
+                if exc_pct > 15:
+                    issues.append(
+                        f"High baseline missingness: {n_exc}/{n_tot} ({exc_pct:.1f}%) "
+                        f"patients excluded for missing baseline data. Assess whether "
+                        f"missingness is informative (MCAR vs MAR vs MNAR)."
+                    )
+                lf_inc = baseline_exc.get("lf_rate_included")
+                lf_exc = baseline_exc.get("lf_rate_excluded")
+                if lf_inc is not None and lf_exc is not None:
+                    diff = abs(lf_inc - lf_exc)
+                    if diff > 15:
+                        issues.append(
+                            f"LF rate differs substantially between included ({lf_inc:.1f}%) "
+                            f"and excluded ({lf_exc:.1f}%) patients (\u0394 = {diff:.1f}pp). "
+                            f"This suggests potentially informative missingness (MAR/MNAR)."
+                        )
+
+            # Outlier removal impact
+            total_out = bl.get("total_outliers")
+            if total_out:
+                out_pct = total_out.get("pct", 0)
+                if out_pct > 10:
+                    issues.append(
+                        f"Outlier removal rate: {out_pct:.1f}%. High removal rates "
+                        f"may bias results; consider sensitivity analysis with and "
+                        f"without outlier removal."
+                    )
+
+            # Lambda stability for elastic net
+            fs = log_data[dwi_type].get("stats_predictive", {}).get("feature_selections", [])
+            if len(fs) >= 2:
+                lambdas = [s["lambda"] for s in fs]
+                lam_range = max(lambdas) / min(lambdas) if min(lambdas) > 0 else float("inf")
+                if lam_range > 10:
+                    issues.append(
+                        f"Elastic net \u03bb varies by >{lam_range:.0f}\u00d7 across timepoints "
+                        f"({min(lambdas):.4f}\u2013{max(lambdas):.4f}), suggesting "
+                        f"substantial variation in signal-to-noise ratio over time."
+                    )
+
+            if issues:
+                diagnostics_found = True
+                h.append(f"<h3>{_dwi_badge(dwi_type)}</h3>")
+                for issue in issues:
+                    is_warning = any(w in issue.lower() for w in ["high", "extreme", "violation", "substantially", "bias"])
+                    box_cls = "warn-box" if is_warning else "diag-box"
+                    h.append(f'<div class="{box_cls}">{_esc(issue)}</div>')
+
+    # General assumptions note
+    h.append("<h3>Assumptions and Caveats</h3>")
+    h.append('<div class="methods-box">')
+    h.append("<ul>")
+    h.append(
+        "<li><strong>Proportional hazards:</strong> Cox models assume that the hazard "
+        "ratio is constant over time. Violations (e.g., time-varying effects) are "
+        "not explicitly tested here. Schoenfeld residual tests should be performed "
+        "for definitive assessment.</li>"
+    )
+    h.append(
+        "<li><strong>Non-parametric tests:</strong> Wilcoxon rank-sum tests make no "
+        "distributional assumptions but are less powerful than parametric alternatives "
+        "when normality holds. With small sample sizes, this trade-off favours robustness.</li>"
+    )
+    h.append(
+        "<li><strong>Multiple testing:</strong> BH-FDR controls the expected false "
+        "discovery proportion but does not control the family-wise error rate. For "
+        "confirmatory analyses, Bonferroni or Holm correction may be more appropriate.</li>"
+    )
+    h.append(
+        "<li><strong>LOOCV bias-variance:</strong> Leave-one-out cross-validation "
+        "provides nearly unbiased performance estimates but with high variance. "
+        "AUC confidence intervals from LOOCV should be interpreted cautiously.</li>"
+    )
+    h.append(
+        "<li><strong>Feature selection stability:</strong> Elastic net feature "
+        "selection may vary across folds. Features consistently selected across "
+        "multiple timepoints and DWI types carry higher confidence.</li>"
+    )
+    h.append("</ul>")
+    h.append("</div>")
+    diagnostics_found = True
+
+    return h
+
+
+def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build the Study Limitations section.
+
+    Generates a contextual limitations discussion based on the actual
+    data characteristics observed (sample size, missingness, etc.).
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the limitations section.
+    """
+    h: list[str] = []
+    h.append(_h2("Limitations", "limitations"))
+
+    limitations = []
+
+    # Sample size
+    n_patients = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+                if n > n_patients:
+                    n_patients = n
+
+    if n_patients > 0 and n_patients < 50:
+        limitations.append(
+            f"<strong>Small sample size (n = {n_patients}):</strong> The limited "
+            f"cohort size restricts statistical power, increases the risk of "
+            f"overfitting in predictive models, and limits generalisability. "
+            f"Effect size estimates may be imprecise, as reflected by wide "
+            f"confidence intervals in Cox regression."
+        )
+    elif n_patients > 0:
+        limitations.append(
+            f"<strong>Moderate sample size (n = {n_patients}):</strong> While "
+            f"adequate for exploratory analyses, the cohort size may limit "
+            f"power for detecting small effect sizes and reduces the "
+            f"reliability of subgroup analyses."
+        )
+
+    limitations.append(
+        "<strong>Single-institution cohort:</strong> All data were acquired at a "
+        "single institution, which may introduce scanner-specific bias, "
+        "protocol-dependent effects, and limit external validity. Multi-centre "
+        "validation is needed to confirm generalisability."
+    )
+
+    limitations.append(
+        "<strong>Retrospective design:</strong> This analysis is retrospective "
+        "in nature. Unmeasured confounders (performance status, genetic subtypes, "
+        "concurrent systemic therapy variations) may influence outcomes and were "
+        "not controlled for in the current analysis."
+    )
+
+    # Check for missing data issues
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                bl = log_data[dt].get("baseline", {})
+                exc = bl.get("baseline_exclusion")
+                if exc and exc.get("n_excluded", 0) > 0:
+                    limitations.append(
+                        f"<strong>Missing data:</strong> "
+                        f"{exc['n_excluded']}/{exc['n_total']} patients were "
+                        f"excluded due to missing baseline data. If missingness "
+                        f"is non-random (e.g., sicker patients less likely to "
+                        f"complete baseline imaging), results may be biased towards "
+                        f"a healthier sub-population."
+                    )
+                    break
+
+    limitations.append(
+        "<strong>DWI-specific limitations:</strong> IVIM parameter estimation "
+        "is sensitive to the choice of b-values, number of signal averages, "
+        "and fitting algorithm. DnCNN denoising may alter the noise distribution "
+        "in ways that affect downstream parameter estimation, and IVIMnet "
+        "predictions depend on the training set composition."
+    )
+
+    limitations.append(
+        "<strong>Tumour delineation:</strong> GTV contours were propagated using "
+        "deformable image registration, which may introduce geometric errors, "
+        "particularly in regions of large anatomical deformation (e.g., due to "
+        "bowel gas motion or tumour shrinkage)."
+    )
+
+    limitations.append(
+        "<strong>Multiple comparisons:</strong> Despite BH-FDR correction, "
+        "the large number of metrics tested across multiple timepoints and "
+        "DWI types increases the cumulative risk of spurious findings. "
+        "Results should be interpreted as hypothesis-generating rather "
+        "than confirmatory."
+    )
+
+    h.append('<ul class="limitation-list">')
+    for lim in limitations:
+        h.append(f"<li>{lim}</li>")
+    h.append("</ul>")
+
+    return h
+
+
+def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups) -> list[str]:
+    """Build the Conclusions section.
+
+    Synthesises key findings from all data sources into a structured
+    conclusions paragraph suitable for publication.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    mat_data : dict
+        Parsed MAT file metrics.
+    groups : dict
+        Grouped vision graph data.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the conclusions section.
+    """
+    h: list[str] = []
+    h.append(_h2("Conclusions", "conclusions"))
+    h.append('<div class="conclusion-box">')
+
+    findings = []
+
+    # 1. Key significant biomarkers
+    n_fdr = 0
+    if csv_data and csv_data.get("fdr_global"):
+        n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
+    total_glme_sig = 0
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                sc = log_data[dt].get("stats_comparisons", {})
+                total_glme_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
+
+    if total_glme_sig > 0 or n_fdr > 0:
+        parts = []
+        if total_glme_sig > 0:
+            parts.append(f"{total_glme_sig} metric(s) demonstrating significant "
+                         f"time\u00d7outcome interaction effects in GLME models")
+        if n_fdr > 0:
+            parts.append(f"{n_fdr} metric(s) surviving global FDR correction")
+        findings.append(
+            f"DWI-derived biomarkers show statistically significant associations "
+            f"with treatment outcome, with {' and '.join(parts)}."
+        )
+
+    # 2. Predictive performance
+    best_auc = 0
+    best_type = ""
+    best_tp = ""
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                roc = log_data[dt].get("stats_predictive", {}).get("roc_analyses", [])
+                for r_item in roc:
+                    a = r_item.get("auc", 0)
+                    if a > best_auc:
+                        best_auc = a
+                        best_type = dt
+                        best_tp = r_item.get("timepoint", "")
+
+    if best_auc > 0:
+        if best_auc >= 0.8:
+            disc = "excellent"
+        elif best_auc >= 0.7:
+            disc = "acceptable"
+        else:
+            disc = "limited"
+        findings.append(
+            f"Elastic-net regularised logistic regression achieved {disc} "
+            f"discriminative performance (AUC = {best_auc:.3f}, "
+            f"{best_type} at {best_tp}), supporting the potential of "
+            f"DWI biomarkers for early treatment response prediction."
+        )
+
+    # 3. Cox PH
+    sig_covs = []
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
+                for hr_item in hrs:
+                    if hr_item.get("p", 1) < 0.05:
+                        sig_covs.append((dt, hr_item.get("covariate", "?"),
+                                         hr_item.get("hr", 1), hr_item.get("p", 1)))
+    if sig_covs:
+        cov_list = ", ".join(f"{c[1]} (HR={c[2]:.2f}, p={c[3]:.3f})" for c in sig_covs[:3])
+        findings.append(
+            f"Cause-specific Cox regression identified significant prognostic "
+            f"covariates: {cov_list}."
+        )
+
+    # 4. Cross-DWI agreement
+    if groups:
+        n_agree = 0
+        n_total = 0
+        for base_name, dwi_dict in groups.items():
+            real = [t for t in dwi_dict if t != "Root"]
+            if len(real) < 2:
+                continue
+            all_trends_dict: dict[str, list] = {}
+            for dt in DWI_TYPES:
+                if dt in dwi_dict:
+                    try:
+                        all_trends_dict[dt] = json.loads(str(dwi_dict[dt].get("trends_json", "[]")))
+                    except Exception:
+                        pass
+            if len(all_trends_dict) >= 2:
+                all_series: set[str] = set()
+                for trends in all_trends_dict.values():
+                    for t in trends:
+                        if isinstance(t, dict):
+                            all_series.add(t.get("series") or "overall")
+                for series in all_series:
+                    directions: dict[str, str] = {}
+                    for dt_key, trends in all_trends_dict.items():
+                        for t in trends:
+                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
+                                directions[dt_key] = str(t.get("direction", ""))
+                    if len(directions) >= 2:
+                        n_total += 1
+                        if len(set(directions.values())) == 1:
+                            n_agree += 1
+        if n_total > 0:
+            pct = 100 * n_agree / n_total
+            findings.append(
+                f"Cross-DWI-type trend agreement is {pct:.0f}% ({n_agree}/{n_total} "
+                f"series), {'supporting' if pct >= 70 else 'suggesting limited'} "
+                f"robustness of findings across acquisition strategies."
+            )
+
+    # 5. Hypothesis direction
+    if groups and "Longitudinal_Mean_Metrics" in groups:
+        d_trends = []
+        f_trends = []
+        for dt, r in groups["Longitudinal_Mean_Metrics"].items():
+            if dt == "Root":
+                continue
+            try:
+                trends = json.loads(str(r.get("trends_json", "[]")))
+                for t in trends:
+                    if isinstance(t, dict):
+                        series = t.get("series", "")
+                        direction = t.get("direction", "").lower()
+                        if series == "Mean D":
+                            d_trends.append(direction)
+                        elif series == "Mean f":
+                            f_trends.append(direction)
+            except Exception:
+                pass
+        d_cons = _get_consensus(d_trends)
+        f_cons = _get_consensus(f_trends)
+        if d_cons == "increasing" and f_cons == "decreasing":
+            findings.append(
+                "Longitudinal trends show the canonical response pattern "
+                "(increasing diffusion, decreasing perfusion), consistent "
+                "with therapy-induced cellular necrosis and vascular regression."
+            )
+
+    if findings:
+        h.append("<ol>")
+        for f in findings:
+            h.append(f"<li>{_esc(f)}</li>")
+        h.append("</ol>")
+    else:
+        h.append("<p>Detailed findings are presented in the sections above. "
+                 "Overall, the analysis demonstrates the feasibility of "
+                 "multi-parametric DWI analysis for treatment response assessment "
+                 "in pancreatic cancer.</p>")
+
+    h.append(
+        "<p><strong>Future directions:</strong> Prospective validation in an "
+        "independent multi-centre cohort is warranted. Investigation of "
+        "radiomics and texture features, time-dependent covariates in Cox "
+        "models, and deep learning\u2013based outcome prediction may further "
+        "improve prognostic accuracy.</p>"
+    )
+
+    h.append("</div>")
     return h
 
 

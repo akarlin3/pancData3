@@ -47,7 +47,10 @@ from report_formatters import (  # noqa: F401
     HTML_TEMPLATE,
     NAV_SECTIONS,
     _dwi_badge,
+    _effect_size_class,
+    _effect_size_label,
     _esc,
+    _forest_plot_cell,
     _get_consensus,
     _h2,
     _nav_bar,
@@ -62,12 +65,18 @@ from report_formatters import (  # noqa: F401
 from report_sections import (  # noqa: F401
     _section_appendix,
     _section_cohort_overview,
+    _section_conclusions,
     _section_correlations,
     _section_cross_dwi_comparison,
+    _section_effect_sizes,
     _section_executive_summary,
     _section_graph_overview,
     _section_hypothesis,
+    _section_limitations,
     _section_mat_data,
+    _section_methods,
+    _section_model_diagnostics,
+    _section_multiple_comparisons,
     _section_predictive_performance,
     _section_stats_by_graph_type,
     _section_statistical_significance,
@@ -162,6 +171,8 @@ def generate_report(folder: Path) -> str:
 
     h.extend(_section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data))
 
+    h.extend(_section_methods(dwi_types_present, mat_data, log_data))
+
     h.extend(_section_cohort_overview(mat_data, log_data, dwi_types_present))
 
     # ── 2. Data Quality ──
@@ -233,6 +244,8 @@ def generate_report(folder: Path) -> str:
     h.extend(_section_graph_overview(rows))
     h.extend(_section_stats_by_graph_type(rows))
     h.extend(_section_statistical_significance(rows, csv_data, log_data, dwi_types_present))
+    h.extend(_section_effect_sizes(log_data, dwi_types_present, csv_data))
+    h.extend(_section_multiple_comparisons(log_data, dwi_types_present, csv_data))
     h.extend(_section_cross_dwi_comparison(groups, csv_data))
 
     # ── 7. FDR Global ──
@@ -277,7 +290,10 @@ def generate_report(folder: Path) -> str:
     h.extend(_section_correlations(rows))
     h.extend(_section_treatment_response(groups))
     h.extend(_section_predictive_performance(log_data, dwi_types_present))
+    h.extend(_section_model_diagnostics(log_data, dwi_types_present, mat_data))
     h.extend(_section_mat_data(mat_data))
+    h.extend(_section_limitations(log_data, dwi_types_present, mat_data))
+    h.extend(_section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups))
     h.extend(_section_appendix(rows))
 
     # Footer
