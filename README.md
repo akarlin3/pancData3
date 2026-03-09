@@ -291,7 +291,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 
 ### Analysis Test Suite
 
-The analysis scripts have a Python test suite (142 tests across 7 files) using pytest:
+The analysis scripts have a Python test suite (158 tests across 7 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v

@@ -54,7 +54,7 @@ pancData3/
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (13 files)
-│   └── tests/                  # Python test suite — 7 test files, 142 tests (pytest)
+│   └── tests/                  # Python test suite — 7 test files, 158 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -333,7 +333,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 7 test files with 142 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 7 test files with 158 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
