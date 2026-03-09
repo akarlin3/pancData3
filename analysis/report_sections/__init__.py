@@ -14,6 +14,7 @@ from .main_results import (  # noqa: F401
     _section_executive_summary,
     _section_hypothesis,
     _section_statistical_significance,
+    _section_broad_statistical_overview,
     _section_treatment_response,
     _section_predictive_performance,
     _section_manuscript_ready_findings,

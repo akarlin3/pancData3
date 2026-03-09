@@ -75,6 +75,7 @@ from report_formatters import (  # noqa: F401
 # Re-export section builders for backward compatibility.
 from report_sections import (  # noqa: F401
     _section_appendix,
+    _section_broad_statistical_overview,
     _section_cohort_overview,
     _section_conclusions,
     _section_correlations,
@@ -332,6 +333,7 @@ def generate_report(folder: Path) -> str:
         ("Graph issues", _section_graph_issues, (rows,)),
         ("Stats by graph type", _section_stats_by_graph_type, (rows,)),
         ("Statistical significance", _section_statistical_significance, (rows, csv_data, log_data, dwi_types_present)),
+        ("Broad statistical overview", _section_broad_statistical_overview, (log_data, dwi_types_present)),
         ("Effect sizes", _section_effect_sizes, (log_data, dwi_types_present, csv_data)),
         ("Multiple comparisons", _section_multiple_comparisons, (log_data, dwi_types_present, csv_data)),
         ("Cross-DWI comparison", _section_cross_dwi_comparison, (groups, csv_data)),
