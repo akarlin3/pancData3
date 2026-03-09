@@ -112,6 +112,27 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
 
 
 def _section_hypothesis(groups) -> list[str]:
+    """Build the Data-Driven Hypothesis section.
+
+    Analyses longitudinal trend and inflection-point data from the
+    ``Longitudinal_Mean_Metrics`` graph group to generate a
+    radiological-pathological hypothesis about treatment response.
+
+    The hypothesis addresses three axes:
+    - **Cellular response** (D, ADC trends) -- cell kill vs resistance.
+    - **Vascular response** (f, D* trends) -- perfusion changes.
+    - **Outcome trajectory** -- combined interpretation.
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the hypothesis section.
+    """
     # ── 1.5. Data-Driven Hypothesis ──
     h: list[str] = []
     h.append(_h2("Data-Driven Hypothesis", "hypothesis"))

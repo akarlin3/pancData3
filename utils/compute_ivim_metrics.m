@@ -143,8 +143,10 @@ ivim_out.dstar_mean_val = nanmean_safe(dstar_vec);
 end
 
 %% --- Local helper functions (duplicated from compute_summary_metrics.m) ---
+% Duplicated for parfor transparency (see compute_adc_metrics.m for rationale).
 
 function result = nanmean_safe(v)
+% NaN-safe mean with Octave compatibility
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -158,6 +160,7 @@ end
 end
 
 function result = nanstd_safe(v)
+% NaN-safe standard deviation with Octave compatibility
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -171,6 +174,7 @@ end
 end
 
 function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
+% Kurtosis and skewness with minimum voxel count guard
 kurt_val = NaN;
 skew_val = NaN;
 if numel(v) >= min_vox_hist
@@ -183,6 +187,7 @@ end
 end
 
 function p1 = compute_histogram_laplace(vec, bin_edges)
+% Laplace-smoothed (add-one) histogram; see compute_adc_metrics.m for details
 if exist('OCTAVE_VERSION', 'builtin')
     vec_f = vec(~isnan(vec));
     c1 = histc(vec_f, bin_edges);

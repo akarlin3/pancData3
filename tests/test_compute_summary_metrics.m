@@ -104,6 +104,11 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testSubvolumeCalculation(testCase)
+            % Verifies threshold-based sub-volume calculations:
+            %   PT1/TP1 ADC: values [0.001, 0.002, 0.0015] with high_adc_thresh=0.00115.
+            %     Only 0.001 < 0.00115, so adc_sub_vol_pc = 1/3.
+            %   PT2/TP1 f: values [0.05, 0.05, 0.05] with f_thresh=0.1.
+            %     All 3 voxels < threshold, so f_sub_vol = 3 (all qualify).
             summary = compute_summary_metrics(testCase.ConfigStruct, testCase.DataVectors, ...
                 testCase.IDList, testCase.MRNList, testCase.LF, testCase.Immuno, ...
                 testCase.GTVLoc, testCase.DWILoc, testCase.Dmean, testCase.D95, testCase.V50Gy);
@@ -119,8 +124,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testSingleVoxelGTV(testCase)
-            % Single-voxel GTV is an edge case for kurtosis/skewness
-            % (undefined for n=1). Should produce NaN for those metrics.
+            % Edge case: single-voxel GTV. Higher-order statistics
+            % (kurtosis, skewness) are undefined for n=1 and should be NaN
+            % when the voxel count is below min_vox_hist (set to 2 here).
+            % The mean should still be valid (equal to the single value).
             cfg = testCase.ConfigStruct;
             cfg.min_vox_hist = 2;  % require at least 2 voxels for higher-order stats
 
