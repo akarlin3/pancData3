@@ -7,6 +7,8 @@ Tests the non-API-dependent functions:
 - flatten: Pydantic model → CSV dict flattening
 - Pydantic schema validation (GraphAnalysis, Axis, Trend, InflectionPoint)
 - Timeout configuration: REQUEST_TIMEOUT loaded from config
+- _is_rate_limit_error: rate-limit error detection
+- _RateLimitCoordinator: shared rate-limit backoff coordination
 
 API-dependent functions (analyze_image, main) are not tested here as they
 require an active GEMINI_API_KEY and network access.
@@ -14,6 +16,7 @@ require an active GEMINI_API_KEY and network access.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from pathlib import Path
@@ -27,6 +30,8 @@ from batch_graph_analysis import (
     InflectionPoint,
     REQUEST_TIMEOUT,
     Trend,
+    _RateLimitCoordinator,
+    _is_rate_limit_error,
     collect_images,
     flatten,
     image_to_base64,
@@ -333,3 +338,78 @@ class TestTimeoutConfig:
         from shared import get_config
         expected = get_config()["vision"]["request_timeout_seconds"]
         assert REQUEST_TIMEOUT == expected
+
+
+# ---------------------------------------------------------------------------
+# _is_rate_limit_error
+# ---------------------------------------------------------------------------
+
+class TestIsRateLimitError:
+    """Verify detection of rate-limit / quota error messages."""
+
+    def test_429_status_code(self):
+        """HTTP 429 status code in error message is detected."""
+        assert _is_rate_limit_error(Exception("HTTP 429 Too Many Requests"))
+
+    def test_rate_keyword(self):
+        """'rate' keyword in error message is detected."""
+        assert _is_rate_limit_error(Exception("Rate limit exceeded"))
+
+    def test_resource_exhausted(self):
+        """'resource' keyword (Google API resource exhausted) is detected."""
+        assert _is_rate_limit_error(Exception("Resource exhausted"))
+
+    def test_quota_exceeded(self):
+        """'quota' keyword is detected."""
+        assert _is_rate_limit_error(Exception("Quota exceeded for project"))
+
+    def test_non_rate_limit_error(self):
+        """Normal errors (network, auth) are not misclassified."""
+        assert not _is_rate_limit_error(Exception("Connection refused"))
+        assert not _is_rate_limit_error(Exception("Invalid API key"))
+        assert not _is_rate_limit_error(Exception("Internal server error 500"))
+
+
+# ---------------------------------------------------------------------------
+# _RateLimitCoordinator
+# ---------------------------------------------------------------------------
+
+class TestRateLimitCoordinator:
+    """Verify shared rate-limit coordination across workers."""
+
+    @pytest.mark.asyncio
+    async def test_no_cooldown_initially(self):
+        """A fresh coordinator should not block."""
+        coord = _RateLimitCoordinator()
+        # Should return immediately (no cooldown active).
+        await coord.wait_if_cooling_down()
+
+    @pytest.mark.asyncio
+    async def test_signal_sets_cooldown(self):
+        """After signal(), the coordinator should report a cooldown."""
+        coord = _RateLimitCoordinator()
+        await coord.signal()
+        # _resume_at should be in the future.
+        now = asyncio.get_event_loop().time()
+        assert coord._resume_at > now
+
+    @pytest.mark.asyncio
+    async def test_consecutive_hits_increase_cooldown(self):
+        """Multiple consecutive signals should increase the cooldown."""
+        coord = _RateLimitCoordinator()
+        await coord.signal()
+        first_resume = coord._resume_at
+        await coord.signal()
+        second_resume = coord._resume_at
+        # Second cooldown should extend further into the future.
+        assert second_resume >= first_resume
+
+    @pytest.mark.asyncio
+    async def test_success_resets_consecutive_counter(self):
+        """record_success() should reset the consecutive hit counter."""
+        coord = _RateLimitCoordinator()
+        await coord.signal()
+        await coord.signal()
+        assert coord._consecutive_hits == 2
+        await coord.record_success()
+        assert coord._consecutive_hits == 0
