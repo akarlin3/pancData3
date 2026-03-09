@@ -287,6 +287,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 | `cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
+| `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON |
 
 ### Analysis Test Suite
 
@@ -326,7 +327,7 @@ pancData3/
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
-├── analysis/                   # Python post-hoc analysis suite (10 files)
+├── analysis/                   # Python post-hoc analysis suite (11 files)
 │   └── tests/                  # Python test suite (6 test files, 126 tests)
 │   ├── run_analysis.py         #   Orchestrator (full workflow runner)
 │   ├── shared.py               #   Shared utilities
@@ -337,7 +338,8 @@ pancData3/
 │   ├── cross_reference_dwi.py  #   Cross-DWI type comparison
 │   ├── cross_reference_summary.py #  Concise cross-DWI summary
 │   ├── statistical_relevance.py #  Statistical significance extraction
-│   └── statistical_by_graph_type.py # Stats filtered by graph type
+│   ├── statistical_by_graph_type.py # Stats filtered by graph type
+│   └── parse_mat_metrics.py    #   MATLAB .mat file parser (core/dosimetry/summary → JSON)
 ├── dependencies/               # Third-party scripts (read-only)
 └── .agents/                    # AI agent configuration
     ├── rules/                  #   Agent safety rules
