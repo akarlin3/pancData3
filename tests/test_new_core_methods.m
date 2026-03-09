@@ -135,6 +135,12 @@ classdef test_new_core_methods < matlab.unittest.TestCase
     % ==================================================================
     methods (Test)
         function testSpectralIdentifiesClusters(testCase)
+            % Spectral clustering should partition the bimodal voxel
+            % population into two clusters and assign the cluster with
+            % lower mean ADC as "core". Verifies output type, length,
+            % non-degenerate partitioning, and that core has lower ADC
+            % than non-core (the defining characteristic of restricted
+            % diffusion in tumour cores).
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'spectral';
 
@@ -145,17 +151,20 @@ classdef test_new_core_methods < matlab.unittest.TestCase
             testCase.verifyEqual(numel(mask), numel(testCase.AdcVec));
 
             n_core = sum(mask);
-            % Should find some core and some non-core
             testCase.verifyGreaterThan(n_core, 0);
             testCase.verifyLessThan(n_core, numel(testCase.AdcVec));
 
-            % Core cluster should have lower mean ADC than non-core
+            % The core cluster must exhibit lower mean ADC (restricted diffusion)
             mean_core = mean(testCase.AdcVec(mask));
             mean_noncore = mean(testCase.AdcVec(~mask));
             testCase.verifyLessThan(mean_core, mean_noncore);
         end
 
         function testSpectralAdcOnlyWhenIVIMNaN(testCase)
+            % When IVIM parameters (D, f, D*) are all NaN (e.g., IVIM
+            % fitting failed or was not performed), spectral clustering
+            % should fall back to using ADC alone as the feature vector.
+            % It must still produce a valid non-degenerate partition.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'spectral';
             nan_ivim = nan(100, 1);

@@ -91,9 +91,15 @@ class TestCrossReferenceSummary:
 # ---------------------------------------------------------------------------
 
 class TestStatisticalRelevance:
-    """Test statistical_relevance.main output."""
+    """Test statistical_relevance.main output.
+
+    This script extracts p-values and correlation coefficients from graph
+    summaries and reports significant findings (p < 0.05) and notable
+    correlations (|r| > some threshold).
+    """
 
     def test_finds_significant_pvalues(self, saved_files_with_graph_csv: Path, capsys):
+        """The fixture has p = 0.003 in Standard's summary, which should be flagged."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from statistical_relevance import main
             main()
@@ -102,6 +108,7 @@ class TestStatisticalRelevance:
         assert "SIGNIFICANT" in out.upper() or "p=" in out
 
     def test_finds_correlations(self, saved_files_with_graph_csv: Path, capsys):
+        """The fixture has r = 0.65 in Standard's summary, which should be reported."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from statistical_relevance import main
             main()
@@ -109,6 +116,7 @@ class TestStatisticalRelevance:
         assert "CORRELATION" in out.upper() or "r=" in out
 
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
+        """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
             from statistical_relevance import main
             with pytest.raises(SystemExit):

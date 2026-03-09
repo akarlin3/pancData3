@@ -41,8 +41,12 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
     % ------------------------------------------------------------------ %
     methods(Access = private)
         function args = buildMinimalArgs(testCase, n, nTp, dtype)
-            % Returns a cell array of all positional arguments for
-            % metrics_stats_predictive given n patients and nTp timepoints.
+            % Constructs a cell array of all 34 positional arguments for
+            % metrics_stats_predictive. Generates synthetic but finite
+            % feature matrices (ADC, D, f, D*, dose metrics), patient IDs,
+            % DL provenance, outcome labels, and survival times. The dtype
+            % parameter (1=Standard, 2=DnCNN, 3=IVIMnet) controls which
+            % DL provenance field is populated.
             rng(42);
             valid_pts  = true(n, 1);
             lf_group   = [ones(ceil(n/2), 1); zeros(floor(n/2), 1)];
@@ -112,8 +116,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
     methods(Test)
 
         function testNoopWhenNTpIsOne(testCase)
-            % nTp = 1 → the for-loop (target_fx = 2:1) never executes.
-            % All four outputs must be empty.
+            % Verifies the no-op path when nTp=1: the predictive modeling
+            % loop iterates over target_fx = 2:nTp, which is 2:1 (empty
+            % range), so no elastic net or LOOCV runs. All four outputs
+            % (risk_scores, is_high_risk, times_km, events_km) must be empty.
             n   = 5;
             nTp = 1;
             args = testCase.buildMinimalArgs(n, nTp, 1);

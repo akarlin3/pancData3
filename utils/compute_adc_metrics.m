@@ -171,12 +171,17 @@ if k > 1 && ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(ad
     adc_out.ks_pval_adc = p;
 end
 
+% High-ADC sub-volume: identifies necrotic or edematous regions
+% (unrestricted water diffusion above high_adc_thresh)
 adc_out.high_adc_sub_vol_val = numel(adc_vec_high_sub) * vox_vol;
 if finite_vol > 0
     adc_out.high_adc_sub_vol_pc_val = adc_out.high_adc_sub_vol_val / finite_vol;
 else
     adc_out.high_adc_sub_vol_pc_val = NaN;
 end
+% Motion corruption flag: fraction of voxels with ADC above physical maximum.
+% ADC values exceeding adc_max (typically 3e-3 mm^2/s) indicate motion
+% artifact or failed fitting rather than genuine tissue properties.
 if n_finite_adc > 0
     adc_out.fx_corrupted_val = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_adc;
 end

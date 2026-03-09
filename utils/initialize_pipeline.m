@@ -77,7 +77,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     end
     if ismember('test', steps_to_run)
         % Invalidate cached test result if any test file was modified since
-        % the last successful run (supports interactive development).
+        % the last successful run. This staleness check uses file modification
+        % timestamps to detect code changes during interactive development,
+        % ensuring that stale passing results don't mask newly introduced bugs.
         if tests_passed && ~isempty(tests_timestamp)
             test_files_info = dir(fullfile(pipeline_dir, 'tests', '**', '*.m'));
             if ~isempty(test_files_info)
