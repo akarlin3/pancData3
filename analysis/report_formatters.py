@@ -195,6 +195,27 @@ details[open] > summary { margin-bottom: 0.4rem; }
 .stat-card .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .stat-card .value { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
 .stat-card .sub { font-size: 0.8rem; color: var(--muted); }
+.abstract-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; margin: 1rem 0; }
+.abstract-box h4 { color: var(--accent); margin: 0.75rem 0 0.3rem; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.abstract-box h4:first-child { margin-top: 0; }
+.abstract-box p { margin-bottom: 0.5rem; font-size: 0.93rem; }
+.methods-box { background: #fafbfc; border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.25rem; margin: 0.75rem 0; font-size: 0.92rem; line-height: 1.65; }
+.methods-box p { margin-bottom: 0.6rem; }
+.methods-box strong { color: var(--fg); }
+.forest-row { display: flex; align-items: center; height: 1.2rem; position: relative; }
+.forest-bar { height: 3px; background: var(--accent); position: absolute; }
+.forest-point { width: 8px; height: 8px; border-radius: 50%; position: absolute; transform: translate(-50%, -50%); top: 50%; }
+.forest-point-sig { background: var(--red); }
+.forest-point-ns { background: var(--muted); }
+.forest-ref { position: absolute; width: 1px; height: 100%; background: #999; top: 0; }
+.effect-sm { color: var(--muted); }
+.effect-md { color: var(--amber); font-weight: 600; }
+.effect-lg { color: var(--red); font-weight: 700; }
+.ci-text { font-size: 0.82rem; color: var(--muted); }
+.limitation-list li { margin-bottom: 0.4rem; line-height: 1.55; }
+.conclusion-box { background: #f0f7ff; border-left: 4px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin: 0.75rem 0; }
+.conclusion-box li { margin-bottom: 0.35rem; }
+.diag-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-size: 0.9rem; }
 """
 
 
@@ -265,19 +286,25 @@ def _trend_tag(direction: str) -> str:
 # Each tuple is (anchor_id, display_label).
 
 NAV_SECTIONS = [
-    ("exec-summary", "Executive Summary"),
+    ("exec-summary", "Abstract"),
+    ("methods", "Methods"),
     ("cohort", "Cohort"),
     ("data-quality", "Data Quality"),
     ("hypothesis", "Hypothesis"),
     ("graph-overview", "Graphs"),
     ("stats-by-type", "By Type"),
     ("significance", "Statistics"),
+    ("effect-sizes", "Effect Sizes"),
+    ("mult-comp", "Corrections"),
     ("cross-dwi", "Cross-DWI"),
     ("fdr-global", "FDR Global"),
     ("correlations", "Correlations"),
     ("treatment", "Treatment"),
     ("predictive", "Predictive"),
+    ("model-diag", "Diagnostics"),
     ("supplemental", "Supplemental"),
+    ("limitations", "Limitations"),
+    ("conclusions", "Conclusions"),
     ("appendix", "All Graphs"),
 ]
 
@@ -342,6 +369,95 @@ def _stat_card(label: str, value: str, sub: str = "") -> str:
         f'<div class="value">{_esc(value)}</div>'
         f'{sub_html}</div>'
     )
+
+
+def _forest_plot_cell(hr: float, ci_lo: float, ci_hi: float, p: float,
+                      log_min: float = -1.5, log_max: float = 1.5) -> str:
+    """Return an inline HTML forest plot cell for a single hazard ratio.
+
+    Renders a horizontal bar representing the 95% CI with a point
+    estimate dot, plus a vertical reference line at HR=1.0.
+
+    Parameters
+    ----------
+    hr : float
+        Hazard ratio point estimate.
+    ci_lo, ci_hi : float
+        Lower and upper bounds of the 95% confidence interval.
+    p : float
+        P-value for significance-based colouring.
+    log_min, log_max : float
+        Log-scale axis bounds for positioning.
+
+    Returns
+    -------
+    str
+        HTML ``<div>`` representing the forest plot bar.
+    """
+    import math
+    width = 180  # pixels
+
+    def _pos(val: float) -> float:
+        lv = math.log(max(val, 0.01))
+        return max(0, min(width, (lv - log_min) / (log_max - log_min) * width))
+
+    ref_x = _pos(1.0)
+    hr_x = _pos(hr)
+    lo_x = _pos(ci_lo)
+    hi_x = _pos(ci_hi)
+    pt_cls = "forest-point-sig" if p < 0.05 else "forest-point-ns"
+
+    return (
+        f'<div class="forest-row" style="width:{width}px">'
+        f'<div class="forest-ref" style="left:{ref_x:.0f}px"></div>'
+        f'<div class="forest-bar" style="left:{lo_x:.0f}px;width:{max(hi_x - lo_x, 1):.0f}px"></div>'
+        f'<div class="forest-point {pt_cls}" style="left:{hr_x:.0f}px"></div>'
+        f'</div>'
+    )
+
+
+def _effect_size_class(d: float) -> str:
+    """Return a CSS class for an effect size magnitude.
+
+    Uses Cohen's conventions: small (0.2), medium (0.5), large (0.8).
+
+    Parameters
+    ----------
+    d : float
+        Absolute effect size (Cohen's d or similar).
+
+    Returns
+    -------
+    str
+        CSS class name.
+    """
+    d = abs(d)
+    if d >= 0.8:
+        return "effect-lg"
+    if d >= 0.5:
+        return "effect-md"
+    return "effect-sm"
+
+
+def _effect_size_label(d: float) -> str:
+    """Return a human-readable label for an effect size magnitude.
+
+    Parameters
+    ----------
+    d : float
+        Absolute effect size.
+
+    Returns
+    -------
+    str
+        One of ``"Large"``, ``"Medium"``, or ``"Small"``.
+    """
+    d = abs(d)
+    if d >= 0.8:
+        return "Large"
+    if d >= 0.5:
+        return "Medium"
+    return "Small"
 
 
 def _get_consensus(trend_list: list[str]) -> str:
