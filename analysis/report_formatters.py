@@ -1,11 +1,27 @@
 """Formatting utilities and constants for the HTML analysis report.
 
-Contains:
-- HTML escaping, section headings, significance tags/classes
-- CSS stylesheet constant
-- DWI badge, trend tag, navigation bar helpers
-- HTML template for Markdown-to-HTML conversion
-- Stat card and consensus helpers
+This module is imported by :mod:`generate_report` and :mod:`report_sections`
+to keep presentation logic separate from data loading and section assembly.
+
+Contents:
+
+- **HTML escaping** (:func:`_esc`) and **section headings** (:func:`_h2`,
+  :func:`_section`).
+- **Significance helpers** (:func:`_sig_tag`, :func:`_sig_class`) --
+  map p-values to visual indicators (asterisks and CSS classes).
+- **CSS stylesheet** (:data:`CSS`) -- embedded in the ``<style>`` tag of
+  the HTML report for self-contained styling.
+- **DWI badge** (:func:`_dwi_badge`) -- colour-coded ``<span>`` labels
+  for Standard / dnCNN / IVIMnet.
+- **Trend tag** (:func:`_trend_tag`) -- directional arrow badges for
+  increasing / decreasing / stable / non-monotonic trends.
+- **Navigation bar** (:func:`_nav_bar`, :data:`NAV_SECTIONS`) -- sticky
+  top-of-page anchor links.
+- **Stat card** (:func:`_stat_card`) -- summary metric display cards.
+- **Consensus helper** (:func:`_get_consensus`) -- vote-based trend
+  consensus across DWI types.
+- **HTML template** (:data:`HTML_TEMPLATE`) -- standalone HTML wrapper
+  for Markdown-to-HTML conversion.
 """
 
 from __future__ import annotations
@@ -14,16 +30,61 @@ import html as _html
 
 
 def _esc(text: str) -> str:
-    """HTML-escape a string."""
+    """HTML-escape a string to prevent XSS and rendering issues.
+
+    Parameters
+    ----------
+    text : str
+        Raw text to escape.
+
+    Returns
+    -------
+    str
+        Escaped HTML string safe for embedding in ``<td>``, ``<p>``, etc.
+    """
     return _html.escape(str(text))
 
 
 def _section(title: str, level: int = 2) -> str:
-    """Return a Markdown-style section heading string (utility / test helper)."""
+    """Return a Markdown-style section heading string.
+
+    This is a utility / test helper used by the legacy Markdown report
+    path (now superseded by HTML generation).
+
+    Parameters
+    ----------
+    title : str
+        Section title text.
+    level : int
+        Heading level (number of ``#`` characters).
+
+    Returns
+    -------
+    str
+        Markdown heading string.
+    """
     return f"\n{'#' * level} {title}\n"
 
 
 def _sig_tag(p: float) -> str:
+    """Return asterisk significance markers for a p-value.
+
+    Follows biomedical convention:
+    - ``***`` for p < 0.001
+    - ``**``  for p < 0.01
+    - ``*``   for p < 0.05
+    - ``""``  for p >= 0.05
+
+    Parameters
+    ----------
+    p : float
+        P-value.
+
+    Returns
+    -------
+    str
+        Significance marker string.
+    """
     if p < 0.001:
         return "***"
     if p < 0.01:
@@ -34,7 +95,21 @@ def _sig_tag(p: float) -> str:
 
 
 def _sig_class(p: float) -> str:
-    """Return a CSS class name for the significance level."""
+    """Return a CSS class name for the significance level.
+
+    Classes ``sig-1``, ``sig-2``, ``sig-3`` map to amber, red, and bold-red
+    styling defined in :data:`CSS`.
+
+    Parameters
+    ----------
+    p : float
+        P-value.
+
+    Returns
+    -------
+    str
+        CSS class name, or empty string if not significant.
+    """
     if p < 0.001:
         return "sig-3"
     if p < 0.01:
@@ -44,6 +119,10 @@ def _sig_class(p: float) -> str:
     return ""
 
 
+# ── CSS stylesheet ────────────────────────────────────────────────────────────
+# Embedded directly in the HTML report's <style> tag so the report is a
+# single self-contained file with no external dependencies.  Uses CSS custom
+# properties (variables) for theming consistency.
 CSS = """\
 :root {
     --bg: #ffffff; --fg: #1a1a2e; --muted: #64748b;

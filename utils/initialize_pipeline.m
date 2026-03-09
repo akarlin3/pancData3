@@ -154,6 +154,11 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     end
 
     % --- 4) Toolbox license checks ---
+    % Verify required MATLAB toolbox licenses before the pipeline starts.
+    % Early detection prevents cryptic "undefined function" errors deep in
+    % the pipeline after potentially hours of data loading.
+    % Skipped under Octave since its toolbox licensing model differs and
+    % the .octave_compat/ shims provide necessary function replacements.
     if ~exist('OCTAVE_VERSION', 'builtin')
         if ~license('test', 'Statistics_Toolbox')
             error('InitializationError:MissingToolbox', ...

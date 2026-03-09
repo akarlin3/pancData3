@@ -128,9 +128,15 @@ class TestStatisticalRelevance:
 # ---------------------------------------------------------------------------
 
 class TestStatisticalByGraphType:
-    """Test statistical_by_graph_type.main output."""
+    """Test statistical_by_graph_type.main output.
+
+    This script groups graph analysis results by graph type (box, line,
+    scatter, etc.) and reports per-type statistics: significant p-values,
+    trend directions, and a summary table at the end.
+    """
 
     def test_groups_by_graph_type(self, saved_files_with_graph_csv: Path, capsys):
+        """Output should contain sections for the 'box' and 'line' types from the fixture."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from statistical_by_graph_type import main
             main()
@@ -148,6 +154,7 @@ class TestStatisticalByGraphType:
         assert "SUMMARY TABLE" in out.upper()
 
     def test_trend_directions_counted(self, saved_files_with_graph_csv: Path, capsys):
+        """Trend direction counts (Increasing/Decreasing) from the fixture appear in output."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from statistical_by_graph_type import main
             main()
@@ -156,6 +163,7 @@ class TestStatisticalByGraphType:
         assert "Increasing" in out or "Decreasing" in out
 
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
+        """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
             from statistical_by_graph_type import main
             with pytest.raises(SystemExit):

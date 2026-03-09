@@ -134,8 +134,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testAllNaNFeaturesReturnsEmptyOutputs(testCase)
-            % All feature matrices are NaN → no imputable patients →
-            % elastic net cannot run → n_sig = 0 → outputs remain empty.
+            % Verifies graceful degradation when ALL feature matrices are
+            % NaN. The imputation step finds no valid patients, elastic net
+            % cannot run (n_sig=0), and all outputs remain empty. This
+            % tests the guard clauses before model fitting.
             n   = 8;
             nTp = 2;
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -160,8 +162,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testOutputTypesAreNumericOrLogical(testCase)
-            % Even when the elastic net fails gracefully, the returned
-            % variables must be numeric or logical (never cell arrays).
+            % Verifies the type contract: all four outputs must be numeric
+            % or logical (never cell arrays or strings), even when the
+            % elastic net does not run. This prevents type errors in
+            % downstream consumers (e.g., metrics_survival).
             n   = 6;
             nTp = 1;   % fast no-op path
             args = testCase.buildMinimalArgs(n, nTp, 1);
@@ -276,8 +280,10 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testBackwardCompatWithout34thArg(testCase)
-            % When config_struct (34th arg) is omitted, function must still
-            % work — nargin guard defaults use_firth_refit to true.
+            % Verifies backward compatibility: calling with only 33
+            % arguments (omitting config_struct) should still work. The
+            % nargin guard in metrics_stats_predictive defaults
+            % use_firth_refit to true when the 34th argument is absent.
             n   = 5;
             nTp = 1;   % fast no-op path
             args = testCase.buildMinimalArgs(n, nTp, 1);

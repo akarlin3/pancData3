@@ -179,14 +179,19 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testSpectralFallbackTooFewVoxels(testCase)
+            % Spectral clustering requires a minimum number of voxels
+            % (min_vox_hist) to build a meaningful similarity graph.
+            % When the voxel count is below this threshold, the method
+            % must fall back to simple adc_threshold to avoid noisy or
+            % degenerate clustering results.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'spectral';
-            cfg.min_vox_hist = 200; % more than our 100 voxels
+            cfg.min_vox_hist = 200; % Exceeds our 100-voxel test data
 
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, false, []);
 
-            % Should fall back to adc_threshold
+            % Verify exact equivalence with the threshold fallback
             expected = testCase.AdcVec <= cfg.adc_thresh;
             testCase.verifyEqual(mask, expected);
         end
@@ -197,6 +202,9 @@ classdef test_new_core_methods < matlab.unittest.TestCase
     % ==================================================================
     methods (Test)
         function testFdmBaselineFallsBack(testCase)
+            % At the first timepoint (baseline), there is no prior scan to
+            % compute a delta from. The fDM method must fall back to simple
+            % ADC thresholding as there is no longitudinal information.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
 
@@ -204,7 +212,6 @@ classdef test_new_core_methods < matlab.unittest.TestCase
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, false, [], opts);
 
-            % At baseline, should fall back to adc_threshold
             expected = testCase.AdcVec <= cfg.adc_thresh;
             testCase.verifyEqual(mask, expected);
         end
