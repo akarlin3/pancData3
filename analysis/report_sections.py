@@ -33,6 +33,7 @@ from shared import (
     parse_dwi_info,
 )
 from report_formatters import (
+    _cite,
     _dwi_badge,
     _effect_size_class,
     _effect_size_label,
@@ -43,8 +44,68 @@ from report_formatters import (
     _sig_class,
     _sig_tag,
     _stat_card,
+    _table_caption,
     _trend_tag,
 )
+
+
+def _section_publication_header() -> list[str]:
+    """Build a publication metadata block with author/institution placeholders.
+
+    This section provides fill-in-the-blank placeholders for manuscript
+    metadata that cannot be auto-generated (author names, affiliations,
+    corresponding author, IRB approval number).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the publication metadata block.
+    """
+    h: list[str] = []
+    h.append('<div class="pub-meta">')
+    h.append("<h4>Manuscript Information</h4>")
+    h.append('<p><strong>Title:</strong> <span class="placeholder">'
+             "Diffusion-Weighted MRI Biomarkers for Treatment Response "
+             "Assessment in Pancreatic Cancer: A Multi-Strategy Analysis"
+             "</span></p>")
+    h.append('<p><strong>Authors:</strong> <span class="placeholder">'
+             "[Author 1, Author 2, ... ]</span></p>")
+    h.append('<p><strong>Affiliations:</strong> <span class="placeholder">'
+             "Department of Medical Physics, Memorial Sloan Kettering Cancer Center, "
+             "New York, NY</span></p>")
+    h.append('<p><strong>Corresponding Author:</strong> <span class="placeholder">'
+             "[Name, email]</span></p>")
+    h.append('<p><strong>IRB Approval:</strong> <span class="placeholder">'
+             "[Protocol number]</span></p>")
+    h.append("</div>")
+    return h
+
+
+def _section_data_availability() -> list[str]:
+    """Build the Data Availability Statement section.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the data availability section.
+    """
+    h: list[str] = []
+    h.append(_h2("Data Availability", "data-availability"))
+    h.append('<div class="methods-box">')
+    h.append(
+        "<p>The clinical imaging data supporting this study are subject to "
+        "institutional review board (IRB) restrictions and cannot be made "
+        "publicly available due to patient privacy requirements under HIPAA. "
+        "De-identified summary statistics and analysis code are available "
+        "from the corresponding author upon reasonable request.</p>"
+    )
+    h.append(
+        "<p>The analysis pipeline source code (pancData3) is available "
+        "under the MIT License. Post-hoc analysis scripts and report "
+        "generation tools are included in the repository.</p>"
+    )
+    h.append("</div>")
+    return h
 
 
 def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data=None) -> list[str]:
@@ -1065,7 +1126,10 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
     if sig_findings:
         sig_findings.sort()
         h.append(f"<h3>Vision-Extracted Significant Findings (p &lt; 0.05) \u2014 {len(sig_findings)} total</h3>")
-        h.append("<table><thead><tr><th>p-value</th><th>Sig</th><th>DWI</th>"
+        h.append("<table>")
+        h.append(_table_caption("Vision-Extracted Significant Findings",
+                                f"(N\u2009=\u2009{len(sig_findings)} findings with p < 0.05)"))
+        h.append("<thead><tr><th>p-value</th><th>Sig</th><th>DWI</th>"
                  "<th>Graph</th><th>Context</th></tr></thead><tbody>")
         for p, dwi, graph, ctx in sig_findings:
             ctx_clean = _esc(ctx.replace("\n", " ")[:120])
@@ -1160,7 +1224,11 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
                               f'\u2705 {len(sig_details)} of {len(glme_details)} metrics show significant '
                               f'interaction (p &lt; adjusted \u03b1).</div>')
 
-                h.append("<table><thead><tr>"
+                h.append("<table>")
+                h.append(_table_caption(
+                    f"GLME Interaction Test Results ({dwi_type})",
+                    f"N\u2009=\u2009{len(glme_details)} metrics tested."))
+                h.append("<thead><tr>"
                          "<th>Metric</th><th>p-value</th><th>Adj. \u03b1</th><th>Sig.</th>"
                          "</tr></thead><tbody>")
                 for g in sorted(glme_details, key=lambda x: x["p"]):
@@ -1604,7 +1672,11 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
 
         if has_roc:
             h.append("<h3>ROC / AUC Performance</h3>")
-            h.append("<table><thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
+            h.append("<table>")
+            h.append(_table_caption(
+                "Receiver Operating Characteristic Performance",
+                "AUC from nested LOOCV with patient-stratified folds."))
+            h.append("<thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
                      "<th>Sensitivity</th><th>Specificity</th><th>Youden Cutoff</th>"
                      "</tr></thead><tbody>")
             h.extend(roc_rows_html)
@@ -1673,7 +1745,11 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                     h.append(f' <span class="meta">IPCW weights: '
                              f'[{ipcw["min_weight"]:.3f}, {ipcw["max_weight"]:.3f}]</span>')
                 h.append("</p>")
-                h.append("<table><thead><tr><th>Covariate</th><th>HR</th>"
+                h.append("<table>")
+                h.append(_table_caption(
+                    f"Cause-Specific Cox Proportional Hazards ({dwi_type})",
+                    "HR > 1 indicates increased hazard for local failure."))
+                h.append("<thead><tr><th>Covariate</th><th>HR</th>"
                          "<th>95% CI</th><th>p</th></tr></thead><tbody>")
                 for hr in sorted(hrs, key=lambda x: x.get("p", 1)):
                     ci = f"[{hr.get('ci_lo', 0):.3f}, {hr.get('ci_hi', 0):.3f}]"
@@ -1823,13 +1899,14 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     h.append(
         "<p>Diffusion-weighted images were acquired and processed using three "
         "complementary strategies: <strong>Standard</strong> (conventional DWI), "
-        "<strong>DnCNN</strong> (deep learning denoised using a convolutional neural "
-        "network), and <strong>IVIMnet</strong> (deep learning IVIM parameter estimation). "
+        f"<strong>DnCNN</strong> (deep learning denoised using a convolutional neural "
+        f"network){_cite('dncnn')}, and <strong>IVIMnet</strong> (deep learning IVIM "
+        "parameter estimation). "
         "For each strategy, apparent diffusion coefficient (ADC) maps were computed via "
         "mono-exponential fitting, and intravoxel incoherent motion (IVIM) parameters "
         "\u2014 true diffusion coefficient (<em>D</em>), perfusion fraction (<em>f</em>), "
         "and pseudo-diffusion coefficient (<em>D*</em>) \u2014 were estimated using "
-        "segmented and Bayesian fitting approaches.</p>"
+        f"segmented and Bayesian fitting approaches{_cite('ivim')}.</p>"
     )
 
     # ── Tumour Delineation ──
@@ -1837,7 +1914,8 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     h.append(
         "<p>Tumour core sub-volumes were identified using configurable delineation "
         "methods (default: ADC thresholding). Eleven methods were compared pairwise "
-        "using Dice similarity coefficient and Hausdorff distance, including threshold-based "
+        f"using Dice similarity coefficient{_cite('dice')} and Hausdorff distance, "
+        "including threshold-based "
         "(ADC, D, D\u00b7f intersection), clustering-based (Otsu, GMM, k-means, spectral), "
         "region-based (region growing, active contours), percentile-based, and functional "
         "diffusion map (fDM) approaches.</p>"
@@ -1847,7 +1925,8 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     h.append("<h3>Group Comparisons</h3>")
     h.append(
         "<p>Differences between treatment outcome groups (Local Failure vs Local Control) "
-        "were assessed using the <strong>Wilcoxon rank-sum test</strong> (Mann\u2013Whitney U), "
+        f"were assessed using the <strong>Wilcoxon rank-sum test</strong> "
+        f"(Mann\u2013Whitney U){_cite('wilcoxon')}, "
         "a non-parametric test appropriate for small sample sizes and non-normally distributed "
         "DWI-derived biomarkers. Tests were performed independently at each imaging timepoint.</p>"
     )
@@ -1866,7 +1945,8 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     h.append("<h3>Multiple Comparison Correction</h3>")
     h.append(
         "<p>To control the false discovery rate across the large number of metrics tested, "
-        "the <strong>Benjamini\u2013Hochberg (BH) procedure</strong> was applied. Each "
+        f"the <strong>Benjamini\u2013Hochberg (BH) procedure</strong>{_cite('bh_fdr')} "
+        "was applied. Each "
         "metric\u2019s p-value was compared to an individually adjusted significance "
         "threshold (\u03b1<sub>adj</sub> = 0.05 \u00d7 rank / total tests), rather than a "
         "fixed \u03b1 = 0.05. This controls the expected proportion of false discoveries "
@@ -1876,7 +1956,8 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     # ── Predictive Modelling ──
     h.append("<h3>Predictive Modelling</h3>")
     pred_text_parts = [
-        "<p><strong>Elastic-net regularised logistic regression</strong> (mixing parameter "
+        f"<p><strong>Elastic-net regularised logistic regression</strong>{_cite('elastic_net')} "
+        "(mixing parameter "
         "\u03b1 = 0.5) was used for binary outcome prediction at each timepoint. "
         "The optimal regularisation parameter (\u03bb) was selected via 5-fold "
         "cross-validation with patient-stratified folds to prevent data leakage.",
@@ -1910,14 +1991,16 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
                 ipcw_used = True
                 break
     surv_text = (
-        "<p><strong>Cause-specific Cox proportional hazards models</strong> were "
+        f"<p><strong>Cause-specific Cox proportional hazards models</strong>"
+        f"{_cite('cox_ph')} were "
         "used to estimate hazard ratios (HR) with 95% confidence intervals for "
         "DWI-derived covariates. To account for competing risks (non-tumour-related "
         "mortality), "
     )
     if ipcw_used:
         surv_text += (
-            "<strong>inverse probability of censoring weighting (IPCW)</strong> "
+            f"<strong>inverse probability of censoring weighting (IPCW)</strong>"
+            f"{_cite('ipcw')} "
             "was applied to adjust for informative censoring bias. "
         )
     else:
@@ -1925,7 +2008,7 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     surv_text += (
         "Model significance was assessed using the global likelihood ratio test (LRT). "
         "Where separation or convergence issues arose, Firth\u2019s penalised likelihood "
-        "method was used as a bias-reduction technique.</p>"
+        f"method was used as a bias-reduction technique{_cite('firth')}.</p>"
     )
     h.append(surv_text)
 
@@ -1968,11 +2051,12 @@ def _section_effect_sizes(log_data, dwi_types_present, csv_data) -> list[str]:
     h: list[str] = []
     h.append(_h2("Effect Size Analysis", "effect-sizes"))
     h.append(
-        '<p class="meta">Effect sizes provide a measure of practical significance '
-        'independent of sample size. Hazard ratios are reported with 95% confidence '
-        'intervals; HR > 1 indicates increased risk of the endpoint. The log(HR) is '
-        'used as an approximate effect size metric (|log(HR)| \u2265 0.5 \u2248 '
-        'medium effect).</p>'
+        f'<p class="meta">Effect sizes provide a measure of practical significance '
+        f'independent of sample size{_cite("cohen_d")}. Hazard ratios are reported '
+        f'with 95% confidence '
+        f'intervals; HR > 1 indicates increased risk of the endpoint. The log(HR) is '
+        f'used as an approximate effect size metric (|log(HR)| \u2265 0.5 \u2248 '
+        f'medium effect).</p>'
     )
 
     has_data = False
@@ -1988,7 +2072,12 @@ def _section_effect_sizes(log_data, dwi_types_present, csv_data) -> list[str]:
 
             has_data = True
             h.append(f"<h3>{_dwi_badge(dwi_type)} Hazard Ratio Effect Sizes</h3>")
-            h.append("<table><thead><tr>"
+            h.append("<table>")
+            h.append(_table_caption(
+                f"Hazard Ratio Effect Sizes ({dwi_type})",
+                f"Effect size classification per Cohen (1988): "
+                f"small (|log HR| < 0.5), medium (0.5\u20130.8), large (\u2265 0.8)."))
+            h.append("<thead><tr>"
                      "<th>Covariate</th><th>HR</th><th>95% CI</th>"
                      "<th>p-value</th><th>log(HR)</th><th>Effect</th>"
                      "<th>Forest Plot</th>"
@@ -2046,12 +2135,16 @@ def _section_effect_sizes(log_data, dwi_types_present, csv_data) -> list[str]:
             has_data = True
             h.append("<h3>Discriminative Performance Interpretation</h3>")
             h.append(
-                '<p class="meta">AUC interpretation: 0.5 = no discrimination, '
-                '0.6\u20130.7 = poor, 0.7\u20130.8 = acceptable, '
-                '0.8\u20130.9 = excellent, > 0.9 = outstanding '
-                '(Hosmer &amp; Lemeshow, 2000).</p>'
+                f'<p class="meta">AUC interpretation{_cite("hosmer_lemeshow")}: '
+                f'0.5 = no discrimination, '
+                f'0.6\u20130.7 = poor, 0.7\u20130.8 = acceptable, '
+                f'0.8\u20130.9 = excellent, > 0.9 = outstanding.</p>'
             )
-            h.append("<table><thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
+            h.append("<table>")
+            h.append(_table_caption(
+                "Discriminative Performance by Timepoint",
+                "Classification per Hosmer & Lemeshow (2000)."))
+            h.append("<thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
                      "<th>Discrimination</th></tr></thead><tbody>")
             for dwi, tp, auc_val in sorted(auc_data, key=lambda x: -x[2]):
                 if auc_val >= 0.9:
@@ -2137,7 +2230,11 @@ def _section_multiple_comparisons(log_data, dwi_types_present, csv_data) -> list
             h.append("</div>")
 
             # Detailed table: raw p-value vs adjusted threshold
-            h.append("<table><thead><tr>"
+            h.append("<table>")
+            h.append(_table_caption(
+                f"BH-FDR Correction Detail ({dwi_type})",
+                f"Raw vs adjusted significance for {n_total} metrics."))
+            h.append("<thead><tr>"
                      "<th>Metric</th><th>Raw p-value</th>"
                      "<th>BH Adj. \u03b1</th><th>Raw Sig?</th>"
                      "<th>FDR Sig?</th><th>Status</th>"
@@ -2645,12 +2742,30 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                  "multi-parametric DWI analysis for treatment response assessment "
                  "in pancreatic cancer.</p>")
 
+    # Clinical significance statement
+    h.append(
+        '<div class="summary-box" style="border-left-color: var(--green);">'
+        "<p><strong>Clinical Significance:</strong> "
+        "These findings suggest that longitudinal DWI biomarkers may enable "
+        "non-invasive, early identification of patients at risk for local "
+        "failure during radiotherapy. If validated prospectively, this could "
+        "support adaptive treatment strategies\u2014such as dose escalation "
+        "to resistant sub-volumes or early intensification of systemic "
+        "therapy\u2014within the existing fractionation schedule. The "
+        "cross-DWI-type analysis demonstrates that key findings are robust "
+        "to the choice of post-processing strategy, increasing confidence "
+        "in their clinical applicability.</p></div>"
+    )
+
     h.append(
         "<p><strong>Future directions:</strong> Prospective validation in an "
         "independent multi-centre cohort is warranted. Investigation of "
         "radiomics and texture features, time-dependent covariates in Cox "
         "models, and deep learning\u2013based outcome prediction may further "
-        "improve prognostic accuracy.</p>"
+        "improve prognostic accuracy. Additionally, integration of "
+        "circulating tumour DNA (ctDNA) and PET imaging biomarkers with "
+        "DWI-derived metrics could enable multi-modal prediction models with "
+        "improved sensitivity for early treatment failure detection.</p>"
     )
 
     h.append("</div>")

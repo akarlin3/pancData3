@@ -97,6 +97,11 @@ def main():
         action="store_true",
         help="Only generate the HTML report from existing data",
     )
+    parser.add_argument(
+        "--no-pdf",
+        action="store_true",
+        help="Skip PDF generation (produce HTML report only)",
+    )
     args = parser.parse_args()
 
     # ── Resolve output folder ──
@@ -143,8 +148,26 @@ def main():
         # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
         results["mat"] = _run_script("parse_mat_metrics.py", folder)
 
-    # Step 4: Assemble the final HTML report from all collected data.
-    results["report"] = _run_script("generate_report.py", folder)
+    # Step 4: Assemble the final HTML (+PDF) report from all collected data.
+    report_script = ANALYSIS_DIR / "generate_report.py"
+    if report_script.exists():
+        report_args = [sys.executable, str(report_script), str(folder)]
+        if args.no_pdf:
+            report_args.append("--no-pdf")
+        print(f"\n  Running generate_report.py ...")
+        t0 = time.time()
+        result = subprocess.run(
+            report_args, cwd=str(ANALYSIS_DIR), capture_output=False,
+        )
+        elapsed = time.time() - t0
+        if result.returncode == 0:
+            print(f"  Done: generate_report.py ({elapsed:.1f}s)")
+            results["report"] = True
+        else:
+            print(f"  FAILED: generate_report.py (exit code {result.returncode}, {elapsed:.1f}s)")
+            results["report"] = False
+    else:
+        results["report"] = False
 
     # ── Summary table ──
     print("\n" + "=" * 70)
@@ -155,8 +178,11 @@ def main():
         print(f"  [{icon:>4}] {step}")
 
     report_path = folder / "analysis_report.html"
+    pdf_path = folder / "analysis_report.pdf"
     if report_path.exists():
-        print(f"\n  Report: {report_path}")
+        print(f"\n  HTML Report: {report_path}")
+    if pdf_path.exists():
+        print(f"  PDF Report:  {pdf_path}")
     print()
 
 

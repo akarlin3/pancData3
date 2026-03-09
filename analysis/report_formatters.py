@@ -29,6 +29,71 @@ from __future__ import annotations
 import html as _html
 
 
+# ── Table / Figure numbering ─────────────────────────────────────────────────
+# A simple counter-based numbering system for publication-quality
+# cross-referencing.  Each call to ``_table_caption`` or ``_figure_caption``
+# increments the counter and returns an HTML ``<caption>`` or ``<figcaption>``.
+
+class _NumberingContext:
+    """Thread-local numbering state for tables and figures.
+
+    Call :meth:`reset` at the start of each report generation to begin
+    numbering from 1.
+    """
+
+    def __init__(self):
+        self.table_num = 0
+        self.figure_num = 0
+
+    def reset(self):
+        """Reset all counters (call at the start of report generation)."""
+        self.table_num = 0
+        self.figure_num = 0
+
+    def next_table(self) -> int:
+        """Increment and return the next table number."""
+        self.table_num += 1
+        return self.table_num
+
+    def next_figure(self) -> int:
+        """Increment and return the next figure number."""
+        self.figure_num += 1
+        return self.figure_num
+
+
+_numbering = _NumberingContext()
+
+
+def reset_numbering() -> None:
+    """Reset table/figure counters for a new report."""
+    _numbering.reset()
+
+
+def _table_caption(title: str, description: str = "") -> str:
+    """Return an HTML ``<caption>`` with an auto-incremented table number.
+
+    Parameters
+    ----------
+    title : str
+        Short caption title (e.g. "Hazard Ratio Effect Sizes").
+    description : str, optional
+        Additional descriptive text displayed after the title.
+
+    Returns
+    -------
+    str
+        HTML ``<caption>`` element.
+    """
+    num = _numbering.next_table()
+    desc_html = f" {_html.escape(description)}" if description else ""
+    return (
+        f'<caption style="caption-side:top;text-align:left;font-size:0.9rem;'
+        f'color:#374151;padding:0.4rem 0;font-weight:600">'
+        f'Table {num}. {_html.escape(title)}'
+        f'<span style="font-weight:400">{desc_html}</span></caption>'
+    )
+
+
 def _esc(text: str) -> str:
     """HTML-escape a string to prevent XSS and rendering issues.
 
@@ -216,6 +281,37 @@ details[open] > summary { margin-bottom: 0.4rem; }
 .conclusion-box { background: #f0f7ff; border-left: 4px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin: 0.75rem 0; }
 .conclusion-box li { margin-bottom: 0.35rem; }
 .diag-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-size: 0.9rem; }
+.pub-meta { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem 1.5rem; margin: 1rem 0; }
+.pub-meta h4 { color: var(--accent); margin: 0.5rem 0 0.2rem; font-size: 0.95rem; }
+.pub-meta p { margin-bottom: 0.4rem; font-size: 0.92rem; color: var(--muted); }
+.pub-meta .placeholder { border-bottom: 1px dashed var(--border); display: inline-block; min-width: 200px; color: var(--muted); font-style: italic; }
+.ref-list { counter-reset: ref-counter; list-style: none; padding-left: 0; }
+.ref-list li { counter-increment: ref-counter; padding: 0.3rem 0 0.3rem 2.5rem; text-indent: -2.5rem; font-size: 0.88rem; line-height: 1.5; }
+.ref-list li::before { content: "[" counter(ref-counter) "] "; font-weight: 600; color: var(--accent); }
+.cite { color: var(--accent); font-size: 0.82rem; vertical-align: super; font-weight: 600; cursor: help; }
+caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151; padding: 0.4rem 0; font-weight: 600; }
+@media print {
+    body { max-width: none; padding: 1cm; font-size: 10pt; line-height: 1.5; }
+    nav.toc { display: none; }
+    h1 { font-size: 14pt; }
+    h2 { font-size: 12pt; page-break-after: avoid; }
+    h3 { font-size: 11pt; page-break-after: avoid; }
+    table { font-size: 8pt; page-break-inside: avoid; }
+    th { background: #333 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    tr:nth-child(even) td { background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .stat-grid { grid-template-columns: repeat(4, 1fr); }
+    .stat-card { border: 1px solid #ccc; }
+    .summary-box, .warn-box, .info-box, .conclusion-box, .diag-box, .methods-box, .abstract-box, .pub-meta {
+        -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .forest-row { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .badge { border: 1px solid #999; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    a { color: var(--accent); text-decoration: none; }
+    footer { font-size: 8pt; }
+    details { display: block; }
+    details > summary { list-style: none; }
+    details > summary::before { content: ""; }
+}
 """
 
 
@@ -305,6 +401,7 @@ NAV_SECTIONS = [
     ("supplemental", "Supplemental"),
     ("limitations", "Limitations"),
     ("conclusions", "Conclusions"),
+    ("references", "References"),
     ("appendix", "All Graphs"),
 ]
 
@@ -458,6 +555,92 @@ def _effect_size_label(d: float) -> str:
     if d >= 0.5:
         return "Medium"
     return "Small"
+
+
+# ── Publication references ────────────────────────────────────────────────────
+# Numbered references used in the Methods, Diagnostics, and Effect Size sections
+# to support a journal-ready report.
+
+REFERENCES: list[dict[str, str]] = [
+    {"key": "wilcoxon",
+     "text": "Mann HB, Whitney DR. On a test of whether one of two random "
+             "variables is stochastically larger than the other. Ann Math "
+             "Stat. 1947;18(1):50\u201360."},
+    {"key": "bh_fdr",
+     "text": "Benjamini Y, Hochberg Y. Controlling the false discovery rate: "
+             "a practical and powerful approach to multiple testing. J R Stat "
+             "Soc Series B. 1995;57(1):289\u2013300."},
+    {"key": "cox_ph",
+     "text": "Cox DR. Regression models and life-tables. J R Stat Soc Series B. "
+             "1972;34(2):187\u2013220."},
+    {"key": "elastic_net",
+     "text": "Zou H, Hastie T. Regularization and variable selection via the "
+             "elastic net. J R Stat Soc Series B. 2005;67(2):301\u2013320."},
+    {"key": "hosmer_lemeshow",
+     "text": "Hosmer DW, Lemeshow S. Applied Logistic Regression. 2nd ed. "
+             "New York: Wiley; 2000."},
+    {"key": "ipcw",
+     "text": "Robins JM, Finkelstein DM. Correcting for noncompliance and "
+             "dependent censoring in an AIDS clinical trial with inverse "
+             "probability of censoring weighted (IPCW) log-rank tests. "
+             "Biometrics. 2000;56(3):779\u2013788."},
+    {"key": "firth",
+     "text": "Firth D. Bias reduction of maximum likelihood estimates. "
+             "Biometrika. 1993;80(1):27\u201338."},
+    {"key": "ivim",
+     "text": "Le Bihan D, Breton E, Lallemand D, Aubin ML, Vignaud J, "
+             "Laval-Jeantet M. Separation of diffusion and perfusion in "
+             "intravoxel incoherent motion MR imaging. Radiology. "
+             "1988;168(2):497\u2013505."},
+    {"key": "cohen_d",
+     "text": "Cohen J. Statistical Power Analysis for the Behavioral Sciences. "
+             "2nd ed. Hillsdale, NJ: Lawrence Erlbaum Associates; 1988."},
+    {"key": "dice",
+     "text": "Dice LR. Measures of the amount of ecologic association between "
+             "species. Ecology. 1945;26(3):297\u2013302."},
+    {"key": "dncnn",
+     "text": "Zhang K, Zuo W, Chen Y, Meng D, Zhang L. Beyond a Gaussian "
+             "denoiser: residual learning of deep CNN for image denoising. "
+             "IEEE Trans Image Process. 2017;26(7):3142\u20133155."},
+]
+
+_REF_INDEX = {r["key"]: i + 1 for i, r in enumerate(REFERENCES)}
+
+
+def _cite(*keys: str) -> str:
+    """Return superscript citation(s) for the given reference key(s).
+
+    Parameters
+    ----------
+    *keys : str
+        One or more reference keys (e.g. ``"wilcoxon"``, ``"bh_fdr"``).
+
+    Returns
+    -------
+    str
+        HTML superscript citation, e.g. ``<sup class="cite">[1,2]</sup>``.
+    """
+    nums = sorted(_REF_INDEX[k] for k in keys if k in _REF_INDEX)
+    if not nums:
+        return ""
+    return f'<sup class="cite">[{",".join(str(n) for n in nums)}]</sup>'
+
+
+def _references_section() -> list[str]:
+    """Build the References section HTML.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the references section.
+    """
+    h: list[str] = []
+    h.append(_h2("References", "references"))
+    h.append('<ol class="ref-list">')
+    for ref in REFERENCES:
+        h.append(f"<li>{_html.escape(ref['text'])}</li>")
+    h.append("</ol>")
+    return h
 
 
 def _get_consensus(trend_list: list[str]) -> str:
