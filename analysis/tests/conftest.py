@@ -52,6 +52,8 @@ SAMPLE_GRAPH_CSV_ROWS = [
         ]),
         "num_inflection_points": "0",
         "inflection_points_json": "[]",
+        "num_issues": "1",
+        "issues_json": json.dumps(["Y-axis label partially obscured by legend"]),
         "summary": "Box plot showing p = 0.003 for ADC comparison. r = 0.65 correlation.",
     },
     # Row 2: dnCNN box plot — same graph name as row 1 but with a
@@ -80,6 +82,8 @@ SAMPLE_GRAPH_CSV_ROWS = [
         ]),
         "num_inflection_points": "0",
         "inflection_points_json": "[]",
+        "num_issues": "0",
+        "issues_json": "[]",
         "summary": "Box plot showing p = 0.12 for ADC comparison.",
     },
     # Row 3: IVIMnet longitudinal line plot — a different graph type ("line")
@@ -112,6 +116,8 @@ SAMPLE_GRAPH_CSV_ROWS = [
         "inflection_points_json": json.dumps([
             {"approximate_x": 60.0, "approximate_y": 0.0012, "description": "LF diverges from LC at day 60"}
         ]),
+        "num_issues": "2",
+        "issues_json": json.dumps(["Overlapping legend text", "X-axis tick labels truncated"]),
         "summary": "Longitudinal plot. p-value = 0.02 for group difference. r² = 0.45 fit quality.",
     },
 ]
@@ -123,6 +129,7 @@ GRAPH_CSV_COLUMNS = [
     "y_axis_label", "y_axis_units", "y_axis_range_min", "y_axis_range_max",
     "color_axis_label", "color_axis_units", "color_axis_range_min", "color_axis_range_max",
     "num_trends", "trends_json", "num_inflection_points", "inflection_points_json",
+    "num_issues", "issues_json",
     "summary",
 ]
 

@@ -11,7 +11,8 @@ Sections are assembled in the order they appear in the report:
 2. Cohort Overview
 3. Data-Driven Hypothesis
 4. Graph Analysis Overview
-5. Statistics by Graph Type
+5. Graph Issues
+6. Statistics by Graph Type
 6. Statistical Significance (with Borderline Findings)
 7. Cross-DWI Comparison (all graph groups)
 8. Notable Correlations (grouped by strength)
@@ -976,6 +977,91 @@ def _section_graph_overview(rows) -> list[str]:
         h.append("</div>")
 
         h.append("</div>")
+    return h
+
+
+def _section_graph_issues(rows) -> list[str]:
+    """Build the Graph Issues section.
+
+    Lists graphs that have quality issues detected by the vision model,
+    grouped by DWI type.  Each issue is shown with the graph name and a
+    description of the problem.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty, in which case the section is skipped).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the graph issues section.
+    """
+    h: list[str] = []
+    if not rows:
+        return h
+
+    # Collect rows that have issues or are error/unknown type.
+    issue_rows = []
+    for r in rows:
+        issues_str = r.get("issues_json", "[]") or "[]"
+        try:
+            issues_list = json.loads(issues_str)
+        except Exception:
+            issues_list = []
+        graph_type = r.get("graph_type", "")
+        # Also flag error/unknown graph types as issues.
+        type_issues = []
+        if graph_type == "error":
+            type_issues.append("Graph analysis failed (API or processing error)")
+        elif graph_type == "unknown":
+            type_issues.append("Graph type could not be determined")
+        all_issues = type_issues + (issues_list if isinstance(issues_list, list) else [])
+        if all_issues:
+            issue_rows.append((r, all_issues))
+
+    if not issue_rows:
+        return h
+
+    h.append(_h2("Graph Issues", "graph-issues"))
+    h.append(f"<p>{len(issue_rows)} of {len(rows)} graphs have detected quality issues.</p>")
+
+    # Summary stat cards
+    n_error = sum(1 for r, _ in issue_rows if r.get("graph_type") == "error")
+    n_unknown = sum(1 for r, _ in issue_rows if r.get("graph_type") == "unknown")
+    n_quality = len(issue_rows) - n_error - n_unknown
+    cards = []
+    if n_error:
+        cards.append(_stat_card("Analysis Errors", str(n_error), "failed to analyse"))
+    if n_unknown:
+        cards.append(_stat_card("Unknown Type", str(n_unknown), "type not determined"))
+    if n_quality:
+        cards.append(_stat_card("Quality Issues", str(n_quality), "visual problems detected"))
+    if cards:
+        h.append('<div class="stat-grid">')
+        h.extend(cards)
+        h.append("</div>")
+
+    # Detailed table
+    h.append("<table><thead><tr>"
+             "<th>#</th><th>DWI</th><th>Graph</th><th>Type</th><th>Issues</th>"
+             "</tr></thead><tbody>")
+    for i, (r, issues) in enumerate(issue_rows, 1):
+        dwi_type, base_name = parse_dwi_info(r["file_path"])
+        graph_type = r.get("graph_type", "")
+        issues_html = "<ul>" + "".join(
+            f"<li>{_esc(iss)}</li>" for iss in issues
+        ) + "</ul>"
+        h.append(
+            f"<tr>"
+            f"<td>{i}</td>"
+            f"<td>{_dwi_badge(dwi_type)}</td>"
+            f"<td>{_esc(base_name)}</td>"
+            f"<td>{_esc(graph_type)}</td>"
+            f"<td>{issues_html}</td>"
+            f"</tr>"
+        )
+    h.append("</tbody></table>")
     return h
 
 
@@ -2796,7 +2882,7 @@ def _section_appendix(rows) -> list[str]:
         h.append(f"<p>{len(rows)} graphs analysed. Expand each row for full details.</p>")
         h.append("<table><thead><tr>"
                  "<th>#</th><th>DWI</th><th>Type</th><th>Graph</th>"
-                 "<th>Title</th><th>Axes</th><th>Trends</th><th>Summary</th>"
+                 "<th>Title</th><th>Axes</th><th>Trends</th><th>Issues</th><th>Summary</th>"
                  "</tr></thead><tbody>")
         for i, r in enumerate(rows, 1):
             dwi_type, base_name = parse_dwi_info(r["file_path"])
@@ -2846,6 +2932,19 @@ def _section_appendix(rows) -> list[str]:
                         tags.append(_trend_tag(label))
                 trends_cell = "".join(tags)
 
+            # Issues cell
+            issues_str = r.get("issues_json", "[]") or "[]"
+            try:
+                issues_list = json.loads(issues_str)
+            except Exception:
+                issues_list = []
+            if isinstance(issues_list, list) and issues_list:
+                issues_cell = "<ul>" + "".join(
+                    f"<li>{_esc(iss)}</li>" for iss in issues_list
+                ) + "</ul>"
+            else:
+                issues_cell = "\u2014"
+
             # Summary: short preview + collapsible full
             summary = r.get("summary", "") or ""
             summary_preview = _esc(summary[:100].replace("\n", " "))
@@ -2869,6 +2968,7 @@ def _section_appendix(rows) -> list[str]:
                 f'<td class="axis-info">{title_display}</td>'
                 f'<td class="axis-info">{axes_cell}</td>'
                 f"<td>{trends_cell}</td>"
+                f"<td>{issues_cell}</td>"
                 f"<td>{summary_cell}</td>"
                 f"</tr>"
             )

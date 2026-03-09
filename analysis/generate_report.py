@@ -76,6 +76,7 @@ from report_sections import (  # noqa: F401
     _section_data_availability,
     _section_effect_sizes,
     _section_executive_summary,
+    _section_graph_issues,
     _section_graph_overview,
     _section_hypothesis,
     _section_limitations,
@@ -255,6 +256,7 @@ def generate_report(folder: Path) -> str:
 
     h.extend(_section_hypothesis(groups, log_data, mat_data))
     h.extend(_section_graph_overview(rows))
+    h.extend(_section_graph_issues(rows))
     h.extend(_section_stats_by_graph_type(rows))
     h.extend(_section_statistical_significance(rows, csv_data, log_data, dwi_types_present))
     h.extend(_section_effect_sizes(log_data, dwi_types_present, csv_data))
