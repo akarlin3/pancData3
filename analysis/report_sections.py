@@ -746,6 +746,28 @@ def _section_treatment_response(groups) -> list[str]:
 
 
 def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
+    """Build the Predictive Performance section.
+
+    Displays three sub-sections from parsed log data:
+    1. **ROC/AUC Performance** -- per-timepoint AUC, sensitivity,
+       specificity, and Youden optimal cutoff.
+    2. **Selected Features (Elastic Net)** -- features retained by
+       elastic-net regularisation at each timepoint.
+    3. **Cox Proportional Hazards** -- hazard ratios, 95% CIs, p-values,
+       IPCW weights, and global likelihood-ratio test.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the predictive performance section.
+    """
     # ── 7. Predictive Performance ──
     h: list[str] = []
     if log_data:

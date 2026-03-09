@@ -55,13 +55,17 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
 
     methods(Test)
         function testTwoTypesProducesFigure(testCase)
-            % Create mock Standard and dnCNN checkpoints with different values
+            % With both Standard and dnCNN checkpoint files present,
+            % the function should generate a scatter plot comparing ADC
+            % subvolume percentages across the two types.
             nPat = 10;
             sm_std = make_mock_sm(nPat);
+            % Populate Fx1 (timepoint 1) subvolume for DWI type 1 (Standard)
             sm_std.adc_sub_vol_pc(:,1,1) = linspace(0.2, 0.5, nPat)';
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), sm_std);
 
             sm_dncnn = make_mock_sm(nPat);
+            % Populate Fx1 subvolume for DWI type 2 (dnCNN) with slightly different values
             sm_dncnn.adc_sub_vol_pc(:,1,2) = linspace(0.15, 0.45, nPat)';
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_dnCNN.mat'), sm_dncnn);
 
