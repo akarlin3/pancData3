@@ -271,13 +271,8 @@ else
     rtstartdate = repmat(datetime(NaT), length(id_list), 1);
     rtenddate = repmat(datetime(NaT), length(id_list), 1);
 
-    % Strip embedded single quotes that Excel may add to text cells,
-    % matching the same normalization applied in load_dwi_data.m (line 263).
-    pat_raw = T.Pat;
-    if iscategorical(pat_raw), pat_raw = cellstr(pat_raw); end
-    pat_raw = strrep(pat_raw, '''', '');
-    pat_normalized = strrep(pat_raw, '_', '-');
-    id_list_normalized = strrep(id_list,'_','-');
+    % Normalize patient IDs for spreadsheet/folder matching using shared utility.
+    [pat_normalized, id_list_normalized] = normalize_patient_ids(T.Pat, id_list);
 
     n_ids_clinical = length(id_list);
     for j = 1:n_ids_clinical

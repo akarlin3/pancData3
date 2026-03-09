@@ -895,17 +895,8 @@ function run_metrics_longitudinal_step(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct
     fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
     metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
                          nTp, dtype_label, config_struct.output_folder, m_lf);
-    % Write a sentinel file confirming successful completion — used by
-    % analysis scripts and test harnesses to verify the step ran.
-    longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
-    fid = fopen(longitudinal_results_file, 'w');
-    if fid < 0
-        warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', longitudinal_results_file);
-    else
-        fprintf(fid, 'Longitudinal metrics generated successfully.\n');
-        fclose(fid);
-    end
-    fprintf('      💾 Saved longitudinal results log to %s\n', longitudinal_results_file);
+    write_sentinel_file(config_struct.output_folder, 'metrics_longitudinal_results', ...
+        'Longitudinal metrics generated successfully.', current_name);
     fprintf('      ✅ Done.\n');
 end
 
@@ -953,16 +944,8 @@ function run_metrics_stats_comparisons_step(valid_pts, lf_group, metric_sets, se
         metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
         ADC_abs, D_abs, f_abs, Dstar_abs);
 
-    % Write sentinel file confirming successful completion.
-    comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
-    fid = fopen(comparisons_results_file, 'w');
-    if fid < 0
-        warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', comparisons_results_file);
-    else
-        fprintf(fid, 'Stats Comparisons generated successfully.\n');
-        fclose(fid);
-    end
-    fprintf('      💾 Saved comparisons results log to %s\n', comparisons_results_file);
+    write_sentinel_file(config_struct.output_folder, 'metrics_stats_comparisons_results', ...
+        'Stats Comparisons generated successfully.', current_name);
     fprintf('      ✅ Done.\n');
 end
 
@@ -1036,16 +1019,9 @@ function run_visualize_step(validated_data_gtvp, summary_metrics, config_struct,
         calculated_results = struct();
     end
     visualize_results(validated_data_gtvp, summary_metrics, calculated_results, config_struct);
-    % Write sentinel file confirming successful completion.
-    visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
-    fid = fopen(visualize_results_file, 'w');
-    if fid < 0
-        warning('run_dwi_pipeline:fileWriteFailed', 'Cannot write %s', visualize_results_file);
-    else
-        fprintf(fid, 'Visualizations generated successfully for: %s\n', current_name);
-        fclose(fid);
-    end
-    fprintf('      ✅ Done: Visualizations generated and state saved to %s.\n', visualize_results_file);
+    write_sentinel_file(config_struct.output_folder, 'visualize_results_state', ...
+        sprintf('Visualizations generated successfully for: %s', current_name), current_name);
+    fprintf('      ✅ Done.\n');
 end
 
 function run_metrics_survival_step(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...

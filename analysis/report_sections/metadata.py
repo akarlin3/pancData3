@@ -1,0 +1,125 @@
+"""Report sections: metadata group."""
+
+from __future__ import annotations
+
+from report_formatters import (
+    _esc,
+    _figure_caption,
+    _h2,
+    _table_caption,
+    get_numbering,
+)
+
+
+def _section_publication_header() -> list[str]:
+    """Build a publication metadata block with author/institution placeholders.
+
+    This section provides fill-in-the-blank placeholders for manuscript
+    metadata that cannot be auto-generated (author names, affiliations,
+    corresponding author, IRB approval number).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the publication metadata block.
+    """
+    h: list[str] = []
+    h.append('<div class="pub-meta">')
+    h.append("<h4>Manuscript Information</h4>")
+    h.append('<p><strong>Title:</strong> <span class="placeholder">'
+             "Diffusion-Weighted MRI Biomarkers for Treatment Response "
+             "Assessment in Pancreatic Cancer: A Multi-Strategy Analysis"
+             "</span></p>")
+    h.append('<p><strong>Authors:</strong> <span class="placeholder">'
+             "[Author 1, Author 2, ... ]</span></p>")
+    h.append('<p><strong>Affiliations:</strong> <span class="placeholder">'
+             "Department of Medical Physics, Memorial Sloan Kettering Cancer Center, "
+             "New York, NY</span></p>")
+    h.append('<p><strong>Corresponding Author:</strong> <span class="placeholder">'
+             "[Name, email]</span></p>")
+    h.append('<p><strong>IRB Approval:</strong> <span class="placeholder">'
+             "[Protocol number]</span></p>")
+    h.append("</div>")
+    return h
+
+
+
+def _section_data_availability() -> list[str]:
+    """Build the Data Availability Statement section.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the data availability section.
+    """
+    h: list[str] = []
+    h.append(_h2("Data Availability", "data-availability"))
+    h.append('<div class="methods-box">')
+    h.append(
+        "<p>The clinical imaging data supporting this study are subject to "
+        "institutional review board (IRB) restrictions and cannot be made "
+        "publicly available due to patient privacy requirements under HIPAA. "
+        "De-identified summary statistics and analysis code are available "
+        "from the corresponding author upon reasonable request.</p>"
+    )
+    h.append(
+        "<p>The analysis pipeline source code (pancData3) is available "
+        "under the MIT License. Post-hoc analysis scripts and report "
+        "generation tools are included in the repository.</p>"
+    )
+    h.append("</div>")
+    return h
+
+
+
+def _section_table_index() -> list[str]:
+    """Build a List of Tables section from auto-numbered table captions.
+
+    This section is generated from the :class:`_NumberingContext` which
+    tracks all ``_table_caption`` calls during report generation.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the list of tables section.
+    """
+    h: list[str] = []
+    numbering = get_numbering()
+    if not numbering.table_titles:
+        return h
+
+    h.append(_h2("List of Tables", "table-index"))
+    h.append('<ol class="toc-list">')
+    for num, title in numbering.table_titles:
+        h.append(f"<li><strong>Table {num}.</strong> {_esc(title)}</li>")
+    h.append("</ol>")
+
+    return h
+
+
+
+def _section_figure_index() -> list[str]:
+    """Build a List of Figures section from auto-numbered figure captions.
+
+    This section is generated from the :class:`_NumberingContext` which
+    tracks all ``_figure_caption`` calls during report generation.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the list of figures section.
+    """
+    h: list[str] = []
+    numbering = get_numbering()
+    if not numbering.figure_titles:
+        return h
+
+    h.append(_h2("List of Figures", "figure-index"))
+    h.append('<ol class="toc-list">')
+    for num, title in numbering.figure_titles:
+        h.append(f"<li><strong>Figure {num}.</strong> {_esc(title)}</li>")
+    h.append("</ol>")
+
+    return h
+
+
