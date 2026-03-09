@@ -48,14 +48,15 @@ pancData3/
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (18 files)
-├── utils/                      # Helper utilities (39 files)
+├── utils/                      # Helper utilities (44 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
 ├── tests/                      # Full test suite (83 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
-├── analysis/                    # Python post-hoc analysis scripts (14 files)
-│   └── tests/                  # Python test suite — 10 test files, 362 tests (pytest)
+├── analysis/                    # Python post-hoc analysis scripts (20 files)
+│   ├── report_sections/        # Report section builders (7 files)
+│   └── tests/                  # Python test suite — 10 test files, 367 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -306,6 +307,11 @@ run('tests/run_all_tests.m')
 | `execute_pipeline_step.m` | Generic non-fatal pipeline step executor with try-catch, diary, GUI, warning logging (extracted from run_dwi_pipeline) |
 | `initialize_pipeline.m` | Pipeline initialization: path setup, pre-flight tests, toolbox license checks (extracted from run_dwi_pipeline) |
 | `load_data_from_disk.m` | Load DWI vectors and summary metrics from disk with legacy fallback (extracted from run_dwi_pipeline) |
+| `normalize_patient_ids.m` | Octave-compatible patient ID normalization for spreadsheet/folder matching |
+| `select_dwi_vectors.m` | Extract ADC/D/f/D* voxel vectors by DWI processing type (Standard/dnCNN/IVIMnet) |
+| `write_sentinel_file.m` | Write pipeline step completion sentinel files |
+| `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
+| `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
 
 ### Octave Compatibility (`.octave_compat/`)
 
@@ -334,15 +340,16 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
-| `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, print styles, escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering with tracking, figure captions, citation system, references with BibTeX export, copy-to-clipboard JS, manuscript sentence helpers, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, data completeness, hypothesis, graph issues, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, cross-DWI feature overlap, model diagnostics, statistical power context, supplemental MAT data, limitations, conclusions with clinical significance, data availability, manuscript-ready findings with copyable sentences, STROBE/REMARK reporting checklist, table/figure index, draft Results section, embedded figure gallery, journal submission guidance, appendix) |
+| `report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
+| `report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
+| `report_sections/` | Section builder package for the HTML report, split into 6 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py` |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 10 test files with 362 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 10 test files with 367 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|

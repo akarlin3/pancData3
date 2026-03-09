@@ -233,27 +233,9 @@ if total_count > 0
     all_set_idx = all_set_idx(1:total_count);
     all_met_idx = all_met_idx(1:total_count);
 
-    % Benjamini-Hochberg FDR procedure on the full family of comparisons.
-    % BH controls the expected proportion of false discoveries (FDR) at
-    % alpha=0.05, which is less conservative than Bonferroni but more
-    % appropriate for exploratory biomarker screening where some false
-    % positives are acceptable as long as the overall discovery rate is
-    % controlled.  The step-up procedure assigns q-values (adjusted p)
-    % that can be interpreted as the minimum FDR at which each test
-    % would be called significant.
+    % Benjamini-Hochberg FDR correction on the full family of comparisons.
+    q_unsorted = benjamini_hochberg_fdr(all_pvals);
     n_all = length(all_pvals);
-    [p_sort, sort_id] = sort(all_pvals);
-    q_all = zeros(n_all, 1);
-    q_all(n_all) = p_sort(n_all);  % largest p-value: q = p
-    for ii = n_all-1:-1:1
-        % Step-up: q(i) = min(q(i+1), p(i) * n/i)
-        % The n/i scaling adjusts for the rank position — earlier ranks
-        % (smaller p) get less aggressive correction.
-        q_all(ii) = min(q_all(ii+1), p_sort(ii) * (n_all / ii));
-    end
-    q_all = min(q_all, 1);  % cap at 1.0
-    q_unsorted = zeros(n_all, 1);
-    q_unsorted(sort_id) = q_all;  % map q-values back to original order
 
     fprintf('  Global family size = %d comparisons\n', n_all);
 end
