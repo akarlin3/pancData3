@@ -1,10 +1,25 @@
 function tests = test_compute_scan_days_from_dates
-% TEST_COMPUTE_SCAN_DAYS_FROM_DATES  Unit tests for compute_scan_days_from_dates
+% TEST_COMPUTE_SCAN_DAYS_FROM_DATES  Unit tests for compute_scan_days_from_dates.
+%
+% Tests the utility that converts a cell array of DICOM acquisition date
+% strings (patients x fractions) into a consensus scan-day vector by
+% computing per-patient day offsets relative to a reference fraction and
+% taking the median across patients.
+%
+% Coverage:
+%   - Basic conversion with uniform patient schedules
+%   - Missing fractions (empty date strings) handled via partial medians
+%   - Empty input returns empty output
+%   - Single-fraction input returns empty (need >= 2 fractions)
+%   - Varying patient schedules resolved via median
+%   - Patients missing the reference fraction excluded from median
     tests = functiontests(localfunctions);
 end
 
 function test_basic_conversion(testCase)
-    % 3 patients x 3 fractions with known offsets [0, 7, 90]
+    % Verifies the simplest case: 3 patients with identical schedules.
+    % All patients scanned on the same dates, so the median offset at each
+    % fraction should exactly match the known day offsets [0, 7, 90].
     base = datenum('20240101', 'yyyymmdd');
     fx_dates = {datestr(base, 'yyyymmdd'),   datestr(base+7, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
                 datestr(base, 'yyyymmdd'),   datestr(base+7, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
@@ -14,7 +29,10 @@ function test_basic_conversion(testCase)
 end
 
 function test_missing_fractions(testCase)
-    % Patient 2 is missing fraction 2
+    % Verifies that a missing date (empty string) for one patient at one
+    % fraction does not crash the function.  The missing entry is excluded
+    % from the median; with only patient 1 contributing, the median for
+    % fraction 2 equals patient 1's offset of 5 days.
     base = datenum('20240101', 'yyyymmdd');
     fx_dates = {datestr(base, 'yyyymmdd'),   datestr(base+5, 'yyyymmdd'),  datestr(base+90, 'yyyymmdd'); ...
                 datestr(base, 'yyyymmdd'),   '',                           datestr(base+90, 'yyyymmdd')};
@@ -24,19 +42,25 @@ function test_missing_fractions(testCase)
 end
 
 function test_empty_input(testCase)
+    % An empty cell array should return an empty result without error.
     scan_days = compute_scan_days_from_dates({});
     testCase.verifyTrue(isempty(scan_days));
 end
 
 function test_single_fraction(testCase)
-    % Only one fraction: should return empty (need >= 2)
+    % A single-column date cell (one fraction per patient) cannot produce
+    % meaningful day offsets because there is no second timepoint to
+    % compute a delta against.  The function should return empty.
     fx_dates = {'20240101'; '20240101'};
     scan_days = compute_scan_days_from_dates(fx_dates);
     testCase.verifyTrue(isempty(scan_days));
 end
 
 function test_varying_patient_dates_median(testCase)
-    % Two patients with slightly different schedules; median should be used
+    % When patients have slightly different inter-fraction intervals, the
+    % function should use the median offset across patients at each
+    % fraction.  Patient 1 has offset 5, patient 2 has offset 7 for Fx2,
+    % so the median is 6.
     fx_dates = {'20240101', '20240106'; ...   % offsets [0, 5]
                 '20240101', '20240108'};      % offsets [0, 7]
     scan_days = compute_scan_days_from_dates(fx_dates);

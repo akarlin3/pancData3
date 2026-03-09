@@ -368,6 +368,11 @@ else
     end
 end
 
+% Normalize patient IDs for matching between the clinical spreadsheet (T.Pat)
+% and the file-system folder names (id_list).  Normalization replaces
+% underscores with hyphens and strips Excel-embedded single quotes so that
+% 'P_01' and 'P-01' match correctly.  This is necessary because clinicians
+% and file systems may use different separator conventions.
 if isempty(T_Pat_cell)
     T_Pat_normalized = {};
 else
@@ -694,7 +699,9 @@ for j = 1:n_reconstruct
     end
 end
 
-% Flatten bad_dwi_locations
+% Flatten bad_dwi_locations from per-patient cell arrays into a single
+% cohort-wide list.  These flagged acquisitions are reported in the
+% pipeline log for the physicist to review and decide on exclusion.
 bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
 bad_dwi_count = length(bad_dwi_locations);
 
@@ -706,7 +713,9 @@ fprintf('\n--- SECTION 3: Save Results ---\n');
 %  to resume from here in future runs.
 
 datasave = fullfile(dataloc, 'dwi_vectors.mat');
-% Create a date-stamped backup before overwriting
+% Create a date-stamped backup before overwriting to prevent accidental
+% data loss from re-running the pipeline.  Backups accumulate in dataloc
+% but are small relative to the imaging data (~10-50 MB per cohort).
 if exist(datasave,'file')
     dt = datetime('now');
     dateString = char(dt, 'yyyy_MMM_dd');
@@ -714,12 +723,16 @@ if exist(datasave,'file')
     copyfile(datasave,newfilename);
     fprintf('backed up existing save to %s\n',newfilename);
 end
+% Save to a DWI-type-specific file so that Standard, dnCNN, and IVIMnet
+% results coexist on disk without overwriting each other.
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
 else
     file_prefix = '';
 end
 datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+% Persist all cohort-level arrays.  This .mat file is the checkpoint that
+% allows Section 4 (reload) to bypass the expensive Section 1-3 processing.
 save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
 fprintf('saved %s\n',datasave);
 

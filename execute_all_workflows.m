@@ -39,6 +39,9 @@
 % loading (the most expensive I/O step), since the raw images are identical
 % across all three methods — only the fitting algorithm differs.
 
+% Resolve the repository root from this script's location on disk, not from
+% pwd(), so the script works correctly regardless of the user's current
+% working directory (important for cluster/batch job submission).
 repo_root = fileparts(mfilename('fullpath'));
 config_file = fullfile(repo_root, 'config.json');
 
@@ -56,6 +59,9 @@ config_file = fullfile(repo_root, 'config.json');
 %       holds an entire patient's 4D DWI volume (potentially >1 GB) in RAM
 %       during IVIM fitting. More workers would exceed typical workstation
 %       memory on a 60+ patient pancreatic cohort.
+% Parallel pool setup is skipped under GNU Octave, which does not support
+% MATLAB's Parallel Computing Toolbox (parpool, parfor, pctRunOnAll).
+% Octave compatibility mode runs the pipeline serially instead.
 if ~exist('OCTAVE_VERSION', 'builtin')
     % Delete any stale parallel jobs before creating a new pool.
     % Stale jobs can occur when a previous pipeline run was killed (kill -9)
@@ -128,6 +134,10 @@ eaw_output_folder = fullfile(repo_root, sprintf('saved_files_%s', timestamp_str)
 if ~exist(eaw_output_folder, 'dir'), mkdir(eaw_output_folder); end
 
 % --- Workflow Progress GUI (GUI environments only) ---
+% Show a top-level progress bar tracking the 3 DWI types (Standard, dnCNN,
+% IVIMnet).  On headless/cluster environments, isDisplayAvailable() returns
+% false and wfGUI stays empty — all progress is console-only.
+% The onCleanup guard ensures the GUI window is closed even on error/Ctrl-C.
 wfGUI = [];
 if ProgressGUI.isDisplayAvailable()
     wfGUI = ProgressGUI('DWI Analysis Workflow', 3);
@@ -157,6 +167,9 @@ diary(eaw_diary_file);
 % produce biologically implausible diffusion parameter maps. It is far
 % cheaper to catch this before committing to the full cohort computation.
 % Check config for skip_tests option before running the test suite
+% Check if the user has opted out of pre-pipeline testing via config.json.
+% This is useful during iterative development when tests have already been
+% verified and the researcher wants to skip the ~2-minute test suite overhead.
 eaw_skip_tests = false;
 try
     eaw_raw = fileread(config_file);
@@ -165,7 +178,7 @@ try
         eaw_skip_tests = true;
     end
 catch
-    % If config can't be read, proceed with tests enabled
+    % If config can't be read, proceed with tests enabled (safe default)
 end
 
 if eaw_skip_tests
@@ -201,17 +214,25 @@ end
 % (json_set_field) instead of jsondecode/jsonencode so that the on-disk
 % formatting (indentation, field order, numeric precision) is preserved
 % during intermediate writes.  The original string is kept for rollback.
+% Read config.json as a raw character string (not a decoded struct) so we
+% can modify individual fields with json_set_field (regex-based) while
+% preserving the original formatting, comments, and field ordering.
 fid = fopen(config_file, 'r');
 if fid < 0
     error('execute_all_workflows:fileOpenFailed', ...
         'Cannot open %s for reading. Check file exists and permissions.', config_file);
 end
-raw = fread(fid, inf);
-str = char(raw');
+raw = fread(fid, inf);       % Read as uint8 byte vector
+str = char(raw');             % Transpose to row vector and convert to char
 fclose(fid);
-original_config_str = str;  % preserve original for rollback
-config_json = str;          % mutable copy for field-level edits
+original_config_str = str;    % Preserve original for rollback on exit/error
+config_json = str;            % Mutable working copy for field-level edits
 
+% Register an onCleanup handler that restores the original config.json
+% content when this script exits — whether by normal completion, error,
+% or Ctrl-C.  This is critical because the script mutates config.json
+% between DWI type runs (changing dwi_type and skip_to_reload), and the
+% user's original settings must be preserved.
 restore_config = onCleanup(@() restore_config_file(config_file, original_config_str));
 
 % Execute all 9 discrete target modules.
@@ -237,13 +258,17 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
          'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
 
 % Conditionally inject compare_cores after metrics_baseline when enabled.
+% compare_cores runs all 11 tumor core delineation methods and computes
+% pairwise Dice/Hausdorff agreement — a computationally expensive step
+% that is off by default.  It must come after metrics_baseline because
+% it requires the validated voxel data and summary metrics.
 % Note: eaw_cfg was decoded earlier (~line 163) for the skip_tests check.
 if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_compare_cores') && eaw_cfg.run_compare_cores
     cc_idx = find(strcmp(steps, 'metrics_baseline'));
     if ~isempty(cc_idx)
         steps = [steps(1:cc_idx), {'compare_cores'}, steps(cc_idx+1:end)];
     else
-        steps{end+1} = 'compare_cores';
+        steps{end+1} = 'compare_cores';  % Append if metrics_baseline not in steps
     end
 end
 
@@ -257,16 +282,21 @@ if ~isempty(wfGUI) && wfGUI.isValid()
     counts = struct('completed', 0, 'total', 3, 'stepName', 'DWI Type 1/3: Standard');
     wfGUI.update(0, counts, 'Running Standard pipeline...', 'running');
 end
+% Set dwi_type to Standard and skip_to_reload to false — this first run
+% performs full DICOM conversion + model fitting from raw DWI images.
 config_json = json_set_field(config_json, 'dwi_type', 'Standard');
 config_json = json_set_field(config_json, 'skip_to_reload', false);
+% Write the modified config to disk so run_dwi_pipeline can read it.
 fid = fopen(config_file, 'w');
 if fid < 0
     error('execute_all_workflows:configWriteFailed', ...
         'Cannot write config.json for Standard run. Check file permissions.');
 end
 fwrite(fid, config_json); fclose(fid);
+% Pass the shared output folder so all 3 DWI types write to the same
+% timestamped directory, enabling cross-type comparison by analysis scripts.
 run_dwi_pipeline(config_file, steps, eaw_output_folder);
-diary(eaw_diary_file);  % restart after pipeline run (module diaries override this)
+diary(eaw_diary_file);  % restart master diary (module diaries override during run)
 
 % --- 3. RUN dnCNN PIPELINE ---
 % DnCNN (Denoising Convolutional Neural Network) processing: the same raw
@@ -337,12 +367,14 @@ end
 disp('====== ALL WORKFLOWS COMPLETED ======');
 diary off;
 
-% Explicitly restore config.json and close workflow GUI now.  In a script
-% with local functions, onCleanup objects persist in the base workspace
-% after the script ends and the cleanup never fires automatically.
-% Without this, config.json is left with the last intermediate
-% dwi_type/skip_to_reload values until the user clears the workspace or
-% exits MATLAB.
+% Explicitly trigger the onCleanup handlers NOW rather than waiting for
+% garbage collection.  In a MATLAB script (not function), onCleanup objects
+% persist in the base workspace after the script ends and the cleanup
+% callback never fires automatically.  This explicit delete() invokes
+% the cleanup callbacks immediately, restoring config.json to its original
+% state and closing the GUI window.  Without this, config.json would be
+% left with dwi_type="IVIMnet" and skip_to_reload=true until the user
+% clears the workspace or exits MATLAB.
 delete(restore_config);
 delete(cleanup_wf_gui);
 

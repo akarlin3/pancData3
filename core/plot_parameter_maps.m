@@ -38,14 +38,15 @@ function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_f
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 
 if nargin < 6 || isempty(dtype)
-    dtype = 1;  % default to Standard
+    dtype = 1;  % default to Standard (1=Standard, 2=DnCNN, 3=IVIMnet)
 end
 
 fprintf('\n--- 1. Parameter Maps overlaid on Anatomy ---\n');
 
-% Track how many patients have been plotted so far
+% Track how many patients have been plotted so far (across all figures)
 patients_plotted = 0;
-% Maximum number of patient rows per figure panel
+% Maximum number of patient rows per figure panel. Each row contains 3
+% subplots (b0, ADC map, ADC overlay), so a 5-row figure has 15 subplots.
 pats_per_fig     = 5;
 
 % Expected b-value protocol for validation.
@@ -121,14 +122,16 @@ for j = 1:nPat
         continue;
     end
 
-    % Load the 4-D DWI NIfTI volume and the 3-D GTV binary mask.
-    % rot90 reorients from NIfTI radiological convention to display coords.
+    % Load the 4-D DWI NIfTI volume (x, y, z, b-value) and the 3-D GTV binary mask.
+    % rot90 reorients from NIfTI radiological convention to MATLAB display coords.
+    % double() ensures consistent arithmetic (NIfTI may store as int16/uint16).
     dwi_info = niftiinfo(dwi_file);
     dwi_img = double(rot90(niftiread(dwi_info)));
     gtv_info = niftiinfo(gtv_file);
     gtv_img = double(rot90(niftiread(gtv_info)));
 
-    % Read b-values from the accompanying text file (one line, space-delimited)
+    % Read b-values from the accompanying text file (one line, space-delimited).
+    % Force to column vector for consistent indexing below.
     fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
     bvals = bvals(:);
 
@@ -165,20 +168,24 @@ for j = 1:nPat
     %   0 mm^2/s      = no diffusion (solid tissue / bone)
     %   3e-3 mm^2/s   = free water at body temperature (upper physiological limit)
     %   Values outside this range indicate fitting artifacts (noise, motion).
+    % Find the b=0 index (minimum b-value = no diffusion weighting = S0 reference)
     [~, b0_idx] = min(bvals);
     sz_dwi = size(dwi_img);
+    % Flatten spatial dims to (voxels x b-values) for vectorized WLS fit
     dwi_flat = reshape(dwi_img, [prod(sz_dwi(1:3)), sz_dwi(4)]);
+    % Only fit voxels with strictly positive signal at ALL b-values (log requires >0)
     all_pos = all(dwi_flat > 0, 2);
     adc_map = nan(sz_dwi(1:3));
     if any(all_pos)
-        S_a = dwi_flat(all_pos, :);
-        non_b0 = true(1, length(bvals)); non_b0(b0_idx) = false;
-        A_b = -bvals(non_b0);
-        Y = log(S_a(:, non_b0) ./ S_a(:, b0_idx));
-        W = S_a(:, non_b0).^2;
-        numer = sum(W .* Y .* A_b', 2);
-        denom = sum(W .* (A_b'.^2), 2);
-        adc_vals = numer ./ denom;
+        S_a = dwi_flat(all_pos, :);             % signal intensities at all b-values
+        non_b0 = true(1, length(bvals)); non_b0(b0_idx) = false;  % exclude b=0 from regression
+        A_b = -bvals(non_b0);                    % design matrix: negative b-values
+        Y = log(S_a(:, non_b0) ./ S_a(:, b0_idx));  % log(S/S0) for linearized model
+        W = S_a(:, non_b0).^2;                  % WLS weights correct log-domain heteroscedasticity
+        numer = sum(W .* Y .* A_b', 2);         % weighted numerator per voxel
+        denom = sum(W .* (A_b'.^2), 2);         % weighted denominator per voxel
+        adc_vals = numer ./ denom;               % closed-form WLS estimate of ADC
+        % Clamp to physiological range [0, 3e-3] mm^2/s
         adc_vals(adc_vals < 0 | ~isfinite(adc_vals)) = 0;
         adc_vals(adc_vals > 3e-3) = 3e-3;
         adc_map_flat = zeros(prod(sz_dwi(1:3)), 1);
@@ -200,8 +207,8 @@ for j = 1:nPat
     gtv_slice = squeeze(gtv_img(:,:,z_slice));      % GTV mask
 
     patients_plotted = patients_plotted + 1;
-    row_in_fig = mod(patients_plotted - 1, pats_per_fig);
-    fig_num    = ceil(patients_plotted / pats_per_fig);
+    row_in_fig = mod(patients_plotted - 1, pats_per_fig);  % 0-indexed row within current figure
+    fig_num    = ceil(patients_plotted / pats_per_fig);     % 1-indexed figure number
 
     % --- Start a new figure every pats_per_fig patients ---
     if row_in_fig == 0
@@ -219,6 +226,8 @@ for j = 1:nPat
         fig_height = max(300, n_rows_cur_fig * 150);
         figure('Name', sprintf('ADC Maps on Anatomy (%d)', fig_num), ...
                'Position', [50, 50, 1400, fig_height]);
+        % Use turbo colormap (perceptually uniform, better than jet) in MATLAB;
+        % fall back to jet in Octave where turbo is not available.
         if exist('OCTAVE_VERSION', 'builtin')
             colormap(jet);
         else

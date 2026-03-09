@@ -1,7 +1,13 @@
 classdef test_plot_feature_distributions < matlab.unittest.TestCase
-    % TEST_PLOT_FEATURE_DISTRIBUTIONS Unit tests for plot_feature_distributions
+    % TEST_PLOT_FEATURE_DISTRIBUTIONS Unit tests for plot_feature_distributions.
+    %
+    % plot_feature_distributions is the multi-parameter wrapper that creates
+    % a 4-panel histogram figure and a 4-panel boxplot figure (one panel each
+    % for ADC, D, f, D*), saved as PNG files. These tests verify that the
+    % output files are created under both normal and edge-case conditions.
+
     properties
-        TempDir
+        TempDir  % Temporary directory for output PNG files
     end
 
     methods(TestMethodSetup)
@@ -35,13 +41,15 @@ classdef test_plot_feature_distributions < matlab.unittest.TestCase
 
     methods(Test)
         function testHappyPath(testCase)
-            % Should run without error and generate the two PNG files
+            % Verify that plot_feature_distributions produces the expected
+            % histogram and boxplot PNG files for a standard 5-patient cohort
+            % with mixed LC/LF groups and realistic parameter ranges.
 
             % Setup inputs
             dtype_label = 'Standard';
-            dtype = 1;
-            valid_pts = [1, 2, 3, 4, 5];
-            lf_group = [0, 1, 0, 1, 0]; % 0 = LC, 1 = LF
+            dtype = 1;                         % DWI type index (1 = Standard)
+            valid_pts = [1, 2, 3, 4, 5];       % Patient indices to include
+            lf_group = [0, 1, 0, 1, 0];        % 0 = LC (local control), 1 = LF (local failure)
             output_folder = testCase.TempDir;
 
             % Create mock data arrays: [patients x timepoints x dtypes]
@@ -51,17 +59,17 @@ classdef test_plot_feature_distributions < matlab.unittest.TestCase
             f_mean = zeros(5, 1, 1);
             dstar_mean = zeros(5, 1, 1);
 
-            % Populate with some random values
-            rng(42); % Make deterministic
-            adc_mean(:, 1, 1) = rand(5, 1) * 2e-3;
-            d_mean(:, 1, 1) = rand(5, 1) * 2e-3;
-            f_mean(:, 1, 1) = rand(5, 1) * 0.4;
-            dstar_mean(:, 1, 1) = rand(5, 1) * 0.1;
+            % Populate with deterministic random values in clinically plausible ranges
+            rng(42);
+            adc_mean(:, 1, 1) = rand(5, 1) * 2e-3;    % ADC: 0-2e-3 mm^2/s
+            d_mean(:, 1, 1) = rand(5, 1) * 2e-3;      % D: 0-2e-3 mm^2/s
+            f_mean(:, 1, 1) = rand(5, 1) * 0.4;        % f: 0-0.4 (perfusion fraction)
+            dstar_mean(:, 1, 1) = rand(5, 1) * 0.1;    % D*: 0-0.1 mm^2/s
 
             % Call the function
             plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts, lf_group, dtype, output_folder);
 
-            % Verify outputs
+            % Verify that both output PNG files were created
             hist_file = fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']);
             box_file = fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']);
 
@@ -72,7 +80,9 @@ classdef test_plot_feature_distributions < matlab.unittest.TestCase
         end
 
         function testEmptyValidPts(testCase)
-            % Test when valid_pts is empty
+            % Edge case: when valid_pts is empty (no patients to plot), the
+            % function should still create the PNG files (with empty axes)
+            % rather than crashing.
 
             dtype_label = 'Standard';
             dtype = 1;
@@ -80,6 +90,7 @@ classdef test_plot_feature_distributions < matlab.unittest.TestCase
             lf_group = [];
             output_folder = testCase.TempDir;
 
+            % Zero-row arrays simulate no patients
             adc_mean = zeros(0, 1, 1);
             d_mean = zeros(0, 1, 1);
             f_mean = zeros(0, 1, 1);

@@ -46,23 +46,27 @@ metric_units = {'mm^2/s',   'mm^2/s',  '',       'mm^2/s'};
 % the subplot titles, and shift subplots down for extra clearance.
 figure('Name', ['Feature Distributions — Histograms — ' dtype_label], ...
        'Position', [100, 100, 1200, 450]);
-n_metrics_dist = 4;
+n_metrics_dist = 4;  % ADC, D, f, D*
 for mi = 1:n_metrics_dist
     text_progress_bar(mi, n_metrics_dist, 'Generating histograms');
     subplot(1, 4, mi);
     vals = metric_data{mi};
 
+    % plot_feature_distribution handles NaN removal, group stratification
+    % (LC vs LF), bin selection, and ANOVA p-value annotation internally.
     plot_feature_distribution(vals, lf_group, metric_names{mi}, metric_units{mi}, 'histogram');
 end
 sgtitle(['Baseline Feature Distributions by Outcome (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
 % Shift all subplot axes down slightly so the supertitle does not overlap
-% the individual subplot titles.
+% the individual subplot titles. The 0.92 multiplier reduces both the
+% vertical position and height by 8%, creating clearance above each subplot.
 allAx = findall(gcf, 'Type', 'Axes');
 for k = 1:numel(allAx)
     pos = get(allAx(k), 'Position');
     set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
+% Disable axes toolbar widgets (zoom, pan, data tips) for clean figure export
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']));
 close(gcf);

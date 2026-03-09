@@ -64,8 +64,13 @@ figure_titles = {
     '4. Target Coverage (V50): Whole GTV vs Resistant Sub-volumes (Wilcoxon Rank-Sum)'
 };
 
+% Storage for all raw p-values from Wilcoxon rank-sum tests, indexed by
+% metric set.  These are collected across all timepoints and metrics,
+% then passed to the global BH FDR correction in Section 8.
 p_val_store = struct('p_vals', {});
 
+% Iterate over metric sets (Set 1: absolute values, Set 2: percent changes,
+% and optionally Sets 3-4 for dose coverage metrics).
 n_metric_sets = length(metric_sets);
 for s = 1:n_metric_sets
     text_progress_bar(s, n_metric_sets, 'Univariate analysis');
@@ -318,7 +323,9 @@ else
     disp('No significant differences survived FDR correction (BH q < 0.05).');
 end
 
-% Full FDR table for reference
+% Full FDR table for reference — export all tests (significant and not)
+% as a CSV for downstream analysis scripts (parse_csv_results.py) to
+% compare significance patterns across DWI processing pipelines.
 if total_count > 0
     fdr_table = table(all_labels, all_pvals, q_unsorted, ...
         'VariableNames', {'Metric_Timepoint', 'Raw_P', 'FDR_Q'});
@@ -346,9 +353,15 @@ if exist('OCTAVE_VERSION', 'builtin')
     fprintf('  Skipped: fitglme/categorical not available in Octave.\n');
 else
     fprintf('\n--- LONGITUDINAL MIXED-EFFECTS MODEL (GLME) ---\n');
+    % Construct the long-format data table required by fitglme.  Each row
+    % is one patient-timepoint observation.  The wide-format arrays
+    % (patients x timepoints) are "melted" into columns so that the mixed-
+    % effects model can estimate within-patient correlation via the random
+    % effects specification.
     patient_indices = find(valid_pts);
     max_obs = length(patient_indices) * nTp;
 
+    % Pre-allocate long-format columns (will be trimmed after population)
     long_PatientID = nan(max_obs, 1);
     long_Timepoint = nan(max_obs, 1);
     long_ADC = nan(max_obs, 1);
@@ -403,7 +416,11 @@ else
     long_Dstar = long_Dstar(1:obs_idx);
     long_LF = long_LF(1:obs_idx);
 
-    % Filter to complete cases before table construction
+    % Filter to complete cases before table construction.  GLME requires
+    % all predictors to be non-NaN for each observation.  Rows with any
+    % NaN biomarker are dropped.  This reduces sample size but avoids
+    % bias from asymmetric missingness (e.g., IVIM D* missing more often
+    % than ADC due to bi-exponential fitting failures).
     clean_idx = ~isnan(long_ADC) & ~isnan(long_D) & ~isnan(long_f) & ~isnan(long_Dstar);
     long_PatientID = long_PatientID(clean_idx);
     long_Timepoint = long_Timepoint(clean_idx);

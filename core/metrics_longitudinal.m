@@ -103,7 +103,9 @@ if exist('OCTAVE_VERSION', 'builtin')
 else
     sgtitle(['Longitudinal Evolution of DWI and IVIM Metrics (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
 end
-% Shift subplot axes down to create visual separation between super-title and subplot titles
+% Shift subplot axes down to create visual separation between super-title
+% and subplot titles.  The 0.92 scale factor compresses the plot area
+% vertically by 8% to make room for sgtitle without overlap.
 subplot_scale = 0.92;
 allAx = findall(gcf, 'Type', 'Axes');
 if ~exist('OCTAVE_VERSION', 'builtin')
@@ -112,6 +114,7 @@ if ~exist('OCTAVE_VERSION', 'builtin')
         allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
     end
 end
+% Remove interactive toolbar from axes for cleaner PNG output
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
 saveas(gcf, fullfile(output_folder, ['Longitudinal_Mean_Metrics_' dtype_label '.png']));
 close(gcf);
@@ -175,7 +178,12 @@ if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
     % --- Combined stratified overlay figure ---
     % Shows mean+SEM for each outcome group on the same axes for direct
     % comparison of treatment response trajectories between groups.
-    group_colors = {[0.0 0.4 0.8], [0.9 0.1 0.1], [0.5 0.5 0.5]};  % blue, red, grey
+    % This is the key clinical figure: diverging trajectories between
+    % LC (blue) and LF (red) groups indicate that diffusion biomarkers
+    % can detect treatment resistance during the RT course.
+    % Competing risk patients (grey) are shown for completeness but are
+    % not the focus of the dose-response hypothesis.
+    group_colors = {[0.0 0.4 0.8], [0.9 0.1 0.1], [0.5 0.5 0.5]};  % blue=LC, red=LF, grey=CR
     group_markers = {'o', 's', 'd'};
 
     figure('Name', ['Longitudinal by Outcome — ' dtype_label], ...

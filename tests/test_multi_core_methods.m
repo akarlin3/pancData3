@@ -3,6 +3,16 @@
 % Validates that compute_summary_metrics correctly produces per-method
 % sub-volume metrics when run_all_core_methods is enabled, and that
 % backward compatibility is maintained when disabled.
+%
+% Tests covered:
+%   1. test_default_off: all_core_metrics absent when feature is disabled
+%   2. test_all_methods_computed: all 11 methods produce correct struct layout
+%   3. test_backward_compat: top-level fields match the configured method
+%   4. test_mask_storage: core_masks saved/omitted per store_core_masks flag
+%   5. test_config_backward_compat: old configs without new fields get defaults
+%   6. test_run_compare_cores_injection: compare_cores step injected correctly
+%
+% Uses function-based test pattern (not unittest class) for Octave compat.
 
 function test_multi_core_methods()
     disp('==== Running test_multi_core_methods ====');
@@ -14,6 +24,7 @@ function test_multi_core_methods()
         addpath(genpath(fullfile(dir_path, '..', '.octave_compat')));
     end
 
+    % All 11 tumor core delineation methods supported by extract_tumor_core
     ALL_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
         'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
         'percentile', 'spectral', 'fdm'};
@@ -29,6 +40,8 @@ function test_multi_core_methods()
 end
 
 %% --- Test: Default off produces no all_core_metrics field ---
+% When run_all_core_methods is false (the default), only the single
+% configured core_method is used and no all_core_metrics struct is added.
 function test_default_off()
     fprintf('  Testing default off (run_all_core_methods = false)...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -43,6 +56,10 @@ function test_default_off()
 end
 
 %% --- Test: All 11 methods computed ---
+% With run_all_core_methods=true, compute_summary_metrics should produce
+% an all_core_metrics struct containing a sub-struct for each of the 11
+% methods, each with adc_sub_vol, adc_sub_mean, d_sub_mean fields of
+% size [nPat x nTp x nDwiTypes].
 function test_all_methods_computed(ALL_METHODS)
     fprintf('  Testing all 11 methods computed...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -79,6 +96,11 @@ function test_all_methods_computed(ALL_METHODS)
 end
 
 %% --- Test: Backward compatibility ---
+% When run_all_core_methods=true, the top-level sub-volume fields
+% (e.g., sm.adc_sub_vol) must still match the values from the method
+% specified by config.core_method (here 'adc_threshold'). This ensures
+% that enabling the multi-method feature does not change the default
+% pipeline behavior.
 function test_backward_compat(ALL_METHODS)
     fprintf('  Testing backward compatibility...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -104,6 +126,10 @@ function test_backward_compat(ALL_METHODS)
 end
 
 %% --- Test: Mask storage ---
+% When store_core_masks=true, each method's sub-struct should include
+% a core_masks cell array of size [nPat x nTp] containing logical masks.
+% When store_core_masks=false (tested in test_all_methods_computed),
+% core_masks should be absent to save memory.
 function test_mask_storage(ALL_METHODS)
     fprintf('  Testing mask storage...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -129,6 +155,10 @@ function test_mask_storage(ALL_METHODS)
 end
 
 %% --- Test: Config backward compatibility (missing fields default to false) ---
+% Old config files that predate the multi-core feature will not contain
+% run_compare_cores, run_all_core_methods, or store_core_masks fields.
+% parse_config must add these with default value false so the pipeline
+% runs unchanged on legacy configs.
 function test_config_backward_compat()
     fprintf('  Testing config backward compatibility...\n');
     [dir_path, ~, ~] = fileparts(mfilename('fullpath'));
@@ -160,6 +190,10 @@ function test_config_backward_compat()
 end
 
 %% --- Test: run_compare_cores injection into steps ---
+% When config.run_compare_cores=true, run_dwi_pipeline automatically
+% injects a 'compare_cores' step right after 'metrics_baseline'.
+% This test verifies the injection logic in isolation, checking both
+% the true case (step added) and the false case (step not added).
 function test_run_compare_cores_injection()
     fprintf('  Testing run_compare_cores step injection...\n');
 
@@ -195,6 +229,10 @@ function test_run_compare_cores_injection()
 end
 
 %% --- Helper: Create mock data for compute_summary_metrics ---
+% Builds a minimal but complete set of inputs for compute_summary_metrics:
+% 2 patients, 2 timepoints, 50 voxels per scan, bimodal ADC distribution
+% (15 low-ADC "core" voxels + 35 higher-ADC "margin" voxels) to give
+% clustering-based methods a separation signal.
 function [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates]  = make_mock_data()
     rng(42);
     n_pat = 2;

@@ -1,22 +1,49 @@
+% TESTRUNNER  Octave-compatible shim for MATLAB's matlab.unittest.TestRunner.
+%
+%   MATLAB's TestRunner orchestrates test execution, plugin management,
+%   and result collection. This shim provides a minimal sequential runner
+%   that iterates over the struct array produced by TestSuite.fromFolder(),
+%   instantiates each test class, calls setup/test/teardown, and collects
+%   pass/fail results.
+%
+%   Behavioral differences from MATLAB's TestRunner:
+%   - Plugins are accepted (addPlugin) but ignored -- no coverage or
+%     diagnostic output beyond simple text.
+%   - withTextOutput() returns a plain TestRunner (text output is the only mode).
+%   - Setup/teardown methods are discovered by naming convention ('setup' /
+%     'teardown', case-insensitive) rather than by methods block attributes,
+%     because Octave cannot introspect method attributes at runtime.
+%   - Results are returned as a struct array, not matlab.unittest.TestResult objects.
 classdef TestRunner < handle
     % TestRunner  Minimal shim for matlab.unittest.TestRunner under Octave.
 
     properties
-        Plugins = {};
+        Plugins = {};  % Accepted but not used; present for API compatibility.
     end
 
     methods (Static)
         function runner = withTextOutput()
+            % WITHTEXTOUTPUT  Create a runner with console text output.
+            %   In MATLAB, this configures verbose text diagnostics. Here it
+            %   simply returns a default TestRunner since text output is the
+            %   only mode available.
             runner = matlab.unittest.TestRunner();
         end
     end
 
     methods
         function addPlugin(runner, plugin)
+            % ADDPLUGIN  Register a plugin (no-op in this shim).
+            %   Plugins are stored but never invoked. This allows test runner
+            %   code that adds CodeCoveragePlugin to work without errors.
             runner.Plugins{end+1} = plugin;
         end
 
         function results = run(runner, suite)
+            % RUN  Execute all tests in the suite sequentially.
+            %   Iterates over each entry in the suite struct array, creates
+            %   a test class instance, runs setup -> test -> teardown, and
+            %   records the outcome. Teardown runs even if the test fails.
             % Run test suite entries and collect results
             nTests = numel(suite);
             results = struct('Name', {}, 'Passed', {}, 'Failed', {}, ...
@@ -78,6 +105,10 @@ classdef TestRunner < handle
 
     methods (Access = private)
         function runSetup(runner, obj)
+            % RUNSETUP  Find and call the test class's setup method if it exists.
+            %   Uses a naming convention (case-insensitive 'setup') because
+            %   Octave's classdef does not expose method block attributes
+            %   (TestMethodSetup) for runtime introspection.
             % Call the setup method if the class defines one.
             % In Octave classdef, we look for a method named after
             % the TestMethodSetup convention. Since we cannot introspect
@@ -93,6 +124,8 @@ classdef TestRunner < handle
         end
 
         function runTeardown(runner, obj)
+            % RUNTEARDOWN  Find and call the test class's teardown method.
+            %   Mirror of runSetup; looks for a method named 'teardown'.
             meths = methods(obj);
             for k = 1:numel(meths)
                 if strcmpi(meths{k}, 'teardown')

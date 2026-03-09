@@ -14,26 +14,27 @@ classdef ProgressGUI < handle
 %       gui.close();
 
     properties (Access = private)
-        Figure              % figure handle
-        BarAxes             % axes for the progress bar
-        BarBackground       % patch: gray track
-        BarFill             % patch: colored fill
-        TitleText           % uicontrol: heading
-        PercentText         % uicontrol: large percentage
-        CountText           % uicontrol: count beside percentage
-        DetailText          % uicontrol: current item name
-        SummaryText         % uicontrol: pass/fail or step summary
-        ElapsedText         % uicontrol: elapsed time
-        StartTime           % tic token
+        Figure              % figure handle (HandleVisibility='off' to survive global visibility changes)
+        BarAxes             % axes containing the progress bar patches
+        BarBackground       % patch: full-width gray track (the "empty" portion)
+        BarFill             % patch: colored fill that grows left-to-right with progress
+        TitleText           % uicontrol: bold heading at top of figure
+        PercentText         % uicontrol: large percentage display (e.g. "45.0%")
+        CountText           % uicontrol: count display beside percentage (e.g. "(9/20)")
+        DetailText          % uicontrol: current item name or step description
+        SummaryText         % uicontrol: pass/fail counts or step-level summary (bottom-left)
+        ElapsedText         % uicontrol: wall-clock elapsed time (bottom-right)
+        StartTime           % tic token captured at construction for elapsed time calculation
     end
 
     properties (Constant, Access = private)
-        COLOR_GREEN  = [0.30, 0.69, 0.31]
-        COLOR_AMBER  = [1.00, 0.76, 0.03]
-        COLOR_RED    = [0.90, 0.22, 0.21]
-        COLOR_BG     = [0.97, 0.97, 0.97]
-        COLOR_TRACK  = [0.88, 0.88, 0.88]
-        COLOR_GRAY   = [0.45, 0.45, 0.45]
+        % Material Design-inspired color palette for status indication
+        COLOR_GREEN  = [0.30, 0.69, 0.31]   % success / running normally
+        COLOR_AMBER  = [1.00, 0.76, 0.03]   % partial failures (some tests failed)
+        COLOR_RED    = [0.90, 0.22, 0.21]   % failure / critical error
+        COLOR_BG     = [0.97, 0.97, 0.97]   % figure background (near-white)
+        COLOR_TRACK  = [0.88, 0.88, 0.88]   % unfilled progress bar track
+        COLOR_GRAY   = [0.45, 0.45, 0.45]   % secondary text (counts, elapsed time)
     end
 
     methods
@@ -56,6 +57,12 @@ classdef ProgressGUI < handle
             figX = (screenSz(3) - figW) / 2;
             figY = (screenSz(4) - figH) / 2;
 
+            % Create a minimal figure with no menu/toolbar.
+            % HandleVisibility='off' prevents this figure from being
+            % affected by set(0,'DefaultFigureVisible','off') which the
+            % pipeline uses to suppress plot windows during batch runs.
+            % CloseRequestFcn hides rather than deletes so re-opening
+            % is possible if the user accidentally closes the window.
             obj.Figure = figure( ...
                 'MenuBar', 'none', ...
                 'ToolBar', 'none', ...
@@ -101,6 +108,9 @@ classdef ProgressGUI < handle
                 'BackgroundColor', ProgressGUI.COLOR_BG);
 
             % --- Progress bar (axes + patches) ---
+            % Uses a hidden axes with [0,1] x [0,1] coordinate space.
+            % Two overlapping patches: background track (full width) and
+            % colored fill (width updated via XData in update()).
             obj.BarAxes = axes('Parent', obj.Figure, ...
                 'Units', 'normalized', ...
                 'Position', [0.08, 0.42, 0.84, 0.14], ...
@@ -111,14 +121,15 @@ classdef ProgressGUI < handle
                 'XColor', 'none', 'YColor', 'none', ...
                 'HandleVisibility', 'off');
 
-            % Track background (rounded look via full-width patch)
+            % Track background: full-width gray rectangle
             obj.BarBackground = patch(obj.BarAxes, ...
                 [0, 0, 1, 1], [0, 1, 1, 0], ...
                 ProgressGUI.COLOR_TRACK, ...
                 'EdgeColor', [0.80, 0.80, 0.80], ...
                 'LineWidth', 0.5);
 
-            % Fill (starts at zero width)
+            % Fill patch: starts at zero width; XData(3:4) are updated to
+            % the current fraction in update() to animate the bar
             obj.BarFill = patch(obj.BarAxes, ...
                 [0, 0, 0, 0], [0, 1, 1, 0], ...
                 ProgressGUI.COLOR_GREEN, ...
@@ -153,6 +164,7 @@ classdef ProgressGUI < handle
                 'ForegroundColor', ProgressGUI.COLOR_GRAY, ...
                 'BackgroundColor', ProgressGUI.COLOR_BG);
 
+            % 'limitrate' caps redraws at ~20 fps to avoid GUI overhead
             drawnow('limitrate');
         end
 
@@ -166,9 +178,11 @@ classdef ProgressGUI < handle
         %   status   - 'running' | 'success' | 'failure'
             if ~obj.isValid(), return; end
 
+            % Clamp fraction to [0, 1] to prevent patch drawing errors
             fraction = max(0, min(1, fraction));
 
-            % Update bar fill width
+            % Animate the bar by setting the right edge of the fill patch
+            % XData = [left-bottom, left-top, right-top, right-bottom]
             set(obj.BarFill, 'XData', [0, 0, fraction, fraction]);
 
             % Update bar color based on status
@@ -237,9 +251,13 @@ classdef ProgressGUI < handle
     methods (Static)
         function available = isDisplayAvailable()
         %ISDISPLAYAVAILABLE Check if a GUI display is available.
+        %   Returns false in Octave (no Java/figure support in headless mode),
+        %   in headless MATLAB (no DISPLAY on Linux), or when JVM is absent.
             available = false;
             if exist('OCTAVE_VERSION', 'builtin'), return; end
             try
+                % usejava('desktop') is true for interactive MATLAB sessions;
+                % for -nodisplay/-batch on Linux, check DISPLAY + JVM instead
                 available = usejava('desktop') || ...
                             (~isempty(getenv('DISPLAY')) && usejava('jvm'));
             catch
@@ -251,6 +269,8 @@ classdef ProgressGUI < handle
     methods (Access = private)
         function color = getBarColor(~, counts, status)
         %GETBARCOLOR Determine bar fill color from status and failure count.
+        %   Red = explicit failure, Amber = partial failures (some tests
+        %   failed but run continues), Green = success or running normally.
             if strcmp(status, 'failure')
                 color = ProgressGUI.COLOR_RED;
             elseif strcmp(status, 'success')

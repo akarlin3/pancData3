@@ -1,5 +1,15 @@
 classdef test_compare_core_methods < matlab.unittest.TestCase
     % TEST_COMPARE_CORE_METHODS  Tests for the compare_core_methods module.
+    %
+    % Validates that compare_core_methods correctly:
+    %   - Runs all 11 tumor core delineation methods and returns results
+    %   - Produces a symmetric Dice matrix with values in [0,1] and
+    %     diagonal entries equal to 1
+    %   - Computes volume fractions in the valid range [0,1]
+    %   - Generates expected output figures (Dice heatmap, volume comparison)
+    %   - Saves results to a .mat file
+    %   - Handles edge cases: all-NaN patient data, fDM fallback at baseline,
+    %     mask size mismatches with Fx1 fallback logic
 
     properties
         TempDir
@@ -10,6 +20,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function setupEnvironment(testCase)
+            % Create isolated temp directory and add project paths
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -20,10 +31,10 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
                 addpath(fullfile(repoRoot, '.octave_compat'));
             end
 
-            % Suppress figures
+            % Suppress figures during testing
             set(0, 'DefaultFigureVisible', 'off');
 
-            % Build mock config
+            % Build mock config with all thresholds needed by extract_tumor_core
             testCase.ConfigStruct = struct();
             testCase.ConfigStruct.output_folder = testCase.TempDir;
             testCase.ConfigStruct.dwi_types_to_run = 1;
@@ -41,11 +52,14 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
             testCase.ConfigStruct.fdm_thresh = 0.0004;
             testCase.ConfigStruct.adc_max = 0.003;
 
-            % Build mock data_vectors_gtvp (2 patients, 2 timepoints)
+            % Build mock data_vectors_gtvp (2 patients, 2 timepoints).
+            % Patient 1 has bimodal ADC (simulating core + margin).
+            % Patient 2 has all-NaN data (edge case for graceful skipping).
             rng(42);
             n_vox = 100;
 
-            % Create 3D GTV mask and save to temp .mat
+            % Create a 10x10x1 3D GTV mask and save to temp .mat file
+            % (required by 3D-aware methods like active_contours)
             Stvol3d = true(10, 10, 1); %#ok<NASGU>
             gtv_mat_file = fullfile(testCase.TempDir, 'gtv_p1.mat');
             save(gtv_mat_file, 'Stvol3d');
@@ -108,7 +122,9 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function cleanup(testCase)
-            diary off;  % close diary before rmdir (Windows file locking)
+            % Close diary first to release file locks (Windows),
+            % then close figures and remove temp directory.
+            diary off;
             close all;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
@@ -119,7 +135,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
     methods(Test)
 
         function testBasicExecution(testCase)
-            % Should run without error and return a struct with 11 methods
+            % Verify that compare_core_methods runs without error and
+            % returns a struct containing results for all 11 core methods.
             results = compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -129,7 +146,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testDiceMatrixProperties(testCase)
-            % Dice matrix should be symmetric, in [0,1], with diagonal = 1
+            % Verify mathematical properties of the mean Dice coefficient
+            % matrix: symmetric, values in [0,1], self-comparison = 1.
             results = compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -155,6 +173,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testVolumeFractionsRange(testCase)
+            % Volume fractions (core volume / total GTV volume) must be
+            % in [0, 1] for all valid (non-NaN) entries.
             results = compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -165,6 +185,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testFigureGeneration(testCase)
+            % Verify that compare_core_methods produces the expected
+            % output PNG figures in the output folder.
             compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -178,6 +200,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testMATFileSaved(testCase)
+            % Verify that results are persisted to a .mat file and the
+            % saved struct contains the expected compare_results variable.
             compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -191,6 +215,9 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testAllNaNPatientSkipped(testCase)
+            % Patient 2 has all-NaN voxel data (simulating missing scan).
+            % All 11 methods should produce NaN volume fractions for this
+            % patient rather than erroring.
             results = compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -202,6 +229,10 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testFallbackDetection(testCase)
+            % The fDM (functional Diffusion Map) method requires two
+            % timepoints to compute voxel-wise changes. At baseline (k=1),
+            % there is no prior timepoint, so it should fall back to
+            % adc_threshold and be flagged accordingly.
             results = compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -212,13 +243,15 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testFx1MaskFallback(testCase)
-            % When DIR warps Fx2 vectors to Fx1 space, the native Fx2 mask
-            % has a different voxel count. The code should fall back to the
-            % Fx1 mask, enabling 3D methods like active_contours.
+            % When DIR warps Fx2 vectors into Fx1 space, the native Fx2
+            % GTV mask has a different voxel count than the warped vectors.
+            % The code should detect this mismatch and fall back to the
+            % Fx1 mask (which matches the vector length), enabling 3D
+            % methods like active_contours to run successfully.
             n_vox = 100;
             rng(42);
 
-            % Fx1 mask: 100 voxels (matches vectors)
+            % Fx1 mask: 100 voxels (matches the warped Fx2 vectors)
             Stvol3d = true(10, 10, 1); %#ok<NASGU>
             fx1_file = fullfile(testCase.TempDir, 'gtv_fx1_fallback.mat');
             save(fx1_file, 'Stvol3d');
@@ -254,9 +287,11 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
         function testFx1MaskFallbackBothMismatch(testCase)
-            % When both native Fx2 and Fx1 masks mismatch vector length,
-            % 3D methods should gracefully fall back.
-            n_vox = 80;  % Neither mask will match
+            % Edge case: when BOTH the native Fx2 mask AND the Fx1 mask
+            % have voxel counts that differ from the vector length,
+            % 3D methods (e.g., active_contours) cannot reconstruct
+            % the volume and should gracefully fall back to a 1D method.
+            n_vox = 80;  % Neither 100-voxel nor 90-voxel mask will match
             rng(42);
 
             % Fx1 mask: 100 voxels

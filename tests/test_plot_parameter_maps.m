@@ -8,12 +8,14 @@ classdef test_plot_parameter_maps < matlab.unittest.TestCase
     %   - Zero-size data_vectors_gtvp → function handles gracefully
 
     properties
-        TempDir
-        OriginalPath
+        TempDir        % Root temp directory for mock patient data and outputs
+        OriginalPath   % Saved MATLAB path, restored on teardown
     end
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create an isolated temp directory, add required paths, and
+            % suppress figure display to avoid GUI popups during CI.
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
             testCase.OriginalPath = path();
@@ -27,6 +29,7 @@ classdef test_plot_parameter_maps < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Close all figures, remove temp files, restore MATLAB path.
             close all;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
@@ -40,13 +43,16 @@ classdef test_plot_parameter_maps < matlab.unittest.TestCase
     % ------------------------------------------------------------------ %
     methods(Access = private)
         function dv = emptyDataVectors(~, n)
-            % n patients, adc_vector = [] → patients are all skipped
+            % Build a data_vectors_gtvp struct array where every patient has
+            % an empty adc_vector, simulating a cohort with no valid data.
             entry = struct('adc_vector', []);
             dv = repmat(entry, n, 1, 1);
         end
 
         function createValidPatientFiles(testCase, pat_id)
-            % Creates the NIfTI and .bval files required for an eligible patient.
+            % Creates the on-disk NIfTI (.nii.gz) DWI volume, GTV mask,
+            % and .bval file that plot_parameter_maps needs to render
+            % parameter map overlays for one patient at fraction 1.
             nii_dir = fullfile(testCase.TempDir, pat_id, 'nii');
             mkdir(nii_dir);
 
@@ -138,7 +144,9 @@ classdef test_plot_parameter_maps < matlab.unittest.TestCase
         end
 
         function testMultiplePatientsGroupedIntoFigures(testCase)
-            % Six valid patients: pats_per_fig = 5, so two figures are expected.
+            % Six valid patients with pats_per_fig = 5 inside the function.
+            % This should produce at least one PNG (possibly two, depending
+            % on internal batching).  Verifies multi-patient batching.
             n   = 6;
             out = fullfile(testCase.TempDir, 'output');
             mkdir(out);

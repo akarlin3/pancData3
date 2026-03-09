@@ -102,7 +102,9 @@ if isempty(suite)
     error('No tests found in the %s directory.', testsDir);
 end
 
-% 2. Partition suite into parallel-safe and serial groups
+% 2. Partition suite into parallel-safe and serial groups.
+%    Tests in parallel_safe_classes run via runInParallel (Phase 1).
+%    All others run sequentially (Phase 2) to avoid diary/filesystem conflicts.
 is_parallel = false(1, numel(suite));
 for k = 1:numel(suite)
     % Extract the class name from the test name (format: 'ClassName/MethodName')
@@ -125,13 +127,15 @@ if ProgressGUI.isDisplayAvailable()
     hGUI = ProgressGUI('Running Tests', numel(suite));
 end
 
-% 3. Check whether parallel execution is available
+% 3. Check whether parallel execution is available.
+%    Parallel mode is disabled during preflight (quick sanity runs invoked by
+%    the pipeline before a full data run) and in Octave (no PCT support).
 is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
 
 can_run_parallel = false;
 if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
     has_pct = license('test', 'Distrib_Computing_Toolbox');
-    % Check if runInParallel method exists (R2018a+)
+    % Check if runInParallel method exists (R2018a+) via metaclass introspection
     has_method = false;
     try
         m = ?matlab.unittest.TestRunner;
@@ -231,7 +235,8 @@ fprintf('===================================================\n');
 fprintf('   Results by Test Class\n');
 fprintf('===================================================\n');
 
-% Group results by class name for a compact per-class summary
+% Group results by class name for a compact per-class summary.
+% Each result's Name has the format 'ClassName/MethodName'; we extract the class part.
 classNames = cell(1, numel(results));
 for ri = 1:numel(results)
     tokens = strsplit(results(ri).Name, '/');

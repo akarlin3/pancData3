@@ -30,6 +30,8 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
     % processing the same patient could both invoke dcm2niix, leading to
     % file corruption or I/O errors on the shared output directory.
     lock_file = fullfile(outloc, [scanID '.lock']);
+    % Only convert if the output NIfTI does not already exist (idempotent)
+    % and no other worker holds the lock (parallel safety).
     if ~exist(fullfile(outloc, [scanID '.nii.gz']), 'file') && ~exist(lock_file, 'file')
         % Create lock file to prevent parallel workers from duplicating work
         try fclose(fopen(lock_file, 'w')); catch; end
@@ -64,8 +66,11 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
                 '❌ Expected DWI files not found for %s (need .nii.gz, .bval, .bvec).', fx_id);
             bad_dwi_found = 1;
         end
-        % Clean up lock file after conversion completes (success or failure)
+        % Clean up lock file after conversion completes (success or failure).
+        % Lock removal happens unconditionally to avoid stale locks from
+        % crashed workers that would permanently block reconversion attempts.
         if exist(lock_file, 'file'), delete(lock_file); end
     end
+    % Restore the original backtrace warning state
     warning(bt_state.state, 'backtrace');
 end

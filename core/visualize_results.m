@@ -125,6 +125,12 @@ fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
 % -----------------------------------------------------------------------
 fprintf('\n--- 2. Distributions of Extracted Features ---\n');
 
+% Loop over all configured DWI processing pipelines.  Each pipeline is
+% visualized independently to enable side-by-side comparison of how
+% denoising (dnCNN) or neural network fitting (IVIMnet) affects the
+% apparent distribution and dose-response relationships of diffusion
+% biomarkers.  Differences between pipelines may reveal which denoising
+% approach best separates LC from LF at baseline.
 n_dtypes_viz = numel(config_struct.dwi_types_to_run);
 dtype_counter = 0;
 for dtype = config_struct.dwi_types_to_run
@@ -161,6 +167,10 @@ fprintf('\n--- SECTION 4: Cross-DWI ADC Subvolume Comparison at Fx1 ---\n');
 %  Also visualises scan-to-scan repeatability of the subvolume from
 %  back-to-back repeat acquisitions at Fx1.
 % -----------------------------------------------------------------------
+% Cross-DWI comparison is wrapped in try-catch because it requires data
+% from multiple pipelines (Standard + dnCNN + IVIMnet) to be meaningful.
+% When only one pipeline is available (e.g., first run with Standard only),
+% this will fail gracefully rather than halting the visualization step.
 try
     plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
 catch ME

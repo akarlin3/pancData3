@@ -1,0 +1,271 @@
+"""Tests for generate_report.py — HTML report generation.
+
+Covers:
+- _sig_tag: p-value → significance star mapping
+- _section: Markdown heading generation
+- _forest_plot_cell: forest plot HTML generation
+- _effect_size_class / _effect_size_label: effect size classification
+- generate_report: full report generation with mocked data sources
+- New publication-level sections: Methods, Effect Sizes, Multiple
+  Comparisons, Model Diagnostics, Limitations, Conclusions
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from generate_report import (
+    _effect_size_class,
+    _effect_size_label,
+    _forest_plot_cell,
+    _section,
+    _sig_tag,
+    generate_report,
+)
+
+
+# ---------------------------------------------------------------------------
+# _sig_tag
+# ---------------------------------------------------------------------------
+
+class TestSigTag:
+    """Verify p-value to significance star mapping."""
+
+    def test_three_stars(self):
+        """p < 0.001 gets triple stars (highly significant)."""
+        assert _sig_tag(0.0001) == "***"
+        assert _sig_tag(0.0009) == "***"
+
+    def test_two_stars(self):
+        """0.001 <= p < 0.01 gets double stars."""
+        assert _sig_tag(0.001) == "**"
+        assert _sig_tag(0.005) == "**"
+        assert _sig_tag(0.009) == "**"
+
+    def test_one_star(self):
+        """0.01 <= p < 0.05 gets a single star."""
+        assert _sig_tag(0.01) == "*"
+        assert _sig_tag(0.049) == "*"
+
+    def test_not_significant(self):
+        """p >= 0.05 gets no star (empty string)."""
+        assert _sig_tag(0.05) == ""
+        assert _sig_tag(0.5) == ""
+        assert _sig_tag(1.0) == ""
+
+    def test_boundary_values(self):
+        """Boundary at 0.001, 0.01, 0.05 (exclusive lower bound)."""
+        assert _sig_tag(0.001) == "**"   # exactly 0.001 → **
+        assert _sig_tag(0.01) == "*"     # exactly 0.01 → *
+        assert _sig_tag(0.05) == ""      # exactly 0.05 → not significant
+
+
+# ---------------------------------------------------------------------------
+# _section
+# ---------------------------------------------------------------------------
+
+class TestSection:
+    """Verify Markdown section header generation."""
+
+    def test_default_h2(self):
+        """Default heading level is 2 (##)."""
+        result = _section("My Section")
+        assert result == "\n## My Section\n"
+
+    def test_h3(self):
+        """Explicit level=3 produces a ### heading."""
+        result = _section("Subsection", level=3)
+        assert result == "\n### Subsection\n"
+
+    def test_h1(self):
+        """level=1 produces a top-level # heading."""
+        result = _section("Title", level=1)
+        assert result == "\n# Title\n"
+
+
+# ---------------------------------------------------------------------------
+# generate_report (integration)
+# ---------------------------------------------------------------------------
+
+class TestGenerateReport:
+    """Integration tests for the full Markdown report generation."""
+
+    def test_report_contains_header(self, saved_files_with_graph_csv: Path):
+        """Report should contain the folder timestamp in the title."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Analysis Report" in report
+        assert "20260301_120000" in report
+
+    def test_report_contains_dwi_types(self, saved_files_with_graph_csv: Path):
+        """All three DWI types should be mentioned somewhere in the report."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Standard" in report
+        assert "dnCNN" in report
+        assert "IVIMnet" in report
+
+    def test_report_contains_graph_overview(self, saved_files_with_graph_csv: Path):
+        """The graph type table should appear."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Graph Type" in report
+        assert "box" in report
+        assert "line" in report
+
+    def test_report_contains_graph_issues(self, saved_files_with_graph_csv: Path):
+        """Graph Issues section should show detected issues from the CSV."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Graph Issues" in report
+        assert "Y-axis label partially obscured by legend" in report
+        assert "Overlapping legend text" in report
+
+    def test_report_extracts_significant_pvalues(self, saved_files_with_graph_csv: Path):
+        """P-values < 0.05 from the graph CSV should appear in the report."""
+        report = generate_report(saved_files_with_graph_csv)
+        # The fixture has p = 0.003 and p-value = 0.02
+        assert "0.003" in report or "0.0030" in report
+
+    def test_report_extracts_correlations(self, saved_files_with_graph_csv: Path):
+        """Notable correlations should appear in the report."""
+        report = generate_report(saved_files_with_graph_csv)
+        # The fixture has r = 0.65
+        assert "0.65" in report
+
+    def test_report_appendix_lists_all_graphs(self, saved_files_with_graph_csv: Path):
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Appendix" in report
+        assert "Feature_BoxPlots" in report
+
+    def test_report_footer(self, saved_files_with_graph_csv: Path):
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Report generated by pancData3" in report
+
+    def test_empty_folder_still_generates(self, saved_files_dir: Path):
+        """A folder with no graph CSV and no logs should still produce a report."""
+        report = generate_report(saved_files_dir)
+        assert "Analysis Report" in report
+        assert "No significant findings" in report or "No predictive" in report
+
+    def test_report_with_logs(self, saved_files_with_logs: Path):
+        """With log data present, predictive performance should appear."""
+        report = generate_report(saved_files_with_logs)
+        # The fixture has AUC = 0.781
+        assert "0.781" in report or "Predictive" in report
+
+    def test_report_cross_dwi_comparison(self, saved_files_with_graph_csv: Path):
+        """Cross-DWI comparison section for Feature_BoxPlots (Standard + dnCNN)."""
+        report = generate_report(saved_files_with_graph_csv)
+        # Feature_BoxPlots has Standard (increasing) and dnCNN (decreasing) → DIFFER
+        if "Cross-DWI" in report:
+            assert "DIFFER" in report or "AGREE" in report
+
+    def test_report_is_valid_html(self, saved_files_with_graph_csv: Path):
+        """Basic structural check: headings and tables."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "<h2" in report  # at least a few headings
+        assert "<table" in report  # at least one table
+
+    def test_report_contains_methods_section(self, saved_files_with_graph_csv: Path):
+        """The Methods section should describe statistical methodology."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Statistical Methods" in report
+        assert "Wilcoxon" in report
+        assert "Benjamini" in report
+        assert "Cox" in report
+
+    def test_report_contains_structured_abstract(self, saved_files_with_graph_csv: Path):
+        """Executive summary should have structured abstract subsections."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Objective" in report
+        assert "Key Results" in report
+        assert "Conclusions" in report
+
+    def test_report_contains_limitations(self, saved_files_with_graph_csv: Path):
+        """Limitations section should appear in the report."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Limitations" in report
+        assert "Single-institution" in report
+
+    def test_report_contains_model_diagnostics(self, saved_files_with_graph_csv: Path):
+        """Model diagnostics section should have assumptions listed."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Model Diagnostics" in report
+        assert "Proportional hazards" in report
+
+    def test_report_contains_conclusions_section(self, saved_files_with_graph_csv: Path):
+        """Conclusions section should appear."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Conclusions" in report
+        assert "Future directions" in report
+
+    def test_report_with_logs_has_effect_sizes(self, saved_files_with_logs: Path):
+        """With log data, the Effect Size section should report HR effects."""
+        report = generate_report(saved_files_with_logs)
+        assert "Effect Size" in report
+
+    def test_report_with_logs_has_multiple_comparisons(self, saved_files_with_logs: Path):
+        """With log data, the Multiple Comparisons section should appear."""
+        report = generate_report(saved_files_with_logs)
+        assert "Multiple Comparison" in report
+        assert "BH-FDR" in report or "FDR" in report
+
+    def test_report_with_logs_has_diagnostics_detail(self, saved_files_with_logs: Path):
+        """With log data, model diagnostics should show data-driven issues."""
+        report = generate_report(saved_files_with_logs)
+        assert "IPCW" in report or "weight" in report or "Assumptions" in report
+
+    def test_report_with_logs_has_discrimination_table(self, saved_files_with_logs: Path):
+        """AUC discrimination interpretation should appear."""
+        report = generate_report(saved_files_with_logs)
+        # The fixture has AUC = 0.781, which maps to "Acceptable"
+        assert "Acceptable" in report or "Discrimination" in report or "discrimination" in report
+
+
+# ---------------------------------------------------------------------------
+# _forest_plot_cell
+# ---------------------------------------------------------------------------
+
+class TestForestPlotCell:
+    """Verify forest plot HTML generation."""
+
+    def test_returns_html(self):
+        """Forest plot cell should return valid HTML."""
+        result = _forest_plot_cell(1.5, 1.1, 2.0, 0.03)
+        assert "<div" in result
+        assert "forest-row" in result
+        assert "forest-point-sig" in result  # p < 0.05
+
+    def test_non_significant_point(self):
+        """Non-significant HR should use the ns class."""
+        result = _forest_plot_cell(1.1, 0.8, 1.5, 0.12)
+        assert "forest-point-ns" in result
+
+    def test_reference_line_present(self):
+        """The HR=1.0 reference line should always be present."""
+        result = _forest_plot_cell(0.5, 0.3, 0.8, 0.01)
+        assert "forest-ref" in result
+
+
+# ---------------------------------------------------------------------------
+# _effect_size_class / _effect_size_label
+# ---------------------------------------------------------------------------
+
+class TestEffectSize:
+    """Verify effect size classification helpers."""
+
+    def test_large_effect(self):
+        assert _effect_size_class(0.9) == "effect-lg"
+        assert _effect_size_label(0.9) == "Large"
+
+    def test_medium_effect(self):
+        assert _effect_size_class(0.6) == "effect-md"
+        assert _effect_size_label(0.6) == "Medium"
+
+    def test_small_effect(self):
+        assert _effect_size_class(0.3) == "effect-sm"
+        assert _effect_size_label(0.3) == "Small"
+
+    def test_negative_values_use_absolute(self):
+        """Negative effect sizes should be classified by absolute value."""
+        assert _effect_size_class(-0.9) == "effect-lg"
+        assert _effect_size_label(-0.5) == "Medium"

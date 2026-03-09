@@ -1,14 +1,23 @@
 classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
     % TEST_METRICS_STATS_COMPARISONS Unit tests for metrics_stats_comparisons.
-    % Tests Wilcoxon rank-sum, BH FDR correction, and GLME components.
+    %
+    % Validates the statistical group comparison module including:
+    %   - Wilcoxon rank-sum tests (LF vs LC groups)
+    %   - Benjamini-Hochberg FDR correction for multiple comparisons
+    %   - GLME (Generalized Linear Mixed-Effects) model fitting
+    %   - Competing risk exclusion (lf_group==2 filtered out)
+    %   - Edge cases: all-NaN metrics, single timepoint, patient filtering
+    %   - Output file generation (diary logs, CSVs, PNGs)
 
     properties
-        OutputFolder
-        OldVisible
+        OutputFolder  % Temporary directory for test output files
+        OldVisible    % Saved figure visibility state for restoration
     end
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create a uniquely-named temp directory (UUID suffix prevents
+            % collisions in parallel test runs) and suppress figure pop-ups.
             testCase.OutputFolder = fullfile(tempdir, ['test_msc_' char(java.util.UUID.randomUUID)]);
             mkdir(testCase.OutputFolder);
             testCase.OldVisible = get(0, 'DefaultFigureVisible');
@@ -28,7 +37,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
 
     methods(Test)
         function test_runs_with_minimal_data(testCase)
-            % Smoke test: function should run without error with small data
+            % Smoke test: verifies the function runs end-to-end without
+            % error on a minimal dataset (20 patients, 3 timepoints, 1
+            % metric). Checks that the diary log file is created.
             rng(42);
             nPat = 20;
             nTp = 3;
@@ -57,7 +68,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_competing_risk_excluded(testCase)
-            % Patients with lf_group==2 should be excluded from rank-sum
+            % Verifies that patients coded as competing risks (lf_group==2)
+            % are excluded from Wilcoxon rank-sum comparisons. Only LC
+            % (lf=0) and LF (lf=1) groups participate in the test.
             rng(42);
             nPat = 30;
             nTp = 2;
@@ -83,7 +96,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_multiple_metric_sets(testCase)
-            % Test with multiple metric sets (as in real pipeline)
+            % Verifies handling of multiple metric sets (as in the real
+            % pipeline where absolute and percent-change metrics are
+            % separate sets). Each set should produce its own figure PNG.
             rng(42);
             nPat = 20;
             nTp = 2;
@@ -112,7 +127,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_all_nan_metric_graceful(testCase)
-            % All-NaN metric data should not crash
+            % Verifies graceful handling when a metric is entirely NaN
+            % across all patients and timepoints. The Wilcoxon test should
+            % be skipped (no valid data), and no error should be thrown.
             nPat = 20;
             nTp = 2;
 
@@ -135,7 +152,10 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_fdr_correction_with_known_pvalues(testCase)
-            % Create data where some comparisons should be significant
+            % Verifies that BH FDR correction works with a known effect
+            % pattern: strong group separation at Fx1 (shift of +3 SD),
+            % weak at Fx2, none at Fx3. The Fx1 comparison should appear
+            % in Significant_LF_Metrics.csv after FDR correction.
             rng(42);
             nPat = 40;
             nTp = 3;
@@ -172,7 +192,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_single_timepoint_glme_skips(testCase)
-            % With only 1 timepoint, GLME should still run (just intercept)
+            % Verifies that with only 1 timepoint, the GLME model still
+            % runs (using just the intercept term, no time interaction).
+            % This is a boundary case that tests the model formula generation.
             rng(42);
             nPat = 20;
             nTp = 1;
@@ -196,7 +218,10 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_valid_pts_mask_filters_patients(testCase)
-            % Only patients where valid_pts==true should be analyzed
+            % Verifies that the valid_pts logical mask correctly filters
+            % patients before statistical testing. Only the first 10
+            % patients (valid_pts=true) should be included; the last 10
+            % are excluded even though they have valid data.
             rng(42);
             nPat = 20;
             nTp = 2;

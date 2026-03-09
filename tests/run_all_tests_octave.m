@@ -3,10 +3,12 @@
 % Discovers classdef test files, parses setup/teardown/test methods,
 % and executes them with summary reporting.
 
+% Resolve directory paths relative to this script's location
 testsDir  = fileparts(mfilename('fullpath'));
 repoRoot  = fileparts(testsDir);
 
-% Set up paths
+% Set up paths — Octave compatibility shims must come first so they
+% override missing built-in functions (nanmean, categorical, etc.)
 addpath(fullfile(repoRoot, '.octave_compat'));
 addpath(fullfile(repoRoot, 'core'));
 addpath(fullfile(repoRoot, 'utils'));
@@ -14,7 +16,7 @@ addpath(fullfile(repoRoot, 'dependencies'));
 addpath(repoRoot);
 addpath(genpath(testsDir));
 
-% Load Octave Forge packages if available
+% Load Octave Forge packages if available (silently skip if not installed)
 try; pkg load statistics; catch; end
 try; pkg load image; catch; end
 try; pkg load io; catch; end
@@ -27,12 +29,15 @@ fprintf('===================================================\n');
 fprintf('   Octave CI Test Runner: Initializing Suite       \n');
 fprintf('===================================================\n');
 
-% Discover test files (test_*.m and benchmark_*.m) in tests/ and subdirectories
+% Discover test files (test_*.m only) in tests/ and subdirectories.
+% The 'folder' field is set manually because older Octave versions of dir()
+% do not populate it automatically.
 test_files = dir(fullfile(testsDir, 'test_*.m'));
 for k = 1:numel(test_files)
     test_files(k).folder = testsDir;
 end
 
+% Also search known subdirectories for additional test files
 sub_dirs = {'benchmarks', 'diagnostics'};
 for d = 1:numel(sub_dirs)
     sd = fullfile(testsDir, sub_dirs{d});
@@ -47,6 +52,9 @@ for d = 1:numel(sub_dirs)
 end
 
 % ---- Collect all test entries ----
+% Build a flat list of individual test methods by parsing each classdef file.
+% Each entry records the file path, class name, test method name, and any
+% setup/teardown methods so they can be invoked manually around each test.
 entry_files      = {};
 entry_classes    = {};
 entry_tests      = {};
@@ -59,7 +67,7 @@ for i = 1:numel(test_files)
     fpath = fullfile(test_files(i).folder, test_files(i).name);
     [~, className] = fileparts(test_files(i).name);
 
-    % Check if classdef
+    % Skip non-classdef files (plain scripts or function files)
     fid = fopen(fpath, 'r');
     if fid == -1; continue; end
     firstLine = fgetl(fid);
@@ -68,21 +76,24 @@ for i = 1:numel(test_files)
         continue;
     end
 
-    % Read full file
+    % Read the full file text for source-level parsing
     fid = fopen(fpath, 'r');
     txt = fread(fid, '*char')';
     fclose(fid);
 
-    % Parse method blocks using external helper
+    % Parse method blocks using the external helper to find Test, Setup,
+    % and Teardown method names from the source text
     test_methods     = octave_parse_test_methods(txt, 'Test');
     setup_methods    = octave_parse_test_methods(txt, 'TestMethodSetup');
     teardown_methods = octave_parse_test_methods(txt, 'TestMethodTeardown');
 
+    % Use the first setup/teardown method found (if any)
     setupName    = '';
     teardownName = '';
     if ~isempty(setup_methods);    setupName = setup_methods{1};       end
     if ~isempty(teardown_methods); teardownName = teardown_methods{1}; end
 
+    % Add one entry per test method in this class
     for j = 1:numel(test_methods)
         nEntries = nEntries + 1;
         entry_files{nEntries}     = fpath;
@@ -103,6 +114,9 @@ fprintf('   Running Tests...                                \n');
 fprintf('===================================================\n\n');
 
 % ---- Execute tests ----
+% Run each test method manually: instantiate the class, call setup, run the
+% test, call teardown.  This mimics what MATLAB's unittest framework does
+% automatically, but works under Octave's limited classdef support.
 nPassed = 0;
 nFailed = 0;
 fail_names = {};
@@ -121,21 +135,21 @@ for i = 1:nTests
     t0 = tic;
     obj = [];
     try
-        % Ensure folder is on path
+        % Ensure the test file's folder is on the path so feval can find it
         addpath(folder);
 
-        % Create instance
+        % Instantiate the test class
         obj = feval(className);
 
-        % Setup
+        % Run per-test setup (e.g., create temp directories, initialize fixtures)
         if ~isempty(setupMethod)
             feval(setupMethod, obj);
         end
 
-        % Run test
+        % Execute the test method itself
         feval(testMethod, obj);
 
-        % Teardown
+        % Run per-test teardown (e.g., remove temp files); ignore errors
         if ~isempty(teardownMethod)
             try; feval(teardownMethod, obj); catch; end
         end
@@ -143,14 +157,14 @@ for i = 1:nTests
         nPassed = nPassed + 1;
         fprintf('PASSED  (%.2fs)\n', toc(t0));
     catch err
-        % Teardown on failure
+        % Always attempt teardown even on failure to clean up resources
         if ~isempty(obj) && ~isempty(teardownMethod)
             try; feval(teardownMethod, obj); catch; end
         end
 
         nFailed = nFailed + 1;
         fprintf('FAILED  (%.2fs)\n', toc(t0));
-        % Truncate long messages
+        % Truncate long error messages to keep output readable
         msg = err.message;
         if numel(msg) > 200; msg = [msg(1:200) '...']; end
         fprintf('         -> %s\n', msg);

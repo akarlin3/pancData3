@@ -64,11 +64,15 @@ function summary_metrics = compute_summary_metrics(config_struct, data_vectors_g
 
 if nargin < 12, fx_dates = {}; end
 
+% Build a DWI-type-specific filename suffix so that Standard, dnCNN, and
+% IVIMnet runs do not overwrite each other's cached summary metrics.
 if isfield(config_struct, 'dwi_type_name')
     file_prefix = ['_' config_struct.dwi_type_name];
 else
     file_prefix = '';
 end
+% Checkpoint file for summary metrics — allows skipping expensive
+% recomputation on subsequent pipeline runs with the same cohort/config.
 summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_prefix '.mat']);
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     checkpoint_loaded = false;
@@ -301,25 +305,37 @@ hd_max_rpt_dstar = nan(length(id_list), 3);
 hd95_rpt_dstar = nan(length(id_list), 3);
 
 % Morphological structuring element for sub-volume cleanup (same as
-% calculate_subvolume_metrics.m).
+% calculate_subvolume_metrics.m).  A 3D sphere of radius 1 voxel is used
+% for morphological opening to remove single-voxel noise from threshold-
+% defined sub-volumes.  Without this cleanup, isolated voxels that just
+% happen to fall below the ADC threshold (due to noise, not biology)
+% would inflate the sub-volume size and corrupt spatial repeatability.
 if exist('OCTAVE_VERSION', 'builtin')
+    % Octave lacks strel('sphere'), so we build a 6-connected cross kernel
     sphere_kernel = zeros(3, 3, 3);
     sphere_kernel(2,2,:) = 1; sphere_kernel(2,:,2) = 1; sphere_kernel(:,2,2) = 1;
     morph_se = strel('arbitrary', sphere_kernel);
 else
     morph_se = strel('sphere', 1);
 end
-morph_min_cc = 10;  % minimum connected component size (voxels)
+morph_min_cc = 10;  % minimum connected component size (voxels) — clusters
+                    % smaller than this are discarded as noise artifacts
 
 % Cache for GTV mask loading (avoids repeated disk I/O for same file)
 last_rpt_gtv_mat = '';
 last_rpt_gtv_mask = [];
 
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
+% This triple-nested loop (patient × timepoint × DWI type) is the
+% computational core that transforms voxel-level parameter vectors into
+% the patient-level summary statistics used by all downstream modules.
 n_patients_metrics = length(id_list);
 for j=1:n_patients_metrics
     text_progress_bar(j, n_patients_metrics, 'Computing summary metrics');
     for k=1:nTp
+        % Extract per-voxel volume (cm^3) for converting voxel counts to
+        % physical volumes.  A scalar vox_vol indicates valid GTV data;
+        % an empty or multi-element value indicates missing/corrupt data.
         if length(data_vectors_gtvp(j,k,1).vox_vol) == 1
             vox_vol = data_vectors_gtvp(j,k,1).vox_vol;
         else
@@ -382,33 +398,14 @@ for j=1:n_patients_metrics
 
         for dwi_type = config_struct.dwi_types_to_run
 
-            % Select the appropriate voxel vectors depending on pipeline
-            switch dwi_type
-                case 1  % Standard (raw DWI)
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector;
-                case 2  % DnCNN-denoised + conventional IVIM fit
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector_dncnn;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector_dncnn;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector_dncnn;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_dncnn;
-                case 3  % IVIMnet deep-learning IVIM fit (ADC uses standard pipeline)
-                    adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
-                    d_vec = data_vectors_gtvp(j,k,1).d_vector_ivimnet;
-                    f_vec = data_vectors_gtvp(j,k,1).f_vector_ivimnet;
-                    dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_ivimnet;
-
-                    adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
-                    d_baseline = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
-            end
+            % Select the appropriate voxel vectors depending on pipeline.
+            % Each DWI type stores its parameter vectors in different struct
+            % fields (e.g., d_vector vs d_vector_dncnn vs d_vector_ivimnet).
+            % The helper function abstracts this field selection.
+            [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, 1, dwi_type);
+            % Baseline (Fx1) vectors are needed for KS tests (distributional
+            % shift from baseline) and fDM (functional diffusion map) computation.
+            [adc_baseline, d_baseline, ~, ~]   = select_dwi_vectors(data_vectors_gtvp, j, 1, 1, dwi_type);
 
             % Safety-net: confirm 3D mask voxel count matches this DWI
             % type's vector length.  The Fx1 fallback above resolves most
@@ -421,425 +418,86 @@ for j=1:n_patients_metrics
             end
 
             % --- Compute ADC summary metrics for this patient/timepoint ---
-            % ADC aggregation follows a hierarchy: whole-GTV statistics first,
-            % then sub-volume decomposition. This captures both the overall
-            % tumor diffusion state and the spatial heterogeneity within it.
+            % Build core_opts for extract_tumor_core (baseline vectors for fDM)
+            core_opts = struct();
+            core_opts.timepoint_index = k;
+            if k > 1
+                switch dwi_type
+                    case 1
+                        core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
+                        core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector;
+                    case 2
+                        core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
+                        core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_dncnn;
+                    case 3
+                        core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
+                        core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
+                end
+            end
+
+            adc_out = compute_adc_metrics(config_struct, adc_vec, d_vec, f_vec, dstar_vec, ...
+                adc_baseline, vox_vol, min_vox_hist, bin_edges, high_adc_thresh, adc_max, ...
+                has_3d_iter, gtv_mask_3d, core_opts, k, j, data_vectors_gtvp, dwi_type);
+
             if ~isempty(adc_vec)
                 n_finite_adc = sum(~isnan(adc_vec));
-                % Only set gtv_vol from the first dwi_type to avoid
-                % overwriting with pipeline-specific voxel counts.  GTV
-                % volume is a geometric property independent of DWI type.
-                % Use numel(adc_vec), not n_finite_adc, because the GTV
-                % mask defines the anatomical volume — NaN voxels (from
-                % failed ADC fits or artefacts) are still part of the
-                % tumour contour and should contribute to volume.
                 if isnan(gtv_vol(j,k))
-                    gtv_vol(j,k) = numel(adc_vec)*vox_vol;
+                    gtv_vol(j,k) = adc_out.gtv_vol_val;
                 end
-                if exist('OCTAVE_VERSION', 'builtin')
-                    % Octave nanmean might fail if it's a vector of all nans or something else
-                    tmp = adc_vec(~isnan(adc_vec));
-                    if isempty(tmp)
-                        adc_mean(j,k,dwi_type) = NaN;
-                    else
-                        adc_mean(j,k,dwi_type) = mean(tmp);
-                    end
-                else
-                    adc_mean(j,k,dwi_type) = nanmean(adc_vec);
-                end
-                if numel(adc_vec) >= min_vox_hist
-                    adc_vec_finite = adc_vec(~isnan(adc_vec));
-                    if numel(adc_vec_finite) >= min_vox_hist
-                        adc_kurt(j,k,dwi_type) = kurtosis(adc_vec_finite);
-                        adc_skew(j,k,dwi_type) = skewness(adc_vec_finite);
-                    end
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    tmp = adc_vec(~isnan(adc_vec));
-                    if isempty(tmp)
-                        adc_sd(j,k,dwi_type) = NaN;
-                    else
-                        adc_sd(j,k,dwi_type) = std(tmp);
-                    end
-                else
-                    adc_sd(j,k,dwi_type) = nanstd(adc_vec);
-                end
-                
-                % CORE DELINEATION METHOD ABSTRACTION
-                % Instead of hardcoding ADC < adc_thresh, use the configurable method
-                core_opts = struct();
-                core_opts.timepoint_index = k;
-                if k > 1
-                    % Provide baseline vectors for fDM
-                    switch dwi_type
-                        case 1
-                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
-                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector;
-                        case 2
-                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
-                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_dncnn;
-                        case 3
-                            core_opts.baseline_adc_vec = data_vectors_gtvp(j,1,1).adc_vector;
-                            core_opts.baseline_d_vec = data_vectors_gtvp(j,1,1).d_vector_ivimnet;
-                    end
-                end
-                adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
-                adc_vec_sub = adc_vec(adc_vec_sub_mask);
-                adc_vec_high_sub = adc_vec(adc_vec>high_adc_thresh);
-
-                % Compute fDM volume fractions when using fDM core method
-                if strcmpi(config_struct.core_method, 'fdm') && k > 1
-                    switch lower(config_struct.fdm_parameter)
-                        case 'adc'
-                            fdm_current = adc_vec;
-                            fdm_baseline = core_opts.baseline_adc_vec;
-                        case 'd'
-                            fdm_current = d_vec;
-                            fdm_baseline = core_opts.baseline_d_vec;
-                    end
-                    if ~isempty(fdm_baseline) && numel(fdm_baseline) == numel(fdm_current)
-                        fdm_sig = config_struct.fdm_thresh;
-                        if isfield(core_opts, 'repeatability_cor') && ~isnan(core_opts.repeatability_cor)
-                            fdm_sig = core_opts.repeatability_cor;
-                        end
-                        delta_fdm = fdm_current - fdm_baseline;
-                        valid_delta = ~isnan(delta_fdm);
-                        n_valid_fdm = sum(valid_delta);
-                        if n_valid_fdm > 0
-                            fdm_responding_pc(j,k,dwi_type)  = sum(delta_fdm(valid_delta) > fdm_sig) / n_valid_fdm;
-                            fdm_progressing_pc(j,k,dwi_type) = sum(delta_fdm(valid_delta) < -fdm_sig) / n_valid_fdm;
-                            fdm_stable_pc(j,k,dwi_type)      = sum(abs(delta_fdm(valid_delta)) <= fdm_sig) / n_valid_fdm;
-                        end
-                    end
-                end
-
-                adc_sub_vol(j,k,dwi_type) = sum(adc_vec_sub_mask)*vox_vol;
-                % Use count of finite (non-NaN) voxels as denominator so
-                % NaN voxels do not artificially deflate the percentage.
+                adc_mean(j,k,dwi_type) = adc_out.adc_mean_val;
+                adc_kurt(j,k,dwi_type) = adc_out.adc_kurt_val;
+                adc_skew(j,k,dwi_type) = adc_out.adc_skew_val;
+                adc_sd(j,k,dwi_type) = adc_out.adc_sd_val;
+                adc_sub_vol(j,k,dwi_type) = adc_out.adc_sub_vol_val;
+                adc_sub_vol_pc(j,k,dwi_type) = adc_out.adc_sub_vol_pc_val;
+                adc_sub_mean(j,k,dwi_type) = adc_out.adc_sub_mean_val;
+                adc_sub_kurt(j,k,dwi_type) = adc_out.adc_sub_kurt_val;
+                adc_sub_skew(j,k,dwi_type) = adc_out.adc_sub_skew_val;
+                high_adc_sub_vol(j,k,dwi_type) = adc_out.high_adc_sub_vol_val;
+                high_adc_sub_vol_pc(j,k,dwi_type) = adc_out.high_adc_sub_vol_pc_val;
+                adc_histograms(j,k,:,dwi_type) = adc_out.adc_histogram;
+                ks_stats_adc(j,k,dwi_type) = adc_out.ks_stat_adc;
+                ks_pvals_adc(j,k,dwi_type) = adc_out.ks_pval_adc;
+                fx_corrupted(j,k,dwi_type) = adc_out.fx_corrupted_val;
+                fdm_responding_pc(j,k,dwi_type) = adc_out.fdm_responding_pc;
+                fdm_progressing_pc(j,k,dwi_type) = adc_out.fdm_progressing_pc;
+                fdm_stable_pc(j,k,dwi_type) = adc_out.fdm_stable_pc;
+                adc_vec_sub_mask = adc_out.adc_vec_sub_mask;
                 finite_vol = n_finite_adc * vox_vol;
-                if finite_vol > 0
-                    adc_sub_vol_pc(j,k,dwi_type) = adc_sub_vol(j,k,dwi_type)/finite_vol;
-                else
-                    adc_sub_vol_pc(j,k,dwi_type) = NaN;
-                end
-                if isempty(adc_vec_sub)
-                    adc_sub_mean(j,k,dwi_type) = NaN;
-                else
-                    if exist('OCTAVE_VERSION', 'builtin')
-                        tmp = adc_vec_sub(~isnan(adc_vec_sub));
-                        if isempty(tmp)
-                            adc_sub_mean(j,k,dwi_type) = NaN;
-                        else
-                            adc_sub_mean(j,k,dwi_type) = mean(tmp);
-                        end
-                    else
-                        adc_sub_mean(j,k,dwi_type) = nanmean(adc_vec_sub);
-                    end
-                end
-                if numel(adc_vec_sub) >= min_vox_hist
-                    adc_sub_finite = adc_vec_sub(~isnan(adc_vec_sub));
-                    if numel(adc_sub_finite) >= min_vox_hist
-                        adc_sub_kurt(j,k,dwi_type) = kurtosis(adc_sub_finite);
-                        adc_sub_skew(j,k,dwi_type) = skewness(adc_sub_finite);
-                    end
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    adc_vec_hist = adc_vec(~isnan(adc_vec));
-                    c1 = histc(adc_vec_hist, bin_edges);
-                    c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
-                    c1 = c1(1:end-1);
-                else
-                    [c1, ~] = histcounts(adc_vec, bin_edges);
-                end
-                n_binned_adc = sum(c1);
-                nbins_adc = length(c1);
-                if n_binned_adc > 0
-                    % Laplace (add-one) smoothing avoids zero-probability
-                    % bins that would cause log(0) in KL divergence or
-                    % other distribution distance metrics.  Machine epsilon
-                    % (eps) is too small and distorts such measures.
-                    p1 = (c1 + 1) / (n_binned_adc + nbins_adc);
-                else
-                    p1 = zeros(size(c1));
-                end
-                adc_histograms(j,k,:,dwi_type) = p1;
-                % NOTE: KS-test p-values are liberal because within-patient
-                % voxels are spatially autocorrelated (violates independence).
-                % Treat as descriptive, not inferential.
-                % Skip k==1: adc_vec and adc_baseline are the same data,
-                % so the KS test trivially returns stat=0, p=1.
-                if k > 1 && ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(adc_baseline) >= min_vox_hist ...
-                        && any(~isnan(adc_vec)) && any(~isnan(adc_baseline))
-                    % Remove NaN before kstest2 (required for Octave compatibility)
-                    adc_vec_ks = adc_vec(~isnan(adc_vec));
-                    adc_bl_ks  = adc_baseline(~isnan(adc_baseline));
-                    [~,p,ks2stat] = kstest2(adc_vec_ks, adc_bl_ks);
-                    ks_stats_adc(j,k,dwi_type) = ks2stat;
-                    ks_pvals_adc(j,k,dwi_type) = p;
-                end
-
-                high_adc_sub_vol(j,k,dwi_type) = numel(adc_vec_high_sub)*vox_vol;
-                if finite_vol > 0
-                    high_adc_sub_vol_pc(j,k,dwi_type) = high_adc_sub_vol(j,k,dwi_type)/finite_vol;
-                else
-                    high_adc_sub_vol_pc(j,k,dwi_type) = NaN;
-                end
-                if n_finite_adc > 0
-                    fx_corrupted(j,k,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_adc;
-                end
             end
 
             % --- Compute IVIM summary metrics (D, f, D*) ---
-            % IVIM parameters provide biologically specific information beyond ADC:
-            %   D (true diffusion): cellularity without perfusion contamination
-            %   f (perfusion fraction): microvasculature density
-            %   D* (pseudo-diffusion): capillary blood flow velocity
-            % D* is the least reliable parameter due to its rapid signal
-            % decay (only measurable at very low b-values) and high noise
-            % sensitivity. DnCNN denoising and IVIMnet are specifically
-            % aimed at improving D* estimation.
+            ivim_out = compute_ivim_metrics(config_struct, d_vec, f_vec, dstar_vec, ...
+                d_baseline, adc_out.adc_vec_sub_mask, vox_vol, min_vox_hist, bin_edges, ...
+                d_thresh, f_thresh, k);
+
             if ~isempty(d_vec)
-                % Exclude exact-zero f values that co-occur with failed D*
-                % fits (D* == 0 or NaN), preserving genuine zero perfusion.
-                % The segmented IVIM fitter returns f=0, D*=0 when the
-                % perfusion component cannot be separated from noise.
-                % Both f AND D* must be set to NaN for failed fits:
-                % leaving D*=0 in the data biases dstar_mean downward,
-                % and leaving f=0 biases f_mean downward.
-                failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
-                f_vec(failed_fit) = nan;
-                dstar_vec(failed_fit) = nan;
-
-                % For unified core methods (percentile, spectral, fdm),
-                % the core mask replaces individual parameter thresholds.
-                unified_methods = {'percentile', 'spectral', 'fdm'};
-                if any(strcmpi(config_struct.core_method, unified_methods))
-                    f_vec_sub = f_vec(adc_vec_sub_mask);
-                    f_sub_vol(j,k,dwi_type) = sum(adc_vec_sub_mask) * vox_vol;
-                    d_vec_sub = d_vec(adc_vec_sub_mask);
-                else
-                    f_vec_sub = f_vec(f_vec<f_thresh);
-                    f_sub_vol(j,k,dwi_type) = numel(f_vec_sub)*vox_vol;
-                    d_vec_sub = d_vec(d_vec<d_thresh);
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    tmp = d_vec(~isnan(d_vec));
-                    if isempty(tmp)
-                        d_mean(j,k,dwi_type) = NaN;
-                    else
-                        d_mean(j,k,dwi_type) = mean(tmp);
-                    end
-                else
-                    d_mean(j,k,dwi_type) = nanmean(d_vec);
-                end
-                if numel(d_vec) >= min_vox_hist
-                    d_vec_finite = d_vec(~isnan(d_vec));
-                    if numel(d_vec_finite) >= min_vox_hist
-                        d_kurt(j,k,dwi_type) = kurtosis(d_vec_finite);
-                        d_skew(j,k,dwi_type) = skewness(d_vec_finite);
-                    end
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    tmp = d_vec(~isnan(d_vec));
-                    if isempty(tmp)
-                        d_sd(j,k,dwi_type) = NaN;
-                    else
-                        d_sd(j,k,dwi_type) = std(tmp);
-                    end
-                else
-                    d_sd(j,k,dwi_type) = nanstd(d_vec);
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    d_vec_hist = d_vec(~isnan(d_vec));
-                    c1 = histc(d_vec_hist, bin_edges);
-                    c1(end-1) = c1(end-1) + c1(end);  % merge last-edge count into final bin (match histcounts)
-                    c1 = c1(1:end-1);
-                else
-                    [c1, ~] = histcounts(d_vec, bin_edges);
-                end
-                n_binned_d = sum(c1);
-                nbins_d = length(c1);
-                if n_binned_d > 0
-                    p1 = (c1 + 1) / (n_binned_d + nbins_d);
-                else
-                    p1 = zeros(size(c1));
-                end
-                d_histograms(j,k,:,dwi_type) = p1;
-                % NOTE: KS-test p-values are liberal (see ADC comment above).
-                % Skip k==1: d_vec and d_baseline are the same data.
-                if k > 1 && ~isempty(d_baseline) && numel(d_vec) >= min_vox_hist && numel(d_baseline) >= min_vox_hist ...
-                        && any(~isnan(d_vec)) && any(~isnan(d_baseline))
-                    % Remove NaN before kstest2 (consistent with ADC path)
-                    d_vec_ks = d_vec(~isnan(d_vec));
-                    d_bl_ks  = d_baseline(~isnan(d_baseline));
-                    [~,p,ks2stat] = kstest2(d_vec_ks, d_bl_ks);
-                    ks_stats_d(j,k,dwi_type) = ks2stat;
-                    ks_pvals_d(j,k,dwi_type) = p;
-                end
-
-                if isempty(d_vec_sub)
-                    d_sub_mean(j,k,dwi_type) = NaN;
-                else
-                    if exist('OCTAVE_VERSION', 'builtin')
-                        tmp = d_vec_sub(~isnan(d_vec_sub));
-                        if isempty(tmp)
-                            d_sub_mean(j,k,dwi_type) = NaN;
-                        else
-                            d_sub_mean(j,k,dwi_type) = mean(tmp);
-                        end
-                    else
-                        d_sub_mean(j,k,dwi_type) = nanmean(d_vec_sub);
-                    end
-                end
-                if numel(d_vec_sub) >= min_vox_hist
-                    d_sub_finite = d_vec_sub(~isnan(d_vec_sub));
-                    if numel(d_sub_finite) >= min_vox_hist
-                        d_sub_kurt(j,k,dwi_type) = kurtosis(d_sub_finite);
-                        d_sub_skew(j,k,dwi_type) = skewness(d_sub_finite);
-                    end
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    tmp = f_vec(~isnan(f_vec));
-                    if isempty(tmp)
-                        f_mean(j,k,dwi_type) = NaN;
-                    else
-                        f_mean(j,k,dwi_type) = mean(tmp);
-                    end
-                else
-                    f_mean(j,k,dwi_type) = nanmean(f_vec);
-                end
-                if numel(f_vec) >= min_vox_hist
-                    f_vec_finite = f_vec(~isnan(f_vec));
-                    if numel(f_vec_finite) >= min_vox_hist
-                        f_kurt(j,k,dwi_type) = kurtosis(f_vec_finite);
-                        f_skew(j,k,dwi_type) = skewness(f_vec_finite);
-                    end
-                end
-
-                if exist('OCTAVE_VERSION', 'builtin')
-                    tmp = dstar_vec(~isnan(dstar_vec));
-                    if isempty(tmp)
-                        dstar_mean(j,k,dwi_type) = NaN;
-                    else
-                        dstar_mean(j,k,dwi_type) = mean(tmp);
-                    end
-                else
-                    dstar_mean(j,k,dwi_type) = nanmean(dstar_vec);
-                end
-                if numel(dstar_vec) >= min_vox_hist
-                    dstar_vec_finite = dstar_vec(~isnan(dstar_vec));
-                    if numel(dstar_vec_finite) >= min_vox_hist
-                        dstar_kurt(j,k,dwi_type) = kurtosis(dstar_vec_finite);
-                        dstar_skew(j,k,dwi_type) = skewness(dstar_vec_finite);
-                    end
-                end
+                d_mean(j,k,dwi_type) = ivim_out.d_mean_val;
+                d_kurt(j,k,dwi_type) = ivim_out.d_kurt_val;
+                d_skew(j,k,dwi_type) = ivim_out.d_skew_val;
+                d_sd(j,k,dwi_type) = ivim_out.d_sd_val;
+                d_histograms(j,k,:,dwi_type) = ivim_out.d_histogram;
+                ks_stats_d(j,k,dwi_type) = ivim_out.ks_stat_d;
+                ks_pvals_d(j,k,dwi_type) = ivim_out.ks_pval_d;
+                d_sub_mean(j,k,dwi_type) = ivim_out.d_sub_mean_val;
+                d_sub_kurt(j,k,dwi_type) = ivim_out.d_sub_kurt_val;
+                d_sub_skew(j,k,dwi_type) = ivim_out.d_sub_skew_val;
+                f_mean(j,k,dwi_type) = ivim_out.f_mean_val;
+                f_kurt(j,k,dwi_type) = ivim_out.f_kurt_val;
+                f_skew(j,k,dwi_type) = ivim_out.f_skew_val;
+                f_sub_vol(j,k,dwi_type) = ivim_out.f_sub_vol_val;
+                dstar_mean(j,k,dwi_type) = ivim_out.dstar_mean_val;
+                dstar_kurt(j,k,dwi_type) = ivim_out.dstar_kurt_val;
+                dstar_skew(j,k,dwi_type) = ivim_out.dstar_skew_val;
             end
 
             % --- Multi-method core metrics (when enabled) ---
-            % Compute sub-volume metrics for all 11 core delineation methods.
-            % Voxel vectors and 3D mask are already loaded above, so this
-            % only repeats the core extraction + sub-volume stat computation.
             if run_all_core && ~isempty(adc_vec)
-                unified_set = {'percentile', 'spectral', 'fdm'};
-                rng(42);  % reproducible clustering (GMM, k-means, spectral)
-                prev_warn_csm = warning('query');
-                warning('off', 'extract_tumor_core:tooFewForSpectral');
-                warning('off', 'extract_tumor_core:no3DForActiveContours');
-                warning('off', 'extract_tumor_core:no3DForRegionGrowing');
-                warning('off', 'extract_tumor_core:fdmBaseline');
-                warning('off', 'extract_tumor_core:fdmNoBaseline');
-                warning('off', 'extract_tumor_core:noDValues');
-                warning('off', 'extract_tumor_core:noIVIMValues');
-                warning('off', 'extract_tumor_core:noSpectralCluster');
-                for m_idx = 1:n_all_methods
-                    mname = ALL_CORE_METHODS{m_idx};
-                    temp_cfg = config_struct;
-                    temp_cfg.core_method = mname;
-
-                    try
-                        m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
-                    catch
-                        m_mask = false(size(adc_vec));
-                    end
-
-                    if store_masks
-                        per_method.(mname).core_masks{j, k} = m_mask;
-                    end
-
-                    % ADC sub-volume metrics
-                    m_adc_sub = adc_vec(m_mask);
-                    per_method.(mname).adc_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
-                    if finite_vol > 0
-                        per_method.(mname).adc_sub_vol_pc(j,k,dwi_type) = per_method.(mname).adc_sub_vol(j,k,dwi_type) / finite_vol;
-                    end
-                    if ~isempty(m_adc_sub)
-                        per_method.(mname).adc_sub_mean(j,k,dwi_type) = nanmean(m_adc_sub);
-                    end
-                    if numel(m_adc_sub) >= min_vox_hist
-                        m_adc_finite = m_adc_sub(~isnan(m_adc_sub));
-                        if numel(m_adc_finite) >= min_vox_hist
-                            per_method.(mname).adc_sub_kurt(j,k,dwi_type) = kurtosis(m_adc_finite);
-                            per_method.(mname).adc_sub_skew(j,k,dwi_type) = skewness(m_adc_finite);
-                        end
-                    end
-
-                    % D/f sub-volume metrics
-                    if ~isempty(d_vec)
-                        if any(strcmpi(mname, unified_set))
-                            m_f_sub = f_vec(m_mask);
-                            per_method.(mname).f_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
-                            m_d_sub = d_vec(m_mask);
-                        else
-                            m_f_sub = f_vec(f_vec < f_thresh); %#ok<NASGU>
-                            per_method.(mname).f_sub_vol(j,k,dwi_type) = numel(f_vec(f_vec < f_thresh)) * vox_vol;
-                            m_d_sub = d_vec(d_vec < d_thresh);
-                        end
-                        if ~isempty(m_d_sub)
-                            per_method.(mname).d_sub_mean(j,k,dwi_type) = nanmean(m_d_sub);
-                        end
-                        if numel(m_d_sub) >= min_vox_hist
-                            m_d_finite = m_d_sub(~isnan(m_d_sub));
-                            if numel(m_d_finite) >= min_vox_hist
-                                per_method.(mname).d_sub_kurt(j,k,dwi_type) = kurtosis(m_d_finite);
-                                per_method.(mname).d_sub_skew(j,k,dwi_type) = skewness(m_d_finite);
-                            end
-                        end
-                    end
-
-                    % fDM volume fractions (only for fdm method, post-baseline)
-                    if strcmpi(mname, 'fdm') && k > 1 && isfield(core_opts, 'baseline_adc_vec')
-                        switch lower(config_struct.fdm_parameter)
-                            case 'adc'
-                                fdm_cur = adc_vec;
-                                fdm_bl = core_opts.baseline_adc_vec;
-                            case 'd'
-                                fdm_cur = d_vec;
-                                fdm_bl = core_opts.baseline_d_vec;
-                            otherwise
-                                fdm_cur = adc_vec;
-                                fdm_bl = core_opts.baseline_adc_vec;
-                        end
-                        if ~isempty(fdm_bl) && numel(fdm_bl) == numel(fdm_cur)
-                            fdm_sig_pm = config_struct.fdm_thresh;
-                            delta_pm = fdm_cur - fdm_bl;
-                            valid_pm = ~isnan(delta_pm);
-                            n_valid_pm = sum(valid_pm);
-                            if n_valid_pm > 0
-                                per_method.(mname).fdm_responding_pc(j,k,dwi_type)  = sum(delta_pm(valid_pm) > fdm_sig_pm) / n_valid_pm;
-                                per_method.(mname).fdm_progressing_pc(j,k,dwi_type) = sum(delta_pm(valid_pm) < -fdm_sig_pm) / n_valid_pm;
-                                per_method.(mname).fdm_stable_pc(j,k,dwi_type)      = sum(abs(delta_pm(valid_pm)) <= fdm_sig_pm) / n_valid_pm;
-                            end
-                        end
-                    end
-                end
-                warning(prev_warn_csm);
-                lastwarn('');  % clear stale warnings so orchestrator doesn't re-log suppressed ones
+                per_method = compute_multi_core_metrics(per_method, config_struct, ...
+                    ALL_CORE_METHODS, adc_vec, d_vec, f_vec, dstar_vec, ...
+                    has_3d_iter, gtv_mask_3d, core_opts, ...
+                    j, k, dwi_type, vox_vol, min_vox_hist, ...
+                    f_thresh, d_thresh, finite_vol, store_masks);
             end
 
             % --- Repeatability analysis: extract metrics from Fx1 repeat scans ---
@@ -854,23 +512,7 @@ for j=1:n_patients_metrics
             if k==1
                 rp_count = 0;
                 for rpi=1:size(data_vectors_gtvp, 3)
-                    switch dwi_type
-                        case 1
-                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector;
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector;
-                        case 2
-                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector_dncnn;
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_dncnn;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
-                        case 3
-                            adc_vec = data_vectors_gtvp(j,k,rpi).adc_vector;
-                            d_vec = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
-                            f_vec = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
-                            dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
-                    end
+                    [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, rpi, dwi_type);
 
                     % Apply the same failed-fit filter used in the main
                     % metrics path (lines 297-299) so that repeatability
@@ -881,16 +523,7 @@ for j=1:n_patients_metrics
 
                     if ~isempty(adc_vec)
                         rp_count = rp_count+1;
-                        if exist('OCTAVE_VERSION', 'builtin')
-                            tmp = adc_vec(~isnan(adc_vec));
-                            if isempty(tmp)
-                                adc_mean_rpt(j,rpi,dwi_type) = NaN;
-                            else
-                                adc_mean_rpt(j,rpi,dwi_type) = mean(tmp);
-                            end
-                        else
-                            adc_mean_rpt(j,rpi,dwi_type) = nanmean(adc_vec);
-                        end
+                        adc_mean_rpt(j,rpi,dwi_type) = nanmean_safe(adc_vec);
                         n_finite_rpt = sum(~isnan(adc_vec));
                         if n_finite_rpt > 0
                             fx_corrupted_rpt(j,rpi,dwi_type) = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_rpt;
@@ -902,16 +535,7 @@ for j=1:n_patients_metrics
                         if isempty(adc_vec_sub)
                             adc_sub_rpt(j,rpi,dwi_type) = NaN;
                         else
-                            if exist('OCTAVE_VERSION', 'builtin')
-                                tmp = adc_vec_sub(~isnan(adc_vec_sub));
-                                if isempty(tmp)
-                                    adc_sub_rpt(j,rpi,dwi_type) = NaN;
-                                else
-                                    adc_sub_rpt(j,rpi,dwi_type) = mean(tmp);
-                                end
-                            else
-                                adc_sub_rpt(j,rpi,dwi_type) = nanmean(adc_vec_sub);
-                            end
+                            adc_sub_rpt(j,rpi,dwi_type) = nanmean_safe(adc_vec_sub);
                         end
                         % Restricted sub-volume size per repeat scan.
                         % Complements adc_sub_rpt (mean ADC within sub-volume)
@@ -929,30 +553,9 @@ for j=1:n_patients_metrics
                         if isempty(adc_vec)
                             rp_count = rp_count + 1;
                         end
-                        if exist('OCTAVE_VERSION', 'builtin')
-                            tmp = d_vec(~isnan(d_vec));
-                            if isempty(tmp)
-                                d_mean_rpt(j,rpi,dwi_type) = NaN;
-                            else
-                                d_mean_rpt(j,rpi,dwi_type) = mean(tmp);
-                            end
-                            tmp = f_vec(~isnan(f_vec));
-                            if isempty(tmp)
-                                f_mean_rpt(j,rpi,dwi_type) = NaN;
-                            else
-                                f_mean_rpt(j,rpi,dwi_type) = mean(tmp);
-                            end
-                            tmp = dstar_vec(~isnan(dstar_vec));
-                            if isempty(tmp)
-                                dstar_mean_rpt(j,rpi,dwi_type) = NaN;
-                            else
-                                dstar_mean_rpt(j,rpi,dwi_type) = mean(tmp);
-                            end
-                        else
-                            d_mean_rpt(j,rpi,dwi_type) = nanmean(d_vec);
-                            f_mean_rpt(j,rpi,dwi_type) = nanmean(f_vec);
-                            dstar_mean_rpt(j,rpi,dwi_type) = nanmean(dstar_vec);
-                        end
+                        d_mean_rpt(j,rpi,dwi_type) = nanmean_safe(d_vec);
+                        f_mean_rpt(j,rpi,dwi_type) = nanmean_safe(f_vec);
+                        dstar_mean_rpt(j,rpi,dwi_type) = nanmean_safe(dstar_vec);
                     end
                 end
                 % Record repeat count from any DWI type (first non-zero wins).
@@ -966,159 +569,23 @@ for j=1:n_patients_metrics
                 % Compare threshold-defined sensitive sub-volumes across all
                 % pairs of Fx1 repeat scans to assess spatial reproducibility.
                 if rp_count >= 2
-                    % Determine voxel dimensions for physical Hausdorff distances
-                    rpt_vox_dims = data_vectors_gtvp(j,1,1).vox_dims;
-                    if isempty(rpt_vox_dims) || ~isnumeric(rpt_vox_dims) || numel(rpt_vox_dims) ~= 3
-                        rpt_vox_vol = data_vectors_gtvp(j,1,1).vox_vol;
-                        if ~isempty(rpt_vox_vol) && ~isnan(rpt_vox_vol) && rpt_vox_vol > 0
-                            side_mm = (rpt_vox_vol * 1000) ^ (1/3);
-                            rpt_vox_dims = [side_mm, side_mm, side_mm];
-                        else
-                            rpt_vox_dims = [1, 1, 1];
-                        end
-                    end
-
-                    % Collect valid repeat indices and their parameter vectors
-                    valid_rpis = [];
-                    rpt_vecs = struct('adc', {{}}, 'd', {{}}, 'f', {{}}, 'dstar', {{}});
-                    for rpi2 = 1:size(data_vectors_gtvp, 3)
-                        switch dwi_type
-                            case 1
-                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector;
-                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector;
-                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector;
-                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector;
-                            case 2
-                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector_dncnn;
-                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector_dncnn;
-                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector_dncnn;
-                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector_dncnn;
-                            case 3
-                                rv_adc = data_vectors_gtvp(j,1,rpi2).adc_vector;
-                                rv_d   = data_vectors_gtvp(j,1,rpi2).d_vector_ivimnet;
-                                rv_f   = data_vectors_gtvp(j,1,rpi2).f_vector_ivimnet;
-                                rv_ds  = data_vectors_gtvp(j,1,rpi2).dstar_vector_ivimnet;
-                        end
-                        if ~isempty(rv_adc) || ~isempty(rv_d)
-                            valid_rpis(end+1) = rpi2; %#ok<AGROW>
-                            rpt_vecs.adc{end+1} = rv_adc;
-                            rpt_vecs.d{end+1} = rv_d;
-                            rpt_vecs.f{end+1} = rv_f;
-                            rpt_vecs.dstar{end+1} = rv_ds;
-                        end
-                    end
-
-                    if numel(valid_rpis) >= 2
-                        % Load 3D GTV masks for each valid repeat
-                        rpt_masks_3d = cell(numel(valid_rpis), 1);
-                        rpt_has_3d = true;
-                        for ri = 1:numel(valid_rpis)
-                            rpi_idx = valid_rpis(ri);
-                            gtv_mat_path = gtv_locations{j, 1, rpi_idx};
-                            if ~isempty(gtv_mat_path)
-                                path_parts = strsplit(gtv_mat_path, {'/', '\'});
-                                gtv_mat_path = fullfile(path_parts{:});
-                                if isunix && ~startsWith(gtv_mat_path, filesep) && isempty(path_parts{1})
-                                    gtv_mat_path = [filesep gtv_mat_path]; %#ok<AGROW>
-                                end
-                                if exist(gtv_mat_path, 'file')
-                                    if strcmp(gtv_mat_path, last_rpt_gtv_mat)
-                                        rpt_masks_3d{ri} = last_rpt_gtv_mask;
-                                    else
-                                        rpt_masks_3d{ri} = safe_load_mask(gtv_mat_path, 'Stvol3d');
-                                        last_rpt_gtv_mat = gtv_mat_path;
-                                        last_rpt_gtv_mask = rpt_masks_3d{ri};
-                                    end
-                                end
-                            end
-                            if isempty(rpt_masks_3d{ri})
-                                rpt_has_3d = false;
-                            end
-                        end
-
-                        if rpt_has_3d
-                            % Accumulate pairwise metrics then average
-                            param_names = {'adc', 'd', 'f', 'dstar'};
-                            param_thresholds = [adc_thresh, d_thresh, f_thresh, config_struct.dstar_thresh];
-                            pair_dice = nan(numel(valid_rpis)*(numel(valid_rpis)-1)/2, 4);
-                            pair_hd_max = nan(size(pair_dice));
-                            pair_hd95 = nan(size(pair_dice));
-                            pi_count = 0;
-
-                            for ri1 = 1:numel(valid_rpis)-1
-                                for ri2 = ri1+1:numel(valid_rpis)
-                                    pi_count = pi_count + 1;
-                                    mask_3d_1 = rpt_masks_3d{ri1};
-                                    mask_3d_2 = rpt_masks_3d{ri2};
-
-                                    % Verify compatible 3D mask dimensions
-                                    if ~isequal(size(mask_3d_1), size(mask_3d_2))
-                                        continue;
-                                    end
-
-                                    for pi = 1:4
-                                        vec_1 = rpt_vecs.(param_names{pi}){ri1};
-                                        vec_2 = rpt_vecs.(param_names{pi}){ri2};
-                                        if isempty(vec_1) || isempty(vec_2)
-                                            continue;
-                                        end
-
-                                        n_gtv_1 = sum(mask_3d_1(:) == 1);
-                                        n_gtv_2 = sum(mask_3d_2(:) == 1);
-                                        if numel(vec_1) ~= n_gtv_1 || numel(vec_2) ~= n_gtv_2
-                                            continue;
-                                        end
-
-                                        % Threshold to binary, embed in 3D, morphological cleanup
-                                        subvol_3d_1 = false(size(mask_3d_1));
-                                        subvol_3d_1(mask_3d_1 == 1) = vec_1 < param_thresholds(pi);
-                                        subvol_3d_1 = imclose(imopen(subvol_3d_1, morph_se), morph_se);
-                                        subvol_3d_1 = bwareaopen(subvol_3d_1, morph_min_cc);
-
-                                        subvol_3d_2 = false(size(mask_3d_2));
-                                        subvol_3d_2(mask_3d_2 == 1) = vec_2 < param_thresholds(pi);
-                                        subvol_3d_2 = imclose(imopen(subvol_3d_2, morph_se), morph_se);
-                                        subvol_3d_2 = bwareaopen(subvol_3d_2, morph_min_cc);
-
-                                        [d_val, hm_val, h95_val] = compute_dice_hausdorff( ...
-                                            subvol_3d_1, subvol_3d_2, rpt_vox_dims);
-                                        pair_dice(pi_count, pi) = d_val;
-                                        pair_hd_max(pi_count, pi) = hm_val;
-                                        pair_hd95(pi_count, pi) = h95_val;
-                                    end
-                                end
-                            end
-
-                            % Average across all repeat pairs
-                            if exist('OCTAVE_VERSION', 'builtin')
-                                mean_dice = mean(pair_dice(1:pi_count,:), 1, 'omitnan');
-                                mean_hd_max = mean(pair_hd_max(1:pi_count,:), 1, 'omitnan');
-                                mean_hd95 = mean(pair_hd95(1:pi_count,:), 1, 'omitnan');
-                            else
-                                mean_dice = nanmean(pair_dice(1:pi_count,:), 1);
-                                mean_hd_max = nanmean(pair_hd_max(1:pi_count,:), 1);
-                                mean_hd95 = nanmean(pair_hd95(1:pi_count,:), 1);
-                            end
-                            dice_rpt_adc(j, dwi_type) = mean_dice(1);
-                            dice_rpt_d(j, dwi_type)   = mean_dice(2);
-                            dice_rpt_f(j, dwi_type)   = mean_dice(3);
-                            dice_rpt_dstar(j, dwi_type) = mean_dice(4);
-                            hd_max_rpt_adc(j, dwi_type) = mean_hd_max(1);
-                            hd_max_rpt_d(j, dwi_type)   = mean_hd_max(2);
-                            hd_max_rpt_f(j, dwi_type)   = mean_hd_max(3);
-                            hd_max_rpt_dstar(j, dwi_type) = mean_hd_max(4);
-                            hd95_rpt_adc(j, dwi_type) = mean_hd95(1);
-                            hd95_rpt_d(j, dwi_type)   = mean_hd95(2);
-                            hd95_rpt_f(j, dwi_type)   = mean_hd95(3);
-                            hd95_rpt_dstar(j, dwi_type) = mean_hd95(4);
-                        end
-                    end
+                    [dice_rpt_adc(j, dwi_type), hd_max_rpt_adc(j, dwi_type), hd95_rpt_adc(j, dwi_type), ...
+                     dice_rpt_d(j, dwi_type), hd_max_rpt_d(j, dwi_type), hd95_rpt_d(j, dwi_type), ...
+                     dice_rpt_f(j, dwi_type), hd_max_rpt_f(j, dwi_type), hd95_rpt_f(j, dwi_type), ...
+                     dice_rpt_dstar(j, dwi_type), hd_max_rpt_dstar(j, dwi_type), hd95_rpt_dstar(j, dwi_type)] = ...
+                        compute_spatial_repeatability(data_vectors_gtvp, j, dwi_type, ...
+                            gtv_locations, adc_thresh, d_thresh, f_thresh, config_struct.dstar_thresh, ...
+                            morph_se, morph_min_cc, last_rpt_gtv_mat, last_rpt_gtv_mask);
                 end
             end
         end
     end
 end
 
+% --- Package all computed metrics into a single output struct ---
+% This struct is the primary interface between the 'load' step and all
+% downstream analysis modules (sanity_checks, visualize_results,
+% metrics_baseline, metrics_longitudinal, metrics_survival, etc.).
 summary_metrics = struct();
 summary_metrics.adc_mean = adc_mean;
 summary_metrics.adc_kurt = adc_kurt;
@@ -1199,4 +666,101 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     save(summary_metrics_file, 'summary_metrics');
 end
 
+end
+
+function result = nanmean_safe(v)
+% NANMEAN_SAFE — Octave-compatible NaN-ignoring mean.
+% MATLAB's nanmean is in the Statistics Toolbox; Octave may lack it.
+if exist('OCTAVE_VERSION', 'builtin')
+    tmp = v(~isnan(v));
+    if isempty(tmp)
+        result = NaN;
+    else
+        result = mean(tmp);
+    end
+else
+    result = nanmean(v);
+end
+end
+
+function result = nanstd_safe(v)
+% NANSTD_SAFE — Octave-compatible NaN-ignoring standard deviation.
+if exist('OCTAVE_VERSION', 'builtin')
+    tmp = v(~isnan(v));
+    if isempty(tmp)
+        result = NaN;
+    else
+        result = std(tmp);
+    end
+else
+    result = nanstd(v);
+end
+end
+
+function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
+% COMPUTE_KURT_SKEW — Compute kurtosis and skewness with minimum sample guard.
+% Returns NaN if the number of finite voxels is below min_vox_hist, because
+% higher-order moments are unreliable with too few data points (kurtosis
+% formally requires n >= 4, but practical stability needs more).
+kurt_val = NaN;
+skew_val = NaN;
+if numel(v) >= min_vox_hist
+    v_finite = v(~isnan(v));
+    if numel(v_finite) >= min_vox_hist
+        kurt_val = kurtosis(v_finite);
+        skew_val = skewness(v_finite);
+    end
+end
+end
+
+function p1 = compute_histogram_laplace(vec, bin_edges)
+% COMPUTE_HISTOGRAM_LAPLACE — Laplace-smoothed probability distribution.
+% Adds 1 pseudo-count per bin (Laplace smoothing / additive smoothing) to
+% prevent zero-probability bins that would cause log(0) = -Inf in KL
+% divergence or other information-theoretic comparisons.  The smoothing
+% has negligible effect when n_binned >> nbins (typical for >100 voxels).
+if exist('OCTAVE_VERSION', 'builtin')
+    vec_f = vec(~isnan(vec));
+    c1 = histc(vec_f, bin_edges);
+    % histc includes a count for exact matches of the last edge; merge it
+    % into the penultimate bin to match histcounts behavior.
+    c1(end-1) = c1(end-1) + c1(end);
+    c1 = c1(1:end-1);
+else
+    [c1, ~] = histcounts(vec, bin_edges);
+end
+n_binned = sum(c1);
+nbins = length(c1);
+if n_binned > 0
+    % Laplace smoothing: P(bin) = (count + 1) / (total + n_bins)
+    p1 = (c1 + 1) / (n_binned + nbins);
+else
+    p1 = zeros(size(c1));
+end
+end
+
+function [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, rpi, dwi_type)
+% SELECT_DWI_VECTORS — Extract parameter vectors for the specified DWI pipeline.
+%   dwi_type 1 (Standard): raw DWI with conventional mono/bi-exponential fits
+%   dwi_type 2 (dnCNN): DnCNN-denoised DWI signal with conventional fits
+%   dwi_type 3 (IVIMnet): raw DWI with neural-network IVIM parameter estimation
+%   Note: IVIMnet reuses standard ADC (mono-exponential fit is model-free and
+%   unaffected by the IVIM fitting method choice).
+switch dwi_type
+    case 1
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector;
+    case 2
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector_dncnn;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector_dncnn;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
+    case 3
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
+end
 end

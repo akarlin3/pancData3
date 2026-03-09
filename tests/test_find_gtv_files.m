@@ -12,12 +12,13 @@ classdef test_find_gtv_files < matlab.unittest.TestCase
     %   - dwii index is forwarded to discover_gtv_file correctly
 
     properties
-        TempDir
-        OriginalPath
+        TempDir        % Isolated temp directory for dummy GTV mask files
+        OriginalPath   % Saved MATLAB path, restored in teardown
     end
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create isolated temp dir and add utils/ to path.
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
             testCase.OriginalPath = path();
@@ -28,6 +29,8 @@ classdef test_find_gtv_files < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Remove temp files and restore the original MATLAB path to
+            % prevent cross-test side effects.
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
             end

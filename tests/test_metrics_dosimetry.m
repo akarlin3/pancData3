@@ -30,9 +30,11 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
     methods(Access = private)
         function [m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations] = ...
                 buildEmptyVectorInputs(~, n_valid, n_total, nTp_val)
-            % Builds inputs where every dose_vector / adc_vector is empty,
-            % so the inner `if ~isempty(dose_vec) && ~isempty(adc_vec)` guard
-            % is never entered and all outputs stay NaN.
+            % Builds a minimal input set for metrics_dosimetry where every
+            % dose_vector and parameter vector is empty ([]). This exercises
+            % the guard clause that skips dose calculation when vectors are
+            % missing, resulting in all-NaN output arrays. Used to test
+            % output dimensions and NaN-passthrough behavior.
             m_id_list = arrayfun(@(x) sprintf('Pt%02d', x), 1:n_valid, 'UniformOutput', false)';
             id_list   = arrayfun(@(x) sprintf('Pt%02d', x), 1:n_total, 'UniformOutput', false)';
             nTp = nTp_val;
@@ -66,7 +68,9 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function entry = makeFilledEntry(~, n_vox)
-            % Creates a struct entry with synthetic non-empty vectors.
+            % Creates a struct entry with n_vox synthetic non-empty vectors
+            % for all DWI types (Standard, DnCNN, IVIMnet) and dose.
+            % ADC in [0, 2e-3], dose in [10, 70] Gy range.
             adc  = rand(n_vox, 1) * 2e-3;
             d    = rand(n_vox, 1) * 1e-3;
             f    = rand(n_vox, 1) * 0.3;
@@ -92,8 +96,9 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
     methods(Test)
 
         function testOutputDimensionsMatchInputs(testCase)
-            % With 3 valid patients and 4 timepoints the 8 output arrays must
-            % each be 3 × 4.
+            % Verifies that all 8 dosimetry output arrays (d95 and v50 for
+            % ADC, D, f, D* sub-volumes) have dimensions [n_valid x nTp],
+            % matching the input dimensions regardless of data content.
             n_valid  = 3;
             n_total  = 3;
             nTp_val  = 4;
@@ -130,9 +135,11 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testDtype1UsesStandardVectors(testCase)
-            % dtype_idx = 1 → adc_vector and d_vector used.
-            % With 200 voxels all below threshold and dose all above 50 Gy,
-            % the output values should be non-NaN.
+            % Verifies DWI type dispatch for Standard (dtype_idx=1):
+            % uses adc_vector and d_vector fields. All parameter values are
+            % set to 0 (below all thresholds set to 1.0) so the entire
+            % volume qualifies as sub-volume, and dose is uniform 60 Gy,
+            % ensuring non-NaN D95 and V50 outputs.
             n_vox = 200;
             entry = testCase.makeFilledEntry(n_vox);
             % Ensure all values are below threshold so the sub-volume fills.
@@ -161,7 +168,8 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testDtype2UsesDnCNNVectors(testCase)
-            % dtype_idx = 2 → adc_vector_dncnn, d_vector_dncnn, etc.
+            % Verifies DWI type dispatch for DnCNN (dtype_idx=2):
+            % uses *_dncnn vector fields instead of Standard vectors.
             n_vox = 200;
             entry = testCase.makeFilledEntry(n_vox);
             entry.adc_vector_dncnn   = zeros(n_vox, 1);
@@ -186,7 +194,9 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testDtype3UsesIVIMnetVectors(testCase)
-            % dtype_idx = 3 → adc_vector (same as Standard) but d/f/dstar use ivimnet.
+            % Verifies DWI type dispatch for IVIMnet (dtype_idx=3):
+            % ADC still uses adc_vector (same as Standard — IVIMnet does
+            % not produce its own ADC), but D/f/D* use *_ivimnet vectors.
             n_vox = 200;
             entry = testCase.makeFilledEntry(n_vox);
             entry.adc_vector         = zeros(n_vox, 1);
@@ -211,8 +221,10 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testAbsentGtvMatFileDoesNotCrash(testCase)
-            % gtv_locations contains a non-existent path.  The function should
-            % fall back gracefully (has_3d = false) without erroring.
+            % Verifies graceful fallback when gtv_locations points to a
+            % non-existent .mat file. The function should detect the missing
+            % file, set has_3d=false, and fall back to the 1D vector-based
+            % sub-volume calculation (no 3D mask available).
             n_vox = 200;
             entry = testCase.makeFilledEntry(n_vox);
             entry.adc_vector   = zeros(n_vox, 1);
@@ -236,8 +248,10 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testNTpCellWrappingHandled(testCase)
-            % The function accepts nTp as a scalar cell array {nTp_val}
-            % in addition to a plain scalar.
+            % Verifies that nTp can be passed as a cell-wrapped scalar
+            % ({nTp_val}) in addition to a plain numeric scalar. The
+            % function should unwrap it via `if iscell(nTp), nTp = nTp{1}; end`
+            % and produce correctly sized outputs.
             [m_id, id, nTp, cfg, dv, gtv] = ...
                 testCase.buildEmptyVectorInputs(2, 2, 2);
 

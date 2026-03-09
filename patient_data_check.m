@@ -55,6 +55,8 @@ function report = patient_data_check(config_path)
         config_path = 'config.json';
     end
 
+    % Add pipeline modules to MATLAB path so that parse_config, escape_shell_arg,
+    % and clean_dir_command are accessible from any working directory.
     addpath('core', 'utils', 'dependencies');
 
     %% --- Load and validate configuration ---
@@ -62,7 +64,10 @@ function report = patient_data_check(config_path)
     fprintf('=====================\n\n');
 
     config = parse_config(config_path);
-    issues = cell(0, 3);  % {severity, patient, message}
+    % Issue accumulator: each row is {severity, patient_name, message}.
+    % Severity levels: 'ERROR' (pipeline will fail), 'WARNING' (degraded
+    % analysis), 'INFO' (informational/benign observation).
+    issues = cell(0, 3);
 
     %% --- Check infrastructure ---
     % Verify that the three critical infrastructure components are accessible
@@ -135,6 +140,8 @@ function report = patient_data_check(config_path)
 
     % List all subdirectories in the data root, excluding template folders
     % (which contain reference data or contour templates, not patient data).
+    % clean_dir_command is a wrapper around dir() that excludes '.' and '..'
+    % entries and handles cross-platform path separators.
     patlist = clean_dir_command(config.dataloc);
     patlist = patlist(cellfun(@isempty, strfind({patlist.name}, 'template')));
 
@@ -150,6 +157,8 @@ function report = patient_data_check(config_path)
         strtmp = strsplit(strrep(strrep(patlist(j).name, 'P', ''), '_', '-'), '-');
         id_num(j) = str2double(strtmp{1});
     end
+    % Folders whose names do not start with a numeric ID produce NaN from
+    % str2double and are classified as non-patient (infrastructure) folders.
     valid_idx = ~isnan(id_num);
 
     n_skipped = sum(~valid_idx);
@@ -158,6 +167,7 @@ function report = patient_data_check(config_path)
             sprintf('%d non-patient folders skipped', n_skipped));
     end
 
+    % Sort patients by numeric ID for deterministic, human-readable output.
     patlist = patlist(valid_idx);
     [~, id_sort] = sort(id_num(valid_idx), 'ascend');
     patlist = patlist(id_sort);
@@ -219,6 +229,9 @@ function report = patient_data_check(config_path)
         basefolder = fullfile(config.dataloc, pat_name);
         basefolder_contents = clean_dir_command(basefolder);
 
+        % Check each expected fraction folder within this patient's directory.
+        % Uses substring matching (strfind) rather than exact match because
+        % fraction folders typically include the date suffix (e.g., "Fx1_20230315").
         for fi = 1:length(fx_search)
             fx_label = fx_search{fi};
             fxtmp_idx = ~cellfun(@isempty, strfind({basefolder_contents.name}, fx_label));
@@ -358,6 +371,7 @@ function report = patient_data_check(config_path)
     fprintf('==========\n');
     fprintf('Patients scanned:  %d\n', n_patients);
 
+    % Tally issues by severity level for the summary header.
     n_errors = sum(strcmp(issues(:,1), 'ERROR'));
     n_warnings = sum(strcmp(issues(:,1), 'WARNING'));
     n_info = sum(strcmp(issues(:,1), 'INFO'));
@@ -422,10 +436,12 @@ end
 %% --- Helper functions ---
 
 function issues = add_issue(issues, severity, patient, message)
+% Append a single issue row to the issues cell array accumulator.
     issues(end+1, :) = {severity, patient, message};
 end
 
 function report = build_report(issues, n_patients)
+% Construct the machine-readable return struct from the accumulated issues.
     report.n_patients = n_patients;
     report.issues = issues;
     report.n_errors = sum(strcmp(issues(:,1), 'ERROR'));
