@@ -15,6 +15,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ## Table of Contents
 
+- [Supported Platforms](#supported-platforms)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -42,6 +43,23 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ---
 
+## Supported Platforms
+
+| Platform | MATLAB Pipeline | Python Analysis | CI Tested |
+|---|---|---|---|
+| **Linux** (Ubuntu 22.04+) | Yes | Yes | Yes |
+| **macOS** (13 Ventura+) | Yes | Yes | Yes |
+| **Windows** (10/11) | Yes | Yes | Yes |
+
+The codebase uses platform-aware code paths throughout:
+
+- **Shell escaping** -- `escape_shell_arg.m` detects `ispc()` and applies Windows (double-quote) or Unix (single-quote) escaping for all `system()` calls
+- **Path handling** -- All paths use `fullfile()`, `filesep`, and `pathsep` (MATLAB) or `pathlib.Path` (Python) instead of hardcoded separators
+- **Console encoding** -- Python analysis scripts reconfigure `stdout` to UTF-8 on Windows to handle emoji log prefixes
+- **Mock test scripts** -- Tests generate `.bat` files on Windows and shell scripts on Unix
+
+---
+
 ## Requirements
 
 ### MATLAB Toolboxes
@@ -54,9 +72,9 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ### External Tools
 
-| Tool | Purpose |
-|---|---|
-| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion |
+| Tool | Purpose | Installation |
+|---|---|---|
+| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion | [Download](https://github.com/rordenlab/dcm2niix/releases) for Windows, macOS, or Linux. Must be on your system PATH or specified in `config.json` as `dcm2nii_call`. |
 
 ---
 
