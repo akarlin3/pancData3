@@ -37,6 +37,7 @@ class TestParseDwiInfo:
     """Verify DWI type extraction and base name normalisation from file paths."""
 
     def test_standard_path(self):
+        """Standard DWI type is detected and its suffix stripped from the base name."""
         dwi, name = parse_dwi_info(
             "saved_files_20260301/Standard/Feature_BoxPlots_Standard.png"
         )
@@ -44,6 +45,7 @@ class TestParseDwiInfo:
         assert name == "Feature_BoxPlots"
 
     def test_dncnn_path(self):
+        """dnCNN DWI type is detected; the '_dnCNN' suffix is stripped."""
         dwi, name = parse_dwi_info(
             "saved_files_20260301/dnCNN/Longitudinal_dnCNN.png"
         )
@@ -51,6 +53,7 @@ class TestParseDwiInfo:
         assert name == "Longitudinal"
 
     def test_ivimnet_path(self):
+        """IVIMnet type is detected even with an absolute path prefix."""
         dwi, name = parse_dwi_info(
             "/abs/saved_files_20260301/IVIMnet/Dose_vs_Diffusion_IVIMnet.png"
         )

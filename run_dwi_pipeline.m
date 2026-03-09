@@ -861,9 +861,17 @@ end
 
 %% ===== Local step wrapper functions =====
 % Each wrapper encapsulates all the logic that was previously inline in the
-% pipeline body.  They are called as function handles by execute_pipeline_step.
+% pipeline body.  They are called as function handles by execute_pipeline_step,
+% which provides uniform try-catch error handling, diary management, warning
+% logging, and GUI progress updates.  Using function handles allows
+% execute_pipeline_step to treat all pipeline steps identically regardless
+% of their differing signatures and internal logic.
 
 function run_compare_cores_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+% Runs all 11 tumor core delineation methods (adc_threshold, otsu, gmm,
+% kmeans, etc.) on every patient/timepoint and computes pairwise spatial
+% agreement metrics (Dice coefficient and Hausdorff distance) between all
+% method pairs.  Results are saved to a .mat file by compare_core_methods.
     fprintf('\n⚙️ [%s] Running core method comparison...\n', current_name);
     compare_results = compare_core_methods(validated_data_gtvp, summary_metrics, config_struct); %#ok<NASGU>
     fprintf('      ✅ Done.\n');
@@ -871,9 +879,17 @@ end
 
 function run_metrics_longitudinal_step(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
     nTp, dtype_label, config_struct, m_lf, current_name)
+% Generates temporal trajectory analysis across treatment fractions.
+% Inputs include both absolute parameter matrices (patients x timepoints)
+% and percent-change-from-baseline matrices.  f_delta is used instead of
+% f_pct because perfusion fraction values near zero make percent change
+% numerically unstable.  m_lf (local failure flags) enables trajectory
+% stratification by outcome group.
     fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
     metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
                          nTp, dtype_label, config_struct.output_folder, m_lf);
+    % Write a sentinel file confirming successful completion — used by
+    % analysis scripts and test harnesses to verify the step ran.
     longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
     fid = fopen(longitudinal_results_file, 'w');
     if fid < 0

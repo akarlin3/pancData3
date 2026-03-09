@@ -8,23 +8,28 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
 %       runner.addPlugin(ProgressBarPlugin(numel(suite)));
 
     properties (Access = private)
-        TotalTests double = 0
-        CompletedTests double = 0
-        PassedCount double = 0
-        FailedCount double = 0
-        FailedNames cell = {}
-        TestTimer
-        SuiteTimer
+        TotalTests double = 0       % Expected number of tests in the suite
+        CompletedTests double = 0   % Running count of completed tests
+        PassedCount double = 0      % Running count of passed tests
+        FailedCount double = 0      % Running count of failed tests
+        FailedNames cell = {}       % Cell array of fully-qualified names of failed tests
+        TestTimer                   % tic handle for measuring individual test duration
+        SuiteTimer                  % tic handle for measuring total suite duration
     end
 
     methods
         function plugin = ProgressBarPlugin(totalTests)
+        %PROGRESSBARPLUGIN Constructor. Accepts the total test count for
+        %   progress fraction display (e.g., [3/42]).
             plugin.TotalTests = totalTests;
         end
     end
 
     methods (Access = protected)
         function runTestSuite(plugin, pluginData)
+        %RUNTESTSUITE Called once when the suite starts. Resets counters,
+        %   delegates to the superclass to execute all tests, then prints
+        %   the final summary block.
             plugin.CompletedTests = 0;
             plugin.PassedCount = 0;
             plugin.FailedCount = 0;
@@ -39,6 +44,8 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
         end
 
         function runTest(plugin, pluginData)
+        %RUNTEST Called for each individual test. Times the test, prints a
+        %   single-line pass/fail result, and updates running counters.
             plugin.TestTimer = tic;
             runTest@matlab.unittest.plugins.TestRunnerPlugin(plugin, pluginData);
             testTime = toc(plugin.TestTimer);
@@ -74,6 +81,8 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
 
     methods (Access = private)
         function printSummary(plugin, elapsed)
+        %PRINTSUMMARY Prints the final bordered summary block with total
+        %   counts, elapsed time, and a list of any failed test names.
             fprintf('\n');
             fprintf('───────────────────────────────────────────────────\n');
             fprintf('  Test Suite Summary\n');

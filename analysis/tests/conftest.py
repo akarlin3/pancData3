@@ -242,7 +242,19 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
 
 @pytest.fixture
 def saved_files_with_csvs(saved_files_dir: Path) -> Path:
-    """saved_files dir populated with Significant_LF_Metrics.csv per DWI type."""
+    """saved_files dir populated with Significant_LF_Metrics.csv per DWI type.
+
+    Creates CSVs with deliberately different metric sets across DWI types
+    to exercise cross-DWI consistency analysis:
+
+    - Standard: 3 rows (mean_adc@BL, mean_d@BL, mean_adc@W2)
+    - dnCNN:    1 row  (mean_adc@BL only)
+    - IVIMnet:  no CSV (tests missing-file graceful handling)
+
+    This means mean_adc@BL appears in Standard and dnCNN but not IVIMnet
+    (inconsistent), while mean_d@BL and mean_adc@W2 appear only in Standard
+    (also inconsistent).  No metric is consistent across all three types.
+    """
     for dwi_type in ("Standard", "dnCNN"):
         csv_path = saved_files_dir / dwi_type / "Significant_LF_Metrics.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:

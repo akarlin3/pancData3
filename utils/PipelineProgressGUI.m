@@ -13,12 +13,12 @@ classdef PipelineProgressGUI < handle
 %       gui.close();
 
     properties (Access = private)
-        GUI                 % ProgressGUI instance
-        StepKeys            % cell array of step keys being tracked
-        StepDisplayNames    % cell array of display names (same order)
-        TotalSteps          % number of tracked steps
-        CompletedSteps      % number of steps finished
-        DWITypeName         % e.g. 'Standard'
+        GUI                 % ProgressGUI instance (the underlying figure-based progress bar)
+        StepKeys            % cell array of step keys being tracked (e.g. {'load','sanity'})
+        StepDisplayNames    % cell array of human-readable display names (same order as StepKeys)
+        TotalSteps          % number of tracked steps (excludes unrecognized keys)
+        CompletedSteps      % running count of steps finished so far
+        DWITypeName         % DWI processing type label, e.g. 'Standard', 'dnCNN', 'IVIMnet'
     end
 
     properties (Constant, Access = private)
@@ -45,14 +45,16 @@ classdef PipelineProgressGUI < handle
             obj.DWITypeName = dwiTypeName;
             obj.CompletedSteps = 0;
 
-            % Filter to only the steps present in the master map
-            % (excludes 'test' and config parse which are not tracked)
+            % Filter stepsToRun to only those present in the master STEP_MAP.
+            % Internal steps like 'test' and config parsing are not tracked
+            % in the progress bar because they run before the main pipeline.
             allKeys = PipelineProgressGUI.STEP_MAP(:, 1);
             allNames = PipelineProgressGUI.STEP_MAP(:, 2);
 
             obj.StepKeys = {};
             obj.StepDisplayNames = {};
             for k = 1:numel(stepsToRun)
+                % Look up the step key in the master map to get its display name
                 idx = find(strcmp(stepsToRun{k}, allKeys), 1);
                 if ~isempty(idx)
                     obj.StepKeys{end+1} = allKeys{idx};
@@ -62,14 +64,16 @@ classdef PipelineProgressGUI < handle
             obj.TotalSteps = numel(obj.StepKeys);
 
             if obj.TotalSteps == 0
+                % No recognized steps to track; skip GUI creation entirely
                 obj.GUI = [];
                 return;
             end
 
+            % Create the underlying ProgressGUI figure with a DWI-type-specific title
             titleStr = sprintf('DWI Pipeline — %s', dwiTypeName);
             obj.GUI = ProgressGUI(titleStr, obj.TotalSteps);
 
-            % Initial update
+            % Show the initial "0%" state before any step begins
             counts = struct('completed', 0, 'total', obj.TotalSteps, ...
                             'stepName', sprintf('Step 0/%d', obj.TotalSteps));
             obj.GUI.update(0, counts, 'Initializing...', 'running');

@@ -57,7 +57,10 @@ function test_single_fraction(testCase)
 end
 
 function test_varying_patient_dates_median(testCase)
-    % Two patients with slightly different schedules; median should be used
+    % When patients have slightly different inter-fraction intervals, the
+    % function should use the median offset across patients at each
+    % fraction.  Patient 1 has offset 5, patient 2 has offset 7 for Fx2,
+    % so the median is 6.
     fx_dates = {'20240101', '20240106'; ...   % offsets [0, 5]
                 '20240101', '20240108'};      % offsets [0, 7]
     scan_days = compute_scan_days_from_dates(fx_dates);

@@ -30,6 +30,8 @@ td_n_feat = 4;         % Number of time-dependent features (ADC, D, f, D*)
 td_scan_days = [0, 5, 10, 15, 20, 90];  % Scan schedule (days from baseline)
 nTp = length(td_scan_days);
 
+% Generate random DWI parameter arrays [n_patients x n_timepoints]
+% Values are scaled to approximate realistic ranges (arbitrary units for mock)
 ADC_abs = rand(n_vp, nTp) * 2;
 D_abs   = rand(n_vp, nTp) * 1.5;
 f_abs   = rand(n_vp, nTp);
@@ -37,18 +39,21 @@ Dstar_abs = rand(n_vp, nTp) * 0.5;
 
 td_feat_arrays = {ADC_abs, D_abs, f_abs, Dstar_abs};
 td_feat_names  = {'ADC', 'D', 'f', 'D*'};
-td_tot_time = randi([10, 200], n_vp, 1);
+td_tot_time = randi([10, 200], n_vp, 1);  % Random overall survival times (days)
 % Event indicator: 0 = censored, 1 = disease progression (event of interest),
 % 2 = competing risk (e.g., non-cancer death).
 td_lf = randi([0, 2], n_vp, 1); 
 m_id_list = arrayfun(@(x) sprintf('Pt%d', x), 1:n_vp, 'UniformOutput', false);
 
-m_gtv_vol = rand(n_vp, nTp) * 100;
+m_gtv_vol = rand(n_vp, nTp) * 100;  % Mock GTV volumes (cm^3)
 
-% minimal provenance
+% Minimal DL provenance struct (empty = no leakage exclusions needed)
 dl_provenance = struct();
-dtype = 1;
+dtype = 1;  % DWI type index: 1=Standard (no DL leakage checks apply)
 
+% Build the time-dependent (counting process) panel:
+% Each patient is expanded into multiple intervals [t_start, t_stop)
+% with covariates from the corresponding scan timepoint.
 [X_td, t_start_td, t_stop_td, event_td, pat_id_td, frac_td] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days);
 
@@ -62,11 +67,17 @@ surv_event_all = td_lf;
 valid_idx_pts = find(valid_pts);
 n_vp = length(valid_idx_pts);
 
+% oof_risk_history stores per-patient out-of-fold risk predictions,
+% censoring model parameters, and CIF estimates for the C-index computation.
 oof_risk_history = cell(n_vp, 1);
 
+% --- LOOCV loop: leave one patient out, train on remaining ---
 for p_idx = 1:n_vp
     pt_id = m_id_list{valid_idx_pts(p_idx)};
     
+    % Check for DL training leakage: skip patients who were in the DL
+    % training set to prevent data contamination (only relevant for
+    % dtype=2 (dnCNN) or dtype=3 (IVIMnet))
     is_leaky = false;
     if dtype == 2 && isfield(dl_provenance, 'dncnn_train_ids') && any(strcmp(dl_provenance.dncnn_train_ids, pt_id))
         is_leaky = true;

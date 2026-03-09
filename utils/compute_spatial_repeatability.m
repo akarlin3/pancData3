@@ -122,13 +122,15 @@ if ~rpt_has_3d
     return;
 end
 
-% Accumulate pairwise metrics then average
+% Accumulate pairwise Dice and Hausdorff metrics across all repeat pairs.
+% With N repeats, there are N*(N-1)/2 unique pairs. Each pair gets its
+% own row; columns correspond to the 4 diffusion parameters.
 param_names = {'adc', 'd', 'f', 'dstar'};
 param_thresholds = [adc_thresh, d_thresh, f_thresh, dstar_thresh];
 pair_dice = nan(numel(valid_rpis)*(numel(valid_rpis)-1)/2, 4);
 pair_hd_max = nan(size(pair_dice));
 pair_hd95 = nan(size(pair_dice));
-pi_count = 0;
+pi_count = 0;  % running pair counter
 
 for ri1 = 1:numel(valid_rpis)-1
     for ri2 = ri1+1:numel(valid_rpis)
@@ -136,7 +138,8 @@ for ri1 = 1:numel(valid_rpis)-1
         mask_3d_1 = rpt_masks_3d{ri1};
         mask_3d_2 = rpt_masks_3d{ri2};
 
-        % Verify compatible 3D mask dimensions
+        % Verify compatible 3D mask dimensions (mismatched grids indicate
+        % different reconstruction matrices and cannot be directly compared)
         if ~isequal(size(mask_3d_1), size(mask_3d_2))
             continue;
         end
@@ -148,15 +151,25 @@ for ri1 = 1:numel(valid_rpis)-1
                 continue;
             end
 
+            % Verify that the 1D parameter vector length matches the number
+            % of GTV voxels in the 3D mask (data integrity check)
             n_gtv_1 = sum(mask_3d_1(:) == 1);
             n_gtv_2 = sum(mask_3d_2(:) == 1);
             if numel(vec_1) ~= n_gtv_1 || numel(vec_2) ~= n_gtv_2
                 continue;
             end
 
-            % Threshold to binary, embed in 3D, morphological cleanup
+            % Threshold parameter vector to create a binary sub-volume.
+            % For ADC and D: values below threshold indicate restricted
+            % diffusion (high cellularity / treatment resistance).
+            % For f: values below threshold indicate low perfusion fraction.
+            % Embed the binary vector back into the 3D GTV mask positions.
             subvol_3d_1 = false(size(mask_3d_1));
             subvol_3d_1(mask_3d_1 == 1) = vec_1 < param_thresholds(pi);
+            % Morphological open-then-close removes small noise speckles
+            % (open) and fills small gaps (close) for cleaner sub-volumes.
+            % bwareaopen removes connected components smaller than the
+            % minimum size threshold to eliminate isolated noise voxels.
             subvol_3d_1 = imclose(imopen(subvol_3d_1, morph_se), morph_se);
             subvol_3d_1 = bwareaopen(subvol_3d_1, morph_min_cc);
 
@@ -165,6 +178,10 @@ for ri1 = 1:numel(valid_rpis)-1
             subvol_3d_2 = imclose(imopen(subvol_3d_2, morph_se), morph_se);
             subvol_3d_2 = bwareaopen(subvol_3d_2, morph_min_cc);
 
+            % Compute spatial overlap (Dice) and distance (Hausdorff) metrics.
+            % Dice ranges [0,1] (1 = perfect overlap); Hausdorff is in mm
+            % (0 = identical boundaries). HD95 is the 95th-percentile
+            % Hausdorff distance, less sensitive to single-voxel outliers.
             [d_val, hm_val, h95_val] = compute_dice_hausdorff( ...
                 subvol_3d_1, subvol_3d_2, rpt_vox_dims);
             pair_dice(pi_count, pi) = d_val;
@@ -174,7 +191,9 @@ for ri1 = 1:numel(valid_rpis)-1
     end
 end
 
-% Average across all repeat pairs
+% Average across all repeat pairs to produce a single repeatability
+% estimate per parameter. NaN-safe mean handles pairs where one repeat
+% had missing data for a particular parameter.
 if exist('OCTAVE_VERSION', 'builtin')
     mean_dice = mean(pair_dice(1:pi_count,:), 1, 'omitnan');
     mean_hd_max = mean(pair_hd_max(1:pi_count,:), 1, 'omitnan');
@@ -184,6 +203,7 @@ else
     mean_hd_max = nanmean(pair_hd_max(1:pi_count,:), 1);
     mean_hd95 = nanmean(pair_hd95(1:pi_count,:), 1);
 end
+% Unpack columns: 1=ADC, 2=D, 3=f, 4=D*
 dice_adc = mean_dice(1);
 dice_d   = mean_dice(2);
 dice_f   = mean_dice(3);
@@ -202,6 +222,12 @@ end
 %% --- Local helper function ---
 
 function [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, rpi, dwi_type)
+% SELECT_DWI_VECTORS  Extracts the appropriate parameter vectors based on DWI type.
+%   Standard (1): uses native ADC and IVIM vectors from conventional fitting.
+%   DnCNN (2): uses vectors from DnCNN-denoised images (suffix _dncnn).
+%   IVIMnet (3): uses native ADC but deep-learning IVIM estimates (suffix _ivimnet).
+%   Note: IVIMnet uses native ADC because IVIMnet only re-estimates the IVIM
+%   parameters (D, f, D*) via its neural network, not ADC.
 switch dwi_type
     case 1
         adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector;

@@ -368,6 +368,11 @@ else
     end
 end
 
+% Normalize patient IDs for matching between the clinical spreadsheet (T.Pat)
+% and the file-system folder names (id_list).  Normalization replaces
+% underscores with hyphens and strips Excel-embedded single quotes so that
+% 'P_01' and 'P-01' match correctly.  This is necessary because clinicians
+% and file systems may use different separator conventions.
 if isempty(T_Pat_cell)
     T_Pat_normalized = {};
 else
