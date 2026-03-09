@@ -1,0 +1,293 @@
+"""Formatting utilities and constants for the HTML analysis report.
+
+Contains:
+- HTML escaping, section headings, significance tags/classes
+- CSS stylesheet constant
+- DWI badge, trend tag, navigation bar helpers
+- HTML template for Markdown-to-HTML conversion
+- Stat card and consensus helpers
+"""
+
+from __future__ import annotations
+
+import html as _html
+
+
+def _esc(text: str) -> str:
+    """HTML-escape a string."""
+    return _html.escape(str(text))
+
+
+def _section(title: str, level: int = 2) -> str:
+    """Return a Markdown-style section heading string (utility / test helper)."""
+    return f"\n{'#' * level} {title}\n"
+
+
+def _sig_tag(p: float) -> str:
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return ""
+
+
+def _sig_class(p: float) -> str:
+    """Return a CSS class name for the significance level."""
+    if p < 0.001:
+        return "sig-3"
+    if p < 0.01:
+        return "sig-2"
+    if p < 0.05:
+        return "sig-1"
+    return ""
+
+
+CSS = """\
+:root {
+    --bg: #ffffff; --fg: #1a1a2e; --muted: #64748b;
+    --accent: #2563eb; --accent-light: #dbeafe;
+    --border: #e2e8f0; --row-alt: #f8fafc;
+    --green: #16a34a; --red: #dc2626; --amber: #d97706;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--fg); background: var(--bg);
+    line-height: 1.6; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem;
+}
+h1 { font-size: 1.8rem; border-bottom: 3px solid var(--accent); padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+h2 { font-size: 1.35rem; color: var(--accent); margin: 2rem 0 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+h3 { font-size: 1.1rem; margin: 1.25rem 0 0.5rem; }
+h4 { font-size: 0.98rem; margin: 1rem 0 0.4rem; color: var(--muted); }
+p, ul { margin-bottom: 0.75rem; }
+ul { padding-left: 1.5rem; }
+.meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+.meta span { display: inline-block; margin-right: 1.5rem; }
+code { background: var(--row-alt); border: 1px solid var(--border); border-radius: 3px; padding: 0.1em 0.35em; font-size: 0.88em; }
+table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.25rem; font-size: 0.92rem; }
+th { background: var(--accent); color: #fff; text-align: left; padding: 0.5rem 0.75rem; font-weight: 600; }
+td { padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:nth-child(even) td { background: var(--row-alt); }
+tr:hover td { background: var(--accent-light); }
+.sig-1 { color: var(--amber); font-weight: 600; }
+.sig-2 { color: var(--red); font-weight: 600; }
+.sig-3 { color: var(--red); font-weight: 700; }
+.agree { color: var(--green); font-weight: 600; }
+.differ { color: var(--red); font-weight: 700; }
+.badge { display: inline-block; padding: 0.15em 0.5em; border-radius: 4px; font-size: 0.82rem; font-weight: 600; }
+.badge-standard { background: #dbeafe; color: #1e40af; }
+.badge-dncnn { background: #dcfce7; color: #166534; }
+.badge-ivimnet { background: #fef3c7; color: #92400e; }
+.badge-root { background: #f1f5f9; color: #475569; }
+.summary-box { background: var(--accent-light); border-left: 4px solid var(--accent); padding: 1rem 1.25rem; border-radius: 0 6px 6px 0; margin: 1rem 0; }
+.warn-box { background: #fef3c7; border-left: 4px solid var(--amber); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.9rem; }
+.info-box { background: #f0fdf4; border-left: 4px solid var(--green); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; margin: 0.75rem 0; font-size: 0.9rem; }
+footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; }
+nav.toc {
+    position: sticky; top: 0; background: var(--bg);
+    border-bottom: 2px solid var(--border); padding: 0.5rem 0 0.4rem;
+    margin-bottom: 1.5rem; z-index: 100; overflow-x: auto;
+    white-space: nowrap; font-size: 0.83rem;
+}
+nav.toc a { color: var(--accent); text-decoration: none; margin-right: 1.1rem; }
+nav.toc a:hover { text-decoration: underline; }
+details { margin: 0.3rem 0; }
+details > summary {
+    cursor: pointer; color: var(--accent); font-size: 0.88rem;
+    padding: 0.2rem 0.1rem; list-style: none; user-select: none;
+}
+details > summary::before { content: "\\25B6\\00A0"; font-size: 0.7em; }
+details[open] > summary::before { content: "\\25BC\\00A0"; }
+details[open] > summary { margin-bottom: 0.4rem; }
+.axis-info { font-size: 0.82rem; color: var(--muted); line-height: 1.4; }
+.trend-tag {
+    display: inline-block; padding: 0.1em 0.45em; border-radius: 3px;
+    font-size: 0.8rem; margin: 0.1em 0.1em; border: 1px solid var(--border);
+}
+.trend-incr { background: #dcfce7; border-color: #86efac; color: #166534; }
+.trend-decr { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+.trend-flat { background: var(--row-alt); }
+.trend-nm   { background: #f5f3ff; border-color: #c4b5fd; color: #5b21b6; }
+.full-summary { font-size: 0.88rem; color: #374151; margin-top: 0.25rem; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin: 0.75rem 0 1rem; }
+.stat-card { background: var(--row-alt); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; }
+.stat-card .label { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-card .value { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+.stat-card .sub { font-size: 0.8rem; color: var(--muted); }
+"""
+
+
+def _dwi_badge(dwi_type: str) -> str:
+    cls = {
+        "Standard": "badge-standard", "dnCNN": "badge-dncnn",
+        "IVIMnet": "badge-ivimnet",
+    }.get(dwi_type, "badge-root")
+    return f'<span class="badge {cls}">{_esc(dwi_type)}</span>'
+
+
+def _trend_tag(direction: str) -> str:
+    d = direction.lower()
+    if "increas" in d or "up" in d or "higher" in d or "rising" in d:
+        cls = "trend-incr"
+        arrow = "\u2191\u00a0"
+    elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
+        cls = "trend-decr"
+        arrow = "\u2193\u00a0"
+    elif "flat" in d or "stable" in d or "constant" in d:
+        cls = "trend-flat"
+        arrow = "\u2192\u00a0"
+    else:
+        cls = "trend-nm"
+        arrow = ""
+    return f'<span class="trend-tag {cls}">{arrow}{_esc(direction)}</span>'
+
+
+# ── Navigation sections ────────────────────────────────────────────────────────
+
+NAV_SECTIONS = [
+    ("exec-summary", "Executive Summary"),
+    ("data-quality", "Data Quality"),
+    ("hypothesis", "Hypothesis"),
+    ("graph-overview", "Graphs"),
+    ("significance", "Statistics"),
+    ("cross-dwi", "Cross-DWI"),
+    ("fdr-global", "FDR Global"),
+    ("correlations", "Correlations"),
+    ("treatment", "Treatment"),
+    ("predictive", "Predictive"),
+    ("supplemental", "Supplemental"),
+    ("appendix", "All Graphs"),
+]
+
+
+def _nav_bar() -> str:
+    links = "".join(
+        f'<a href="#{anchor}">{_esc(label)}</a>'
+        for anchor, label in NAV_SECTIONS
+    )
+    return f'<nav class="toc">{links}</nav>'
+
+
+def _h2(text: str, anchor: str) -> str:
+    return f'<h2 id="{anchor}">{_esc(text)}</h2>'
+
+
+def _stat_card(label: str, value: str, sub: str = "") -> str:
+    sub_html = f'<div class="sub">{_esc(sub)}</div>' if sub else ""
+    return (
+        f'<div class="stat-card">'
+        f'<div class="label">{_esc(label)}</div>'
+        f'<div class="value">{_esc(value)}</div>'
+        f'{sub_html}</div>'
+    )
+
+
+def _get_consensus(trend_list: list[str]) -> str:
+    if not trend_list: return "unknown"
+    increasers = sum(1 for x in trend_list if "increas" in x or "higher" in x or "up" in x)
+    decreasers = sum(1 for x in trend_list if "decreas" in x or "lower" in x or "down" in x)
+    if increasers > decreasers: return "increasing"
+    if decreasers > increasers: return "decreasing"
+    return "stable"
+
+
+HTML_TEMPLATE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  :root {{
+    --bg: #ffffff;
+    --fg: #1a1a2e;
+    --accent: #0f3460;
+    --accent-light: #e8eef6;
+    --border: #d0d7de;
+    --table-stripe: #f6f8fa;
+    --sig-strong: #d32f2f;
+    --sig-moderate: #e65100;
+    --sig-mild: #f9a825;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    color: var(--fg);
+    background: var(--bg);
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+  }}
+  h1 {{
+    font-size: 1.8rem;
+    color: var(--accent);
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+  }}
+  h2 {{
+    font-size: 1.4rem;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.3rem;
+    margin-top: 2rem;
+    margin-bottom: 0.8rem;
+  }}
+  h3 {{
+    font-size: 1.15rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }}
+  p {{ margin-bottom: 0.6rem; }}
+  code {{
+    background: var(--accent-light);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-size: 0.9em;
+  }}
+  table {{
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.8rem 0 1.2rem;
+    font-size: 0.92rem;
+  }}
+  th, td {{
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.7rem;
+    text-align: left;
+  }}
+  th {{
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }}
+  tr:nth-child(even) {{ background: var(--table-stripe); }}
+  tr:hover {{ background: var(--accent-light); }}
+  ul, ol {{ margin: 0.5rem 0 0.5rem 1.5rem; }}
+  li {{ margin-bottom: 0.25rem; }}
+  strong {{ color: var(--accent); }}
+  hr {{
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+  }}
+  em {{ color: #555; }}
+  .footer {{
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    color: #666;
+  }}
+</style>
+</head>
+<body>
+{body}
+</body>
+</html>
+"""

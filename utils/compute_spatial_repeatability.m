@@ -1,0 +1,197 @@
+function [dice_adc, hd_max_adc, hd95_adc, dice_d, hd_max_d, hd95_d, ...
+    dice_f, hd_max_f, hd95_f, dice_dstar, hd_max_dstar, hd95_dstar] = ...
+    compute_spatial_repeatability(data_vectors_gtvp, j, dwi_type, ...
+    gtv_locations, adc_thresh, d_thresh, f_thresh, dstar_thresh, ...
+    morph_se, morph_min_cc, last_rpt_gtv_mat, last_rpt_gtv_mask)
+% COMPUTE_SPATIAL_REPEATABILITY — Computes Dice and Hausdorff between Fx1 repeat sub-volumes
+%
+% Loads 3D GTV masks for each valid Fx1 repeat scan, constructs
+% threshold-defined binary sub-volumes, applies morphological cleanup,
+% and computes pairwise Dice/Hausdorff metrics averaged across all pairs.
+%
+% Inputs:
+%   data_vectors_gtvp - Full data vectors struct array
+%   j                 - Patient index
+%   dwi_type          - DWI pipeline type index (1=Standard, 2=DnCNN, 3=IVIMnet)
+%   gtv_locations     - Cell array of GTV path locations (patients x timepoints x repeats)
+%   adc_thresh        - ADC threshold for restricted diffusion sub-volume
+%   d_thresh          - D threshold for restricted diffusion sub-volume
+%   f_thresh          - f threshold for low-perfusion sub-volume
+%   dstar_thresh      - D* threshold for sub-volume
+%   morph_se          - Morphological structuring element for cleanup
+%   morph_min_cc      - Minimum connected component size (voxels)
+%   last_rpt_gtv_mat  - Path of last cached GTV mask file (for I/O reduction)
+%   last_rpt_gtv_mask - Cached 3D GTV mask corresponding to last_rpt_gtv_mat
+%
+% Outputs:
+%   dice_adc, hd_max_adc, hd95_adc       - ADC sub-volume spatial repeatability
+%   dice_d, hd_max_d, hd95_d             - D sub-volume spatial repeatability
+%   dice_f, hd_max_f, hd95_f             - f sub-volume spatial repeatability
+%   dice_dstar, hd_max_dstar, hd95_dstar - D* sub-volume spatial repeatability
+%   (all NaN if insufficient repeats or missing 3D masks)
+
+% Initialize all outputs to NaN
+dice_adc = NaN; hd_max_adc = NaN; hd95_adc = NaN;
+dice_d = NaN; hd_max_d = NaN; hd95_d = NaN;
+dice_f = NaN; hd_max_f = NaN; hd95_f = NaN;
+dice_dstar = NaN; hd_max_dstar = NaN; hd95_dstar = NaN;
+
+% Determine voxel dimensions for physical Hausdorff distances
+rpt_vox_dims = data_vectors_gtvp(j,1,1).vox_dims;
+if isempty(rpt_vox_dims) || ~isnumeric(rpt_vox_dims) || numel(rpt_vox_dims) ~= 3
+    rpt_vox_vol = data_vectors_gtvp(j,1,1).vox_vol;
+    if ~isempty(rpt_vox_vol) && ~isnan(rpt_vox_vol) && rpt_vox_vol > 0
+        side_mm = (rpt_vox_vol * 1000) ^ (1/3);
+        rpt_vox_dims = [side_mm, side_mm, side_mm];
+    else
+        rpt_vox_dims = [1, 1, 1];
+    end
+end
+
+% Collect valid repeat indices and their parameter vectors
+valid_rpis = [];
+rpt_vecs = struct('adc', {{}}, 'd', {{}}, 'f', {{}}, 'dstar', {{}});
+for rpi2 = 1:size(data_vectors_gtvp, 3)
+    [rv_adc, rv_d, rv_f, rv_ds] = select_dwi_vectors(data_vectors_gtvp, j, 1, rpi2, dwi_type);
+    if ~isempty(rv_adc) || ~isempty(rv_d)
+        valid_rpis(end+1) = rpi2; %#ok<AGROW>
+        rpt_vecs.adc{end+1} = rv_adc;
+        rpt_vecs.d{end+1} = rv_d;
+        rpt_vecs.f{end+1} = rv_f;
+        rpt_vecs.dstar{end+1} = rv_ds;
+    end
+end
+
+if numel(valid_rpis) < 2
+    return;
+end
+
+% Load 3D GTV masks for each valid repeat
+rpt_masks_3d = cell(numel(valid_rpis), 1);
+rpt_has_3d = true;
+for ri = 1:numel(valid_rpis)
+    rpi_idx = valid_rpis(ri);
+    gtv_mat_path = gtv_locations{j, 1, rpi_idx};
+    if ~isempty(gtv_mat_path)
+        path_parts = strsplit(gtv_mat_path, {'/', '\'});
+        gtv_mat_path = fullfile(path_parts{:});
+        if isunix && ~startsWith(gtv_mat_path, filesep) && isempty(path_parts{1})
+            gtv_mat_path = [filesep gtv_mat_path]; %#ok<AGROW>
+        end
+        if exist(gtv_mat_path, 'file')
+            if strcmp(gtv_mat_path, last_rpt_gtv_mat)
+                rpt_masks_3d{ri} = last_rpt_gtv_mask;
+            else
+                rpt_masks_3d{ri} = safe_load_mask(gtv_mat_path, 'Stvol3d');
+                last_rpt_gtv_mat = gtv_mat_path;
+                last_rpt_gtv_mask = rpt_masks_3d{ri};
+            end
+        end
+    end
+    if isempty(rpt_masks_3d{ri})
+        rpt_has_3d = false;
+    end
+end
+
+if ~rpt_has_3d
+    return;
+end
+
+% Accumulate pairwise metrics then average
+param_names = {'adc', 'd', 'f', 'dstar'};
+param_thresholds = [adc_thresh, d_thresh, f_thresh, dstar_thresh];
+pair_dice = nan(numel(valid_rpis)*(numel(valid_rpis)-1)/2, 4);
+pair_hd_max = nan(size(pair_dice));
+pair_hd95 = nan(size(pair_dice));
+pi_count = 0;
+
+for ri1 = 1:numel(valid_rpis)-1
+    for ri2 = ri1+1:numel(valid_rpis)
+        pi_count = pi_count + 1;
+        mask_3d_1 = rpt_masks_3d{ri1};
+        mask_3d_2 = rpt_masks_3d{ri2};
+
+        % Verify compatible 3D mask dimensions
+        if ~isequal(size(mask_3d_1), size(mask_3d_2))
+            continue;
+        end
+
+        for pi = 1:4
+            vec_1 = rpt_vecs.(param_names{pi}){ri1};
+            vec_2 = rpt_vecs.(param_names{pi}){ri2};
+            if isempty(vec_1) || isempty(vec_2)
+                continue;
+            end
+
+            n_gtv_1 = sum(mask_3d_1(:) == 1);
+            n_gtv_2 = sum(mask_3d_2(:) == 1);
+            if numel(vec_1) ~= n_gtv_1 || numel(vec_2) ~= n_gtv_2
+                continue;
+            end
+
+            % Threshold to binary, embed in 3D, morphological cleanup
+            subvol_3d_1 = false(size(mask_3d_1));
+            subvol_3d_1(mask_3d_1 == 1) = vec_1 < param_thresholds(pi);
+            subvol_3d_1 = imclose(imopen(subvol_3d_1, morph_se), morph_se);
+            subvol_3d_1 = bwareaopen(subvol_3d_1, morph_min_cc);
+
+            subvol_3d_2 = false(size(mask_3d_2));
+            subvol_3d_2(mask_3d_2 == 1) = vec_2 < param_thresholds(pi);
+            subvol_3d_2 = imclose(imopen(subvol_3d_2, morph_se), morph_se);
+            subvol_3d_2 = bwareaopen(subvol_3d_2, morph_min_cc);
+
+            [d_val, hm_val, h95_val] = compute_dice_hausdorff( ...
+                subvol_3d_1, subvol_3d_2, rpt_vox_dims);
+            pair_dice(pi_count, pi) = d_val;
+            pair_hd_max(pi_count, pi) = hm_val;
+            pair_hd95(pi_count, pi) = h95_val;
+        end
+    end
+end
+
+% Average across all repeat pairs
+if exist('OCTAVE_VERSION', 'builtin')
+    mean_dice = mean(pair_dice(1:pi_count,:), 1, 'omitnan');
+    mean_hd_max = mean(pair_hd_max(1:pi_count,:), 1, 'omitnan');
+    mean_hd95 = mean(pair_hd95(1:pi_count,:), 1, 'omitnan');
+else
+    mean_dice = nanmean(pair_dice(1:pi_count,:), 1);
+    mean_hd_max = nanmean(pair_hd_max(1:pi_count,:), 1);
+    mean_hd95 = nanmean(pair_hd95(1:pi_count,:), 1);
+end
+dice_adc = mean_dice(1);
+dice_d   = mean_dice(2);
+dice_f   = mean_dice(3);
+dice_dstar = mean_dice(4);
+hd_max_adc = mean_hd_max(1);
+hd_max_d   = mean_hd_max(2);
+hd_max_f   = mean_hd_max(3);
+hd_max_dstar = mean_hd_max(4);
+hd95_adc = mean_hd95(1);
+hd95_d   = mean_hd95(2);
+hd95_f   = mean_hd95(3);
+hd95_dstar = mean_hd95(4);
+
+end
+
+%% --- Local helper function ---
+
+function [adc_vec, d_vec, f_vec, dstar_vec] = select_dwi_vectors(data_vectors_gtvp, j, k, rpi, dwi_type)
+switch dwi_type
+    case 1
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector;
+    case 2
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector_dncnn;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector_dncnn;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector_dncnn;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_dncnn;
+    case 3
+        adc_vec   = data_vectors_gtvp(j,k,rpi).adc_vector;
+        d_vec     = data_vectors_gtvp(j,k,rpi).d_vector_ivimnet;
+        f_vec     = data_vectors_gtvp(j,k,rpi).f_vector_ivimnet;
+        dstar_vec = data_vectors_gtvp(j,k,rpi).dstar_vector_ivimnet;
+end
+end

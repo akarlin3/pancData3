@@ -315,7 +315,7 @@ pancData3/
 │   ├── metrics_baseline.m      #   Baseline metric computation
 │   ├── metrics_survival.m      #   Survival analysis
 │   └── ...
-├── utils/                      # Helper utilities (28 files)
+├── utils/                      # Helper utilities (39 files)
 │   ├── parse_config.m          #   Configuration parser
 │   ├── safe_load_mask.m        #   Secure .mat loading
 │   ├── escape_shell_arg.m      #   Shell argument escaping
@@ -327,7 +327,7 @@ pancData3/
 │   ├── run_all_tests.m         #   Master test runner
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
-├── analysis/                   # Python post-hoc analysis suite (11 files)
+├── analysis/                   # Python post-hoc analysis suite (13 files)
 │   └── tests/                  # Python test suite (6 test files, 126 tests)
 │   ├── run_analysis.py         #   Orchestrator (full workflow runner)
 │   ├── shared.py               #   Shared utilities
