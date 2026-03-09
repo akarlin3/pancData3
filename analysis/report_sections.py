@@ -200,6 +200,33 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         if n_corr > 0:
             cards.append(_stat_card("Notable Correlations", str(n_corr), "|r| \u2265 0.3"))
 
+    # Cross-DWI feature overlap
+    if log_data and len(dwi_types_present) >= 2:
+        tp_features: dict[str, dict[str, list[str]]] = {}
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            fs_list = log_data[dt].get("stats_predictive", {}).get("feature_selections", [])
+            for fs in fs_list:
+                tp = fs.get("timepoint", "?")
+                tp_features.setdefault(tp, {})[dt] = fs.get("features", [])
+        total_shared = 0
+        total_all = 0
+        for tp, dts_dict in tp_features.items():
+            if len(dts_dict) < 2:
+                continue
+            all_feats: set[str] = set()
+            for feats in dts_dict.values():
+                all_feats.update(feats)
+            total_all += len(all_feats)
+            for feat in all_feats:
+                if sum(1 for feats in dts_dict.values() if feat in feats) >= 2:
+                    total_shared += 1
+        if total_all > 0:
+            cards.append(_stat_card("Feature Overlap",
+                                    f"{total_shared}/{total_all}",
+                                    "shared across DWI types"))
+
     # Cohort info from MAT data
     if mat_data:
         for dt in DWI_TYPES:
@@ -2904,6 +2931,399 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
     )
 
     h.append("</div>")
+    return h
+
+
+def _section_data_completeness(log_data, dwi_types_present) -> list[str]:
+    """Build the Data Completeness section from sanity check log data.
+
+    Reports convergence issues, outlier detections, dimensional alignment
+    results, and excessive NaN warnings extracted from the sanity_checks
+    log files.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics (must include ``sanity_checks`` key per DWI type).
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the data completeness section.
+    """
+    h: list[str] = []
+    if not log_data:
+        return h
+
+    has_data = False
+    for dt in dwi_types_present:
+        if dt in log_data and log_data[dt].get("sanity_checks"):
+            san = log_data[dt]["sanity_checks"]
+            if (san.get("total_convergence", 0) > 0
+                    or san.get("all_converged")
+                    or san.get("dim_mismatches", 0) > 0
+                    or san.get("excessive_nan")):
+                has_data = True
+                break
+
+    if not has_data:
+        return h
+
+    h.append(_h2("Data Completeness", "data-completeness"))
+    h.append(
+        '<p class="meta">Summary of data quality checks from the pipeline\'s '
+        'sanity_checks module, covering voxel-level convergence, outlier '
+        'detection, and dose\u2013DWI dimensional alignment.</p>'
+    )
+
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        san = log_data[dt].get("sanity_checks", {})
+        if not san:
+            continue
+
+        items_to_show = []
+
+        # Convergence summary
+        if san.get("all_converged"):
+            items_to_show.append(("Convergence", "All converged", "info-box",
+                                  "All voxel-level fit values are finite, "
+                                  "non-NaN, and non-negative."))
+        elif san.get("total_convergence", 0) > 0:
+            items_to_show.append(("Convergence Flags",
+                                  str(san["total_convergence"]),
+                                  "warn-box",
+                                  f"{san['total_convergence']} convergence "
+                                  f"flag(s) raised (Inf/NaN/Neg voxels). "
+                                  f"Review affected scans for fitting failures."))
+
+        # Dimensional alignment
+        if san.get("dim_mismatches", 0) > 0:
+            items_to_show.append(("Dim. Mismatches",
+                                  str(san["dim_mismatches"]),
+                                  "warn-box",
+                                  f"{san['dim_mismatches']} dose/DWI pairs have "
+                                  f"mismatched voxel counts. Dosimetry metrics may "
+                                  f"be unreliable for these scans."))
+
+        if san.get("nan_dose_warnings", 0) > 0:
+            items_to_show.append(("NaN Dose Warnings",
+                                  str(san["nan_dose_warnings"]),
+                                  "warn-box",
+                                  f"{san['nan_dose_warnings']} scan(s) have >10% "
+                                  f"NaN in-mask dose voxels (partial RT dose coverage)."))
+
+        # Excessive NaN parameters
+        if san.get("excessive_nan"):
+            for en in san["excessive_nan"]:
+                items_to_show.append(("Excessive NaN",
+                                      f"{en['parameter']}: {en['pct_nan']:.1f}%",
+                                      "warn-box",
+                                      f"Parameter {en['parameter']} has "
+                                      f"{en['pct_nan']:.1f}% NaN values "
+                                      f"(threshold: 50%). Check GTV masks and "
+                                      f"model fitting for this parameter."))
+
+        if not items_to_show:
+            continue
+
+        h.append(f"<h3>{_dwi_badge(dt)}</h3>")
+
+        # Stat cards for quick overview
+        cards = []
+        if san.get("all_converged"):
+            cards.append(_stat_card("Convergence", "Passed"))
+        elif san.get("total_convergence", 0) > 0:
+            cards.append(_stat_card("Conv. Flags",
+                                    str(san["total_convergence"]),
+                                    "Inf/NaN/Neg issues"))
+        if san.get("total_outliers", 0) > 0:
+            cards.append(_stat_card("Sanity Outliers",
+                                    str(san["total_outliers"]),
+                                    ">3 IQR from median"))
+        dm = san.get("dim_mismatches", 0)
+        nw = san.get("nan_dose_warnings", 0)
+        if dm == 0 and nw == 0:
+            cards.append(_stat_card("Alignment", "Passed"))
+        else:
+            cards.append(_stat_card("Alignment Issues",
+                                    str(dm + nw),
+                                    f"{dm} mismatch, {nw} NaN"))
+        if cards:
+            h.append('<div class="stat-grid">')
+            h.extend(cards)
+            h.append("</div>")
+
+        # Detailed items
+        for label, value, box_cls, desc in items_to_show:
+            h.append(f'<div class="{box_cls}">{_esc(desc)}</div>')
+
+    return h
+
+
+def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
+    """Build the Cross-DWI Feature Overlap Analysis section.
+
+    Compares elastic-net selected features across DWI types at each
+    timepoint, highlighting features that are consistently selected
+    (high confidence) vs type-specific (potentially noise).
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the feature overlap section.
+    """
+    h: list[str] = []
+    if not log_data or len(dwi_types_present) < 2:
+        return h
+
+    # Gather all feature selections keyed by timepoint and DWI type.
+    tp_features: dict[str, dict[str, list[str]]] = {}
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        fs_list = log_data[dt].get("stats_predictive", {}).get("feature_selections", [])
+        for fs in fs_list:
+            tp = fs.get("timepoint", "?")
+            tp_features.setdefault(tp, {})[dt] = fs.get("features", [])
+
+    # Only show if we have at least one timepoint with 2+ DWI types.
+    multi_tp = {tp: dts for tp, dts in tp_features.items() if len(dts) >= 2}
+    if not multi_tp:
+        return h
+
+    h.append(_h2("Cross-DWI Feature Overlap", "feature-overlap"))
+    h.append(
+        '<p class="meta">Features consistently selected by elastic net across '
+        'multiple DWI types at the same timepoint are more likely to reflect true '
+        'biological signal rather than processing-specific artefacts.</p>'
+    )
+
+    total_shared = 0
+    total_unique = 0
+
+    for tp in sorted(multi_tp.keys()):
+        dts = multi_tp[tp]
+        all_features: set[str] = set()
+        for feats in dts.values():
+            all_features.update(feats)
+
+        if not all_features:
+            continue
+
+        h.append(f"<h3>Timepoint: <code>{_esc(tp)}</code></h3>")
+
+        # Classify each feature by how many DWI types selected it.
+        feature_counts: dict[str, list[str]] = {}
+        for feat in sorted(all_features):
+            selected_in = [dt for dt, feats in dts.items() if feat in feats]
+            feature_counts[feat] = selected_in
+
+        shared = {f: dts_list for f, dts_list in feature_counts.items()
+                  if len(dts_list) >= 2}
+        unique = {f: dts_list for f, dts_list in feature_counts.items()
+                  if len(dts_list) == 1}
+
+        total_shared += len(shared)
+        total_unique += len(unique)
+
+        # Stat cards
+        h.append('<div class="stat-grid">')
+        h.append(_stat_card("Shared Features", str(len(shared)),
+                            f"selected by \u22652 DWI types"))
+        h.append(_stat_card("Type-Specific", str(len(unique)),
+                            "selected by 1 DWI type only"))
+        h.append(_stat_card("Total Unique", str(len(all_features)),
+                            "across all DWI types"))
+        h.append("</div>")
+
+        # Table
+        h.append("<table><thead><tr><th>Feature</th>")
+        for dt in dwi_types_present:
+            if dt in dts:
+                h.append(f"<th>{_esc(dt)}</th>")
+        h.append("<th>Consensus</th></tr></thead><tbody>")
+        # Shared features first (sorted by count desc), then unique
+        for feat in sorted(shared.keys()):
+            dts_list = shared[feat]
+            h.append(f"<tr><td><code>{_esc(feat)}</code></td>")
+            for dt in dwi_types_present:
+                if dt in dts:
+                    if dt in dts_list:
+                        h.append('<td class="agree">\u2713</td>')
+                    else:
+                        h.append("<td>\u2717</td>")
+            h.append(f'<td class="agree"><strong>Shared ({len(dts_list)})</strong></td></tr>')
+        for feat in sorted(unique.keys()):
+            dts_list = unique[feat]
+            h.append(f"<tr><td><code>{_esc(feat)}</code></td>")
+            for dt in dwi_types_present:
+                if dt in dts:
+                    if dt in dts_list:
+                        h.append(f"<td>{_dwi_badge(dt)}</td>")
+                    else:
+                        h.append("<td>\u2014</td>")
+            h.append('<td>Type-specific</td></tr>')
+        h.append("</tbody></table>")
+
+    # Overall summary
+    if total_shared + total_unique > 0:
+        pct_shared = 100 * total_shared / (total_shared + total_unique)
+        cls = "agree" if pct_shared >= 50 else ("differ" if pct_shared < 25 else "")
+        cls_attr = f' class="{cls}"' if cls else ""
+        h.append(
+            f'<div class="summary-box"><strong>Feature Overlap Summary:</strong> '
+            f'<span{cls_attr}>{total_shared}/{total_shared + total_unique} '
+            f'features ({pct_shared:.0f}%) are shared</span> across DWI types. '
+            f'Shared features are more robust candidates for clinical biomarker '
+            f'development.</div>'
+        )
+
+    return h
+
+
+def _section_power_analysis(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build the Statistical Power Commentary section.
+
+    Provides context on statistical power based on the observed cohort
+    size and effect sizes, helping readers interpret non-significant
+    results appropriately.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the power analysis section.
+    """
+    import math
+
+    h: list[str] = []
+
+    # Determine cohort size
+    n_patients = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+                if n > n_patients:
+                    n_patients = n
+
+    if n_patients == 0:
+        return h
+
+    h.append(_h2("Statistical Power Context", "power"))
+    h.append(
+        '<p class="meta">Post-hoc power commentary based on observed cohort '
+        'size and effect sizes. These are approximate guidelines, not formal '
+        'power calculations (which require pre-specified effect sizes and '
+        'significance levels).</p>'
+    )
+
+    # Compute minimum detectable effect sizes for common tests
+    # Using rule-of-thumb: for two-sided test at alpha=0.05, 80% power,
+    # Wilcoxon requires ~n per group; Cohen's d detectable ≈ 2.8/sqrt(n/2)
+    n_per_group = n_patients // 2  # approximate split
+    if n_per_group > 0:
+        min_cohen_d = 2.8 / math.sqrt(n_per_group)
+        # Minimum detectable HR (approximate): HR = exp(d * pi/sqrt(3))
+        # where d is the standardised effect size on the log-hazard scale
+        min_hr = math.exp(min_cohen_d * 0.5)
+
+        h.append('<div class="methods-box">')
+        h.append(f"<h3>Approximate Detectable Effect Sizes (n = {n_patients})</h3>")
+        h.append(
+            f"<p>With approximately {n_per_group} patients per outcome group "
+            f"and conventional settings (\u03b1 = 0.05, 80% power):</p>"
+        )
+        h.append("<ul>")
+        h.append(
+            f"<li><strong>Group comparison (Wilcoxon):</strong> Minimum "
+            f"detectable standardised effect size d \u2248 {min_cohen_d:.2f} "
+            f"({'large' if min_cohen_d >= 0.8 else 'medium' if min_cohen_d >= 0.5 else 'small'} "
+            f"effect). "
+            f"{'The study is underpowered for detecting small to medium effects.' if min_cohen_d > 0.5 else 'The study has adequate power for medium effects.'}"
+            f"</li>"
+        )
+        h.append(
+            f"<li><strong>Survival analysis (Cox PH):</strong> Minimum "
+            f"detectable hazard ratio HR \u2248 {min_hr:.2f} (or 1/{min_hr:.2f} = "
+            f"{1/min_hr:.2f} for protective effects). Hazard ratios closer to 1.0 "
+            f"than this threshold cannot be reliably detected.</li>"
+        )
+
+        n_tests_approx = 0
+        if log_data:
+            for dt in dwi_types_present:
+                if dt in log_data:
+                    sc = log_data[dt].get("stats_comparisons", {})
+                    n_tests_approx += len(sc.get("glme_details", []))
+        if n_tests_approx > 0:
+            # After BH-FDR, effective alpha is approximately alpha * k / m
+            # where k is rank; for the median test, effective alpha ≈ 0.025
+            adj_min_d = 2.8 / math.sqrt(n_per_group) * 1.15  # ~15% penalty
+            h.append(
+                f"<li><strong>After FDR correction ({n_tests_approx} tests):</strong> "
+                f"The effective significance threshold is reduced, requiring "
+                f"slightly larger effects (d \u2248 {adj_min_d:.2f}) for detection. "
+                f"Non-significant results after FDR correction should not be "
+                f"interpreted as evidence of no effect.</li>"
+            )
+        h.append("</ul>")
+
+        # Classify observed effect sizes
+        if log_data:
+            detectable_hrs = []
+            undetectable_hrs = []
+            for dt in dwi_types_present:
+                if dt not in log_data:
+                    continue
+                hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
+                for hr_item in hrs:
+                    hr_val = hr_item.get("hr", 1.0)
+                    log_hr = abs(math.log(hr_val)) if hr_val > 0 else 0
+                    if log_hr >= math.log(min_hr):
+                        detectable_hrs.append(hr_item)
+                    else:
+                        undetectable_hrs.append(hr_item)
+
+            if detectable_hrs or undetectable_hrs:
+                h.append("<h4>Observed vs Detectable Effect Sizes</h4>")
+                if detectable_hrs:
+                    h.append(
+                        f'<div class="info-box">'
+                        f'{len(detectable_hrs)} covariate(s) have effect sizes '
+                        f'within the study\'s detection range (|log HR| \u2265 '
+                        f'{math.log(min_hr):.2f}).</div>'
+                    )
+                if undetectable_hrs:
+                    h.append(
+                        f'<div class="warn-box">'
+                        f'{len(undetectable_hrs)} covariate(s) have effect sizes '
+                        f'below the study\'s detection threshold. Non-significant '
+                        f'p-values for these covariates may reflect insufficient '
+                        f'power rather than absence of effect.</div>'
+                    )
+
+        h.append("</div>")
+
     return h
 
 

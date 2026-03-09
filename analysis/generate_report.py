@@ -75,8 +75,10 @@ from report_sections import (  # noqa: F401
     _section_correlations,
     _section_cross_dwi_comparison,
     _section_data_availability,
+    _section_data_completeness,
     _section_effect_sizes,
     _section_executive_summary,
+    _section_feature_overlap,
     _section_graph_issues,
     _section_graph_overview,
     _section_hypothesis,
@@ -85,6 +87,7 @@ from report_sections import (  # noqa: F401
     _section_methods,
     _section_model_diagnostics,
     _section_multiple_comparisons,
+    _section_power_analysis,
     _section_predictive_performance,
     _section_publication_header,
     _section_stats_by_graph_type,
@@ -276,6 +279,7 @@ def generate_report(folder: Path) -> str:
 
     # Remaining sections with progress tracking.
     remaining_sections = [
+        ("Data completeness", _section_data_completeness, (log_data, dwi_types_present)),
         ("Hypothesis", _section_hypothesis, (groups, log_data, mat_data)),
         ("Graph overview", _section_graph_overview, (rows,)),
         ("Graph issues", _section_graph_issues, (rows,)),
@@ -336,7 +340,9 @@ def generate_report(folder: Path) -> str:
         ("Correlations", _section_correlations, (rows,)),
         ("Treatment response", _section_treatment_response, (groups,)),
         ("Predictive performance", _section_predictive_performance, (log_data, dwi_types_present)),
+        ("Feature overlap", _section_feature_overlap, (log_data, dwi_types_present)),
         ("Model diagnostics", _section_model_diagnostics, (log_data, dwi_types_present, mat_data)),
+        ("Power analysis", _section_power_analysis, (log_data, dwi_types_present, mat_data)),
         ("MAT data", _section_mat_data, (mat_data,)),
         ("Limitations", _section_limitations, (log_data, dwi_types_present, mat_data)),
         ("Conclusions", _section_conclusions, (log_data, dwi_types_present, csv_data, mat_data, groups)),

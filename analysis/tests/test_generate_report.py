@@ -21,6 +21,9 @@ from generate_report import (
     _effect_size_label,
     _forest_plot_cell,
     _section,
+    _section_data_completeness,
+    _section_feature_overlap,
+    _section_power_analysis,
     _sig_tag,
     generate_report,
 )
@@ -269,3 +272,232 @@ class TestEffectSize:
         """Negative effect sizes should be classified by absolute value."""
         assert _effect_size_class(-0.9) == "effect-lg"
         assert _effect_size_label(-0.5) == "Medium"
+
+
+# ---------------------------------------------------------------------------
+# _section_data_completeness
+# ---------------------------------------------------------------------------
+
+class TestSectionDataCompleteness:
+    """Verify the data completeness section builder."""
+
+    def test_empty_when_no_log_data(self):
+        """Returns empty list when log_data is None."""
+        result = _section_data_completeness(None, ["Standard"])
+        assert result == []
+
+    def test_empty_when_no_sanity_data(self):
+        """Returns empty list when sanity_checks has no flags."""
+        log_data = {
+            "Standard": {
+                "sanity_checks": {
+                    "total_convergence": 0,
+                    "all_converged": False,
+                    "dim_mismatches": 0,
+                    "excessive_nan": [],
+                },
+            },
+        }
+        result = _section_data_completeness(log_data, ["Standard"])
+        assert result == []
+
+    def test_shows_convergence_passed(self):
+        """All-converged status generates the section with a 'Passed' card."""
+        log_data = {
+            "Standard": {
+                "sanity_checks": {
+                    "all_converged": True,
+                    "total_convergence": 0,
+                    "convergence_flags": [],
+                    "outliers": [],
+                    "total_outliers": 0,
+                    "dim_mismatches": 0,
+                    "nan_dose_warnings": 0,
+                    "excessive_nan": [],
+                },
+            },
+        }
+        result = _section_data_completeness(log_data, ["Standard"])
+        html = "\n".join(result)
+        assert "Data Completeness" in html
+        assert "Passed" in html
+
+    def test_shows_convergence_flags(self):
+        """Convergence flags generate a warning box."""
+        log_data = {
+            "Standard": {
+                "sanity_checks": {
+                    "all_converged": False,
+                    "total_convergence": 5,
+                    "convergence_flags": [],
+                    "outliers": [],
+                    "total_outliers": 0,
+                    "dim_mismatches": 0,
+                    "nan_dose_warnings": 0,
+                    "excessive_nan": [],
+                },
+            },
+        }
+        result = _section_data_completeness(log_data, ["Standard"])
+        html = "\n".join(result)
+        assert "5 convergence" in html
+        assert "warn-box" in html
+
+    def test_shows_excessive_nan(self):
+        """Excessive NaN parameters generate specific warnings."""
+        log_data = {
+            "Standard": {
+                "sanity_checks": {
+                    "all_converged": False,
+                    "total_convergence": 0,
+                    "convergence_flags": [],
+                    "outliers": [],
+                    "total_outliers": 0,
+                    "dim_mismatches": 0,
+                    "nan_dose_warnings": 0,
+                    "excessive_nan": [
+                        {"parameter": "D", "pct_nan": 65.0},
+                    ],
+                },
+            },
+        }
+        result = _section_data_completeness(log_data, ["Standard"])
+        html = "\n".join(result)
+        assert "65.0%" in html
+        assert "Parameter D" in html
+
+
+# ---------------------------------------------------------------------------
+# _section_feature_overlap
+# ---------------------------------------------------------------------------
+
+class TestSectionFeatureOverlap:
+    """Verify the cross-DWI feature overlap section builder."""
+
+    def test_empty_when_single_dwi_type(self):
+        """Returns empty list with only one DWI type."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "Fx5", "lambda": 0.05, "features": ["ADC", "D"]},
+                    ],
+                },
+            },
+        }
+        result = _section_feature_overlap(log_data, ["Standard"])
+        assert result == []
+
+    def test_empty_when_no_log_data(self):
+        """Returns empty list when log_data is None."""
+        result = _section_feature_overlap(None, ["Standard", "dnCNN"])
+        assert result == []
+
+    def test_shows_shared_features(self):
+        """Features selected by multiple DWI types are flagged as 'Shared'."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "Fx5", "lambda": 0.05,
+                         "features": ["ADC_mean", "D_mean", "f_mean"]},
+                    ],
+                },
+            },
+            "dnCNN": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "Fx5", "lambda": 0.06,
+                         "features": ["ADC_mean", "D_mean", "Dstar_vol"]},
+                    ],
+                },
+            },
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "Feature Overlap" in html
+        assert "Shared" in html
+        assert "ADC_mean" in html
+        assert "D_mean" in html
+        # f_mean and Dstar_vol are type-specific
+        assert "Type-specific" in html
+
+    def test_summary_percentage(self):
+        """Summary shows correct shared percentage."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.05,
+                         "features": ["A", "B"]},
+                    ],
+                },
+            },
+            "dnCNN": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.06,
+                         "features": ["A", "C"]},
+                    ],
+                },
+            },
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        # A is shared, B and C are unique -> 1/3 = 33%
+        assert "1/3" in html
+        assert "33%" in html
+
+
+# ---------------------------------------------------------------------------
+# _section_power_analysis
+# ---------------------------------------------------------------------------
+
+class TestSectionPowerAnalysis:
+    """Verify the statistical power commentary section builder."""
+
+    def test_empty_when_no_patients(self):
+        """Returns empty list when no cohort data is available."""
+        result = _section_power_analysis(None, ["Standard"], {})
+        assert result == []
+
+    def test_shows_power_with_cohort(self):
+        """With cohort data, approximate detectable effect sizes are shown."""
+        mat_data = {
+            "Standard": {
+                "longitudinal": {
+                    "num_patients": 25,
+                    "num_timepoints": 6,
+                },
+            },
+        }
+        result = _section_power_analysis(None, ["Standard"], mat_data)
+        html = "\n".join(result)
+        assert "Statistical Power" in html
+        assert "n = 25" in html
+        assert "Wilcoxon" in html
+        assert "Cox PH" in html
+
+    def test_shows_fdr_penalty(self):
+        """When GLME tests exist, FDR correction penalty is shown."""
+        log_data = {
+            "Standard": {
+                "stats_comparisons": {
+                    "glme_details": [
+                        {"metric": "ADC", "p": 0.01, "adj_alpha": 0.025},
+                        {"metric": "D", "p": 0.03, "adj_alpha": 0.05},
+                    ],
+                },
+                "survival": {"hazard_ratios": []},
+                "stats_predictive": {"roc_analyses": [], "feature_selections": []},
+            },
+        }
+        mat_data = {
+            "Standard": {
+                "longitudinal": {"num_patients": 30, "num_timepoints": 6},
+            },
+        }
+        result = _section_power_analysis(log_data, ["Standard"], mat_data)
+        html = "\n".join(result)
+        assert "FDR correction" in html
+        assert "2 tests" in html

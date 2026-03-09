@@ -55,7 +55,7 @@ pancData3/
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (14 files)
-│   └── tests/                  # Python test suite — 10 test files, 268 tests (pytest)
+│   └── tests/                  # Python test suite — 10 test files, 291 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -331,11 +331,11 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
-| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
+| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
 | `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, print styles, escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table numbering, citation system, references, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, hypothesis, graph issues, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
+| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, data completeness, hypothesis, graph issues, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, cross-DWI feature overlap, model diagnostics, statistical power context, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -348,10 +348,10 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 |---|---|
 | `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports |
 | `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
-| `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline regex parsing; integration with log files |
+| `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
 | `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
-| `test_generate_report.py` | Significance tags, section headers, full Markdown report generation |
+| `test_generate_report.py` | Significance tags, section headers, full HTML report generation, data completeness, feature overlap, power analysis sections |
 | `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
 | `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus |

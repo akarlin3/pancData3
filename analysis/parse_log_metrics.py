@@ -13,6 +13,8 @@ and applies targeted regular expressions to extract quantitative results:
   global likelihood-ratio test, IPCW weight ranges.
 - **metrics_baseline**: Per-metric outlier flags (LF/LC/CR breakdown),
   total outlier removal, baseline exclusion counts and LF-rate comparison.
+- **sanity_checks**: Convergence flags (Inf/NaN/Neg counts), outlier
+  detection, dimensional alignment, and excessive NaN warnings.
 
 The parsed data is returned as nested dicts (keyed by DWI type) and printed
 as a human-readable summary when the script is run directly.
@@ -138,6 +140,59 @@ RE_BASELINE_EXCLUDED = re.compile(
 # Used to compare local-failure rates between included and excluded patients.
 RE_LF_RATE = re.compile(
     r"LF rate:\s*included=([0-9.]+)%,\s*excluded=([0-9.]+)%"
+)
+
+# ----- sanity_checks -----
+
+# Matches convergence issue lines, e.g.:
+#   "Patient Pat001  Fx1  ADC : Inf=5/100 (5.0%)  NaN=10/100 (10.0%)"
+# Captures patient ID (1), timepoint (2), parameter (3).
+RE_CONVERGENCE_ISSUE = re.compile(
+    r"Patient\s+(\S+)\s+(\S+)\s+(.+?)\s*:"
+    r"(?:\s+Inf=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
+    r"(?:\s+NaN=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
+    r"(?:\s+Neg=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
+)
+
+# Matches: "Total convergence flags raised: 15"
+RE_TOTAL_CONVERGENCE = re.compile(
+    r"Total convergence flags raised:\s*(\d+)"
+)
+
+# Matches: "All voxel-level fit values are finite, non-NaN, and non-negative."
+RE_ALL_CONVERGED = re.compile(
+    r"All voxel-level fit values are finite"
+)
+
+# Matches outlier lines: "OUTLIER: Patient Pat015  Fx3  ADC_mean = 2.5e-3 ..."
+RE_SANITY_OUTLIER = re.compile(
+    r"OUTLIER:\s+Patient\s+(\S+)\s+(\S+)\s+(\w+)\s*=\s*([0-9.eE+-]+)"
+)
+
+# Matches: "Total outlier flags: 5"
+RE_SANITY_OUTLIER_TOTAL = re.compile(
+    r"Total outlier flags:\s*(\d+)"
+)
+
+# Matches dimensional mismatch lines
+RE_DIM_MISMATCH = re.compile(
+    r"MISMATCH:\s+Patient\s+(\S+)\s+(\S+)"
+)
+
+# Matches: "Dimensional mismatches: 3"
+RE_DIM_MISMATCH_TOTAL = re.compile(
+    r"Dimensional mismatches:\s*(\d+)"
+)
+
+# Matches: "NaN dose warnings: 2"
+RE_NAN_DOSE_WARNINGS = re.compile(
+    r"NaN dose warnings:\s*(\d+)"
+)
+
+# Matches excessive NaN lines:
+#   "Excessive NaN fraction in D: 65.0% (threshold: 50%)"
+RE_EXCESSIVE_NAN = re.compile(
+    r"Excessive NaN fraction in (\w[\w*]*?):\s*([0-9.]+)%"
 )
 
 
@@ -379,6 +434,95 @@ def parse_baseline(text: str) -> dict:
     return result
 
 
+def parse_sanity_checks(text: str) -> dict:
+    """Parse ``sanity_checks`` log output.
+
+    Extracts convergence issue counts, outlier flags, dimensional
+    alignment results, and excessive NaN warnings.
+
+    Parameters
+    ----------
+    text : str
+        Full text of the ``sanity_checks_output.txt`` log.
+
+    Returns
+    -------
+    dict
+        Keys: ``convergence_flags``, ``total_convergence``,
+        ``all_converged``, ``outliers``, ``total_outliers``,
+        ``dim_mismatches``, ``nan_dose_warnings``, ``excessive_nan``.
+    """
+    result: dict = {
+        "convergence_flags": [],
+        "total_convergence": 0,
+        "all_converged": False,
+        "outliers": [],
+        "total_outliers": 0,
+        "dim_mismatches": 0,
+        "nan_dose_warnings": 0,
+        "excessive_nan": [],
+    }
+
+    # Check if all values converged (no issues).
+    if RE_ALL_CONVERGED.search(text):
+        result["all_converged"] = True
+
+    # Total convergence flags count.
+    m = RE_TOTAL_CONVERGENCE.search(text)
+    if m:
+        result["total_convergence"] = int(m.group(1))
+
+    # Individual convergence issue lines.
+    for m in RE_CONVERGENCE_ISSUE.finditer(text):
+        entry: dict = {
+            "patient": m.group(1),
+            "timepoint": m.group(2),
+            "parameter": m.group(3).strip(),
+        }
+        if m.group(4) is not None:
+            entry["n_inf"] = int(m.group(4))
+            entry["n_total_inf"] = int(m.group(5))
+        if m.group(6) is not None:
+            entry["n_nan"] = int(m.group(6))
+            entry["n_total_nan"] = int(m.group(7))
+        if m.group(8) is not None:
+            entry["n_neg"] = int(m.group(8))
+            entry["n_total_neg"] = int(m.group(9))
+        result["convergence_flags"].append(entry)
+
+    # Outlier detections.
+    for m in RE_SANITY_OUTLIER.finditer(text):
+        result["outliers"].append({
+            "patient": m.group(1),
+            "timepoint": m.group(2),
+            "metric": m.group(3),
+            "value": float(m.group(4)),
+        })
+
+    m = RE_SANITY_OUTLIER_TOTAL.search(text)
+    if m:
+        result["total_outliers"] = int(m.group(1))
+
+    # Dimensional mismatches.
+    m = RE_DIM_MISMATCH_TOTAL.search(text)
+    if m:
+        result["dim_mismatches"] = int(m.group(1))
+
+    # NaN dose warnings.
+    m = RE_NAN_DOSE_WARNINGS.search(text)
+    if m:
+        result["nan_dose_warnings"] = int(m.group(1))
+
+    # Excessive NaN parameters.
+    for m in RE_EXCESSIVE_NAN.finditer(text):
+        result["excessive_nan"].append({
+            "parameter": m.group(1),
+            "pct_nan": float(m.group(2)),
+        })
+
+    return result
+
+
 def parse_all_logs(folder: Path) -> dict:
     """Parse all log files from a ``saved_files_*`` folder.
 
@@ -424,6 +568,9 @@ def parse_all_logs(folder: Path) -> dict:
             ),
             "baseline": parse_baseline(
                 _read_log(dwi_dir / f"metrics_baseline_output_{dwi_type}.txt")
+            ),
+            "sanity_checks": parse_sanity_checks(
+                _read_log(dwi_dir / "sanity_checks_output.txt")
             ),
         }
 
@@ -492,6 +639,22 @@ def main():
         if sv["global_lrt"]:
             g = sv["global_lrt"]
             print(f"\n  Global LRT: chi2({g['df']}) = {g['chi2']:.2f}, p = {g['p']:.4f}")
+
+        # ── Sanity checks ──
+        san = data.get("sanity_checks", {})
+        if san:
+            if san.get("all_converged"):
+                print("\n  Convergence: All values converged")
+            elif san.get("total_convergence", 0) > 0:
+                print(f"\n  Convergence: {san['total_convergence']} flags raised")
+            if san.get("dim_mismatches", 0) > 0:
+                print(f"  Dimensional mismatches: {san['dim_mismatches']}")
+            if san.get("nan_dose_warnings", 0) > 0:
+                print(f"  NaN dose warnings: {san['nan_dose_warnings']}")
+            if san.get("excessive_nan"):
+                print("  Excessive NaN parameters:")
+                for en in san["excessive_nan"]:
+                    print(f"    {en['parameter']}: {en['pct_nan']:.1f}%")
 
     print()
 
