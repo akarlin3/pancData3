@@ -210,7 +210,10 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testMotionCorruptionFlag(testCase)
-            % Voxels exceeding adc_max should be flagged
+            % Verifies the motion corruption detection: voxels with ADC
+            % values exceeding adc_max (0.002 here) are flagged as
+            % motion-corrupted. With 2 of 4 voxels above threshold,
+            % fx_corrupted should be 0.5 (50% corruption rate).
             cfg = testCase.ConfigStruct;
             cfg.adc_max = 0.002;
 

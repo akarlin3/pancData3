@@ -147,6 +147,9 @@ def _section_hypothesis(groups) -> list[str]:
     vascular_inflections: list[str] = []
     cellular_inflections: list[str] = []
 
+    # Analyse the Longitudinal_Mean_Metrics graph (if present) to extract
+    # trend directions for D (diffusion) and f (perfusion fraction), plus
+    # any inflection points that indicate specific treatment-fraction effects.
     if groups and "Longitudinal_Mean_Metrics" in groups:
         d_trends = []
         f_trends = []
@@ -154,18 +157,19 @@ def _section_hypothesis(groups) -> list[str]:
         for dt, r in groups["Longitudinal_Mean_Metrics"].items():
             if dt == "Root": continue
             try:
-                # 1. Parse Trends
+                # 1. Parse trend directions from the vision model output.
                 trends = json.loads(str(r.get("trends_json", "[]")))
                 for t in trends:
                     if not isinstance(t, dict): continue
                     series = t.get("series", "")
                     direction = t.get("direction", "").lower()
+                    # Classify trends by IVIM parameter series.
                     if series == "Mean D":
                         d_trends.append(direction)
                     elif series == "Mean f":
                         f_trends.append(direction)
 
-                # 2. Parse Inflection Points
+                # 2. Parse inflection points for specific fraction-level events.
                 ips = json.loads(str(r.get("inflection_points_json", "[]")))
                 for ip in ips:
                     if not isinstance(ip, dict): continue
@@ -173,8 +177,11 @@ def _section_hypothesis(groups) -> list[str]:
                     y_val = ip.get("approximate_y")
                     desc = ip.get("description", "").lower()
 
+                    # Convert x-coordinate to fraction label (e.g. "Fx5").
                     fx_label = f"Fx{int(x_val)}" if x_val > 0 else "baseline"
 
+                    # Try to extract a magnitude (percentage) from the
+                    # y-coordinate or from the description text.
                     magnitude = ""
                     if y_val is not None:
                         try:
@@ -185,10 +192,13 @@ def _section_hypothesis(groups) -> list[str]:
                             pass
 
                     if not magnitude:
+                        # Regex: look for a bare percentage like "15%"
                         pct_match = re.search(r'(\d+)%', desc)
                         if pct_match:
                             magnitude = f" of ~{pct_match.group(1)}%"
 
+                    # Classify inflection as vascular (D*/f-related) or
+                    # cellular (ADC/D-related) based on keyword matching.
                     if "d*" in desc or "f" in desc or "vascular" in desc or "perfusion" in desc:
                         if "drop" in desc or "decrease" in desc or "decline" in desc:
                             vascular_inflections.append(f"a significant vascular drop{magnitude} observed around {fx_label}")
