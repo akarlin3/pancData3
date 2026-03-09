@@ -161,18 +161,30 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
 end
 
 function sm = make_mock_sm(nPat, nRpt)
-% Create a minimal mock summary_metrics struct (not wrapped).
+% make_mock_sm  Create a minimal mock summary_metrics struct for testing.
+%
+%   sm = make_mock_sm(nPat)       - nPat patients, 1 repeat scan
+%   sm = make_mock_sm(nPat, nRpt) - nPat patients, nRpt repeat scans
+%
+%   Returns a struct with the fields expected by
+%   plot_cross_dwi_subvolume_comparison. All subvolume arrays are
+%   initialized to NaN so that tests can selectively populate only the
+%   DWI type indices they need. Dimensions follow the pipeline convention:
+%     (nPatients, nTimepoints, nDwiTypes=3) for longitudinal arrays
+%     (nPatients, nRepeats, nDwiTypes=3) for repeat-scan arrays
     if nargin < 2, nRpt = 1; end
-    nTp = 6;
+    nTp = 6; % Max timepoints supported by the pipeline
     sm.id_list = arrayfun(@(x) sprintf('P%02d', x), 1:nPat, 'UniformOutput', false);
-    sm.adc_sub_vol_pc = nan(nPat, nTp, 3);
-    sm.adc_sub_vol = nan(nPat, nTp, 3);
-    sm.adc_mean_rpt = nan(nPat, nRpt, 3);
-    sm.adc_sub_vol_rpt = nan(nPat, nRpt, 3);
+    sm.adc_sub_vol_pc = nan(nPat, nTp, 3);   % Subvolume percentage (longitudinal)
+    sm.adc_sub_vol = nan(nPat, nTp, 3);       % Absolute subvolume (longitudinal)
+    sm.adc_mean_rpt = nan(nPat, nRpt, 3);     % Mean ADC (repeat scans)
+    sm.adc_sub_vol_rpt = nan(nPat, nRpt, 3);  % Subvolume (repeat scans)
 end
 
 function save_mock(filepath, sm)
-% Save sm as 'summary_metrics' variable in a .mat file.
+% save_mock  Save a summary_metrics struct to a .mat checkpoint file.
+%   Wraps the struct in a variable named 'summary_metrics' as expected
+%   by the pipeline's checkpoint loading logic.
     summary_metrics = sm; %#ok<NASGU>
     save(filepath, 'summary_metrics');
 end
