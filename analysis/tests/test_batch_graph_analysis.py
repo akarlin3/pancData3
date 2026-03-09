@@ -8,7 +8,7 @@ Tests the non-API-dependent functions:
 - Pydantic schema validation (GraphAnalysis, Axis, Trend, InflectionPoint)
 
 API-dependent functions (analyze_image, main) are not tested here as they
-require an active ANTHROPIC_API_KEY and network access.
+require an active GEMINI_API_KEY and network access.
 """
 
 from __future__ import annotations

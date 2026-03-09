@@ -90,7 +90,7 @@ def main():
     parser.add_argument(
         "--skip-vision",
         action="store_true",
-        help="Skip Claude API vision analysis (use existing CSV if available)",
+        help="Skip Gemini API vision analysis (use existing CSV if available)",
     )
     parser.add_argument(
         "--report-only",
@@ -121,7 +121,7 @@ def main():
     results = {}
 
     if not args.report_only:
-        # Step 1: Vision-based graph analysis (requires ANTHROPIC_API_KEY).
+        # Step 1: Vision-based graph analysis (requires GEMINI_API_KEY).
         if not args.skip_vision:
             csv_path = folder / "graph_analysis_results.csv"
             print(f"  Vision CSV exists: {csv_path.exists()}")

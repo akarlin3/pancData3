@@ -313,15 +313,15 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 ### Analysis Scripts (`analysis/`)
 
-Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Claude API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
+Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
 
-**Requirements:** Python 3.12+, `anthropic`, `pydantic` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `ANTHROPIC_API_KEY` environment variable; all other scripts work without it.
+**Requirements:** Python 3.12+, `google-genai`, `pydantic` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; all other scripts work without it.
 
 | File | Purpose |
 |---|---|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only` flags |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
-| `batch_graph_analysis.py` | Async batch processing of all graph images via Claude vision API; outputs structured CSV with axes, trends, inflection points |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML report orchestrator: data loading, section assembly, and CLI entry point for `analysis_report.html` |

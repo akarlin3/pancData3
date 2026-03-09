@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Async batch graph analysis using Claude Sonnet 4 vision.
+"""Async batch graph analysis using Google Gemini vision.
 
 Scans the most recent ``saved_files_*`` timestamped folder for all PNG/JPG
-images produced by the MATLAB pipeline, sends each to the Claude Sonnet 4
+images produced by the MATLAB pipeline, sends each to the Gemini Flash
 vision model, and extracts structured metadata:
 
 - Axis labels, units, and ranges
@@ -14,7 +14,7 @@ Results are validated via strict Pydantic schemas and written to a flat CSV
 consumed by downstream analysis scripts (``generate_report.py``,
 ``cross_reference_dwi.py``, ``statistical_relevance.py``, etc.).
 
-**Requires** the ``ANTHROPIC_API_KEY`` environment variable to be set.
+**Requires** the ``GEMINI_API_KEY`` environment variable to be set.
 
 Usage:
     python batch_graph_analysis.py                       # auto-detect folder
@@ -38,7 +38,8 @@ from shared import resolve_folder, setup_utf8_stdout
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
-import anthropic
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field, ValidationError
 
 
@@ -118,8 +119,7 @@ def collect_images(folder: Path) -> list[Path]:
 def image_to_base64(path: Path) -> str:
     """Read an image file and return its base64-encoded string.
 
-    The base64 string is used to embed the image in the Claude API
-    request payload (``source.type = "base64"``).
+    The base64 string is used to embed the image in API request payloads.
 
     Parameters
     ----------
@@ -190,23 +190,28 @@ Rules:
 """
 
 
+# ── Gemini model configuration ──────────────────────────────────────────────
+
+# Model to use for vision analysis.
+GEMINI_MODEL = "gemini-2.5-flash"
+
 # ── Async API call ───────────────────────────────────────────────────────────
 
 # Concurrency limit for API requests.  Kept low (2) to stay well within
-# Anthropic's rate limits for the Sonnet model.
+# Gemini's rate limits.
 SEM_LIMIT = 2
 
-# Number of retries on HTTP 429 (rate-limit) errors.  Uses exponential
+# Number of retries on rate-limit (429) errors.  Uses exponential
 # backoff: 15s, 30s, 60s, 120s.
 MAX_RETRIES = 4
 
 
 async def analyze_image(
-    client: anthropic.AsyncAnthropic,
+    client: genai.Client,
     image_path: Path,
     semaphore: asyncio.Semaphore,
 ) -> GraphAnalysis:
-    """Send one image to Claude Sonnet 4 and parse the structured JSON response.
+    """Send one image to Gemini and parse the structured JSON response.
 
     The function handles rate-limit retries, markdown fence stripping, JSON
     parsing, and Pydantic validation.  On any non-recoverable error a
@@ -215,8 +220,8 @@ async def analyze_image(
 
     Parameters
     ----------
-    client : anthropic.AsyncAnthropic
-        Authenticated async Anthropic client.
+    client : genai.Client
+        Authenticated Google Gen AI client.
     image_path : Path
         Path to the graph image to analyse.
     semaphore : asyncio.Semaphore
@@ -228,7 +233,7 @@ async def analyze_image(
         Validated structured analysis, or a fallback object on failure.
     """
     async with semaphore:
-        b64 = image_to_base64(image_path)
+        image_bytes = image_path.read_bytes()
         mime = media_type_for(image_path)
         rel_path = str(image_path)
 
@@ -237,44 +242,37 @@ async def analyze_image(
         # Retry loop with exponential backoff for rate-limit errors.
         for attempt in range(MAX_RETRIES + 1):
             try:
-                response = await client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2048,
-                    system=SYSTEM_PROMPT,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": mime,
-                                        "data": b64,
-                                    },
-                                },
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        f"Analyze this graph image. File: {image_path.name}\n"
-                                        "Return ONLY the JSON object described in your instructions."
-                                    ),
-                                },
-                            ],
-                        }
+                response = await client.aio.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=[
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type=mime,
+                        ),
+                        f"Analyze this graph image. File: {image_path.name}\n"
+                        "Return ONLY the JSON object described in your instructions.",
                     ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        max_output_tokens=2048,
+                    ),
                 )
                 break  # Success: exit the retry loop.
-            except anthropic.RateLimitError:
-                if attempt < MAX_RETRIES:
+            except Exception as e:
+                # Check for rate-limit errors (HTTP 429 or resource exhausted).
+                err_str = str(e).lower()
+                is_rate_limit = "429" in err_str or "rate" in err_str or "resource" in err_str or "quota" in err_str
+                if is_rate_limit and attempt < MAX_RETRIES:
                     # Exponential backoff: 15s, 30s, 60s, 120s
                     wait = 2 ** attempt * 15
                     print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
                     await asyncio.sleep(wait)
-                else:
+                elif is_rate_limit:
                     raise  # Give up after exhausting all retries.
+                else:
+                    raise  # Non-rate-limit errors are re-raised immediately.
 
-        raw_text = response.content[0].text.strip()
+        raw_text = response.text.strip()
 
         # Strip markdown code fences if the model wraps its JSON response
         # (e.g. "```json\n{...}\n```").
@@ -392,12 +390,12 @@ def flatten(a: GraphAnalysis) -> dict:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main():
-    """Discover images, send them to the Claude vision API, and write CSV.
+    """Discover images, send them to the Gemini vision API, and write CSV.
 
     This is the async entry point.  It:
     1. Resolves the output folder.
     2. Collects all PNG/JPG images recursively.
-    3. Validates the ``ANTHROPIC_API_KEY`` environment variable.
+    3. Validates the ``GEMINI_API_KEY`` environment variable.
     4. Launches concurrent analysis tasks (bounded by :data:`SEM_LIMIT`).
     5. Collects results, substituting error placeholders for failures.
     6. Writes ``graph_analysis_results.csv`` to the output folder.
@@ -409,19 +407,19 @@ async def main():
         sys.exit(f"ERROR: No image files found in {folder}")
 
     print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
-    print(f"   Model: claude-sonnet-4-20250514 (Claude Sonnet 4)")
+    print(f"   Model: {GEMINI_MODEL} (Google Gemini)")
     print(f"   Concurrency: {SEM_LIMIT}")
     print()
 
     # ── API key validation ──
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         sys.exit(
-            "ERROR: ANTHROPIC_API_KEY environment variable not set.\n"
-            "  Set it with: export ANTHROPIC_API_KEY='sk-ant-...'"
+            "ERROR: GEMINI_API_KEY environment variable not set.\n"
+            "  Set it with: export GEMINI_API_KEY='your-api-key'"
         )
 
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    client = genai.Client(api_key=api_key)
     semaphore = asyncio.Semaphore(SEM_LIMIT)
 
     # Launch all analysis tasks concurrently.
@@ -461,10 +459,10 @@ async def main():
     print(f"   Total graphs analyzed: {len(results)}")
 
     # Print a quick breakdown of graph types found.
-    types: dict[str, int] = {}
+    type_counts: dict[str, int] = {}
     for r in results:
-        types[r.graph_type] = types.get(r.graph_type, 0) + 1
-    print(f"   Graph types: {json.dumps(types, indent=2)}")
+        type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
+    print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
 
 
 if __name__ == "__main__":
