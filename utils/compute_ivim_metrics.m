@@ -42,7 +42,9 @@ function ivim_out = compute_ivim_metrics(config_struct, d_vec, f_vec, dstar_vec,
 %     .dstar_kurt_val  - Kurtosis of D* distribution
 %     .dstar_skew_val  - Skewness of D* distribution
 
-% Initialize output with NaN defaults
+% Initialize all output fields to NaN so downstream aggregation handles
+% missing IVIM data (e.g., Standard DWI type has no IVIM parameters)
+% without special-casing.
 ivim_out = struct();
 ivim_out.f_vec = f_vec;
 ivim_out.dstar_vec = dstar_vec;

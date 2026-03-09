@@ -1,13 +1,22 @@
 classdef test_init_scan_structs < matlab.unittest.TestCase
     % TEST_INIT_SCAN_STRUCTS Unit tests for the scan struct initializer.
     %
+    % init_scan_structs creates two struct arrays (GTVp and GTVn) with
+    % dimensions [n_fx x n_rp] (fractions x repeat scans). Each element
+    % contains fields for diffusion parameter vectors (Standard, dnCNN,
+    % IVIMnet), dose data, patient metadata, and voxel geometry. All fields
+    % are initialized to empty ([]).
+    %
     % Validates:
-    %   - Output has expected fields
-    %   - Dimensions match requested n_fx x n_rp
-    %   - All fields initialize to empty []
+    %   - Both GTVp and GTVn have exactly the expected 23 field names
+    %   - Struct array dimensions match the requested n_fx x n_rp
+    %   - Every field in every element is initialized to empty []
+    %   - Single-element (1x1) case works correctly
+    %   - Field count is exactly 23
 
     methods(TestMethodSetup)
         function addPaths(testCase)
+            % Add the utils directory containing init_scan_structs.
             repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(fullfile(repoRoot, 'utils'));
         end
@@ -16,6 +25,12 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
     methods(Test)
 
         function testExpectedFieldNames(testCase)
+            % Verify that both GTVp and GTVn structs contain exactly the
+            % expected set of 23 fields covering: Standard DWI vectors
+            % (adc, d, f, dstar), dose metrics (dose_vector, dvh, d95, v50gy),
+            % dnCNN-denoised vectors, IVIMnet vectors, patient metadata
+            % (ID, MRN, LF, Immuno), and scan geometry (Fraction,
+            % Repeatability_index, vox_vol, vox_dims).
             [gtvp, gtvn] = init_scan_structs(1, 1);
 
             expected_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector', ...
@@ -36,6 +51,8 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
         end
 
         function testDimensionsMatchRequest(testCase)
+            % Verify that a 5x3 request produces struct arrays of size [5, 3],
+            % representing 5 fractions and 3 repeat scans per fraction.
             n_fx = 5;
             n_rp = 3;
             [gtvp, gtvn] = init_scan_structs(n_fx, n_rp);
@@ -47,6 +64,8 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
         end
 
         function testAllFieldsInitToEmpty(testCase)
+            % Every field in every element of a 3x2 struct array should be
+            % empty ([]), ensuring no residual data from previous pipeline runs.
             [gtvp, gtvn] = init_scan_structs(3, 2);
 
             fields = fieldnames(gtvp);
@@ -63,6 +82,8 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
         end
 
         function testSingleElement(testCase)
+            % The minimal case: 1 fraction, 1 repeat scan. Verify that the
+            % output is a 1x1 struct (not a cell or other type).
             [gtvp, gtvn] = init_scan_structs(1, 1);
 
             testCase.verifyEqual(size(gtvp), [1, 1]);
@@ -72,6 +93,8 @@ classdef test_init_scan_structs < matlab.unittest.TestCase
         end
 
         function testFieldCount(testCase)
+            % Guard against accidental field additions or removals.
+            % The struct should have exactly 23 fields.
             [gtvp, ~] = init_scan_structs(1, 1);
 
             n_fields = numel(fieldnames(gtvp));

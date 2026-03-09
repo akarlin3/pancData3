@@ -31,8 +31,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
     methods(Test)
 
         function testInsufficientEventsReturnsEarly(testCase)
-            % With zero events td_ok is false — the function should print a
-            % diagnostic message and return without fitting a model (no error).
+            % Verifies early return when there are zero events (all patients
+            % censored, m_lf=0 for everyone). The time-dependent panel
+            % builder sets td_ok=false, and the function should print a
+            % diagnostic message and return without attempting to fit a Cox
+            % model (which would fail with no events).
             rng(1);
             n   = 10;
             nTp = 4;
@@ -54,9 +57,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testSufficientEventsRunsCoxModel(testCase)
-            % With 8 events in 20 patients the Cox model should fit
-            % successfully.  Verify console output contains expected
-            % statistical quantities (hazard ratios and p-values).
+            % Verifies that with 8 events in 20 patients, the Time-Dependent
+            % Cox PH model fits successfully. Uses evalc to capture console
+            % output and checks for expected statistical quantities (TD Panel
+            % construction, hazard ratios, or an insufficient-events message
+            % if the landmark time filter reduces the event count too much).
             rng(42);
             n   = 20;
             nTp = 4;

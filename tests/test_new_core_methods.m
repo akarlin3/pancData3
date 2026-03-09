@@ -247,6 +247,10 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testFdmThreeFractionsSumToOne(testCase)
+            % Verifies the fundamental fDM partition property: every valid
+            % voxel must be classified as exactly one of {responding,
+            % progressing, stable}. The three fractions must sum to 1.0.
+            % This is a mathematical invariant, not method-specific.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
             cfg.fdm_thresh = 0.0003;
@@ -254,11 +258,13 @@ classdef test_new_core_methods < matlab.unittest.TestCase
             rng(99);
             n = 100;
             baseline = 0.001 * ones(n, 1);
+            % Add Gaussian noise to create a mix of all three categories
             current = baseline + 0.0005 * randn(n, 1);
 
             opts = struct('timepoint_index', 2);
             opts.baseline_adc_vec = baseline;
 
+            % Manually compute the three fractions to verify the partition
             delta = current - baseline;
             valid = ~isnan(delta);
             n_valid = sum(valid);
