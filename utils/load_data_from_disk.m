@@ -52,13 +52,21 @@ function [data_gtvp, data_gtvn, summary_metrics_out] = load_data_from_disk( ...
         error('LoadDataFromDisk:NotFound', 'Data vectors not found. Please run "load" step first.');
     end
 
-    % Load the DWI vectors
+    % Load the DWI vectors.
+    % data_vectors_gtvp: struct array (patients x timepoints x repeats) with
+    %   per-voxel parameter vectors (ADC, D, f, D*) for the primary GTV (GTVp).
+    % data_vectors_gtvn: same structure for nodal GTV (GTVn), if available.
+    % Using explicit variable names in load() prevents loading the entire
+    % .mat file into memory (which may contain large intermediate variables).
     tmp_vectors = load(target_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
     data_gtvp = tmp_vectors.data_vectors_gtvp;
     data_gtvn = tmp_vectors.data_vectors_gtvn;
     fprintf('      💾 Loaded data from disk (%s).\n', target_dwi_file);
 
-    % Load summary metrics if file exists
+    % Load summary metrics (patient-level aggregated statistics) if available.
+    % Summary metrics are computed by compute_summary_metrics.m and saved
+    % separately. They may not exist if only the 'load' step was run
+    % previously without the 'metrics' step.
     summary_metrics_out = [];
     if ~isempty(summary_metrics_file) && exist(summary_metrics_file, 'file')
         tmp_metrics = load(summary_metrics_file, 'summary_metrics');

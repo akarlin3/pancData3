@@ -303,7 +303,8 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
         end
 
         function testFirthDisabledRunsWithoutError(testCase)
-            % When use_firth_refit is false, the function must run the
+            % Verifies that setting use_firth_refit=false disables Firth
+            % penalized logistic regression and falls back to the
             % elastic-net-only path without error.
             n   = 5;
             nTp = 1;
@@ -318,9 +319,12 @@ classdef test_metrics_stats_predictive < matlab.unittest.TestCase
 
 
         function testLOOCVProducesNonEmptyRiskScores(testCase)
-            % With n=24 patients and a strong separable signal, elastic net
-            % should select features and the LOOCV loop should produce
-            % non-empty risk scores and risk stratification.
+            % Integration test with n=24 patients: injects a strong signal
+            % into ADC_abs column 2 (perfectly separating LF vs LC groups)
+            % so that elastic net selects at least one feature and the
+            % nested LOOCV loop produces non-empty, finite risk scores.
+            % Also verifies that is_high_risk is numeric (not logical)
+            % to support NaN assignment for invalid folds.
             n   = 24;
             nTp = 3;
             args = testCase.buildMinimalArgs(n, nTp, 1);

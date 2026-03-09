@@ -217,16 +217,20 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testFdmKnownDelta(testCase)
+            % Deterministic test with three known voxel populations:
+            %   - 30 "progressing" voxels: ADC decreased by 0.001 (core)
+            %   - 30 "responding" voxels: ADC increased by 0.001 (non-core)
+            %   - 30 "stable" voxels: ADC unchanged (non-core)
+            % The fDM threshold of 0.0005 is well below the delta of 0.001,
+            % so the classification should be exact with no ambiguity.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
             cfg.fdm_thresh = 0.0005;
             cfg.fdm_parameter = 'adc';
 
             n = 90;
-            % 30 voxels: ADC decreased by 0.001 (progressing → core)
-            % 30 voxels: ADC increased by 0.001 (responding → non-core)
-            % 30 voxels: ADC unchanged (stable → non-core)
             baseline = 0.001 * ones(n, 1);
+            % delta = current - baseline: negative = progressing, positive = responding
             current  = [baseline(1:30) - 0.001; baseline(31:60) + 0.001; baseline(61:90)];
 
             opts = struct('timepoint_index', 2);
@@ -234,8 +238,11 @@ classdef test_new_core_methods < matlab.unittest.TestCase
 
             mask = extract_tumor_core(cfg, current, nan(n,1), nan(n,1), nan(n,1), false, [], opts);
 
+            % Progressing voxels (ADC decreased) should be classified as core
             testCase.verifyEqual(sum(mask(1:30)), 30, 'All progressing voxels should be core');
+            % Responding voxels (ADC increased) should NOT be core
             testCase.verifyEqual(sum(mask(31:60)), 0, 'No responding voxels should be core');
+            % Stable voxels (no change) should NOT be core
             testCase.verifyEqual(sum(mask(61:90)), 0, 'No stable voxels should be core');
         end
 

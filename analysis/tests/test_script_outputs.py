@@ -175,9 +175,15 @@ class TestStatisticalByGraphType:
 # ---------------------------------------------------------------------------
 
 class TestRunAnalysisHelper:
-    """Test the _run_script subprocess helper."""
+    """Test the _run_script subprocess helper.
+
+    _run_script launches analysis scripts as subprocesses and returns True
+    on success, False on failure.  These tests verify its error handling
+    without running a real analysis script.
+    """
 
     def test_run_missing_script(self, saved_files_dir: Path, capsys):
+        """A nonexistent script path returns False and prints a SKIP notice."""
         from run_analysis import _run_script
         result = _run_script("nonexistent_script.py", saved_files_dir)
         assert result is False
