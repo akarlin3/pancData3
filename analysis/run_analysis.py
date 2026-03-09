@@ -144,7 +144,12 @@ def _run_tests() -> bool:
         return False
 
 
-def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) -> bool:
+def _run_script(
+    name: str,
+    folder: Path,
+    log_file: io.TextIOBase | None = None,
+    timeout: float | None = None,
+) -> bool:
     """Run a sibling Python script as a subprocess.
 
     Parameters
@@ -158,12 +163,15 @@ def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) 
     log_file : io.TextIOBase or None
         If provided, subprocess stdout and stderr are captured and written
         to both the terminal and this log file.
+    timeout : float or None
+        Maximum wall-clock seconds to allow the subprocess to run.  If
+        exceeded the process is killed and the step is reported as failed.
 
     Returns
     -------
     bool
         ``True`` if the script exited with code 0, ``False`` otherwise
-        (including when the script file is not found).
+        (including when the script file is not found or timed out).
     """
     script = ANALYSIS_DIR / name
     if not script.exists():
@@ -173,14 +181,23 @@ def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) 
     print(f"\n  Running {name} ...")
     t0 = time.time()
     # Run the child script using the same Python interpreter as this process.
-    result = subprocess.run(
-        [sys.executable, str(script), str(folder)],
-        cwd=str(ANALYSIS_DIR),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script), str(folder)],
+            cwd=str(ANALYSIS_DIR),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - t0
+        msg = f"  FAILED: {name} (timed out after {elapsed:.1f}s)"
+        print(msg)
+        if log_file is not None:
+            log_file.write(msg + "\n")
+        return False
     elapsed = time.time() - t0
 
     # Emit captured output to terminal and log file.
@@ -340,7 +357,11 @@ def main():
                 csv_path = folder / "graph_analysis_results.csv"
                 print(f"  Vision CSV exists: {csv_path.exists()}")
                 pipeline_bar.set_postfix_str("vision analysis", refresh=True)
-                results["vision"] = _run_script("batch_graph_analysis.py", folder, log_file)
+                vision_timeout = cfg["vision"].get("script_timeout_seconds")
+                results["vision"] = _run_script(
+                    "batch_graph_analysis.py", folder, log_file,
+                    timeout=vision_timeout,
+                )
                 pipeline_bar.update(1)
             else:
                 csv_path = folder / "graph_analysis_results.csv"

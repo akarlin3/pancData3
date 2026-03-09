@@ -40,6 +40,7 @@ _DEFAULTS: dict = {
         "max_output_tokens": 2048,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
+        "script_timeout_seconds": 1800,
     },
     "statistics": {
         "p_highly_significant": 0.001,

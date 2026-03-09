@@ -632,6 +632,11 @@ async def main():
         type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
     print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
 
+    # Return non-zero exit code if any images failed (e.g. timeouts).
+    return 1 if errors else 0
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    exit_code = asyncio.run(main())
+    if exit_code:
+        sys.exit(exit_code)
