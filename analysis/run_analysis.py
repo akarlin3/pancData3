@@ -124,6 +124,8 @@ def _run_tests() -> bool:
         cwd=str(ANALYSIS_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     elapsed = time.time() - t0
 
@@ -176,6 +178,8 @@ def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) 
         cwd=str(ANALYSIS_DIR),
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     elapsed = time.time() - t0
 
@@ -375,6 +379,7 @@ def main():
             result = subprocess.run(
                 report_args, cwd=str(ANALYSIS_DIR),
                 capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
             )
             elapsed = time.time() - t0
             for stream_output in (result.stdout, result.stderr):
