@@ -42,7 +42,9 @@ function ivim_out = compute_ivim_metrics(config_struct, d_vec, f_vec, dstar_vec,
 %     .dstar_kurt_val  - Kurtosis of D* distribution
 %     .dstar_skew_val  - Skewness of D* distribution
 
-% Initialize output with NaN defaults
+% Initialize all output fields to NaN so downstream aggregation handles
+% missing IVIM data (e.g., Standard DWI type has no IVIM parameters)
+% without special-casing.
 ivim_out = struct();
 ivim_out.f_vec = f_vec;
 ivim_out.dstar_vec = dstar_vec;
@@ -68,31 +70,44 @@ if isempty(d_vec)
     return;
 end
 
-% Exclude exact-zero f values that co-occur with failed D* fits
-% (D* == 0 or NaN), preserving genuine zero perfusion.
+% Filter failed IVIM fits: when the bi-exponential IVIM model fails to
+% converge, it often returns f=0 with D*=0 or D*=NaN. These are numerical
+% artefacts, not genuine zero-perfusion voxels. We NaN them out so they
+% don't bias the perfusion fraction statistics downward.
+% Genuine f=0 voxels (where D* has a valid nonzero value) are preserved.
 failed_fit = (f_vec == 0) & (isnan(dstar_vec) | dstar_vec == 0);
 f_vec(failed_fit) = nan;
 dstar_vec(failed_fit) = nan;
 ivim_out.f_vec = f_vec;
 ivim_out.dstar_vec = dstar_vec;
 
-% For unified core methods (percentile, spectral, fdm),
-% the core mask replaces individual parameter thresholds.
+% For unified core methods (percentile, spectral, fdm), a single core mask
+% (computed from ADC in compute_adc_metrics) is applied to all parameters.
+% This ensures D, f, and D* sub-volumes are spatially identical rather than
+% each using its own independent threshold, which is more anatomically
+% meaningful (same voxels define the "core" for all parameters).
 unified_methods = {'percentile', 'spectral', 'fdm'};
 if any(strcmpi(config_struct.core_method, unified_methods))
+    % Unified: use the ADC-derived core mask for f and D sub-volumes
     f_vec_sub = f_vec(adc_vec_sub_mask);
     ivim_out.f_sub_vol_val = sum(adc_vec_sub_mask) * vox_vol;
     d_vec_sub = d_vec(adc_vec_sub_mask);
 else
+    % Independent thresholds: each parameter uses its own cutoff
+    % f_thresh = low perfusion; d_thresh = restricted diffusion
     f_vec_sub = f_vec(f_vec < f_thresh);
     ivim_out.f_sub_vol_val = numel(f_vec_sub) * vox_vol;
     d_vec_sub = d_vec(d_vec < d_thresh);
 end
 
+% Whole-GTV true diffusion (D) statistics.
+% D isolates tissue cellularity from perfusion effects (unlike ADC which
+% conflates both). Lower D = denser cell packing = more aggressive tumor.
 ivim_out.d_mean_val = nanmean_safe(d_vec);
 [ivim_out.d_kurt_val, ivim_out.d_skew_val] = compute_kurt_skew(d_vec, min_vox_hist);
 ivim_out.d_sd_val = nanstd_safe(d_vec);
 
+% Laplace-smoothed D histogram for distribution comparison across timepoints
 ivim_out.d_histogram = compute_histogram_laplace(d_vec, bin_edges);
 % NOTE: KS-test p-values are liberal (see ADC comment in compute_adc_metrics).
 % Skip k==1: d_vec and d_baseline are the same data.
@@ -113,17 +128,25 @@ else
 end
 [ivim_out.d_sub_kurt_val, ivim_out.d_sub_skew_val] = compute_kurt_skew(d_vec_sub, min_vox_hist);
 
+% Perfusion fraction (f): proportion of signal from microvascular blood flow.
+% In pancreatic cancer, low f indicates hypovascular desmoplastic stroma.
 ivim_out.f_mean_val = nanmean_safe(f_vec);
 [ivim_out.f_kurt_val, ivim_out.f_skew_val] = compute_kurt_skew(f_vec, min_vox_hist);
 
+% Pseudo-diffusion coefficient (D*): rate of signal decay from
+% intravascular incoherent motion. Reflects microvascular flow speed
+% and vessel geometry. More variable than D or f due to sensitivity
+% to cardiac pulsation and respiratory motion.
 ivim_out.dstar_mean_val = nanmean_safe(dstar_vec);
 [ivim_out.dstar_kurt_val, ivim_out.dstar_skew_val] = compute_kurt_skew(dstar_vec, min_vox_hist);
 
 end
 
 %% --- Local helper functions (duplicated from compute_summary_metrics.m) ---
+% Duplicated for parfor transparency (see compute_adc_metrics.m for rationale).
 
 function result = nanmean_safe(v)
+% NaN-safe mean with Octave compatibility
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -137,6 +160,7 @@ end
 end
 
 function result = nanstd_safe(v)
+% NaN-safe standard deviation with Octave compatibility
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -150,6 +174,7 @@ end
 end
 
 function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
+% Kurtosis and skewness with minimum voxel count guard
 kurt_val = NaN;
 skew_val = NaN;
 if numel(v) >= min_vox_hist
@@ -162,6 +187,7 @@ end
 end
 
 function p1 = compute_histogram_laplace(vec, bin_edges)
+% Laplace-smoothed (add-one) histogram; see compute_adc_metrics.m for details
 if exist('OCTAVE_VERSION', 'builtin')
     vec_f = vec(~isnan(vec));
     c1 = histc(vec_f, bin_edges);

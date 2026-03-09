@@ -1,6 +1,22 @@
 """Section builders for the HTML analysis report.
 
-Each function returns a list of HTML string chunks for one report section.
+Each public function in this module corresponds to one major section of the
+HTML report.  They accept pre-loaded data (log dicts, CSV dicts, vision rows,
+grouped graph dicts) and return a ``list[str]`` of HTML chunks that are
+concatenated by :func:`generate_report.generate_report`.
+
+Sections are assembled in the order they appear in the report:
+
+1. Executive Summary
+2. Data-Driven Hypothesis
+3. Graph Analysis Overview
+4. Statistical Significance
+5. Cross-DWI Comparison
+6. Notable Correlations
+7. Treatment Response (Longitudinal Trends)
+8. Predictive Performance (ROC/AUC, features, Cox PH)
+9. Supplemental Data (MAT files)
+10. Appendix: All Graphs
 """
 
 from __future__ import annotations
@@ -27,6 +43,30 @@ from report_formatters import (
 
 
 def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp) -> list[str]:
+    """Build the Executive Summary section.
+
+    Displays a summary box with DWI type badges, stat cards for graph
+    count, best AUC per DWI type, total significant GLME interactions,
+    and CSV-derived significant metric count.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics (from :func:`parse_log_metrics.parse_all_logs`).
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    rows : list[dict]
+        Vision CSV rows (may be empty).
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    timestamp : str
+        Run timestamp string for display.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the executive summary section.
+    """
     # ── 1. Executive Summary ──
     h: list[str] = []
     h.append(_h2("Executive Summary", "exec-summary"))
@@ -36,6 +76,7 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
              f"{', '.join(_dwi_badge(d) for d in dwi_types_present)}.</p>")
 
     # Stat cards row
+    # Build stat cards for the summary grid.
     cards = []
     if rows:
         cards.append(_stat_card("Graphs Analysed", str(len(rows))))
@@ -45,10 +86,12 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         for dwi_type in dwi_types_present:
             if dwi_type not in log_data:
                 continue
+            # Find the best AUC across all timepoints for this DWI type.
             roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
             best_auc = max((r.get("auc", 0) for r in roc), default=0)
             if best_auc > 0:
                 cards.append(_stat_card(f"Best AUC ({dwi_type})", f"{best_auc:.3f}"))
+            # Count GLME metrics that pass their BH-adjusted significance threshold.
             sc = log_data[dwi_type].get("stats_comparisons", {})
             total_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
 
@@ -69,6 +112,27 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
 
 
 def _section_hypothesis(groups) -> list[str]:
+    """Build the Data-Driven Hypothesis section.
+
+    Analyses longitudinal trend and inflection-point data from the
+    ``Longitudinal_Mean_Metrics`` graph group to generate a
+    radiological-pathological hypothesis about treatment response.
+
+    The hypothesis addresses three axes:
+    - **Cellular response** (D, ADC trends) -- cell kill vs resistance.
+    - **Vascular response** (f, D* trends) -- perfusion changes.
+    - **Outcome trajectory** -- combined interpretation.
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the hypothesis section.
+    """
     # ── 1.5. Data-Driven Hypothesis ──
     h: list[str] = []
     h.append(_h2("Data-Driven Hypothesis", "hypothesis"))
@@ -83,6 +147,9 @@ def _section_hypothesis(groups) -> list[str]:
     vascular_inflections: list[str] = []
     cellular_inflections: list[str] = []
 
+    # Analyse the Longitudinal_Mean_Metrics graph (if present) to extract
+    # trend directions for D (diffusion) and f (perfusion fraction), plus
+    # any inflection points that indicate specific treatment-fraction effects.
     if groups and "Longitudinal_Mean_Metrics" in groups:
         d_trends = []
         f_trends = []
@@ -90,18 +157,19 @@ def _section_hypothesis(groups) -> list[str]:
         for dt, r in groups["Longitudinal_Mean_Metrics"].items():
             if dt == "Root": continue
             try:
-                # 1. Parse Trends
+                # 1. Parse trend directions from the vision model output.
                 trends = json.loads(str(r.get("trends_json", "[]")))
                 for t in trends:
                     if not isinstance(t, dict): continue
                     series = t.get("series", "")
                     direction = t.get("direction", "").lower()
+                    # Classify trends by IVIM parameter series.
                     if series == "Mean D":
                         d_trends.append(direction)
                     elif series == "Mean f":
                         f_trends.append(direction)
 
-                # 2. Parse Inflection Points
+                # 2. Parse inflection points for specific fraction-level events.
                 ips = json.loads(str(r.get("inflection_points_json", "[]")))
                 for ip in ips:
                     if not isinstance(ip, dict): continue
@@ -109,8 +177,11 @@ def _section_hypothesis(groups) -> list[str]:
                     y_val = ip.get("approximate_y")
                     desc = ip.get("description", "").lower()
 
+                    # Convert x-coordinate to fraction label (e.g. "Fx5").
                     fx_label = f"Fx{int(x_val)}" if x_val > 0 else "baseline"
 
+                    # Try to extract a magnitude (percentage) from the
+                    # y-coordinate or from the description text.
                     magnitude = ""
                     if y_val is not None:
                         try:
@@ -121,10 +192,13 @@ def _section_hypothesis(groups) -> list[str]:
                             pass
 
                     if not magnitude:
+                        # Regex: look for a bare percentage like "15%"
                         pct_match = re.search(r'(\d+)%', desc)
                         if pct_match:
                             magnitude = f" of ~{pct_match.group(1)}%"
 
+                    # Classify inflection as vascular (D*/f-related) or
+                    # cellular (ADC/D-related) based on keyword matching.
                     if "d*" in desc or "f" in desc or "vascular" in desc or "perfusion" in desc:
                         if "drop" in desc or "decrease" in desc or "decline" in desc:
                             vascular_inflections.append(f"a significant vascular drop{magnitude} observed around {fx_label}")
@@ -140,11 +214,14 @@ def _section_hypothesis(groups) -> list[str]:
             except Exception:
                 pass
 
+        # Determine consensus trend direction via keyword voting.
         d_trend_consensus = _get_consensus(d_trends)
         f_trend_consensus = _get_consensus(f_trends)
 
+        # Build specificity text from unique inflection-point descriptions.
         vascular_specificity = ""
         if vascular_inflections:
+            # dict.fromkeys preserves order while deduplicating.
             unique_v = list(dict.fromkeys(vascular_inflections))
             vascular_specificity = f" Specifically, the data highlights {', and '.join(unique_v)}."
 
@@ -198,6 +275,22 @@ def _section_hypothesis(groups) -> list[str]:
 
 
 def _section_graph_overview(rows) -> list[str]:
+    """Build the Graph Analysis Overview section.
+
+    Displays two side-by-side summary tables:
+    - Count of graphs by type (line, scatter, box, etc.)
+    - Count of graphs by DWI type (Standard, dnCNN, IVIMnet, Root)
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty, in which case the section is skipped).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the graph overview section.
+    """
     # ── 2. Graph Analysis Overview ──
     h: list[str] = []
     if rows:
@@ -237,11 +330,36 @@ def _section_graph_overview(rows) -> list[str]:
 
 
 def _section_statistical_significance(rows, csv_data, log_data, dwi_types_present) -> list[str]:
+    """Build the Statistical Significance section.
+
+    Aggregates significant findings from three sources:
+    1. Vision-extracted p-values from graph summaries/trends.
+    2. Pipeline CSV significant metrics (Significant_LF_Metrics.csv).
+    3. GLME interaction test details and FDR timepoints from log parsing.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the statistical significance section.
+    """
     # ── 3. Statistical Significance ──
     h: list[str] = []
     h.append(_h2("Statistical Significance", "significance"))
 
-    # From vision CSV
+    # ── Source 1: Vision-extracted p-values ──
+    # Search through summaries, trends, and inflection point descriptions
+    # for p-value patterns (e.g. "p = 0.032") using regex extraction.
     sig_findings = []
     if rows:
         for r in rows:
@@ -267,7 +385,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
         if len(sig_findings) > 30:
             h.append(f"<p><em>\u2026 and {len(sig_findings) - 30} more significant findings.</em></p>")
 
-    # From direct CSV parsing
+    # ── Source 2: Pipeline CSV significant metrics ──
     if csv_data and csv_data.get("significant_metrics"):
         h.append("<h3>Pipeline CSV Significant Metrics</h3>")
         for dwi_type in DWI_TYPES:
@@ -288,7 +406,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
                     h.append("</tr>")
                 h.append("</tbody></table>")
 
-    # GLME interaction details from logs
+    # ── Source 3: GLME interaction details from log parsing ──
     if log_data:
         has_glme = any(
             log_data[d].get("stats_comparisons", {}).get("glme_details")
@@ -368,6 +486,27 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
 
 
 def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
+    """Build the Cross-DWI Comparison section.
+
+    For priority graphs that exist in multiple DWI types, displays a
+    trend-direction comparison table showing whether Standard, dnCNN,
+    and IVIMnet agree or differ on each data series' direction.
+
+    Also includes a significance inconsistency table from the CSV
+    cross-reference (metrics significant in some DWI types but not others).
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+    csv_data : dict or None
+        Parsed pipeline CSV exports (contains ``cross_reference`` key).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the cross-DWI comparison section.
+    """
     # ── 4. Cross-DWI Comparison ──
     h: list[str] = []
     if groups:
@@ -459,6 +598,22 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
 
 
 def _section_correlations(rows) -> list[str]:
+    """Build the Notable Correlations section.
+
+    Extracts correlation coefficients (r, rs, r-squared) from vision
+    graph summaries and trend descriptions, filtering for |r| >= 0.3.
+    Results are sorted by absolute correlation strength (descending).
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the correlations section.
+    """
     # ── 5. Correlations ──
     h: list[str] = []
     if rows:
@@ -488,6 +643,22 @@ def _section_correlations(rows) -> list[str]:
 
 
 def _section_treatment_response(groups) -> list[str]:
+    """Build the Treatment Response / Longitudinal Trends section.
+
+    For each graph with "Longitudinal" in its name, displays per-DWI-type
+    trend tags, axis information, inflection points (in collapsible
+    ``<details>`` blocks), and full summaries.
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the treatment response section.
+    """
     # ── 6. Treatment Response ──
     h: list[str] = []
     if groups:
@@ -575,6 +746,28 @@ def _section_treatment_response(groups) -> list[str]:
 
 
 def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
+    """Build the Predictive Performance section.
+
+    Displays three sub-sections from parsed log data:
+    1. **ROC/AUC Performance** -- per-timepoint AUC, sensitivity,
+       specificity, and Youden optimal cutoff.
+    2. **Selected Features (Elastic Net)** -- features retained by
+       elastic-net regularisation at each timepoint.
+    3. **Cox Proportional Hazards** -- hazard ratios, 95% CIs, p-values,
+       IPCW weights, and global likelihood-ratio test.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the predictive performance section.
+    """
     # ── 7. Predictive Performance ──
     h: list[str] = []
     if log_data:
@@ -672,6 +865,24 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
 
 
 def _section_mat_data(mat_data) -> list[str]:
+    """Build the Supplemental Data (MAT Files) section.
+
+    Displays two sub-sections from parsed MAT-file JSON:
+    1. **Dosimetry** -- mean D95 and V50 values for ADC and D sub-volumes.
+    2. **Core Method Comparison** -- truncated mean-Dice heatmap matrix
+       showing agreement between tumor core delineation methods.
+
+    Parameters
+    ----------
+    mat_data : dict
+        Mapping of DWI type to parsed MAT metrics dict (from
+        ``parsed_mat_metrics_{dwi}.json``).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the supplemental data section.
+    """
     # ── 7.5. Core Method & Dosimetry ──
     h: list[str] = []
     if mat_data:
@@ -736,6 +947,22 @@ def _section_mat_data(mat_data) -> list[str]:
 
 
 def _section_appendix(rows) -> list[str]:
+    """Build the Appendix: All Graphs section.
+
+    Lists every analysed graph in a detailed table with columns for
+    DWI type, graph type, title, axis details, trend tags, and a
+    collapsible full summary.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty, in which case the section is skipped).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the appendix section.
+    """
     # ── 8. Appendix ──
     h: list[str] = []
     if rows:

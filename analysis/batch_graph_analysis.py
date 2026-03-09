@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""
-batch_graph_analysis.py — Async batch graph analysis using Claude 4.6 Opus vision.
+"""Async batch graph analysis using Claude Sonnet 4 vision.
 
-Scans the most recent saved_files_* timestamped folder for all PNG images,
-sends each to the Claude 4.6 Opus vision model to extract:
-  - axis labels, units, and ranges
-  - observed trends
-  - inflection points (with approximate coordinates)
+Scans the most recent ``saved_files_*`` timestamped folder for all PNG/JPG
+images produced by the MATLAB pipeline, sends each to the Claude Sonnet 4
+vision model, and extracts structured metadata:
 
-Results are validated via a strict Pydantic schema and saved to CSV.
+- Axis labels, units, and ranges
+- Observed trends (direction, series name, description)
+- Inflection points with approximate (x, y) coordinates
+
+Results are validated via strict Pydantic schemas and written to a flat CSV
+(``graph_analysis_results.csv``) inside the output folder.  The CSV is then
+consumed by downstream analysis scripts (``generate_report.py``,
+``cross_reference_dwi.py``, ``statistical_relevance.py``, etc.).
+
+**Requires** the ``ANTHROPIC_API_KEY`` environment variable to be set.
 
 Usage:
-    python batch_graph_analysis.py
+    python batch_graph_analysis.py                       # auto-detect folder
+    python batch_graph_analysis.py /path/to/saved_files  # explicit folder
 """
 
 from __future__ import annotations
@@ -28,6 +35,7 @@ from typing import Optional
 
 from shared import resolve_folder, setup_utf8_stdout
 
+# Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
 import anthropic
@@ -35,31 +43,43 @@ from pydantic import BaseModel, Field, ValidationError
 
 
 # ── Pydantic schema ──────────────────────────────────────────────────────────
+# These models define the expected JSON structure returned by the vision model.
+# Pydantic validates the raw JSON and provides clear error messages when the
+# model response deviates from the schema.
 
 class Axis(BaseModel):
-    """Description of a single axis."""
+    """Description of a single axis (x, y, or colour-bar)."""
     label: str = Field(..., description="Axis label text as shown on the graph")
-    units: Optional[str] = Field(None, description="Units (e.g., mm²/s, Gy, days)")
+    units: Optional[str] = Field(None, description="Units (e.g., mm\u00b2/s, Gy, days)")
     range_min: Optional[float] = Field(None, description="Minimum value on this axis")
     range_max: Optional[float] = Field(None, description="Maximum value on this axis")
 
 
 class Trend(BaseModel):
-    """A trend observed in the graph."""
+    """A single trend observed in the graph (one per data series)."""
     series: Optional[str] = Field(None, description="Name of the data series, if labeled")
     direction: str = Field(..., description="increasing, decreasing, flat, non-monotonic, U-shaped, etc.")
     description: str = Field(..., description="Brief description of the trend")
 
 
 class InflectionPoint(BaseModel):
-    """An inflection point or notable change in curvature / direction."""
+    """An inflection point or notable change in curvature / direction.
+
+    Primarily relevant for line and trajectory plots; for other graph types
+    the vision model is instructed to return an empty list.
+    """
     approximate_x: Optional[float] = Field(None, description="Approximate x-coordinate")
     approximate_y: Optional[float] = Field(None, description="Approximate y-coordinate")
     description: str = Field(..., description="What happens at this inflection point")
 
 
 class GraphAnalysis(BaseModel):
-    """Full structured analysis of a single graph image."""
+    """Full structured analysis of a single graph image.
+
+    This is the top-level Pydantic model that the vision model's JSON
+    response is parsed into.  Each instance is later flattened into a CSV
+    row by :func:`flatten`.
+    """
     file_path: str = Field(..., description="Path to the image file")
     graph_title: Optional[str] = Field(None, description="Title shown on the graph")
     graph_type: str = Field(..., description="Type of graph: line, bar, scatter, heatmap, box, histogram, parameter_map, etc.")
@@ -75,7 +95,18 @@ class GraphAnalysis(BaseModel):
 
 
 def collect_images(folder: Path) -> list[Path]:
-    """Recursively collect all PNG/JPG images."""
+    """Recursively collect all PNG/JPG images under *folder*.
+
+    Parameters
+    ----------
+    folder : Path
+        Root directory to search (typically a ``saved_files_*`` folder).
+
+    Returns
+    -------
+    list[Path]
+        Sorted list of image file paths found in the folder tree.
+    """
     exts = {".png", ".jpg", ".jpeg"}
     images = []
     for f in sorted(folder.rglob("*")):
@@ -85,12 +116,38 @@ def collect_images(folder: Path) -> list[Path]:
 
 
 def image_to_base64(path: Path) -> str:
-    """Read an image file and return its base64 encoding."""
+    """Read an image file and return its base64-encoded string.
+
+    The base64 string is used to embed the image in the Claude API
+    request payload (``source.type = "base64"``).
+
+    Parameters
+    ----------
+    path : Path
+        Path to the image file.
+
+    Returns
+    -------
+    str
+        Base64-encoded file contents (ASCII string).
+    """
     return base64.standard_b64encode(path.read_bytes()).decode("utf-8")
 
 
 def media_type_for(path: Path) -> str:
-    """Return MIME type for the image."""
+    """Return the MIME type string for an image file.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the image file.
+
+    Returns
+    -------
+    str
+        MIME type (e.g. ``"image/png"`` or ``"image/jpeg"``).
+        Defaults to ``"image/png"`` for unrecognised extensions.
+    """
     ext = path.suffix.lower()
     return {
         ".png": "image/png",
@@ -135,8 +192,13 @@ Rules:
 
 # ── Async API call ───────────────────────────────────────────────────────────
 
-SEM_LIMIT = 2  # max concurrent API requests (low to respect rate limits)
-MAX_RETRIES = 4  # retry on rate-limit errors with exponential backoff
+# Concurrency limit for API requests.  Kept low (2) to stay well within
+# Anthropic's rate limits for the Sonnet model.
+SEM_LIMIT = 2
+
+# Number of retries on HTTP 429 (rate-limit) errors.  Uses exponential
+# backoff: 15s, 30s, 60s, 120s.
+MAX_RETRIES = 4
 
 
 async def analyze_image(
@@ -144,15 +206,35 @@ async def analyze_image(
     image_path: Path,
     semaphore: asyncio.Semaphore,
 ) -> GraphAnalysis:
-    """Send one image to Claude Sonnet 4 and parse the structured response."""
+    """Send one image to Claude Sonnet 4 and parse the structured JSON response.
+
+    The function handles rate-limit retries, markdown fence stripping, JSON
+    parsing, and Pydantic validation.  On any non-recoverable error a
+    fallback ``GraphAnalysis`` with ``graph_type="unknown"`` or ``"error"``
+    is returned so that the batch can continue.
+
+    Parameters
+    ----------
+    client : anthropic.AsyncAnthropic
+        Authenticated async Anthropic client.
+    image_path : Path
+        Path to the graph image to analyse.
+    semaphore : asyncio.Semaphore
+        Controls concurrent API request count.
+
+    Returns
+    -------
+    GraphAnalysis
+        Validated structured analysis, or a fallback object on failure.
+    """
     async with semaphore:
         b64 = image_to_base64(image_path)
         mime = media_type_for(image_path)
         rel_path = str(image_path)
 
-        print(f"  ⚙️  Analyzing: {image_path.name} ...", flush=True)
+        print(f"  \u2699\ufe0f  Analyzing: {image_path.name} ...", flush=True)
 
-        # Retry loop for rate-limit errors
+        # Retry loop with exponential backoff for rate-limit errors.
         for attempt in range(MAX_RETRIES + 1):
             try:
                 response = await client.messages.create(
@@ -182,50 +264,59 @@ async def analyze_image(
                         }
                     ],
                 )
-                break  # success
+                break  # Success: exit the retry loop.
             except anthropic.RateLimitError:
                 if attempt < MAX_RETRIES:
-                    wait = 2 ** attempt * 15  # 15, 30, 60, 120 seconds
+                    # Exponential backoff: 15s, 30s, 60s, 120s
+                    wait = 2 ** attempt * 15
                     print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
                     await asyncio.sleep(wait)
                 else:
-                    raise  # give up after all retries
+                    raise  # Give up after exhausting all retries.
 
         raw_text = response.content[0].text.strip()
 
-        # Strip markdown fences if the model wraps its response
+        # Strip markdown code fences if the model wraps its JSON response
+        # (e.g. "```json\n{...}\n```").
         if raw_text.startswith("```"):
             raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
             raw_text = re.sub(r"\s*```$", "", raw_text)
 
+        # ── JSON parsing ──
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError as e:
-            print(f"  ❌  JSON parse error for {image_path.name}: {e}", flush=True)
+            print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
             return GraphAnalysis(
                 file_path=rel_path,
                 graph_type="unknown",
                 summary=f"JSON parse error: {e}. Raw response: {raw_text[:200]}",
             )
 
+        # Inject the file path (not returned by the model).
         data["file_path"] = rel_path
 
+        # ── Pydantic validation ──
         try:
             analysis = GraphAnalysis(**data)
         except ValidationError as e:
-            print(f"  ⚠️  Validation warning for {image_path.name}: {e}", flush=True)
-            # Fallback: store what we can
+            print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
+            # Fallback: preserve whatever fields parsed successfully.
             return GraphAnalysis(
                 file_path=rel_path,
                 graph_type=data.get("graph_type", "unknown"),
                 summary=data.get("summary", f"Validation error: {e}"),
             )
 
-        print(f"  ✅  Done: {image_path.name} ({analysis.graph_type})", flush=True)
+        print(f"  \u2705  Done: {image_path.name} ({analysis.graph_type})", flush=True)
         return analysis
 
 
 # ── Flatten to CSV rows ──────────────────────────────────────────────────────
+# The nested Pydantic models need to be flattened into a single-level dict
+# for CSV serialisation.  Axis fields are prefixed (``x_axis_``, ``y_axis_``,
+# ``color_axis_``) and complex sub-structures (trends, inflection points)
+# are serialised as JSON strings.
 
 CSV_COLUMNS = [
     "file_path",
@@ -252,8 +343,24 @@ CSV_COLUMNS = [
 
 
 def flatten(a: GraphAnalysis) -> dict:
-    """Flatten a GraphAnalysis into a dict suitable for CSV writing."""
+    """Flatten a :class:`GraphAnalysis` into a flat dict for CSV writing.
+
+    Nested ``Axis`` objects are expanded into prefixed scalar columns.
+    ``Trend`` and ``InflectionPoint`` lists are serialised as JSON strings
+    so the CSV remains rectangular.
+
+    Parameters
+    ----------
+    a : GraphAnalysis
+        Validated analysis result for a single graph image.
+
+    Returns
+    -------
+    dict
+        Flat dictionary whose keys match :data:`CSV_COLUMNS`.
+    """
     def axis_fields(ax: Optional[Axis], prefix: str) -> dict:
+        """Expand an Axis model into four prefixed scalar fields."""
         if ax is None:
             return {f"{prefix}_label": "", f"{prefix}_units": "",
                     f"{prefix}_range_min": "", f"{prefix}_range_max": ""}
@@ -273,6 +380,8 @@ def flatten(a: GraphAnalysis) -> dict:
     row.update(axis_fields(a.y_axis, "y_axis"))
     row.update(axis_fields(a.color_axis, "color_axis"))
     row["num_trends"] = len(a.trends)
+    # Serialise trend/inflection lists as JSON so downstream scripts can
+    # parse them back with json.loads().
     row["trends_json"] = json.dumps([t.model_dump() for t in a.trends])
     row["num_inflection_points"] = len(a.inflection_points)
     row["inflection_points_json"] = json.dumps([ip.model_dump() for ip in a.inflection_points])
@@ -283,18 +392,28 @@ def flatten(a: GraphAnalysis) -> dict:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 async def main():
+    """Discover images, send them to the Claude vision API, and write CSV.
+
+    This is the async entry point.  It:
+    1. Resolves the output folder.
+    2. Collects all PNG/JPG images recursively.
+    3. Validates the ``ANTHROPIC_API_KEY`` environment variable.
+    4. Launches concurrent analysis tasks (bounded by :data:`SEM_LIMIT`).
+    5. Collects results, substituting error placeholders for failures.
+    6. Writes ``graph_analysis_results.csv`` to the output folder.
+    """
     folder = resolve_folder(sys.argv)
     images = collect_images(folder)
 
     if not images:
         sys.exit(f"ERROR: No image files found in {folder}")
 
-    print(f"🚀 Found {len(images)} graph images in {folder.name}")
+    print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
     print(f"   Model: claude-sonnet-4-20250514 (Claude Sonnet 4)")
     print(f"   Concurrency: {SEM_LIMIT}")
     print()
 
-    # Ensure ANTHROPIC_API_KEY is set
+    # ── API key validation ──
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         sys.exit(
@@ -305,10 +424,13 @@ async def main():
     client = anthropic.AsyncAnthropic(api_key=api_key)
     semaphore = asyncio.Semaphore(SEM_LIMIT)
 
-    # Launch all tasks — return_exceptions so one failure doesn't kill the batch
+    # Launch all analysis tasks concurrently.
+    # ``return_exceptions=True`` ensures one failed image does not cancel the
+    # entire batch -- failed tasks return their exception object instead.
     tasks = [analyze_image(client, img, semaphore) for img in images]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
+    # ── Collect results, replacing exceptions with error placeholders ──
     results: list[GraphAnalysis] = []
     errors = 0
     for img, res in zip(images, raw_results):
@@ -326,7 +448,7 @@ async def main():
     if errors:
         print(f"\n  {errors}/{len(images)} images failed (see 'error' rows in CSV)")
 
-    # Write CSV
+    # ── Write output CSV ──
     out_csv = folder / "graph_analysis_results.csv"
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
@@ -335,11 +457,11 @@ async def main():
             writer.writerow(flatten(analysis))
 
     print()
-    print(f"📁 Results saved to: {out_csv}")
+    print(f"\U0001f4c1 Results saved to: {out_csv}")
     print(f"   Total graphs analyzed: {len(results)}")
 
-    # Quick summary
-    types = {}
+    # Print a quick breakdown of graph types found.
+    types: dict[str, int] = {}
     for r in results:
         types[r.graph_type] = types.get(r.graph_type, 0) + 1
     print(f"   Graph types: {json.dumps(types, indent=2)}")

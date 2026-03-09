@@ -1,21 +1,33 @@
 classdef test_sanity_checks < matlab.unittest.TestCase
-    % TEST_SANITY_CHECKS Unit tests for DWI pipeline input validation
+    % TEST_SANITY_CHECKS Unit tests for the sanity_checks module.
+    %
+    % Validates the pre-analysis data integrity checks that guard against
+    % corrupt or misaligned inputs. Tests cover:
+    %   - Happy path (all valid data)
+    %   - Convergence warnings (Inf/NaN/negative values in voxel vectors)
+    %   - Spatial alignment mismatches (dose vs. ADC vector length)
+    %   - NaN dose coverage warnings
+    %   - Outlier detection in summary metrics
+    %   - Missingness reporting
+    %   - DWI type dispatch (Standard, DnCNN, IVIMnet)
+    %   - Default output folder fallback
+
     properties
-        OriginalPath
-        OriginalPwd
-        TempDir
+        OriginalPath   % Saved MATLAB path for teardown restoration
+        OriginalPwd    % Saved working directory for teardown restoration
+        TempDir        % Temporary directory for test output files
     end
 
     methods(TestMethodSetup)
         function setupEnvironment(testCase)
+            % Save current state, add core/ to path, and create a temp
+            % directory for sanity check output files (diary logs, results).
             testCase.OriginalPath = path;
             testCase.OriginalPwd = pwd;
 
-            % Add core to path
             coreDir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
             addpath(coreDir);
 
-            % Create and move to temp dir
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
             cd(testCase.TempDir);
@@ -34,7 +46,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
     methods
         function [gtvp, gtvn, summary] = createMockData(~, nPat, nTp)
-            % Helper to create consistent mock data
+            % Creates valid mock data for sanity_checks testing.
+            % Returns GTVp/GTVn struct arrays with randomized voxel vectors
+            % (100 voxels each) for all DWI types (Standard, DnCNN, IVIMnet),
+            % and a summary_metrics struct with randomized summary arrays.
+            % All values are in [0,1] range (rand), which is not physically
+            % realistic but sufficient for testing the validation logic.
 
             % Initialize summary_metrics
             summary = struct();
@@ -108,6 +125,8 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
     methods(Test)
         function testHappyPath(testCase)
+            % Verifies that clean, well-formed data with no anomalies
+            % passes all sanity checks and returns is_valid=true.
             [gtvp, gtvn, summary] = testCase.createMockData(2, 3);
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
@@ -117,9 +136,13 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testConvergenceWarnings(testCase)
+            % Verifies that Inf values in voxel vectors trigger convergence
+            % warnings but do NOT invalidate the run. Inf values indicate
+            % model fitting divergence for individual voxels, which is
+            % expected in noisy data and handled downstream by NaN-aware stats.
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
-            % Introduce Inf
+            % Introduce Inf to simulate a diverged ADC fit
             gtvp(1,1,1).adc_vector(1) = Inf;
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
@@ -130,9 +153,13 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testAlignmentMismatch(testCase)
+            % Verifies that a length mismatch between the dose vector and
+            % the ADC vector causes a hard failure (is_valid=false). This
+            % catches spatial misalignment where the dose map was sampled
+            % on a different grid than the DWI parameter maps.
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
-            % Make dose vector different length
+            % Append one extra element to dose_vector to create a mismatch
             gtvp(1,1,1).dose_vector(end+1) = 0.5;
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 1, 'dwi_type_name', 'Standard', 'output_folder', testCase.TempDir));
@@ -143,9 +170,13 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testDoseNaNFailure(testCase)
+            % Verifies that >10% NaN values in the dose vector produce a
+            % soft warning (not a hard failure). Partial RT dose overlap
+            % is clinically common when the dose grid does not fully cover
+            % the GTV, so this is expected and tolerated.
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
-            % Make dose vector mostly NaN (>10%)
+            % Set 20% of dose voxels to NaN to exceed the 10% threshold
             nVox = numel(gtvp(1,1,1).dose_vector);
             gtvp(1,1,1).dose_vector(1:floor(0.2*nVox)) = NaN;
 
@@ -159,12 +190,15 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testOutlierDetection(testCase)
+            % Verifies that extreme summary metric outliers are detected
+            % and reported but do NOT invalidate the run. Outliers are
+            % written to the diary/console for researcher review.
             [gtvp, gtvn, summary] = testCase.createMockData(5, 1);
 
-            % Set values to calculate IQR
-            summary.adc_mean(1:4,1,1) = [1.0, 1.1, 1.0, 1.1]; % IQR is 0.1, median is 1.05
+            % Set 4 patients to tight range to establish a narrow IQR
+            summary.adc_mean(1:4,1,1) = [1.0, 1.1, 1.0, 1.1]; % IQR=0.1, median=1.05
 
-            % Introduce extreme outlier (3 * IQR = 0.3, so anything outside [0.75, 1.35] is an outlier)
+            % Patient 5 is far outside the 3*IQR fence [0.75, 1.35]
             summary.adc_mean(5,1,1) = 5.0;
 
             % Capture console output since outliers are just printed to diary/console
@@ -176,9 +210,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testMissingness(testCase)
+            % Verifies that NaN values in summary metrics are detected and
+            % reported as missingness but do NOT invalidate the run.
+            % Missing data is common when scans are skipped or ROIs fail.
             [gtvp, gtvn, summary] = testCase.createMockData(2, 2);
 
-            % Introduce missing data (NaN)
+            % Introduce NaN in both DWI and dose metrics
             summary.adc_mean(1,1,1) = NaN;
             summary.d95_gtvp(1,2) = NaN;
 
@@ -189,12 +226,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testDefaultOutputFolder(testCase)
+            % Verifies that sanity_checks works when called without an
+            % explicit output_folder (3-arg form). It should create a
+            % timestamped saved_files_* directory as a fallback. The test
+            % snapshots pre-existing saved_files_* dirs and only cleans up
+            % newly created ones to avoid deleting real pipeline output.
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
-
-            % Snapshot existing saved_files_* dirs before the call so we
-            % only clean up the one(s) created by this test, not the
-            % execute_all_workflows output folder (which is also a
-            % saved_files_* directory in the repo root).
             core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
             project_root = fullfile(core_dir, '..');
             pre_dirs = dir(fullfile(project_root, 'saved_files_*'));
@@ -217,9 +254,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testDnCNNDtype(testCase)
+            % Verifies that sanity_checks correctly dispatches to DnCNN
+            % vectors (dwi_types_to_run=2) and that negative values in
+            % d_vector_dncnn trigger convergence warnings (not failures).
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
-            % Introduce a negative value in DnCNN vector
+            % Negative D value: physically impossible, indicates fit failure
             gtvp(1,1,1).d_vector_dncnn(1) = -1.0;
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 2, 'dwi_type_name', 'DnCNN', 'output_folder', testCase.TempDir));
@@ -230,9 +270,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
         end
 
         function testIvimNetDtype(testCase)
+            % Verifies that sanity_checks correctly dispatches to IVIMnet
+            % vectors (dwi_types_to_run=3) and that NaN values in
+            % f_vector_ivimnet trigger convergence warnings (not failures).
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
 
-            % Introduce NaN in IvimNET vector
+            % NaN perfusion fraction: indicates IVIMnet inference failure
             gtvp(1,1,1).f_vector_ivimnet(1) = NaN;
 
             [is_valid, msg, ~, ~] = sanity_checks(gtvp, gtvn, summary, struct('dwi_types_to_run', 3, 'dwi_type_name', 'IVIM-NET', 'output_folder', testCase.TempDir));

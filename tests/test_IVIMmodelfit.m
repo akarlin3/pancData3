@@ -1,8 +1,22 @@
 classdef test_IVIMmodelfit < matlab.unittest.TestCase
-    % TEST_IVIMMODELFIT Unit test for the biexponential IVIM fitting function.
+    % TEST_IVIMMODELFIT Unit tests for the biexponential IVIM fitting function.
+    %
+    % Validates IVIMmodelfit.m (in dependencies/) which fits the IVIM
+    % biexponential model: S(b) = S0 * [f*exp(-b*D*) + (1-f)*exp(-b*D)]
+    % using the segmented fitting approach ('seg' method).
+    %
+    % Tests cover:
+    %   - Ideal (noiseless) signal recovery for a single voxel
+    %   - Spatially varying parameter maps (2x2x1 grid)
+    %   - Output dimension verification ([Ny, Nx, Nz, 4])
+    %   - Noise robustness at SNR ~100
+    %   - Mask-based selective fitting (only masked voxels fitted)
 
     methods(TestMethodSetup)
         function addDependenciesToPath(testCase)
+            % Add the dependencies/ folder to the MATLAB path so that
+            % IVIMmodelfit.m is accessible. Uses PathFixture in MATLAB
+            % (auto-cleaned on teardown) or plain addpath in Octave.
             repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             depPath = fullfile(repoRoot, 'dependencies');
             if exist('OCTAVE_VERSION', 'builtin')
@@ -16,7 +30,14 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
 
     methods(Test)
         function testIdealSignalSeg(testCase)
-            % Test with a single voxel and perfect biexponential decay
+            % Verify that the segmented IVIM fit recovers ground-truth parameters
+            % from a noiseless biexponential signal. This is the most basic
+            % sanity check: if fitting fails on ideal data, something is
+            % fundamentally broken.
+            %
+            % Ground truth: D=1.0e-3, f=0.2, D*=15e-3 (typical pancreas values)
+            % Expected tolerances: D within 5%, f within 10%, D* within 15%
+            % (D* is inherently less stable due to fast-decaying component)
             bvals = [0; 10; 20; 50; 100; 200; 400; 800];
             true_D = 1.0e-3;
             true_f = 0.2;
@@ -26,18 +47,21 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             % Generate signal: S = S0 * (f * exp(-b * D*) + (1-f) * exp(-b * D))
             signal = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
-            % Reshape to [Ny, Nx, Nz, Nb] -> [1, 1, 1, 8]
+            % Reshape signal to 4D array [Ny, Nx, Nz, Nb] and replicate to a
+            % 3x2x2 volume so the fitter has enough voxels to process.
             dwi = repmat(reshape(signal, [1, 1, 1, length(bvals)]), [3, 2, 2, 1]);
 
-            % Options
+            % bthr=200: b-values above this threshold are used for the
+            % monoexponential D fit in the first segmented step.
             opts.bthr = 200;
             opts.dispprog = false;
 
             % Run fit
             maps = IVIMmodelfit(dwi, bvals, 'seg', true(size(dwi,1), size(dwi,2), size(dwi,3)), opts);
 
-            % maps is 4D: [Ny, Nx, Nz, nPars]
-            % pars = {'D','S0','f','Dstar'}
+            % Output maps is 4D: [Ny, Nx, Nz, nPars] where nPars=4
+            % Parameter order: maps(:,:,:,1)=D, maps(:,:,:,2)=S0,
+            %                  maps(:,:,:,3)=f, maps(:,:,:,4)=D*
             fitted_D = maps(1, 1, 1, 1);
             fitted_S0 = maps(1, 1, 1, 2);
             fitted_f = maps(1, 1, 1, 3);
@@ -55,11 +79,13 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
         end
 
         function testVaryingParameters(testCase)
-            % Test with 2x2x1 grid with different parameters
+            % Verify spatial fidelity: each voxel in a 2x2x1 grid has different
+            % IVIM parameters. The fitted maps should recover the correct spatial
+            % pattern, ensuring the fitter does not mix up voxel locations.
             bvals = [0; 10; 20; 50; 100; 200; 400; 800];
             S0 = 100;
 
-            % Define true parameters
+            % Define spatially varying ground-truth parameters across a 2x2 grid
             true_D = [0.8e-3, 1.2e-3; 1.0e-3, 1.5e-3];
             true_f = [0.1, 0.2; 0.3, 0.15];
             true_Dstar = [10e-3, 20e-3; 15e-3, 25e-3];
@@ -85,7 +111,9 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
             fitted_f = maps(1:2,1:2,1,3);
             fitted_Dstar = maps(1:2,1:2,1,4);
 
-            % Verify spatial correspondence
+            % Verify each voxel's fitted parameters match the correct ground truth.
+            % D* has the loosest tolerance (50%) because the perfusion component
+            % decays very quickly and is sensitive to the segmented fit threshold.
             testCase.verifyEqual(fitted_D, true_D, 'RelTol', 0.10, ...
                 'Fitted D map should spatially match the ground truth map.');
             testCase.verifyEqual(fitted_f, true_f, 'RelTol', 0.20, ...
@@ -95,11 +123,13 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
         end
 
         function testDimensions(testCase)
-            % Verify output dimensions are [Ny, Nx, Nz, 4]
+            % Verify that the output parameter maps have the expected shape
+            % [Ny, Nx, Nz, 4] regardless of input volume size. This guards
+            % against reshape or indexing bugs in the fitting loop.
             Ny = 4; Nx = 3; Nz = 2; Nb = 8;
             bvals = [0; 10; 20; 50; 100; 200; 400; 800];
 
-            % Use somewhat realistic signals to avoid fit failure / warnings
+            % Use realistic biexponential signals to avoid NaN or degenerate fits
             S0 = 100; true_D = 1e-3; true_f = 0.2; true_Dstar = 15e-3;
             s_vec = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
@@ -122,8 +152,11 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
         end
 
         function testNoiseRobustness(testCase)
-            % Test stability with small noise
-            rng(42); % Deterministic noise
+            % Verify that the segmented IVIM fit remains stable under moderate
+            % Gaussian noise (SNR ~100). D and f should be within 15-20% of
+            % truth; D* is allowed 50% error because the perfusion pseudo-
+            % diffusion coefficient is notoriously noise-sensitive in IVIM.
+            rng(42); % Fixed seed for deterministic noise
             bvals = [0; 10; 20; 50; 100; 200; 400; 800; 1000];
             true_D = 1.2e-3;
             true_f = 0.15;
@@ -132,10 +165,10 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
 
             signal_ideal = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
 
-            % Add small Gaussian noise (SNR ~ 100)
+            % Add Gaussian noise with sigma=10 (SNR = S0/sigma = 1000/10 = 100)
             noise = 10 * randn(size(signal_ideal));
             signal_noisy = signal_ideal + noise;
-            signal_noisy = abs(signal_noisy);
+            signal_noisy = abs(signal_noisy); % Magnitude signal (Rician-like)
 
             dwi = repmat(reshape(signal_noisy, [1, 1, 1, length(bvals)]), [3, 2, 2, 1]);
 
@@ -163,7 +196,10 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
         end
 
         function testMasking(testCase)
-            % Test with a mask to verify it only fits in the masked region
+            % Verify that IVIMmodelfit respects the binary mask argument:
+            % voxels inside the mask should be fitted (non-NaN), while voxels
+            % outside the mask should remain NaN. This is critical for
+            % restricting fitting to the GTV region in clinical use.
             bvals = [0; 10; 20; 50; 100; 200; 400; 800];
             S0 = 100; true_D = 1e-3; true_f = 0.2; true_Dstar = 15e-3;
             s_vec = S0 * (true_f * exp(-bvals * true_Dstar) + (1 - true_f) * exp(-bvals * true_D));
@@ -175,15 +211,15 @@ classdef test_IVIMmodelfit < matlab.unittest.TestCase
                 end
             end
 
-            % Only fit the first voxel
+            % Create a mask selecting only the single voxel at (1,1,1)
             mask = false(3, 2, 2);
-            mask(1, 1) = true;
+            mask(1, 1) = true;  % Only this voxel should be fitted
 
             opts.bthr = 200;
             opts.dispprog = false;
             maps = IVIMmodelfit(dwi, bvals, 'seg', mask, opts);
 
-            % Expected maps: Voxel 1,1 should be fitted, rest should be NaN
+            % The masked voxel (1,1,1) should have a valid D value; all others NaN
             testCase.verifyFalse(isnan(maps(1, 1, 1, 1)), 'Masked voxel should be fitted.');
             testCase.verifyTrue(isnan(maps(1, 2, 1, 1)), 'Unmasked voxel should be NaN.');
             testCase.verifyTrue(isnan(maps(2, 1, 1, 1)), 'Unmasked voxel should be NaN.');

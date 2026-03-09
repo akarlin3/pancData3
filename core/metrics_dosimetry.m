@@ -112,11 +112,20 @@ end
 last_gtv_mat = '';
 last_gtv_mask_3d = [];
 
+% --- Main dosimetry loop: patient x timepoint ---
+% For each patient and fraction, compute dose coverage statistics (D95, V50)
+% within the diffusion-defined resistant sub-volume.  j indexes into the
+% filtered m_id_list (valid patients only), while j_orig maps back to the
+% original full cohort index for accessing gtv_locations and data_vectors.
 n_pat_dosimetry = length(m_id_list);
 for j = 1:n_pat_dosimetry
     text_progress_bar(j, n_pat_dosimetry, 'Computing dosimetry metrics');
+    % Map filtered patient index to original cohort index
     j_orig = find(strcmp(id_list, m_id_list{j}), 1, 'first');
     for k = 1:nTp
+        % Determine which DWI processing pipeline to use for sub-volume
+        % definition.  The same pipeline is used for both diffusion parameter
+        % thresholding and dose metric extraction to ensure consistency.
         if isfield(config_struct, 'dwi_types_to_run') && isscalar(config_struct.dwi_types_to_run)
             dtype_idx = config_struct.dwi_types_to_run;
         else
@@ -206,9 +215,16 @@ for j = 1:n_pat_dosimetry
                 end
             end
             
-            % compute the core mask using the chosen algorithmic method
+            % Compute the tumour core mask using the configured delineation method.
+            % The core mask is a logical vector (same length as adc_vec) that
+            % identifies which GTV voxels belong to the "resistant core."
+            % Baseline vectors are passed for fDM (functional diffusion map)
+            % methods that classify voxels by comparing current-to-baseline
+            % parameter changes at each voxel position.
             core_opts = struct('timepoint_index', k);
             if k > 1
+                % Provide baseline vectors for methods that need voxel-wise
+                % change computation (fDM, delta-based thresholds)
                 switch dtype_idx
                     case 1
                         core_opts.baseline_adc_vec = m_data_vectors_gtvp(j,1,1).adc_vector;
@@ -244,6 +260,14 @@ for j = 1:n_pat_dosimetry
             end
 
             % --- Multi-method dosimetry (when enabled) ---
+            % When run_all_core_methods is active, compute dose coverage for
+            % every one of the 11 core delineation methods.  This enables
+            % systematic comparison of how different sub-volume definitions
+            % affect the apparent dose coverage of resistant tissue.
+            % rng(42) ensures reproducible results for stochastic methods
+            % (GMM, k-means).  Warnings from edge cases (too few voxels for
+            % spectral clustering, no 3D mask for active contours) are
+            % suppressed to avoid cluttering the log with expected messages.
             if run_all_dos
                 unified_set_dos = {'percentile', 'spectral', 'fdm'};
                 rng(42);

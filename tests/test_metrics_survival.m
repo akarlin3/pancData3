@@ -31,8 +31,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
     methods(Test)
 
         function testInsufficientEventsReturnsEarly(testCase)
-            % With zero events td_ok is false — the function should print a
-            % diagnostic message and return without fitting a model (no error).
+            % Verifies early return when there are zero events (all patients
+            % censored, m_lf=0 for everyone). The time-dependent panel
+            % builder sets td_ok=false, and the function should print a
+            % diagnostic message and return without attempting to fit a Cox
+            % model (which would fail with no events).
             rng(1);
             n   = 10;
             nTp = 4;
@@ -54,9 +57,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testSufficientEventsRunsCoxModel(testCase)
-            % With 8 events in 20 patients the Cox model should fit
-            % successfully.  Verify console output contains expected
-            % statistical quantities (hazard ratios and p-values).
+            % Verifies that with 8 events in 20 patients, the Time-Dependent
+            % Cox PH model fits successfully. Uses evalc to capture console
+            % output and checks for expected statistical quantities (TD Panel
+            % construction, hazard ratios, or an insufficient-events message
+            % if the landmark time filter reduces the event count too much).
             rng(42);
             n   = 20;
             nTp = 4;
@@ -104,9 +109,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testCompetingRisksTreatedAsCensored(testCase)
-            % Event code 2 (competing risk) is censored for cause-specific Cox.
-            % Function must handle the mixed event vector gracefully.
-            % Verify the panel correctly reports competing events separately.
+            % Verifies Cause-Specific Hazards model handling: event code 2
+            % (competing risk, e.g., non-pancreatic death) is treated as
+            % censored for the primary event (local failure). The function
+            % should handle the mixed event vector [1, 2, 0] gracefully
+            % and report competing events in the panel output.
             rng(7);
             n   = 20;
             nTp = 4;
@@ -141,8 +148,10 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testValidPtsMaskSubsetsPatients(testCase)
-            % valid_pts selects a subset; excluded patients should not influence
-            % the model.  Function must accept mixed logical masks.
+            % Verifies that valid_pts correctly subsets the patient cohort:
+            % only the first 15 of 25 patients are marked valid. The
+            % excluded 10 patients should not contribute to the Cox model.
+            % Tests that mixed logical masks (true/false) are handled.
             rng(13);
             n_total    = 25;
             nTp        = 4;
@@ -167,8 +176,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testNaNFollowUpTimeHandled(testCase)
-            % Patients with m_lf == 0 but NaN follow-up time are handled gracefully
-            % (the censoring mask excludes them; the panel is built without them).
+            % Verifies graceful handling when all censored patients have
+            % NaN follow-up times (common when follow-up dates are missing
+            % from the clinical spreadsheet). These patients should be
+            % excluded from the panel via the censoring mask, and the
+            % function should complete without error.
             rng(99);
             n   = 15;
             nTp = 4;
@@ -191,9 +203,12 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testIPCWFrequencyPreservesN(testCase)
-            % Verify that IPCW frequency weights do not inflate sample size.
-            % With mean-stabilised weights ~1 and direct rounding,
-            % sum(freq) should be close to N (not 10*N).
+            % Verifies that the IPCW (Inverse Probability of Censoring
+            % Weighting) frequency conversion preserves effective sample
+            % size. The pipeline stabilizes weights to mean=1 and rounds
+            % to integers, so sum(freq) should be within [0.5*N, 1.5*N].
+            % This guards against the bug where unstabilized weights
+            % could inflate the effective N by 10x or more.
             rng(42);
             n = 30;
             raw_weights = 0.5 + rand(n, 1);              % range [0.5, 1.5]

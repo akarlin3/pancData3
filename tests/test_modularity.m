@@ -1,5 +1,14 @@
 classdef test_modularity < matlab.unittest.TestCase
-    % TEST_MODULARITY Unit tests for skipped pipeline steps and modularity
+    % TEST_MODULARITY Unit tests for pipeline step independence and modularity.
+    %
+    % Verifies that run_dwi_pipeline correctly:
+    %   - Skips the 'load' step when data already exists on disk
+    %   - Skips the 'metrics' step when calculated_results already exist
+    %   - Creates summary_metrics.mat when executing the 'load' step
+    %
+    % Each test creates a temporary directory with minimal mock data files,
+    % runs run_dwi_pipeline with a specific subset of steps, and asserts
+    % the expected skip/load behavior via console output matching.
     properties
         TempDir
         ConfigPath
@@ -12,6 +21,7 @@ classdef test_modularity < matlab.unittest.TestCase
             % Suppress figure pop-ups during pipeline execution
             set(0, 'DefaultFigureVisible', 'off');
 
+            % Create an isolated temporary directory for each test
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -20,6 +30,8 @@ classdef test_modularity < matlab.unittest.TestCase
             % nested coverage report conflicts).
             setenv('SKIP_PIPELINE_PREFLIGHT', '1');
 
+            % Build a minimal config struct with required fields for
+            % the pipeline to initialize without errors
             testCase.ConfigStruct = struct();
             testCase.ConfigStruct.dataloc = [testCase.TempDir filesep];
             testCase.ConfigStruct.ivim_bthr = 100;
@@ -48,6 +60,7 @@ classdef test_modularity < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Clean up temp directory and restore global state
             rmdir(testCase.TempDir, 's');
             setenv('SKIP_PIPELINE_PREFLIGHT', '');
             set(0, 'DefaultFigureVisible', 'on');
@@ -56,7 +69,9 @@ classdef test_modularity < matlab.unittest.TestCase
 
     methods(Test)
         function testSkipLoad(testCase)
-            % Create dummy data files to simulate existing load
+            % Verify that requesting only 'sanity' skips the load step
+            % and instead loads pre-existing data from disk.
+            % Create dummy data files to simulate existing load output
             data_vectors_gtvp = struct('adc_vector', [], 'd_vector', []);
             data_vectors_gtvn = struct();
             summary_metrics = struct('id_list', {{'Test'}}, 'mrn_list', {{'123'}}, ...
@@ -79,6 +94,9 @@ classdef test_modularity < matlab.unittest.TestCase
         end
 
         function testSkipMetrics(testCase)
+            % Verify that requesting only 'visualize' skips metric
+            % computation and loads pre-existing calculated_results
+            % from disk.
              type_dir = fullfile(testCase.TempDir, 'Standard');
              if ~exist(type_dir, 'dir'), mkdir(type_dir); end
              calculated_results = struct();
@@ -102,7 +120,10 @@ classdef test_modularity < matlab.unittest.TestCase
         end
 
         function testLoadSavesSummary(testCase)
-             % Test that running 'load' (with skip_to_reload=true) creates summary_metrics.mat
+            % Verify that running the 'load' step (with skip_to_reload=true
+            % so it skips DICOM conversion and goes straight to metric
+            % aggregation) creates summary_metrics_Standard.mat in the
+            % type subfolder.
 
              % 1. Create dwi_vectors.mat with sufficient dummy data for load_dwi_data Section 5
              id_list = {'Test'};

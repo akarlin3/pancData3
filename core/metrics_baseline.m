@@ -518,6 +518,11 @@ if exclude_missing_baseline
 end
 
 if exclude_outliers
+    % Apply the outlier mask after the baseline filter so indices align.
+    % Outlier patients are "soft-excluded" by setting their data to NaN
+    % rather than removing rows, which preserves array alignment with
+    % valid_pts and lf_group.  Downstream nanmean/ranksum operations
+    % automatically skip NaN entries.
     if exclude_missing_baseline
         outlier_current = ~non_outlier(valid_baseline);
     else
@@ -527,6 +532,7 @@ if exclude_outliers
     if ~isempty(outlier_ids)
         fprintf('  ⚠️  Removed %d patients as outliers (IDs: %s)\n', numel(outlier_ids), strjoin(outlier_ids, ', '));
     end
+    % NaN-out all metrics for outlier patients across all timepoints
     m_adc_mean(outlier_current,:,:)             = NaN;
     m_d_mean(outlier_current,:,:)               = NaN;
     m_f_mean(outlier_current,:,:)               = NaN;

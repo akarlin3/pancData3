@@ -36,44 +36,51 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     %     the GTV mask are extracted as 1D vectors for downstream statistical
     %     analysis (summary metrics, distributions, survival modeling).
 
-    fi = ctx.fi;
-    rpi = ctx.rpi;
+    fi = ctx.fi;    % fraction index (1-5 = on-treatment, 6 = post-RT)
+    rpi = ctx.rpi;  % repeat scan index (1-6, for Fx1 repeatability acquisitions)
+    % Initialize reference outputs as empty; only populated when fi==1
     b0_ref_out = [];
     gtvp_ref_out = [];
     gtvn_ref_out = [];
 
-    % Initialize result with NaN defaults
+    % Initialize result with NaN defaults so that missing/failed scans
+    % propagate as NaN through downstream nanmean/nanstd computations
+    % rather than causing indexing errors or silent zeros.
     result = struct();
-    result.bad_dwi_list = {};
-    result.adc_mean = nan;
-    result.adc_kurtosis = nan;
-    result.d_mean = nan;
-    result.d_kurtosis = nan;
-    result.d_mean_dncnn = nan;
-    result.d_mean_ivimnet = nan;
-    result.dmean_gtvp = nan;
-    result.dmean_gtvn = nan;
-    result.d95_gtvp = nan;
-    result.d95_gtvn = nan;
-    result.v50gy_gtvp = nan;
-    result.v50gy_gtvn = nan;
+    result.bad_dwi_list = {};       % cell array of DICOM paths that failed conversion
+    result.adc_mean = nan;          % mean ADC within GTVp (mm^2/s)
+    result.adc_kurtosis = nan;      % histogram kurtosis of ADC distribution
+    result.d_mean = nan;            % mean IVIM D within GTVp (mm^2/s)
+    result.d_kurtosis = nan;        % histogram kurtosis of D distribution
+    result.d_mean_dncnn = nan;      % mean D from DnCNN-denoised fitting
+    result.d_mean_ivimnet = nan;    % mean D from IVIMnet neural network fitting
+    result.dmean_gtvp = nan;        % mean RT dose inside GTVp (Gy)
+    result.dmean_gtvn = nan;        % mean RT dose inside GTVn (Gy)
+    result.d95_gtvp = nan;          % dose to 95% of GTVp volume (Gy)
+    result.d95_gtvn = nan;          % dose to 95% of GTVn volume (Gy)
+    result.v50gy_gtvp = nan;        % fraction of GTVp receiving >= 50 Gy (%)
+    result.v50gy_gtvn = nan;        % fraction of GTVn receiving >= 50 Gy (%)
 
-    % Build standardised naming IDs for this scan
+    % Build standardised naming IDs for this scan.
+    % Naming convention: {fraction}_{modality}{repeat_index}
+    % e.g., "fx1_dwi1", "fx3_gtv2", "post_dose_on_dwi1"
     if fi <= ctx.n_rtdose_cols
-        fx_id = ['fx' int2str(fi)];
+        fx_id = ['fx' int2str(fi)];   % on-treatment fractions: "fx1"..."fx5"
     else
-        fx_id = 'post';
+        fx_id = 'post';               % post-RT follow-up scan
     end
-    scanID    = [fx_id '_dwi' int2str(rpi)];
-    gtvname   = [fx_id '_gtv' int2str(rpi)];
-    gtvn_name = [fx_id '_gtvn' int2str(rpi)];
-    dosename  = [fx_id '_dose_on_dwi' int2str(rpi)];
+    scanID    = [fx_id '_dwi' int2str(rpi)];         % DWI NIfTI filename stem
+    gtvname   = [fx_id '_gtv' int2str(rpi)];         % primary GTV mask filename stem
+    gtvn_name = [fx_id '_gtvn' int2str(rpi)];        % nodal GTV mask filename stem
+    dosename  = [fx_id '_dose_on_dwi' int2str(rpi)]; % dose map resampled to DWI grid
 
+    % NIfTI output directory: all converted volumes for this patient are stored
+    % in a flat 'nii' subdirectory within the patient folder.
     outloc = fullfile(ctx.basefolder, 'nii');
     if ~isfolder(outloc), mkdir(outloc); end
 
-    bad_dwi_found = 0;
-    bad_list = {};
+    bad_dwi_found = 0;  % flag: set to 1 if any conversion/loading error occurs
+    bad_list = {};       % accumulates DICOM paths that failed
 
     % --- Convert DWI DICOMs to NIfTI using dcm2niix ---
     if ~isempty(ctx.dicomloc)
@@ -178,12 +185,12 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     % from NIfTI storage convention (radiological) to MATLAB display
     % convention. Voxel volume is computed in cm^3 (dimensions in mm / 10)
     % for consistency with clinical reporting of GTV volumes in cc.
-    havedwi = 0;
-    dwi = [];
-    bvalues = [];
-    i_sort = [];
-    dwi_vox_vol = nan;
-    dwi_dims = [];
+    havedwi = 0;        % flag: DWI volume successfully loaded and validated
+    dwi = [];           % 4D DWI volume (x, y, z, b-value)
+    bvalues = [];       % b-value vector sorted ascending
+    i_sort = [];        % sort indices mapping original b-value order to ascending
+    dwi_vox_vol = nan;  % single voxel volume in cm^3
+    dwi_dims = [];      % voxel dimensions in mm [dx, dy, dz]
     if exist(fullfile(outloc, [scanID '.nii.gz']),'file')
         dwi_info = niftiinfo(fullfile(outloc, [scanID '.nii.gz']));
         dwi = rot90(niftiread(dwi_info));
@@ -308,8 +315,8 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     end
 
     % --- Load GTVp mask and validate spatial dimensions ---
-    havegtvp = 0; gtv_mask = [];
-    havegtvn = 0; gtvn_mask = [];
+    havegtvp = 0; gtv_mask = [];   % primary tumor (GTVp) mask
+    havegtvn = 0; gtvn_mask = [];  % nodal disease (GTVn) mask
     if havedwi
         gtvp_filepath = fullfile(outloc, [gtvname '.nii.gz']);
         [havegtvp, gtv_mask] = load_nifti_mask(gtvp_filepath, dwi_size, '', 'gtvp');
@@ -341,15 +348,21 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     %   1. Standard (raw) DWI — baseline comparison
     %   2. DnCNN-denoised DWI — noise-reduced estimation
     % IVIMnet parameters are pre-computed externally and loaded above.
-    d_map = []; f_map = []; dstar_map = []; adc_map = [];
-    d_map_dncnn = []; f_map_dncnn = []; dstar_map_dncnn = []; adc_map_dncnn = [];
+    % Pre-initialize parameter maps to empty: populated by fit_models() below
+    d_map = []; f_map = []; dstar_map = []; adc_map = [];               % Standard DWI
+    d_map_dncnn = []; f_map_dncnn = []; dstar_map_dncnn = []; adc_map_dncnn = [];  % DnCNN-denoised
     if havedwi && (havegtvn || havegtvp)
+        % Build the union mask of GTVp and GTVn for model fitting.
+        % logical() + logical() = OR operation, ensuring all tumor voxels
+        % (primary and nodal) are included in a single fitting pass.
         mask_ivim = false(size(dwi,1),size(dwi,2),size(dwi,3));
         if havegtvp, mask_ivim = logical(mask_ivim + logical(gtv_mask)); end
         if havegtvn, mask_ivim = logical(mask_ivim + logical(gtvn_mask)); end
 
+        % opts.bthr: b-value threshold (typically 100 s/mm^2) for IVIM
+        % segmented fitting. b < bthr captures perfusion, b >= bthr captures diffusion.
         opts = [];
-        opts.bthr = ctx.ivim_bthr;  % b-value threshold separating perfusion from diffusion regimes
+        opts.bthr = ctx.ivim_bthr;
 
         [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim, opts);
         if havedenoised==1
@@ -455,7 +468,9 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         fprintf('  [DIR] Warped all parameter maps and dose to baseline geometry.\n');
     end
 
-    % Build maps struct for extract_biomarkers
+    % Package parameter maps and metadata into structs for extract_biomarkers.
+    % This centralises the interface between spatial (3D) and statistical (1D)
+    % analysis, ensuring all downstream extraction uses consistent inputs.
     maps = struct('adc_map', adc_map, 'd_map', d_map, 'f_map', f_map, 'dstar_map', dstar_map);
     meta = struct('id', ctx.id_j, 'mrn', ctx.mrn_j, 'lf', ctx.pat_lf, ...
         'immuno', ctx.pat_immuno, 'fi', fi, 'rpi', rpi, 'vox_vol', dwi_vox_vol, 'vox_dims', dwi_dims);
@@ -497,7 +512,10 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     dncnn_mask_n = biomarker_mask_n;
 
     % --- Extract biomarkers for GTVp ---
-    % Initialize with empty struct matching init_scan_structs fields
+    % Initialize with empty struct matching init_scan_structs fields.
+    % init_scan_structs creates template structs with all required fields
+    % (adc_vector, d_vector, etc.) set to empty, ensuring downstream code
+    % never encounters missing-field errors even if extraction is skipped.
     [empty_p, empty_n] = init_scan_structs(1, 1);
     result.data_gtvp = empty_p;
     result.data_gtvn = empty_n;
@@ -505,8 +523,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     if havegtvp
         result.data_gtvp = extract_biomarkers(biomarker_mask_p, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
 
+        % Compute summary statistics for this scan's ADC distribution.
+        % nanmean excludes voxels where fitting failed (NaN).
         result.adc_mean = nanmean(adc_map(biomarker_mask_p==1));
         % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
+        % This measures the peakedness of the ADC distribution, which may
+        % indicate heterogeneity (platykurtic = heterogeneous; leptokurtic
+        % = homogeneous). Requires >= 4 finite values for a meaningful estimate.
         % Filter NaN before kurtosis() which does not ignore NaN values.
         adc_finite = adc_map(biomarker_mask_p==1);
         adc_finite = adc_finite(~isnan(adc_finite));

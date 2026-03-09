@@ -35,9 +35,9 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % to bypass thousands of empty space computations within the dependency.
     % The GTV mask typically covers only ~100-2000 voxels out of a
     % ~256x256x20 volume (~1.3M voxels), so masking provides a ~1000x speedup.
-    sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];
-    valid_voxels_idx = find(mask_ivim);
-    n_valid = length(valid_voxels_idx);
+    sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];  % spatial dimensions of DWI volume
+    valid_voxels_idx = find(mask_ivim);  % linear indices of tumor voxels within the GTV mask
+    n_valid = length(valid_voxels_idx);  % number of voxels to fit (typically ~100-2000)
 
     % Preallocate output 1D arrays with NaN so that voxels where fitting
     % fails (convergence failure, non-physical result) naturally propagate
@@ -124,6 +124,8 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     dstar_map = nan(sz3);
 
     if n_valid > 0
+        % Place fitted 1D parameter values back into their original 3D
+        % spatial positions using the linear indices from the GTV mask.
         d_map(valid_voxels_idx) = d_vec;
         f_map(valid_voxels_idx) = f_vec;
         dstar_map(valid_voxels_idx) = dstar_vec;
@@ -139,8 +141,8 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % weights = S^2 corrects for this heteroscedasticity, giving more weight
     % to high-SNR measurements.
 
-    adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];
-    adc_map = nan(adc_sz);
+    adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];  % same as sz3 above
+    adc_map = nan(adc_sz);  % NaN background for non-tumor voxels
 
     if n_valid > 0
         % Extract 1D signal decay curves if not already computed

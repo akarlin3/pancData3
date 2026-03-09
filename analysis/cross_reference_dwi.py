@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-"""Cross-reference graph analysis results across DWI types."""
+"""Full cross-reference of graph analysis results across DWI types.
+
+For every graph that appears in two or more DWI-type subfolders (Standard,
+dnCNN, IVIMnet), this script prints a detailed side-by-side comparison
+including:
+
+- Graph type, axis labels, and units
+- All extracted trends (series name, direction, description)
+- All inflection points (approximate coordinates and description)
+- Plain-English summary (truncated to 250 characters)
+
+This is the verbose counterpart to :mod:`cross_reference_summary`, which
+focuses only on clinically priority graphs and trend agreement.
+
+Usage:
+    python cross_reference_dwi.py [saved_files_path]
+"""
 
 from __future__ import annotations
 
@@ -18,11 +34,13 @@ setup_utf8_stdout()
 
 
 def main():
+    """CLI entry point: load vision CSV and print full cross-DWI comparison."""
     folder = resolve_folder(sys.argv)
     rows = load_graph_csv(folder)
     if not rows:
         sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
 
+    # Group rows by normalised graph name for cross-DWI matching.
     groups = group_by_graph_name(rows)
 
     sep = "=" * 90
@@ -36,7 +54,7 @@ def main():
         types_present = sorted(dwi_dict.keys())
         if len(types_present) < 2:
             continue
-        # Skip Root-only
+        # Skip graphs that only exist in Root (not inside a DWI-type subfolder).
         real_types = [t for t in types_present if t != "Root"]
         if len(real_types) < 2:
             continue
@@ -47,6 +65,7 @@ def main():
         print(f"  Present in: {', '.join(types_present)}")
         print(sep)
 
+        # Print detailed info for each DWI type.
         for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
                 continue
@@ -58,6 +77,7 @@ def main():
             if r["y_axis_label"]:
                 print(f"    Y-axis: {r['y_axis_label']} ({r['y_axis_units'] or 'no units'})")
 
+            # Parse and display trend list from JSON string.
             trends = json.loads(r["trends_json"])
             if trends:
                 print(f"    Trends ({len(trends)}):")
@@ -66,6 +86,7 @@ def main():
                     pfx = f"[{series}] " if series else ""
                     print(f"      - {pfx}{t['direction']}: {t['description']}")
 
+            # Parse and display inflection points from JSON string.
             inflections = json.loads(r["inflection_points_json"])
             if inflections:
                 print(f"    Inflection points ({len(inflections)}):")
@@ -74,6 +95,7 @@ def main():
                     y = ip.get("approximate_y", "?")
                     print(f"      - ({x}, {y}): {ip['description']}")
 
+            # Truncate long summaries for readability.
             summary = r["summary"]
             if len(summary) > 250:
                 summary = summary[:250] + "..."

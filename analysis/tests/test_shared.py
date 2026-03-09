@@ -37,6 +37,7 @@ class TestParseDwiInfo:
     """Verify DWI type extraction and base name normalisation from file paths."""
 
     def test_standard_path(self):
+        """Standard DWI type is detected and its suffix stripped from the base name."""
         dwi, name = parse_dwi_info(
             "saved_files_20260301/Standard/Feature_BoxPlots_Standard.png"
         )
@@ -44,6 +45,7 @@ class TestParseDwiInfo:
         assert name == "Feature_BoxPlots"
 
     def test_dncnn_path(self):
+        """dnCNN DWI type is detected; the '_dnCNN' suffix is stripped."""
         dwi, name = parse_dwi_info(
             "saved_files_20260301/dnCNN/Longitudinal_dnCNN.png"
         )
@@ -51,6 +53,7 @@ class TestParseDwiInfo:
         assert name == "Longitudinal"
 
     def test_ivimnet_path(self):
+        """IVIMnet type is detected even with an absolute path prefix."""
         dwi, name = parse_dwi_info(
             "/abs/saved_files_20260301/IVIMnet/Dose_vs_Diffusion_IVIMnet.png"
         )
@@ -95,26 +98,31 @@ class TestExtractPvalues:
     """Verify regex-based p-value extraction from free text."""
 
     def test_basic_equality(self):
+        """'p = 0.032' with an equals sign is the most common form."""
         results = extract_pvalues("The result was p = 0.032 significant")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.032)
 
     def test_less_than_sign(self):
+        """'p < 0.001' using a less-than comparator should also match."""
         results = extract_pvalues("p < 0.001 was observed")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.001)
 
     def test_scientific_notation(self):
+        """Scientific notation like '3.5e-04' must be parsed correctly."""
         results = extract_pvalues("p = 3.5e-04 highly significant")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(3.5e-04)
 
     def test_pvalue_keyword_form(self):
+        """The hyphenated form 'p-value = ...' should be recognised."""
         results = extract_pvalues("p-value = 0.045 for the test")
         assert len(results) >= 1
         assert any(abs(v - 0.045) < 1e-6 for v, _ in results)
 
     def test_multiple_pvalues(self):
+        """Multiple p-values in one string should all be captured."""
         text = "First test p = 0.01, second test p = 0.5, third p = 1e-5"
         results = extract_pvalues(text)
         values = [v for v, _ in results]
@@ -122,9 +130,11 @@ class TestExtractPvalues:
         assert len(results) >= 3
 
     def test_no_pvalues(self):
+        """Text without any p-value pattern should return an empty list."""
         assert extract_pvalues("No statistical results here") == []
 
     def test_case_insensitive(self):
+        """Uppercase 'P' should match just like lowercase 'p'."""
         results = extract_pvalues("P = 0.05 uppercase match")
         assert len(results) >= 1
 
@@ -144,16 +154,19 @@ class TestExtractCorrelations:
     """Verify regex-based correlation coefficient extraction."""
 
     def test_pearson_r(self):
+        """Standard 'r = 0.85' Pearson correlation is extracted."""
         results = extract_correlations("Pearson r = 0.85 strong positive")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.85)
 
     def test_negative_r(self):
+        """Negative correlation coefficients (r = -0.42) are supported."""
         results = extract_correlations("r = -0.42 negative correlation")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(-0.42)
 
     def test_spearman_rs(self):
+        """Spearman rank correlation 'rs = 0.72' is recognised."""
         results = extract_correlations("Spearman rs = 0.72")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.72)
@@ -165,9 +178,11 @@ class TestExtractCorrelations:
         assert results[0][0] == pytest.approx(0.45)
 
     def test_no_correlations(self):
+        """Text without correlation patterns returns an empty list."""
         assert extract_correlations("No correlations reported") == []
 
     def test_multiple_correlations(self):
+        """Multiple correlation types (r, rs, r-squared) in one string."""
         text = "r = 0.5, rs = 0.6, r² = 0.7"
         # r\u00b2 is r² — check for at least 2 matches
         results = extract_correlations(text.replace("²", "\u00b2"))
@@ -182,6 +197,7 @@ class TestLoadGraphCsv:
     """Verify CSV loading and graceful degradation."""
 
     def test_load_existing_csv(self, saved_files_with_graph_csv: Path):
+        """All rows from the fixture CSV are loaded with correct column names."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         assert len(rows) == len(SAMPLE_GRAPH_CSV_ROWS)
         assert "file_path" in rows[0]
@@ -196,6 +212,7 @@ class TestGroupByGraphName:
     """Verify grouping of CSV rows by normalised graph name."""
 
     def test_grouping_structure(self, saved_files_with_graph_csv: Path):
+        """Feature_BoxPlots rows are grouped under the same key, keyed by DWI type."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         groups = group_by_graph_name(rows)
 
@@ -206,6 +223,7 @@ class TestGroupByGraphName:
         assert "dnCNN" in fb
 
     def test_longitudinal_grouped_separately(self, saved_files_with_graph_csv: Path):
+        """Longitudinal_Mean_Metrics (a different graph name) gets its own group."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         groups = group_by_graph_name(rows)
 
@@ -214,6 +232,7 @@ class TestGroupByGraphName:
         assert "IVIMnet" in lm
 
     def test_empty_rows(self):
+        """An empty row list produces an empty group dictionary."""
         groups = group_by_graph_name([])
         assert groups == {}
 
@@ -226,7 +245,8 @@ class TestFindLatestSavedFolder:
     """Verify auto-detection of the most recent saved_files_* directory."""
 
     def test_finds_latest(self, tmp_path: Path):
-        # Create two timestamped folders
+        """When multiple saved_files_* dirs exist, the lexicographically last is returned."""
+        # Create two timestamped folders; the later timestamp should win
         (tmp_path / "saved_files_20260101_100000").mkdir()
         (tmp_path / "saved_files_20260301_120000").mkdir()
 
@@ -235,6 +255,7 @@ class TestFindLatestSavedFolder:
         assert "20260301" in str(result)
 
     def test_exits_when_none_found(self, tmp_path: Path):
+        """sys.exit is called when no saved_files_* directories exist."""
         with pytest.raises(SystemExit):
             find_latest_saved_folder(str(tmp_path))
 
@@ -243,10 +264,12 @@ class TestResolveFolder:
     """Verify CLI argument resolution of the output folder."""
 
     def test_explicit_folder(self, saved_files_dir: Path):
+        """An explicit folder path given as argv[1] is used directly."""
         result = resolve_folder(["script.py", str(saved_files_dir)])
         assert result == saved_files_dir
 
     def test_nonexistent_folder_exits(self, tmp_path: Path):
+        """A nonexistent explicit path triggers sys.exit."""
         fake = str(tmp_path / "nonexistent")
         with pytest.raises(SystemExit):
             resolve_folder(["script.py", fake])

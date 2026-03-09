@@ -26,6 +26,10 @@ if str(ANALYSIS_DIR) not in sys.path:
 # ---------------------------------------------------------------------------
 
 SAMPLE_GRAPH_CSV_ROWS = [
+    # Row 1: Standard box plot with a significant p-value (0.003) and a
+    # notable correlation (r=0.65).  The "increasing" trend direction
+    # deliberately differs from the dnCNN row below so cross-DWI comparison
+    # tests can verify AGREE/DIFFER logic.
     {
         "file_path": "saved_files_20260301_120000/Standard/Feature_BoxPlots_Standard.png",
         "graph_title": "Feature BoxPlots",
@@ -50,6 +54,10 @@ SAMPLE_GRAPH_CSV_ROWS = [
         "inflection_points_json": "[]",
         "summary": "Box plot showing p = 0.003 for ADC comparison. r = 0.65 correlation.",
     },
+    # Row 2: dnCNN box plot — same graph name as row 1 but with a
+    # non-significant p-value (0.12) and opposite trend direction
+    # ("decreasing" vs "increasing").  Used to test cross-DWI
+    # inconsistency detection and grouping by graph name.
     {
         "file_path": "saved_files_20260301_120000/dnCNN/Feature_BoxPlots_dnCNN.png",
         "graph_title": "Feature BoxPlots",
@@ -74,6 +82,11 @@ SAMPLE_GRAPH_CSV_ROWS = [
         "inflection_points_json": "[]",
         "summary": "Box plot showing p = 0.12 for ADC comparison.",
     },
+    # Row 3: IVIMnet longitudinal line plot — a different graph type ("line")
+    # with two trends (LF decreasing, LC flat), one inflection point, and both
+    # a significant p-value (0.02) and an r-squared value (0.45).  Exercises
+    # multi-trend parsing, inflection point extraction, and longitudinal graph
+    # grouping separately from the box plot rows above.
     {
         "file_path": "saved_files_20260301_120000/IVIMnet/Longitudinal_Mean_Metrics_IVIMnet.png",
         "graph_title": "Longitudinal Mean Metrics",
@@ -132,7 +145,13 @@ def saved_files_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def saved_files_with_graph_csv(saved_files_dir: Path) -> Path:
-    """saved_files dir populated with a graph_analysis_results.csv."""
+    """saved_files dir populated with a graph_analysis_results.csv.
+
+    Writes all three SAMPLE_GRAPH_CSV_ROWS (Standard box, dnCNN box,
+    IVIMnet line) into the CSV file at the root of the saved_files directory,
+    mirroring the layout produced by batch_graph_analysis.py after a real
+    pipeline run.
+    """
     csv_path = saved_files_dir / "graph_analysis_results.csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=GRAPH_CSV_COLUMNS)
@@ -144,10 +163,28 @@ def saved_files_with_graph_csv(saved_files_dir: Path) -> Path:
 
 @pytest.fixture
 def saved_files_with_logs(saved_files_dir: Path) -> Path:
-    """saved_files dir populated with synthetic MATLAB log files."""
+    """saved_files dir populated with synthetic MATLAB log files.
+
+    Creates four log files under the Standard/ subfolder, each containing
+    representative text that exercises a different parse_log_metrics parser:
+
+    - metrics_stats_comparisons: GLME interaction p-values, per-metric
+      details with adjusted alpha, FDR timepoint counts, and competing-risk
+      patient exclusion.
+    - metrics_stats_predictive: Elastic net feature selections at two
+      timepoints, Firth refit confirmation, and two ROC analysis blocks
+      with AUC/sensitivity/specificity.
+    - metrics_survival: Two hazard ratio rows, a global LRT line, and
+      IPCW weight range.
+    - metrics_baseline: Per-metric outlier flags with group breakdowns,
+      total outlier summary, and baseline exclusion with LF rate comparison.
+    """
     # -- Standard logs --
     std = saved_files_dir / "Standard"
 
+    # Stats comparisons log: contains GLME interaction p-values (decimal and
+    # scientific notation), per-metric Wilcoxon results with FDR-adjusted
+    # alpha, timepoint-level FDR summaries, and competing-risk exclusion count.
     (std / "metrics_stats_comparisons_output_Standard.txt").write_text(
         "Interaction P-Value for ADC: 0.023\n"
         "Interaction P-Value for D_star: 1.5e-04\n"
@@ -159,6 +196,9 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
         encoding="utf-8",
     )
 
+    # Predictive log: elastic net feature selections at BL and W2 with
+    # different lambda values and feature counts, plus two PRIMARY ROC
+    # ANALYSIS blocks with AUC, Youden cutoff, sensitivity, and specificity.
     (std / "metrics_stats_predictive_output_Standard.txt").write_text(
         "Elastic Net Selected Features for BL (Opt Lambda=0.0532): mean_adc, mean_d, f_ratio\n"
         "Elastic Net Selected Features for W2 (Opt Lambda=0.1200): delta_adc, mean_f\n"
@@ -174,6 +214,9 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
         encoding="utf-8",
     )
 
+    # Survival log: two hazard ratio table rows (whitespace-delimited with
+    # covariate, HR, CI_lo, CI_hi, p-value), a global likelihood ratio test
+    # line, and an IPCW weight range annotation.
     (std / "metrics_survival_output_Standard.txt").write_text(
         "  mean_adc   1.250   0.980   1.590   0.0680\n"
         "  delta_d    0.750   0.550   1.020   0.0340\n"
@@ -182,6 +225,9 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
         encoding="utf-8",
     )
 
+    # Baseline log: per-metric outlier flags with LF/LC/CR group breakdowns,
+    # a total outlier summary line, and a baseline exclusion block including
+    # LF rate comparison between included and excluded patients.
     (std / "metrics_baseline_output_Standard.txt").write_text(
         "Outlier flag (mean_adc): 3 flagged (LF=2, LC=1, CR=0)\n"
         "Outlier flag (mean_d): 1 flagged (LF=0, LC=0, CR=1)\n"
@@ -196,7 +242,19 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
 
 @pytest.fixture
 def saved_files_with_csvs(saved_files_dir: Path) -> Path:
-    """saved_files dir populated with Significant_LF_Metrics.csv per DWI type."""
+    """saved_files dir populated with Significant_LF_Metrics.csv per DWI type.
+
+    Creates CSVs with deliberately different metric sets across DWI types
+    to exercise cross-DWI consistency analysis:
+
+    - Standard: 3 rows (mean_adc@BL, mean_d@BL, mean_adc@W2)
+    - dnCNN:    1 row  (mean_adc@BL only)
+    - IVIMnet:  no CSV (tests missing-file graceful handling)
+
+    This means mean_adc@BL appears in Standard and dnCNN but not IVIMnet
+    (inconsistent), while mean_d@BL and mean_adc@W2 appear only in Standard
+    (also inconsistent).  No metric is consistent across all three types.
+    """
     for dwi_type in ("Standard", "dnCNN"):
         csv_path = saved_files_dir / dwi_type / "Significant_LF_Metrics.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:

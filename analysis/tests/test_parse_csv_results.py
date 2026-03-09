@@ -32,6 +32,7 @@ class TestReadCsv:
     """Verify CSV reading with graceful missing-file handling."""
 
     def test_reads_existing_csv(self, tmp_path: Path):
+        """A valid CSV file is loaded into a list of dicts with correct values."""
         p = tmp_path / "data.csv"
         with open(p, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=["A", "B"])
@@ -42,6 +43,7 @@ class TestReadCsv:
         assert rows[0]["A"] == "1"
 
     def test_returns_empty_for_missing(self, tmp_path: Path):
+        """A missing CSV file returns an empty list instead of raising."""
         rows = _read_csv(tmp_path / "nonexistent.csv")
         assert rows == []
 
@@ -54,6 +56,7 @@ class TestParseSignificantMetrics:
     """Verify loading of Significant_LF_Metrics.csv from DWI subfolders."""
 
     def test_loads_per_dwi_type(self, saved_files_with_csvs: Path):
+        """CSVs from Standard (3 rows) and dnCNN (1 row) are loaded separately."""
         result = parse_significant_metrics(saved_files_with_csvs)
         assert "Standard" in result
         assert len(result["Standard"]) == 3  # 3 rows in the fixture
@@ -79,6 +82,7 @@ class TestParseFdrGlobal:
     """Verify loading of FDR_Sig_Global.csv from DWI subfolders."""
 
     def test_loads_when_present(self, saved_files_dir: Path):
+        """An FDR_Sig_Global.csv created on-the-fly is correctly loaded."""
         # Create an FDR CSV in Standard
         csv_path = saved_files_dir / "Standard" / "FDR_Sig_Global.csv"
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -90,6 +94,7 @@ class TestParseFdrGlobal:
         assert len(result["Standard"]) == 1
 
     def test_empty_when_no_files(self, saved_files_dir: Path):
+        """No FDR CSV files in any DWI subfolder returns an empty dict."""
         result = parse_fdr_global(saved_files_dir)
         assert result == {}
 
@@ -146,6 +151,7 @@ class TestCrossReferenceSignificance:
         assert by_key["mean_d@W2"]["consistent"] is False
 
     def test_empty_input(self):
+        """No DWI types at all yields an empty cross-reference list."""
         result = cross_reference_significance({})
         assert result == []
 
@@ -169,12 +175,19 @@ class TestParseAllCsvs:
     """Integration test for the top-level CSV parsing orchestrator."""
 
     def test_returns_all_keys(self, saved_files_with_csvs: Path):
+        """The orchestrator returns all three expected top-level keys."""
         result = parse_all_csvs(saved_files_with_csvs)
         assert "significant_metrics" in result
         assert "fdr_global" in result
         assert "cross_reference" in result
 
     def test_cross_reference_populated(self, saved_files_with_csvs: Path):
+        """Cross-reference identifies at least 3 metric/timepoint combinations.
+
+        Given the fixture data (Standard has 3 entries, dnCNN has 1),
+        no metric is fully consistent across all three DWI types (IVIMnet
+        has no CSV), so at least one entry should be marked inconsistent.
+        """
         result = parse_all_csvs(saved_files_with_csvs)
         cr = result["cross_reference"]
         # Standard has mean_adc@BL, mean_d@BL, mean_adc@W2
@@ -187,6 +200,7 @@ class TestParseAllCsvs:
         assert len(inconsistent) >= 1
 
     def test_empty_folder(self, saved_files_dir: Path):
+        """A folder with no CSV exports returns empty containers for all keys."""
         result = parse_all_csvs(saved_files_dir)
         assert result["significant_metrics"] == {}
         assert result["cross_reference"] == []

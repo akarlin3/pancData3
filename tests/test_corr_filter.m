@@ -1,4 +1,16 @@
-% Test script for intelligent correlation filtering logic
+% TEST_CORR_FILTER Functional test for the collinearity pruning utility.
+%
+% This test validates filter_collinear_features.m across four scenarios:
+%   1. Basic pruning: Given two highly correlated features, the one with the
+%      weaker univariate C-index should be dropped.
+%   2. Non-leakage verification: The pruning mask derived from training data
+%      must be applied as-is to test data (no re-computation on test rows).
+%   3. Time-stratified filtering: When a fraction vector is supplied, the
+%      correlation matrix must be computed only on baseline (Fraction 1) rows.
+%      Late-stage collinearity induced by treatment response must not influence
+%      the baseline pruning decision.
+%   4. NaN handling: The function must tolerate NaN entries in the feature
+%      matrix (using pairwise deletion) without propagating NaN correlations.
 function test_corr_filter()
     % Setup output directory in temp folder to avoid polluting the project root
     output_folder = fullfile(tempdir, 'test_corr_filter_output');
@@ -9,34 +21,38 @@ function test_corr_filter()
     if exist(diary_file, 'file'), delete(diary_file); end
     diary(diary_file);
     
-    % Suppress figure windows
+    % Suppress figure windows during tests to avoid GUI pop-ups
     old_vis = get(0, 'DefaultFigureVisible');
     set(0, 'DefaultFigureVisible', 'off');
 
     fprintf('Running test_corr_filter...\n');
-    
-    % Mock data
-    rng(42);
+
+    % --- Scenario 1: Basic collinearity pruning ---
+    % Create two features where F1 is more predictive of the binary outcome y
+    % than F2, but F2 is highly correlated with F1 (r > 0.8). The filter
+    % should retain F1 (higher C-index) and drop F2.
+    rng(42);  % Fixed seed for reproducibility
     n = 50;
-    y = [zeros(n/2, 1); ones(n/2, 1)];
-    
-    % F1: Very predictive (high C-index)
+    y = [zeros(n/2, 1); ones(n/2, 1)];  % Binary outcome: 25 LC, 25 LF
+
+    % F1: Strong class separation (shift of +2 for positive class)
     f1 = [randn(n/2, 1); randn(n/2, 1) + 2];
-    % F2: Highly correlated with F1, but weaker C-index
+    % F2: Correlated with F1 (linear + noise), but offset reduces C-index
     f2 = f1 + 0.5*randn(n, 1) + 0.5;
-    
+
     X = [f1, f2];
     feat_names = {'F1', 'F2'};
     
     R = corrcoef(X);
     fprintf('Correlation between F1 and F2: %.3f\n', R(1,2));
     
-    % Run logic using the centralized shared function
+    % Run the collinearity filter; keep_idx contains column indices to retain
     keep_idx = filter_collinear_features(X, y);
+    % Build a boolean drop flag for visualization (true = dropped)
     drop_flag_actual = true(1, 2);
     drop_flag_actual(keep_idx) = false;
-    
-    % Visualization of the test case
+
+    % Scatter plot of the two features colored by class for visual inspection
     figure('Name', 'Correlation Filter Test Data');
     scatter(f1(y==0), f2(y==0), 50, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k'); hold on;
     scatter(f1(y==1), f2(y==1), 50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k');
@@ -47,7 +63,7 @@ function test_corr_filter()
     saveas(gcf, fullfile(output_folder, 'test_corr_filter_data.png'));
     close(gcf);
     
-    % Verify the drop state
+    % Verify that F2 was dropped (weaker C-index) and F1 was retained
     if ~any(keep_idx == 2) && any(keep_idx == 1)
         fprintf('SUCCESS: Shared function dropped feature F2 with weaker C-index.\n');
     else
@@ -56,11 +72,14 @@ function test_corr_filter()
         error('FAILURE: Unexpected drop state from shared function.');
     end
     
-    % --- STRICT NON-LEAKAGE VERIFICATION ---
-    % Test: If we have a new patient, do we re-calculate R? 
-    % Rigor requires using the mask derived strictly from training data.
+    % --- Scenario 2: STRICT NON-LEAKAGE VERIFICATION ---
+    % The pruning mask (keep_idx) must be derived solely from training data.
+    % When applying to unseen test patients, we must NOT recompute correlations
+    % on test data -- just apply the training-derived column mask.
     fprintf('\n--- Verifying STRICT NON-LEAKAGE ---\n');
+    % Simulate a new unseen patient with both features present
     test_patient_X = [1.2, 1.3]; % New patient data for F1, F2
+    % Apply the training-derived mask to select only retained columns
     X_te_pruned = test_patient_X(:, keep_idx);
     
     assert(size(X_te_pruned, 2) == length(keep_idx), 'Pruned test data size mismatch');
@@ -69,13 +88,15 @@ function test_corr_filter()
         strjoin(feat_names(keep_idx), ', '));
     fprintf('Scientific Rigor: PASSED (No correlation calculation on test data).\n');
     
-    % --- TIME-STRATIFIED COLLINEARITY FILTER VERIFICATION ---
-    % Test: When frac_vec is provided, correlation must be computed exclusively
-    % on Fraction 1 (baseline) rows. Late-stage collinearity must NOT
-    % influence the pruning mask applied at baseline.
+    % --- Scenario 3: TIME-STRATIFIED COLLINEARITY FILTER VERIFICATION ---
+    % In longitudinal DWI data, features may become correlated at later
+    % treatment fractions (e.g., due to radiation response) even though they
+    % are independent at baseline. The filter must use only baseline rows
+    % when frac_vec is provided, to avoid dropping features based on
+    % spurious late-stage correlations.
     fprintf('\n--- Verifying TIME-STRATIFIED COLLINEARITY FILTERING ---\n');
     rng(99);
-    n_td = 60;   % total longitudinal rows (3 fractions × 20 patients)
+    n_td = 60;      % 3 fractions x 20 patients = 60 longitudinal rows
     n_pts_td = 20;
     
     % frac_vec: rows 1-20 are Fraction 1 (baseline), 21-40 Fraction 2, 41-60 Fraction 3
@@ -85,16 +106,18 @@ function test_corr_filter()
     y_pat = [zeros(n_pts_td/2,1); ones(n_pts_td/2,1)];
     y_td  = repmat(y_pat, 3, 1);
     
-    % Baseline features: F1 and F2 are NOT correlated at Fraction 1
+    % At baseline (Fraction 1), F1 and F2 are independent (low correlation)
     f1_base = [randn(n_pts_td/2,1); randn(n_pts_td/2,1) + 2];
-    f2_base = randn(n_pts_td, 1);          % independent of f1_base
-    
-    % At later fractions, F1 and F2 become strongly correlated (radiation response)
+    f2_base = randn(n_pts_td, 1);          % Independent of f1_base at baseline
+
+    % At later fractions (2 and 3), F1 and F2 become strongly correlated
+    % (simulating treatment-induced co-variation in diffusion parameters)
     f1_late = repmat(f1_base, 2, 1) + 0.1*randn(2*n_pts_td, 1);
     f2_late = f1_late + 0.05*randn(2*n_pts_td, 1);  % near-identical at late fractions
     
     X_td_test = [[f1_base, f2_base]; [f1_late, f2_late]];
     
+    % Compute correlations globally (all fractions) vs baseline-only to show the contrast
     R_global = corrcoef(X_td_test);
     R_base   = corrcoef(X_td_test(frac_vec==1, :));
     fprintf('Global |r|(F1,F2): %.3f  |  Baseline-only |r|(F1,F2): %.3f\n', ...
@@ -118,18 +141,19 @@ function test_corr_filter()
     end
     fprintf('TIME-STRATIFIED TEST: PASSED\n');
     
-    % --- NaN HANDLING VERIFICATION ---
-    % Test: If input matrix contains NaNs, corrcoef returns NaNs unless
-    % 'Rows', 'pairwise' is used.
+    % --- Scenario 4: NaN HANDLING VERIFICATION ---
+    % Missing data (NaN) is common in clinical DWI datasets. The standard
+    % corrcoef() propagates NaN unless 'Rows','pairwise' is used. The filter
+    % must handle NaN entries gracefully and still produce correct pruning.
     fprintf('\n--- Verifying NaN HANDLING ---\n');
 
+    % Start from the original 2-feature dataset and inject NaN values
     X_nan = X;
-    % Introduce some NaNs randomly into the data
-    X_nan(5, 1) = NaN;
-    X_nan(10, 2) = NaN;
+    X_nan(5, 1) = NaN;   % Missing value in feature F1
+    X_nan(10, 2) = NaN;  % Missing value in feature F2
 
-    % Before the fix, corrcoef(X_nan) would return NaNs. The function should
-    % safely compute correlations using pairwise deletion and still drop F2.
+    % The function should use pairwise-complete observations for the correlation
+    % matrix, correctly identifying F2 as the weaker correlated feature to drop.
     keep_idx_nan = filter_collinear_features(X_nan, y);
 
     if ~any(keep_idx_nan == 2) && any(keep_idx_nan == 1)

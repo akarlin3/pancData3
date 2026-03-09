@@ -27,53 +27,70 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     fprintf('   Comparing all 11 tumor core delineation methods.\n\n');
 
     % --- Constants ---
+    % All 11 tumor core delineation methods implemented in extract_tumor_core.m.
+    % Each method identifies the "treatment-resistant core" — the subregion
+    % of the GTV with the most restricted diffusion (low ADC/D), highest
+    % cellularity, or most distinct tissue characteristics. Different methods
+    % use different assumptions about what constitutes the core:
+    %   - Threshold methods (adc/d/df): hard cutoff on parameter values
+    %   - Statistical methods (otsu/gmm/kmeans): unsupervised clustering
+    %   - Spatial methods (region_growing/active_contours): 3D connectivity
+    %   - Temporal methods (fdm): change from baseline (functional diffusion map)
     ALL_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
         'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
         'percentile', 'spectral', 'fdm'};
     n_methods = numel(ALL_METHODS);
 
-    % Reproducible clustering (GMM, k-means, spectral)
+    % Fix random seed for reproducible clustering results (GMM, k-means, spectral).
+    % Without this, different runs could produce different cluster assignments,
+    % making the Dice/Hausdorff comparison non-reproducible.
     rng(42);
 
-    id_list = summary_metrics.id_list;
-    gtv_locations = summary_metrics.gtv_locations;
+    id_list = summary_metrics.id_list;         % patient identifiers for logging
+    gtv_locations = summary_metrics.gtv_locations;  % cell array of GTV .mat file paths
     n_patients = numel(id_list);
-    nTp = size(data_vectors_gtvp, 2);
-    dwi_type = config_struct.dwi_types_to_run;
+    nTp = size(data_vectors_gtvp, 2);          % number of timepoints (fractions)
+    dwi_type = config_struct.dwi_types_to_run; % 1=Standard, 2=DnCNN, 3=IVIMnet
 
     % --- Pre-allocate ---
-    dice_sum = zeros(n_methods, n_methods);
-    dice_count = zeros(n_methods, n_methods);
-    hd95_sum = zeros(n_methods, n_methods);
-    hd95_count = zeros(n_methods, n_methods);
+    % Running sums and counts for incremental mean computation:
+    % mean = sum / count, computed after the main loop completes.
+    dice_sum = zeros(n_methods, n_methods);    % running sum of pairwise Dice coefficients
+    dice_count = zeros(n_methods, n_methods);  % number of valid Dice observations per pair
+    hd95_sum = zeros(n_methods, n_methods);    % running sum of pairwise HD95 distances (mm)
+    hd95_count = zeros(n_methods, n_methods);  % number of valid HD95 observations per pair
 
-    volume_fractions = nan(n_patients, nTp, n_methods);
-    fallback_flags = false(n_patients, nTp, n_methods);
+    % Per-patient-timepoint storage for detailed analysis
+    volume_fractions = nan(n_patients, nTp, n_methods);   % core volume as fraction of GTV
+    fallback_flags = false(n_patients, nTp, n_methods);   % true when method fell back to adc_threshold
 
-    all_dice = cell(n_patients, nTp);
-    all_hd95 = cell(n_patients, nTp);
+    % Cell arrays store the full pairwise matrices for each patient x timepoint
+    all_dice = cell(n_patients, nTp);   % each cell: n_methods x n_methods Dice matrix
+    all_hd95 = cell(n_patients, nTp);   % each cell: n_methods x n_methods HD95 matrix (mm)
 
     % --- Main loop: patient x timepoint ---
     for j = 1:n_patients
         text_progress_bar(j, n_patients, 'Comparing core methods');
         for k = 1:nTp
-            % Extract voxel vectors based on DWI type
+            % Extract the appropriate voxel-level parameter vectors based on
+            % the DWI processing pipeline. Each type stores vectors in
+            % different struct fields within data_vectors_gtvp.
             switch dwi_type
-                case 1  % Standard
+                case 1  % Standard (conventional fitting on raw DWI)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector;
                     dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
                     adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector;
-                case 2  % dnCNN
+                case 2  % dnCNN (fitting on DnCNN-denoised DWI)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector_dncnn;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector_dncnn;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector_dncnn;
                     dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
                     adc_baseline = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector_dncnn;
-                case 3  % IVIMnet
+                case 3  % IVIMnet (neural network IVIM estimation; ADC still from standard)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector_ivimnet;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector_ivimnet;
@@ -137,7 +154,10 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                 vox_dims = data_vectors_gtvp(j,k,1).vox_dims;
             end
 
-            % Build opts for fDM
+            % Build opts for fDM (functional Diffusion Map) method.
+            % fDM identifies core voxels by comparing current-fraction
+            % parameter values to baseline (Fx1). At Fx1 (k=1), no baseline
+            % comparison is possible, so fDM falls back to adc_threshold.
             core_opts = struct('timepoint_index', k);
             if k > 1
                 core_opts.baseline_adc_vec = adc_baseline;
@@ -207,19 +227,23 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             warning(prev_warn_state);
 
             % --- Pairwise Dice (1D) ---
+            % Dice coefficient measures spatial overlap between two binary masks:
+            %   Dice = 2 * |A AND B| / (|A| + |B|)
+            % Dice = 1.0 → identical masks, Dice = 0 → no overlap.
+            % Computed on 1D (voxel-vector) masks; does not require 3D geometry.
             dice_matrix = nan(n_methods, n_methods);
             for a = 1:n_methods
                 for b = a:n_methods
-                    sum_a = sum(masks_1d{a});
-                    sum_b = sum(masks_1d{b});
+                    sum_a = sum(masks_1d{a});   % number of core voxels in method A
+                    sum_b = sum(masks_1d{b});   % number of core voxels in method B
                     if sum_a == 0 && sum_b == 0
-                        dice_matrix(a, b) = NaN;
+                        dice_matrix(a, b) = NaN;  % both empty: Dice is undefined
                     elseif sum_a == 0 || sum_b == 0
-                        dice_matrix(a, b) = 0;
+                        dice_matrix(a, b) = 0;    % one empty: no overlap possible
                     else
                         dice_matrix(a, b) = 2 * sum(masks_1d{a} & masks_1d{b}) / (sum_a + sum_b);
                     end
-                    dice_matrix(b, a) = dice_matrix(a, b);
+                    dice_matrix(b, a) = dice_matrix(a, b);  % symmetric
                 end
             end
             all_dice{j, k} = dice_matrix;
@@ -229,16 +253,22 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             dice_count(valid) = dice_count(valid) + 1;
 
             % --- Pairwise Hausdorff (3D, when available) ---
+            % HD95 (95th percentile Hausdorff distance) measures the maximum
+            % boundary disagreement between two masks in mm, robust to outliers.
+            % Requires 3D mask reconstruction from 1D vectors, which is only
+            % possible when we have the original 3D GTV mask with matching voxel count.
             hd95_matrix = nan(n_methods, n_methods);
             n_gtv_voxels = 0;
             if has_3d
                 n_gtv_voxels = sum(gtv_mask_3d(:) == 1);
             end
             if has_3d && n_gtv_voxels == numel(masks_1d{1})
+                % Reconstruct 1D core masks back into 3D volumes by placing each
+                % voxel-vector value into its spatial position within the GTV.
                 masks_3d = cell(n_methods, 1);
                 for m = 1:n_methods
                     vol_3d = false(size(gtv_mask_3d));
-                    vol_3d(gtv_mask_3d == 1) = masks_1d{m};
+                    vol_3d(gtv_mask_3d == 1) = masks_1d{m};  % map 1D→3D via GTV linear indices
                     masks_3d{m} = vol_3d;
                 end
 
@@ -260,6 +290,8 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     end
 
     % --- Mean matrices ---
+    % Compute element-wise mean from running sums. max(count, 1) prevents
+    % division by zero; pairs with zero observations are then set to NaN.
     mean_dice_matrix = dice_sum ./ max(dice_count, 1);
     mean_dice_matrix(dice_count == 0) = NaN;
 
@@ -300,10 +332,13 @@ end
 function generate_comparison_figures(results, output_folder, dwi_type_name)
 % Generate heatmaps and bar charts for core method comparison.
 
+    % Replace underscores with spaces for human-readable axis labels
     method_labels = strrep(results.method_names, '_', ' ');
     n_methods = numel(results.method_names);
 
     % --- Figure 1: Mean Dice Heatmap ---
+    % Dice range is [0, 1], so caxis is fixed. Parula colormap is
+    % perceptually uniform and accessible to colour-blind readers.
     fig1 = figure('Visible', 'off', 'Position', [100 100 800 700]);
     imagesc(results.mean_dice_matrix);
     colorbar;
@@ -314,15 +349,17 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
         'XTickLabelRotation', 45, 'FontSize', 8);
     title(sprintf('Mean Pairwise Dice Coefficient (%s)', dwi_type_name));
 
-    % Overlay numeric values
+    % Overlay numeric values on each cell for precise reading.
+    % Use black text on light (high-Dice) cells and white on dark (low-Dice)
+    % cells for legibility against the Parula colormap background.
     for i = 1:n_methods
         for j = 1:n_methods
             val = results.mean_dice_matrix(i, j);
             if ~isnan(val)
                 if val > 0.5
-                    txt_color = [0 0 0];
+                    txt_color = [0 0 0];   % black text on light background
                 else
-                    txt_color = [1 1 1];
+                    txt_color = [1 1 1];   % white text on dark background
                 end
                 text(j, i, sprintf('%.2f', val), 'HorizontalAlignment', 'center', ...
                     'FontSize', 7, 'Color', txt_color);
@@ -359,10 +396,13 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
     end
 
     % --- Figure 3: Volume Fraction Bar Chart ---
-    % Reshape to (observations x methods) for nanmean/nanstd
+    % Shows what fraction of the GTV each method classifies as "core".
+    % Methods that identify very small or very large cores relative to
+    % the GTV may be too aggressive or too conservative, respectively.
+    % Reshape 3D (patients x timepoints x methods) to 2D for nanmean/nanstd
     vf_2d = reshape(results.volume_fractions, [], n_methods);
-    mean_vol_frac = nanmean(vf_2d, 1);
-    std_vol_frac = nanstd(vf_2d, 0, 1);
+    mean_vol_frac = nanmean(vf_2d, 1);   % mean core fraction per method
+    std_vol_frac = nanstd(vf_2d, 0, 1);  % std dev for error bars
 
     fig3 = figure('Visible', 'off', 'Position', [100 100 900 500]);
     bar(mean_vol_frac(:) * 100);
@@ -378,6 +418,10 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
     close(fig3);
 
     % --- Figure 4: Fallback Summary (if any) ---
+    % Some methods (region_growing, active_contours) require 3D masks and
+    % fDM requires baseline data. When prerequisites are missing, these
+    % methods fall back to adc_threshold. This chart shows how often each
+    % method fell back, helping assess whether comparison results are valid.
     n_fallbacks = squeeze(sum(sum(results.fallback_flags, 1), 2));
     if any(n_fallbacks > 0)
         n_total = results.n_patients * results.nTp;

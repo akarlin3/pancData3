@@ -9,12 +9,14 @@ classdef test_plot_scatter_correlations < matlab.unittest.TestCase
     %   - All-NaN dose vectors still produce a saved (but empty) figure
 
     properties
-        TempDir
-        OriginalPath
+        TempDir        % Isolated temp directory for output PNG files
+        OriginalPath   % Saved MATLAB path, restored on teardown
     end
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create temp dir, add core/ and utils/ to path, and suppress
+            % figure windows to enable headless CI execution.
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
             testCase.OriginalPath = path();
@@ -27,6 +29,7 @@ classdef test_plot_scatter_correlations < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Close figures, remove temp files, restore path.
             close all;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
@@ -41,7 +44,12 @@ classdef test_plot_scatter_correlations < matlab.unittest.TestCase
     methods(Access = private)
         function [dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, ...
                   valid_pts, lf_group, dtype, output_folder] = buildValidArgs(testCase, n)
-            % Returns arguments for a clean n-patient dataset (dtype = 1).
+            % Constructs a complete, valid argument set for n patients.
+            % Dose values (dmean, d95) are random in [20, 70] Gy range.
+            % Diffusion metrics (adc, d, f) are 3-D arrays sized
+            % (n x 1 x 1) since the function indexes (:, 1, dtype).
+            % lf_group splits patients into two roughly equal groups
+            % (local failure vs control) for color-coded scatter plots.
             rng(1);
             dtype_label = 'Standard';
             dmean_gtvp  = rand(n, 1) * 50 + 20;   % n × 1 (only Fx1 used)

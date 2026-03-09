@@ -7,6 +7,10 @@ Runs the full post-pipeline analysis workflow:
 3. Direct CSV parsing (parse_csv_results.py)
 4. HTML report generation (generate_report.py)
 
+Each step is executed as a subprocess so that failures in one step do not
+prevent subsequent steps from running.  The final summary table indicates
+which steps succeeded, failed, or were skipped.
+
 Usage:
     python run_analysis.py                     # auto-detect latest folder
     python run_analysis.py --folder PATH       # specify folder
@@ -24,13 +28,31 @@ from pathlib import Path
 
 from shared import find_latest_saved_folder, setup_utf8_stdout
 
+# Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
+# Absolute path to the analysis/ directory (where this script lives).
 ANALYSIS_DIR = Path(__file__).resolve().parent
 
 
 def _run_script(name: str, folder: Path) -> bool:
-    """Run a sibling Python script, return True on success."""
+    """Run a sibling Python script as a subprocess.
+
+    Parameters
+    ----------
+    name : str
+        Filename of the script to run (e.g. ``"parse_log_metrics.py"``).
+        Must reside in the same directory as this orchestrator.
+    folder : Path
+        Path to the ``saved_files_*`` output folder, passed as the first
+        positional argument to the child script.
+
+    Returns
+    -------
+    bool
+        ``True`` if the script exited with code 0, ``False`` otherwise
+        (including when the script file is not found).
+    """
     script = ANALYSIS_DIR / name
     if not script.exists():
         print(f"  [SKIP] {name} not found")
@@ -38,6 +60,7 @@ def _run_script(name: str, folder: Path) -> bool:
 
     print(f"\n  Running {name} ...")
     t0 = time.time()
+    # Run the child script using the same Python interpreter as this process.
     result = subprocess.run(
         [sys.executable, str(script), str(folder)],
         cwd=str(ANALYSIS_DIR),
@@ -53,6 +76,8 @@ def _run_script(name: str, folder: Path) -> bool:
 
 
 def main():
+    """Entry point: parse CLI arguments and execute the analysis pipeline."""
+    # ── Argument parsing ──
     parser = argparse.ArgumentParser(
         description="pancData3 analysis suite orchestrator"
     )
@@ -74,14 +99,16 @@ def main():
     )
     args = parser.parse_args()
 
-    # Resolve folder
+    # ── Resolve output folder ──
     if args.folder:
         folder = Path(args.folder)
         if not folder.is_dir():
             sys.exit(f"ERROR: Folder does not exist: {folder}")
     else:
+        # Auto-detect the most recent saved_files_* directory.
         folder = find_latest_saved_folder()
 
+    # ── Print banner ──
     print("=" * 70)
     print("  pancData3 Analysis Suite")
     print("=" * 70)
@@ -90,10 +117,11 @@ def main():
     print(f"  Report only:   {args.report_only}")
     print()
 
+    # Track success/failure/skip status for each pipeline step.
     results = {}
 
     if not args.report_only:
-        # Step 1: Vision-based graph analysis
+        # Step 1: Vision-based graph analysis (requires ANTHROPIC_API_KEY).
         if not args.skip_vision:
             csv_path = folder / "graph_analysis_results.csv"
             print(f"  Vision CSV exists: {csv_path.exists()}")
@@ -106,19 +134,19 @@ def main():
                 print("  Skipping vision analysis (no existing CSV)")
             results["vision"] = "skipped"
 
-        # Step 2: Parse log files
+        # Step 2: Parse MATLAB diary log files for structured metrics.
         results["logs"] = _run_script("parse_log_metrics.py", folder)
 
-        # Step 3: Parse CSV exports
+        # Step 3: Parse pipeline-exported CSV files (significance tables).
         results["csvs"] = _run_script("parse_csv_results.py", folder)
 
-        # Step 3.5: Parse MAT files
+        # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
         results["mat"] = _run_script("parse_mat_metrics.py", folder)
 
-    # Step 4: Generate report
+    # Step 4: Assemble the final HTML report from all collected data.
     results["report"] = _run_script("generate_report.py", folder)
 
-    # Summary
+    # ── Summary table ──
     print("\n" + "=" * 70)
     print("  Analysis Complete")
     print("=" * 70)

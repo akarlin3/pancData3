@@ -48,6 +48,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     % --- 2) Resolve config path ---
+    % If the config path is relative (e.g., 'config.json'), try resolving
+    % it against the pipeline root directory. This supports both absolute
+    % paths and calls from within the repository directory.
     resolved_config_path = config_path;
     if ~isfile(resolved_config_path) && isfile(fullfile(pipeline_dir, resolved_config_path))
         resolved_config_path = fullfile(pipeline_dir, resolved_config_path);
@@ -57,6 +60,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     tests_passed = tests_passed_in;
     tests_timestamp = tests_timestamp_in;
 
+    % Check for pre-flight skip via environment variable (used by CI or
+    % automated scripts that have already validated the codebase) or via
+    % the config.json skip_tests flag (used during development).
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
     if ~skip_preflight
         try
@@ -71,7 +77,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     end
     if ismember('test', steps_to_run)
         % Invalidate cached test result if any test file was modified since
-        % the last successful run (supports interactive development).
+        % the last successful run. This staleness check uses file modification
+        % timestamps to detect code changes during interactive development,
+        % ensuring that stale passing results don't mask newly introduced bugs.
         if tests_passed && ~isempty(tests_timestamp)
             test_files_info = dir(fullfile(pipeline_dir, 'tests', '**', '*.m'));
             if ~isempty(test_files_info)
@@ -146,6 +154,11 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     end
 
     % --- 4) Toolbox license checks ---
+    % Verify required MATLAB toolbox licenses before the pipeline starts.
+    % Early detection prevents cryptic "undefined function" errors deep in
+    % the pipeline after potentially hours of data loading.
+    % Skipped under Octave since its toolbox licensing model differs and
+    % the .octave_compat/ shims provide necessary function replacements.
     if ~exist('OCTAVE_VERSION', 'builtin')
         if ~license('test', 'Statistics_Toolbox')
             error('InitializationError:MissingToolbox', ...

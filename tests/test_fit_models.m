@@ -11,6 +11,8 @@ classdef test_fit_models < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function addPaths(testCase)
+            % Add core/ (fit_models.m) and dependencies/ (IVIMmodelfit.m,
+            % fit_adc_mono.m) to the MATLAB path.
             repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(fullfile(repoRoot, 'core'));
             addpath(fullfile(repoRoot, 'dependencies'));
@@ -20,12 +22,15 @@ classdef test_fit_models < matlab.unittest.TestCase
     methods(Test)
 
         function testOutputDimensionsMatchInput(testCase)
-            % Output maps must have [Ny, Nx, Nz] dimensions matching DWI
+            % Output maps must have [Ny, Nx, Nz] dimensions matching the
+            % spatial dimensions of the input DWI volume, regardless of
+            % the number of b-values.
             bvals = [0; 50; 100; 200; 400; 800];
             Ny = 4; Nx = 3; Nz = 2;
+            % Ground-truth IVIM parameters for synthetic biexponential signal
             S0 = 100; true_D = 1e-3; true_f = 0.15; true_Dstar = 15e-3;
 
-            % Generate biexponential signal
+            % Generate biexponential (IVIM) signal: S = S0 * [f*exp(-b*D*) + (1-f)*exp(-b*D)]
             sig = S0 * (true_f * exp(-bvals * true_Dstar) + ...
                         (1 - true_f) * exp(-bvals * true_D));
             dwi = repmat(reshape(sig, [1, 1, 1, numel(bvals)]), [Ny, Nx, Nz, 1]);
@@ -171,9 +176,11 @@ classdef test_fit_models < matlab.unittest.TestCase
 
         function testKnownADCValue(testCase)
             % Verify that fit_models produces correct ADC for a known
-            % mono-exponential decay.
+            % mono-exponential decay: S = S0 * exp(-b * ADC).
+            % With true_adc = 1.5e-3 mm^2/s, the fitted ADC should match
+            % within 5% relative tolerance.
             bvals = [0; 200; 400; 800];
-            true_adc = 1.5e-3;
+            true_adc = 1.5e-3;   % mm^2/s — typical tissue ADC
             S0 = 100;
             sig = S0 * exp(-bvals * true_adc);
 

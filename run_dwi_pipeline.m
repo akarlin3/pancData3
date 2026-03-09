@@ -111,7 +111,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
     % ----------------------------
 
-    log_fid = -1; % Error log file handle (opened after output folder is determined)
+    % Error log file handle — initialized to invalid; opened after the output
+    % folder is determined in the config parsing block below.  The onCleanup
+    % guard (cleanup_log) ensures it is closed even on early return or error.
+    log_fid = -1;
 
     % Suppress figure windows for the entire pipeline run — all plots are
     % saved to disk via saveas(), so visible windows are unnecessary.
@@ -220,7 +223,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
     end
     cleanup_log = onCleanup(@() safe_fclose_log(log_fid));
-    lastwarn(''); % Reset MATLAB warning tracker
+    % Reset the MATLAB warning tracker so that lastwarn() after each module
+    % captures only warnings from THAT module, not stale warnings from setup.
+    lastwarn('');
     fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
     % --- Conditionally inject compare_cores into default steps ---
@@ -256,8 +261,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % mean D, etc.) derived from the voxel distributions.
     % calculated_results_*.mat contains predictive model outputs (risk scores,
     % high-risk classification) for downstream survival analysis and visualization.
+    % Construct type-specific file paths for the three primary pipeline artifacts.
+    % All are suffixed with the DWI processing method name to prevent cross-type contamination.
     dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
-    fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+    fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');  % Legacy unsuffixed path (Standard only)
     summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
     results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
@@ -332,8 +339,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('load', 'success'); end
-            [warn_msg, warn_id] = lastwarn;  % read current warning
-            lastwarn('');                       % then clear
+            % Capture and log any warnings emitted during load_dwi_data.
+            % MATLAB's lastwarn() only stores the MOST RECENT warning, so we
+            % read it immediately after the step completes and reset it before
+            % the next step.  This pattern is repeated after every major step.
+            [warn_msg, warn_id] = lastwarn;
+            lastwarn('');
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During load_dwi_data: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -502,6 +513,8 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     %
     % The large number of output variables reflects the comprehensive set of
     % features extracted for subsequent statistical and predictive modeling.
+    % Path for persisting metrics_baseline outputs to disk, enabling
+    % downstream steps to be re-run independently without re-running baseline.
     baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
 
     if ismember('metrics_baseline', steps_to_run)
@@ -658,7 +671,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     fprintf(log_fid, '[%s] [WARNING] metrics_dosimetry results not found at: %s\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), dosimetry_results_file);
                 end
-                % define defaults just to prevent hard crash
+                % Initialize all dosimetry matrices as NaN so that downstream code
+                % (metrics_stats_comparisons, metrics_stats_predictive) can proceed
+                % without crashing on undefined variables.  NaN-filled matrices are
+                % naturally excluded from statistical tests (NaN-safe rank-sum).
                 nTp_val = nTp;
                 d95_adc_sub = nan(length(m_id_list), nTp_val); v50_adc_sub = nan(length(m_id_list), nTp_val);
                 d95_d_sub = nan(length(m_id_list), nTp_val); v50_d_sub = nan(length(m_id_list), nTp_val);
@@ -695,6 +711,9 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         set_names{4} = {'V50 GTVp (whole)', 'V50 Sub(ADC)', 'V50 Sub(D)', 'V50 Sub(f)', 'V50 Sub(D*)'};
     end
 
+    % Path for persisting predictive model outputs (risk scores, high-risk
+    % flags, Kaplan-Meier inputs) so that metrics_survival can be re-run
+    % without re-running the full predictive modeling pipeline.
     predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
 
     % [ANALYTICAL RATIONALE — STATISTICAL GROUP COMPARISONS]:
@@ -849,9 +868,17 @@ end
 
 %% ===== Local step wrapper functions =====
 % Each wrapper encapsulates all the logic that was previously inline in the
-% pipeline body.  They are called as function handles by execute_pipeline_step.
+% pipeline body.  They are called as function handles by execute_pipeline_step,
+% which provides uniform try-catch error handling, diary management, warning
+% logging, and GUI progress updates.  Using function handles allows
+% execute_pipeline_step to treat all pipeline steps identically regardless
+% of their differing signatures and internal logic.
 
 function run_compare_cores_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+% Runs all 11 tumor core delineation methods (adc_threshold, otsu, gmm,
+% kmeans, etc.) on every patient/timepoint and computes pairwise spatial
+% agreement metrics (Dice coefficient and Hausdorff distance) between all
+% method pairs.  Results are saved to a .mat file by compare_core_methods.
     fprintf('\n⚙️ [%s] Running core method comparison...\n', current_name);
     compare_results = compare_core_methods(validated_data_gtvp, summary_metrics, config_struct); %#ok<NASGU>
     fprintf('      ✅ Done.\n');
@@ -859,9 +886,17 @@ end
 
 function run_metrics_longitudinal_step(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
     nTp, dtype_label, config_struct, m_lf, current_name)
+% Generates temporal trajectory analysis across treatment fractions.
+% Inputs include both absolute parameter matrices (patients x timepoints)
+% and percent-change-from-baseline matrices.  f_delta is used instead of
+% f_pct because perfusion fraction values near zero make percent change
+% numerically unstable.  m_lf (local failure flags) enables trajectory
+% stratification by outcome group.
     fprintf('⚙️ [5.2/5] [%s] Running metrics_longitudinal...\n', current_name);
     metrics_longitudinal(ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
                          nTp, dtype_label, config_struct.output_folder, m_lf);
+    % Write a sentinel file confirming successful completion — used by
+    % analysis scripts and test harnesses to verify the step ran.
     longitudinal_results_file = fullfile(config_struct.output_folder, sprintf('metrics_longitudinal_results_%s.txt', current_name));
     fid = fopen(longitudinal_results_file, 'w');
     if fid < 0
@@ -876,29 +911,49 @@ end
 
 function run_metrics_dosimetry_step(m_id_list, summary_metrics, nTp, config_struct, ...
     m_data_vectors_gtvp, dosimetry_results_file, current_name)
+% Computes dose-volume metrics (D95, V50) within diffusion-defined tumor
+% sub-volumes.  Each diffusion parameter (ADC, D, f, D*) defines a separate
+% sub-volume based on its threshold, yielding 8 output matrices (4 params x
+% 2 dose metrics), each of size patients x timepoints.
+% When run_all_core_methods is true, dosimetry is additionally computed for
+% each of the 11 tumor core delineation methods, producing per_method_dosimetry.
     fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry...\n', current_name);
     if config_struct.run_all_core_methods
+        % Extended mode: compute dosimetry for all 11 core methods in addition
+        % to the default sub-volume approach.  The per_method_dosimetry struct
+        % enables comparison of how different tumor core definitions affect
+        % dose-response correlations.
         [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry] = ...
             metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                               m_data_vectors_gtvp, summary_metrics.gtv_locations);
     else
+        % Standard mode: dosimetry only for the configured core_method's sub-volumes.
         [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
             metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                               m_data_vectors_gtvp, summary_metrics.gtv_locations);
-        per_method_dosimetry = struct();
+        per_method_dosimetry = struct();  % Empty placeholder for consistent save format
     end
 
+    % Persist all dosimetry results to disk for downstream steps and re-runs.
     save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub', 'per_method_dosimetry');
     fprintf('      ✅ Done.\n');
 end
 
 function run_metrics_stats_comparisons_step(valid_pts, lf_group, metric_sets, set_names, ...
     time_labels, dtype_label, config_struct, nTp, ADC_abs, D_abs, f_abs, Dstar_abs, current_name)
+% Performs univariate group comparisons (Wilcoxon rank-sum) between local
+% failure and no-local-failure groups for every feature in metric_sets.
+% valid_pts is a logical mask selecting patients with complete baseline data.
+% lf_group is a binary vector (1 = local failure, 0 = no local failure)
+% aligned with valid_pts.  metric_sets is a cell array of feature groups
+% (absolute values, percent change, D95 dose, V50 dose) with corresponding
+% display names in set_names.  Results include BH-FDR corrected p-values.
     fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
     metrics_stats_comparisons(valid_pts, lf_group, ...
         metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
         ADC_abs, D_abs, f_abs, Dstar_abs);
 
+    % Write sentinel file confirming successful completion.
     comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
     fid = fopen(comparisons_results_file, 'w');
     if fid < 0
@@ -916,12 +971,18 @@ function run_metrics_stats_predictive_step(valid_pts, lf_group, dtype_label, con
     f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
     d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, dl_provenance, time_labels, ...
     m_lf, m_total_time, m_total_follow_up_time, predictive_results_file, results_file, current_name)
+% Builds multivariate predictive models (elastic net logistic regression) for
+% local failure prediction.  Assembles a 22-column feature matrix combining
+% diffusion parameters, percent changes, dosimetry metrics, GTV volume, and
+% ADC heterogeneity (adc_sd).  Uses patient-stratified 5-fold CV with nested
+% LOOCV for unbiased risk score estimation.  Outputs risk_scores_all and
+% is_high_risk for downstream survival stratification.
     fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive...\n', current_name);
-    % Subset adc_sd to baseline-valid patients to match the
-    % dimensions of m_id_list, ADC_abs, etc.  summary_metrics.adc_sd
-    % has N rows (all patients) but valid_pts has M elements
-    % (baseline-valid patients).  Without this mapping, logical
-    % indexing by valid_pts silently selects wrong rows.
+    % Map baseline-valid patient IDs (m_id_list) back to their indices in the
+    % full cohort (summary_metrics.id_list) to extract the correct adc_sd rows.
+    % adc_sd is the standard deviation of ADC within the GTV — a measure of
+    % intra-tumoral diffusion heterogeneity that serves as a candidate
+    % predictive feature alongside the mean parameter values.
     [~, adc_sd_valid_idx] = ismember(m_id_list, summary_metrics.id_list);
     m_adc_sd = summary_metrics.adc_sd(adc_sd_valid_idx, :, :);
 
@@ -956,16 +1017,26 @@ function run_metrics_stats_predictive_step(valid_pts, lf_group, dtype_label, con
 end
 
 function run_visualize_step(validated_data_gtvp, summary_metrics, config_struct, results_file, current_name)
+% Generates all visualization outputs: parameter maps overlaid on anatomical
+% images, feature distribution histograms/boxplots, longitudinal trajectory
+% plots, and (when calculated_results is available) risk-stratified overlays.
+% Visualization is placed after predictive modeling in the pipeline so that
+% risk group annotations can be included in the plots.
     fprintf('\n⚙️ [5.4c/5] [%s] Visualizing results...\n', current_name);
-    % Load existing results if visualize is run independently
+    % Load existing predictive results if available — enables risk-stratified
+    % coloring on parameter maps and trajectory plots.  When running visualize
+    % independently (without metrics_stats_predictive), the empty struct
+    % fallback causes visualize_results to render basic plots without risk
+    % annotations.
     if exist(results_file, 'file')
         tmp_results = load(results_file, 'calculated_results');
         calculated_results = tmp_results.calculated_results;
         fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
     else
-        calculated_results = struct(); % Empty struct fallback
+        calculated_results = struct();
     end
     visualize_results(validated_data_gtvp, summary_metrics, calculated_results, config_struct);
+    % Write sentinel file confirming successful completion.
     visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
     fid = fopen(visualize_results_file, 'w');
     if fid < 0
@@ -979,12 +1050,20 @@ end
 
 function run_metrics_survival_step(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
     m_total_follow_up_time, nTp, dtype_label, m_gtv_vol, config_struct, summary_metrics, current_name)
+% Performs time-to-event analysis: Cox proportional hazards, competing risks
+% (Cause-Specific Hazards), and Kaplan-Meier estimation.
+% m_lf = binary local failure indicator per patient
+% m_total_time = time to event (local failure or censoring) in months
+% m_total_follow_up_time = total follow-up duration for overall survival
+% nTp = number of timepoints (fractions) available
+% td_scan_days_cfg = actual MRI acquisition days relative to treatment start,
+%   critical for time-dependent Cox models to avoid immortal time bias
     fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
-    % Derive actual scan days from DICOM StudyDate headers stored
-    % in summary_metrics.fx_dates (patients x fractions cell matrix
-    % of 'YYYYMMDD' strings).  Fall back to config.json td_scan_days
-    % if fx_dates are unavailable, then to built-in defaults in
-    % metrics_survival (which emits an immortal-time-bias warning).
+    % Three-level scan day resolution strategy (decreasing data quality):
+    %   1. DICOM StudyDate headers (most accurate — actual scanner timestamps)
+    %   2. config.json td_scan_days (user-specified, e.g., from clinical records)
+    %   3. Built-in defaults in metrics_survival (assumes standard schedule,
+    %      emits immortal-time-bias warning since actual dates may differ)
     td_scan_days_cfg = [];
     if isfield(summary_metrics, 'fx_dates') && ~isempty(summary_metrics.fx_dates)
         n_dates = sum(~cellfun('isempty', summary_metrics.fx_dates(:)));

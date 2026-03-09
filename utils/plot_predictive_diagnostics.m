@@ -115,31 +115,45 @@ function plot_predictive_diagnostics( ...
         else, curr_sig_disp = ['\Delta ' curr_sig_name]; curr_sig_file = ['Delta_' curr_sig_name]; end
 
         figure('Name', ['Sanity Checks ' curr_sig_disp ' ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
+        % --- Panel 1: Volume confounder check ---
+        % Tests whether GTV volume change differs between LC and LF groups.
+        % If significant, diffusion metric changes could be artifacts of
+        % partial-volume effects rather than true biological changes.
         subplot(1, 3, 1);
-        vol_fx1 = m_gtv_vol(valid_pts, 1);
-        vol_fx3 = m_gtv_vol(valid_pts, target_fx);
-        vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;
+        vol_fx1 = m_gtv_vol(valid_pts, 1);         % baseline GTV volume
+        vol_fx3 = m_gtv_vol(valid_pts, target_fx);  % GTV volume at target fraction
+        vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;  % percent volume change
 
         % Exclude competing risk patients (lf==2) from sanity check plots
         non_competing = (lf_group <= 1);
         boxplot(vol_pct(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['% Change in GTV Volume (' fx_label ')']);
         title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
+        % Wilcoxon rank-sum test (non-parametric, appropriate for small N
+        % and non-normal distributions typical in tumor volume data)
         p_vol = perform_statistical_test(vol_pct(non_competing), lf_group(non_competing), 'ranksum');
 
+        % Annotate p-value on the plot (positioned at 90% of y-axis range)
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
             text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), format_p_value(p_vol), ...
                 'HorizontalAlignment', 'center', 'FontSize', 11);
         end
         grid on;
+        % Clinical interpretation: p > 0.05 means volume change does not
+        % significantly differ between outcomes, so diffusion metrics are
+        % unlikely to be confounded by tumor shrinkage differences
         if p_vol > 0.05, xlabel('Conclusion: No Volumetric Bias');
         else, xlabel('Warning: Volume is a Confounder'); end
 
+        % --- Panel 2: ADC heterogeneity (texture) change ---
+        % Intra-tumoral ADC standard deviation captures spatial heterogeneity.
+        % In pancreatic cancer, increasing heterogeneity during RT may
+        % indicate mixed response (some regions dying, others resistant).
         subplot(1, 3, 2);
-        sd_fx1  = adc_sd(valid_pts, 1, dtype);
-        sd_fxN  = adc_sd(valid_pts, target_fx, dtype);
-        sd_delta = sd_fxN - sd_fx1;
+        sd_fx1  = adc_sd(valid_pts, 1, dtype);          % baseline ADC SD
+        sd_fxN  = adc_sd(valid_pts, target_fx, dtype);   % ADC SD at target fraction
+        sd_delta = sd_fxN - sd_fx1;                       % change in heterogeneity
 
         boxplot(sd_delta(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['\Delta ADC SD (' fx_label ') [mm^2/s]']);
@@ -153,10 +167,16 @@ function plot_predictive_diagnostics( ...
         end
         grid on;
 
+        % --- Panel 3: Signal vs. noise floor ---
+        % Overlays the Coefficient of Reproducibility (CoR) band to show
+        % whether observed biomarker changes exceed measurement noise.
         subplot(1, 3, 3);
         hold on;
-        % Derive wCV from baseline ADC SD and mean instead of hardcoding.
-        % wCV = SD/mean; CoR for percent change = 1.96*sqrt(2)*wCV*100.
+        % Derive within-subject coefficient of variation (wCV) from baseline
+        % ADC standard deviation and mean. The CoR represents the minimum
+        % detectable change: CoR = 1.96 * sqrt(2) * wCV * 100 (in percent).
+        % This follows Bland-Altman repeatability methodology — changes
+        % below CoR cannot be reliably distinguished from measurement noise.
         baseline_sd  = adc_sd(valid_pts, 1, dtype);
         baseline_adc_vals = ADC_abs(valid_pts, 1);
         wcv_vals = baseline_sd ./ baseline_adc_vals;
@@ -168,12 +188,17 @@ function plot_predictive_diagnostics( ...
         % Exclude competing-risk patients (lf==2) from scatter, consistent
         % with the boxplot exclusion above (non_competing mask).
         scatter_mask = (lf_group <= 1);
+        % Jitter x-positions to avoid overplotting: LC at x=1, LF at x=2,
+        % with small random horizontal offset for visibility
         x_scatter = ones(sum(scatter_mask), 1);
         x_scatter(lf_group(scatter_mask)==1) = 2;
         x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
         scatter_vals = curr_sig_pct_full(valid_pts, sig_col_idx(vi));
         scatter(x_scatter, scatter_vals(scatter_mask), 50, 'filled', 'MarkerEdgeColor', 'k');
 
+        % Determine the base parameter index (1=ADC, 2=D, 3=f, 4=D*) from
+        % the original 22-feature index. CoR band is only shown for ADC
+        % percent-change features since CoR is derived from ADC repeatability.
         base_idx = mod(selected_indices(vi)-1, 4) + 1;
 
         if sig_is_pct_imaging(vi) && base_idx == 1
@@ -195,11 +220,13 @@ function plot_predictive_diagnostics( ...
         xlim([0.5 2.5]);
 
         sgtitle(['Validation (' curr_sig_disp '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+        % Shrink subplot heights slightly to make room for the sgtitle
         allAx = findall(gcf, 'Type', 'Axes');
         for k = 1:numel(allAx)
             pos = get(allAx(k), 'Position');
             set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
         end
+        % Sanitize filename: replace asterisk (D*) with 'star' for filesystem safety
         safe_name = strrep(curr_sig_file, '*', 'star');
         set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
         saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));
@@ -244,6 +271,10 @@ function plot_predictive_diagnostics( ...
                     mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1e7));
                 end
                 warning(w_state);
+                % Extract logistic regression coefficients: [intercept, beta1, beta2]
+                % Decision boundary is where P(LF) = 0.5, i.e., the linear
+                % predictor = 0: intercept + beta1*x + beta2*y = 0
+                % Solving for y: y = -(intercept + beta1*x) / beta2
                 coefs = mdl.Coefficients.Estimate;
                 if numel(coefs) >= 3 && coefs(3) ~= 0
                     x_range = linspace(min(x_val), max(x_val), 100);

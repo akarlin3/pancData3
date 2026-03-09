@@ -1,11 +1,27 @@
 """Formatting utilities and constants for the HTML analysis report.
 
-Contains:
-- HTML escaping, section headings, significance tags/classes
-- CSS stylesheet constant
-- DWI badge, trend tag, navigation bar helpers
-- HTML template for Markdown-to-HTML conversion
-- Stat card and consensus helpers
+This module is imported by :mod:`generate_report` and :mod:`report_sections`
+to keep presentation logic separate from data loading and section assembly.
+
+Contents:
+
+- **HTML escaping** (:func:`_esc`) and **section headings** (:func:`_h2`,
+  :func:`_section`).
+- **Significance helpers** (:func:`_sig_tag`, :func:`_sig_class`) --
+  map p-values to visual indicators (asterisks and CSS classes).
+- **CSS stylesheet** (:data:`CSS`) -- embedded in the ``<style>`` tag of
+  the HTML report for self-contained styling.
+- **DWI badge** (:func:`_dwi_badge`) -- colour-coded ``<span>`` labels
+  for Standard / dnCNN / IVIMnet.
+- **Trend tag** (:func:`_trend_tag`) -- directional arrow badges for
+  increasing / decreasing / stable / non-monotonic trends.
+- **Navigation bar** (:func:`_nav_bar`, :data:`NAV_SECTIONS`) -- sticky
+  top-of-page anchor links.
+- **Stat card** (:func:`_stat_card`) -- summary metric display cards.
+- **Consensus helper** (:func:`_get_consensus`) -- vote-based trend
+  consensus across DWI types.
+- **HTML template** (:data:`HTML_TEMPLATE`) -- standalone HTML wrapper
+  for Markdown-to-HTML conversion.
 """
 
 from __future__ import annotations
@@ -14,16 +30,61 @@ import html as _html
 
 
 def _esc(text: str) -> str:
-    """HTML-escape a string."""
+    """HTML-escape a string to prevent XSS and rendering issues.
+
+    Parameters
+    ----------
+    text : str
+        Raw text to escape.
+
+    Returns
+    -------
+    str
+        Escaped HTML string safe for embedding in ``<td>``, ``<p>``, etc.
+    """
     return _html.escape(str(text))
 
 
 def _section(title: str, level: int = 2) -> str:
-    """Return a Markdown-style section heading string (utility / test helper)."""
+    """Return a Markdown-style section heading string.
+
+    This is a utility / test helper used by the legacy Markdown report
+    path (now superseded by HTML generation).
+
+    Parameters
+    ----------
+    title : str
+        Section title text.
+    level : int
+        Heading level (number of ``#`` characters).
+
+    Returns
+    -------
+    str
+        Markdown heading string.
+    """
     return f"\n{'#' * level} {title}\n"
 
 
 def _sig_tag(p: float) -> str:
+    """Return asterisk significance markers for a p-value.
+
+    Follows biomedical convention:
+    - ``***`` for p < 0.001
+    - ``**``  for p < 0.01
+    - ``*``   for p < 0.05
+    - ``""``  for p >= 0.05
+
+    Parameters
+    ----------
+    p : float
+        P-value.
+
+    Returns
+    -------
+    str
+        Significance marker string.
+    """
     if p < 0.001:
         return "***"
     if p < 0.01:
@@ -34,7 +95,21 @@ def _sig_tag(p: float) -> str:
 
 
 def _sig_class(p: float) -> str:
-    """Return a CSS class name for the significance level."""
+    """Return a CSS class name for the significance level.
+
+    Classes ``sig-1``, ``sig-2``, ``sig-3`` map to amber, red, and bold-red
+    styling defined in :data:`CSS`.
+
+    Parameters
+    ----------
+    p : float
+        P-value.
+
+    Returns
+    -------
+    str
+        CSS class name, or empty string if not significant.
+    """
     if p < 0.001:
         return "sig-3"
     if p < 0.01:
@@ -44,6 +119,10 @@ def _sig_class(p: float) -> str:
     return ""
 
 
+# ── CSS stylesheet ────────────────────────────────────────────────────────────
+# Embedded directly in the HTML report's <style> tag so the report is a
+# single self-contained file with no external dependencies.  Uses CSS custom
+# properties (variables) for theming consistency.
 CSS = """\
 :root {
     --bg: #ffffff; --fg: #1a1a2e; --muted: #64748b;
@@ -120,6 +199,24 @@ details[open] > summary { margin-bottom: 0.4rem; }
 
 
 def _dwi_badge(dwi_type: str) -> str:
+    """Return a colour-coded HTML badge ``<span>`` for a DWI type.
+
+    Each DWI type gets a distinct background colour:
+    - Standard: blue
+    - dnCNN: green
+    - IVIMnet: amber
+    - Other/Root: grey
+
+    Parameters
+    ----------
+    dwi_type : str
+        DWI type name.
+
+    Returns
+    -------
+    str
+        HTML ``<span class="badge ...">`` string.
+    """
     cls = {
         "Standard": "badge-standard", "dnCNN": "badge-dncnn",
         "IVIMnet": "badge-ivimnet",
@@ -128,23 +225,44 @@ def _dwi_badge(dwi_type: str) -> str:
 
 
 def _trend_tag(direction: str) -> str:
+    """Return a directional arrow badge ``<span>`` for a trend direction.
+
+    Keyword matching on the direction string determines the arrow and
+    colour class:
+    - Increasing/up/higher/rising: green with up-arrow
+    - Decreasing/down/lower/falling/drop: red with down-arrow
+    - Flat/stable/constant: grey with right-arrow
+    - Anything else (non-monotonic, U-shaped): purple, no arrow
+
+    Parameters
+    ----------
+    direction : str
+        Trend direction text from the vision model.
+
+    Returns
+    -------
+    str
+        HTML ``<span class="trend-tag ...">`` string.
+    """
     d = direction.lower()
     if "increas" in d or "up" in d or "higher" in d or "rising" in d:
         cls = "trend-incr"
-        arrow = "\u2191\u00a0"
+        arrow = "\u2191\u00a0"  # Up arrow + non-breaking space
     elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
         cls = "trend-decr"
-        arrow = "\u2193\u00a0"
+        arrow = "\u2193\u00a0"  # Down arrow
     elif "flat" in d or "stable" in d or "constant" in d:
         cls = "trend-flat"
-        arrow = "\u2192\u00a0"
+        arrow = "\u2192\u00a0"  # Right arrow
     else:
-        cls = "trend-nm"
+        cls = "trend-nm"  # Non-monotonic
         arrow = ""
     return f'<span class="trend-tag {cls}">{arrow}{_esc(direction)}</span>'
 
 
 # ── Navigation sections ────────────────────────────────────────────────────────
+# Defines the order and labels for the sticky top-of-page navigation bar.
+# Each tuple is (anchor_id, display_label).
 
 NAV_SECTIONS = [
     ("exec-summary", "Executive Summary"),
@@ -163,6 +281,13 @@ NAV_SECTIONS = [
 
 
 def _nav_bar() -> str:
+    """Build the sticky navigation bar HTML from :data:`NAV_SECTIONS`.
+
+    Returns
+    -------
+    str
+        HTML ``<nav class="toc">`` element with anchor links.
+    """
     links = "".join(
         f'<a href="#{anchor}">{_esc(label)}</a>'
         for anchor, label in NAV_SECTIONS
@@ -171,10 +296,43 @@ def _nav_bar() -> str:
 
 
 def _h2(text: str, anchor: str) -> str:
+    """Return an ``<h2>`` element with an ``id`` attribute for anchor linking.
+
+    Parameters
+    ----------
+    text : str
+        Heading text.
+    anchor : str
+        HTML ``id`` attribute (used by navigation bar links).
+
+    Returns
+    -------
+    str
+        HTML ``<h2>`` string.
+    """
     return f'<h2 id="{anchor}">{_esc(text)}</h2>'
 
 
 def _stat_card(label: str, value: str, sub: str = "") -> str:
+    """Return a summary statistic card HTML block.
+
+    Cards are displayed in a CSS grid and show a label (small caps),
+    a large value, and an optional subtitle.
+
+    Parameters
+    ----------
+    label : str
+        Card label (e.g. "Best AUC").
+    value : str
+        Main display value (e.g. "0.843").
+    sub : str, optional
+        Subtitle text below the value (e.g. "across all DWI types").
+
+    Returns
+    -------
+    str
+        HTML ``<div class="stat-card">`` block.
+    """
     sub_html = f'<div class="sub">{_esc(sub)}</div>' if sub else ""
     return (
         f'<div class="stat-card">'
@@ -185,6 +343,22 @@ def _stat_card(label: str, value: str, sub: str = "") -> str:
 
 
 def _get_consensus(trend_list: list[str]) -> str:
+    """Determine the consensus trend direction from a list of direction strings.
+
+    Uses simple keyword voting: counts how many entries contain increasing-
+    related keywords vs decreasing-related keywords.
+
+    Parameters
+    ----------
+    trend_list : list[str]
+        Direction strings (e.g. ``["increasing", "decreasing", "rising"]``).
+
+    Returns
+    -------
+    str
+        One of ``"increasing"``, ``"decreasing"``, ``"stable"``, or
+        ``"unknown"`` (if the list is empty).
+    """
     if not trend_list: return "unknown"
     increasers = sum(1 for x in trend_list if "increas" in x or "higher" in x or "up" in x)
     decreasers = sum(1 for x in trend_list if "decreas" in x or "lower" in x or "down" in x)
@@ -193,6 +367,10 @@ def _get_consensus(trend_list: list[str]) -> str:
     return "stable"
 
 
+# ── HTML template for Markdown-to-HTML conversion ────────────────────────────
+# Used by generate_report.markdown_to_html() to wrap rendered Markdown in a
+# styled HTML document.  The ``{title}`` and ``{body}`` placeholders are
+# filled via str.format().  Curly braces in CSS are doubled to escape them.
 HTML_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">

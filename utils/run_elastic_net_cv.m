@@ -27,12 +27,18 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
 %   coefs_en               - Final elastic net coefficient vector
 %   final_feature_indices  - Original indices after consensus collinearity filtering
 
-    n_lambdas = 10;  % lambda grid size for elastic net regularisation path
+    % Lambda grid size for the elastic net regularisation path.
+    % 10 lambdas is a pragmatic choice for small cohorts — more lambdas
+    % provide finer resolution but increase computation without meaningful
+    % improvement when the sample size is small (N~30-60).
+    n_lambdas = 10;
 
-    common_Lambda = [];
+    common_Lambda = [];  % shared lambda grid across all CV folds
     cv_failed = false;
     n_features_impute = size(X_impute, 2);
-    keep_fold_counts = zeros(1, n_features_impute);  % track feature retention across folds
+    % Count how many folds retain each feature after collinearity filtering.
+    % Used later for consensus-based feature selection (majority vote).
+    keep_fold_counts = zeros(1, n_features_impute);
 
     % Fix random seed for reproducibility of fold assignments.
     % make_grouped_folds ensures patient-stratified folds: all scans from
@@ -48,19 +54,28 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
     coefs_en = [];
     final_feature_indices = [];
 
+    % Suppress convergence and separation warnings during CV — these are
+    % expected with small sample sizes and high regularisation.
     w_state_cv = warning('off', 'all');
     for cv_i = 1:n_folds_en
         text_progress_bar(cv_i, n_folds_en, 'Elastic Net CV');
+        % Split data into training and test folds (patient-stratified)
         tr_idx = (fold_id_en ~= cv_i);
         te_idx = (fold_id_en == cv_i);
         X_tr = X_impute(tr_idx, :); y_tr = y_clean(tr_idx);
         X_te = X_impute(te_idx, :); y_te = y_clean(te_idx);
 
+        % KNN imputation uses only training data as reference to prevent
+        % test-fold information leaking into imputed training values.
+        % Patient IDs enforce infinite distance between same-patient rows.
         id_tr = id_list_impute(tr_idx);
         id_te = id_list_impute(te_idx);
         [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, id_tr, id_te);
 
-        % Compute collinearity mask per fold from training data only
+        % Collinearity filtering per fold from training data only.
+        % Removes highly correlated features to stabilise elastic net
+        % coefficient estimates (correlated features cause coefficient
+        % instability where small data changes can flip sign/magnitude).
         keep_fold = filter_collinear_features(X_tr_imp, y_tr);
         keep_mask = false(1, n_features_impute);
         keep_mask(keep_fold) = true;
@@ -70,11 +85,17 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
 
         try
             if cv_i == 1
+                % First fold: let lassoglm auto-generate the lambda grid.
+                % Alpha=0.5 gives an equal mix of L1 (lasso sparsity) and
+                % L2 (ridge shrinkage) penalties — elastic net.
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
                     'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1e7);
+                % Fix the lambda grid from fold 1 so all folds use identical
+                % regularisation values, making deviance comparable across folds
                 common_Lambda = FitInfo_fold.Lambda;
                 all_deviance = zeros(length(common_Lambda), n_folds_en);
             else
+                % Subsequent folds: use the same lambda grid from fold 1
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
                     'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1e7);
             end
@@ -99,6 +120,8 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
     warning(w_state_cv);
 
     if ~cv_failed && ~isempty(common_Lambda)
+        % Select optimal lambda: the one that minimises mean binomial
+        % deviance across all CV folds (bias-variance tradeoff)
         mean_deviance = mean(all_deviance, 2);
         [~, idx_min] = min(mean_deviance);
         opt_lambda = common_Lambda(idx_min);

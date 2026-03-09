@@ -50,7 +50,8 @@ function adc_out = compute_adc_metrics(config_struct, adc_vec, d_vec, f_vec, dst
 %     .fdm_progressing_pc  - fDM progressing fraction (NaN if not applicable)
 %     .fdm_stable_pc       - fDM stable fraction (NaN if not applicable)
 
-% Initialize output with NaN defaults
+% Initialize all output fields to NaN so that downstream code can safely
+% aggregate across patients/timepoints without special-casing missing data.
 adc_out = struct();
 adc_out.gtv_vol_val = NaN;
 adc_out.adc_mean_val = NaN;
@@ -84,18 +85,28 @@ n_finite_adc = sum(~isnan(adc_vec));
 % fits or artefacts) are still part of the tumour contour.
 adc_out.gtv_vol_val = numel(adc_vec) * vox_vol;
 
+% Whole-GTV ADC distribution statistics.
+% Kurtosis and skewness characterize the shape of the ADC distribution:
+%   - High kurtosis = heavy tails (heterogeneous tumor microenvironment)
+%   - Negative skewness = tail toward low ADC (dominant restricted diffusion)
 adc_out.adc_mean_val = nanmean_safe(adc_vec);
 [adc_out.adc_kurt_val, adc_out.adc_skew_val] = compute_kurt_skew(adc_vec, min_vox_hist);
 adc_out.adc_sd_val = nanstd_safe(adc_vec);
 
-% CORE DELINEATION METHOD ABSTRACTION
+% CORE DELINEATION: Extract the restricted-diffusion tumor core using the
+% configured method (threshold, Otsu, GMM, fDM, etc.). The returned mask
+% is reused by compute_ivim_metrics for unified core methods.
 adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
-adc_vec_sub = adc_vec(adc_vec_sub_mask);
-adc_vec_high_sub = adc_vec(adc_vec > high_adc_thresh);
-adc_out.adc_vec_sub_mask = adc_vec_sub_mask;
+adc_vec_sub = adc_vec(adc_vec_sub_mask);           % ADC values within the core
+adc_vec_high_sub = adc_vec(adc_vec > high_adc_thresh);  % High-ADC sub-volume (necrosis/edema)
+adc_out.adc_vec_sub_mask = adc_vec_sub_mask;  % Export mask for IVIM reuse
 
-% Compute fDM volume fractions when using fDM core method
+% Compute Functional Diffusion Map (fDM) volume fractions when fDM core
+% method is active and we are past baseline (k > 1). fDM classifies each
+% voxel into responding/stable/progressing based on whether the diffusion
+% parameter changed beyond the significance threshold from baseline.
 if strcmpi(config_struct.core_method, 'fdm') && k > 1
+    % Select which parameter to use for voxel-level change detection
     switch lower(config_struct.fdm_parameter)
         case 'adc'
             fdm_current = adc_vec;
@@ -105,6 +116,8 @@ if strcmpi(config_struct.core_method, 'fdm') && k > 1
             fdm_baseline = core_opts.baseline_d_vec;
     end
     if ~isempty(fdm_baseline) && numel(fdm_baseline) == numel(fdm_current)
+        % Use repeatability-derived Coefficient of Reproducibility (CoR)
+        % when available; otherwise fall back to config threshold
         fdm_sig = config_struct.fdm_thresh;
         if isfield(core_opts, 'repeatability_cor') && ~isnan(core_opts.repeatability_cor)
             fdm_sig = core_opts.repeatability_cor;
@@ -113,16 +126,20 @@ if strcmpi(config_struct.core_method, 'fdm') && k > 1
         valid_delta = ~isnan(delta_fdm);
         n_valid_fdm = sum(valid_delta);
         if n_valid_fdm > 0
+            % Responding: diffusivity increased beyond threshold (cell kill / edema)
             adc_out.fdm_responding_pc  = sum(delta_fdm(valid_delta) > fdm_sig) / n_valid_fdm;
+            % Progressing: diffusivity decreased beyond threshold (increased cellularity)
             adc_out.fdm_progressing_pc = sum(delta_fdm(valid_delta) < -fdm_sig) / n_valid_fdm;
+            % Stable: change within noise floor (no detectable treatment effect)
             adc_out.fdm_stable_pc      = sum(abs(delta_fdm(valid_delta)) <= fdm_sig) / n_valid_fdm;
         end
     end
 end
 
+% Restricted sub-volume: absolute volume (cm^3) and as a fraction of GTV.
 adc_out.adc_sub_vol_val = sum(adc_vec_sub_mask) * vox_vol;
-% Use count of finite (non-NaN) voxels as denominator so
-% NaN voxels do not artificially deflate the percentage.
+% Use count of finite (non-NaN) voxels as denominator so that voxels
+% with failed ADC fits do not artificially deflate the percentage.
 finite_vol = n_finite_adc * vox_vol;
 if finite_vol > 0
     adc_out.adc_sub_vol_pc_val = adc_out.adc_sub_vol_val / finite_vol;
@@ -136,6 +153,8 @@ else
 end
 [adc_out.adc_sub_kurt_val, adc_out.adc_sub_skew_val] = compute_kurt_skew(adc_vec_sub, min_vox_hist);
 
+% Laplace-smoothed histogram: adds 1 to each bin count (additive smoothing)
+% to avoid zero-probability bins in downstream KL-divergence or entropy calculations.
 adc_out.adc_histogram = compute_histogram_laplace(adc_vec, bin_edges);
 % NOTE: KS-test p-values are liberal because within-patient
 % voxels are spatially autocorrelated (violates independence).
@@ -152,12 +171,17 @@ if k > 1 && ~isempty(adc_baseline) && numel(adc_vec) >= min_vox_hist && numel(ad
     adc_out.ks_pval_adc = p;
 end
 
+% High-ADC sub-volume: identifies necrotic or edematous regions
+% (unrestricted water diffusion above high_adc_thresh)
 adc_out.high_adc_sub_vol_val = numel(adc_vec_high_sub) * vox_vol;
 if finite_vol > 0
     adc_out.high_adc_sub_vol_pc_val = adc_out.high_adc_sub_vol_val / finite_vol;
 else
     adc_out.high_adc_sub_vol_pc_val = NaN;
 end
+% Motion corruption flag: fraction of voxels with ADC above physical maximum.
+% ADC values exceeding adc_max (typically 3e-3 mm^2/s) indicate motion
+% artifact or failed fitting rather than genuine tissue properties.
 if n_finite_adc > 0
     adc_out.fx_corrupted_val = sum(adc_vec > adc_max & ~isnan(adc_vec)) / n_finite_adc;
 end
@@ -165,8 +189,12 @@ end
 end
 
 %% --- Local helper functions (duplicated from compute_summary_metrics.m) ---
+% These are duplicated rather than shared because this function is called
+% inside parfor loops, where subfunctions in external files cause
+% transparency issues with MATLAB's parallel execution engine.
 
 function result = nanmean_safe(v)
+% NaN-safe mean with Octave compatibility (Octave lacks nanmean in base)
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -180,6 +208,7 @@ end
 end
 
 function result = nanstd_safe(v)
+% NaN-safe standard deviation with Octave compatibility
 if exist('OCTAVE_VERSION', 'builtin')
     tmp = v(~isnan(v));
     if isempty(tmp)
@@ -193,6 +222,8 @@ end
 end
 
 function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
+% Compute kurtosis and skewness only if the voxel count exceeds
+% min_vox_hist; with too few voxels, higher-order moments are unreliable.
 kurt_val = NaN;
 skew_val = NaN;
 if numel(v) >= min_vox_hist
@@ -205,10 +236,15 @@ end
 end
 
 function p1 = compute_histogram_laplace(vec, bin_edges)
+% Compute a Laplace-smoothed (add-one) histogram.
+% Laplace smoothing adds 1 to each bin count and normalizes by
+% (total + n_bins), ensuring no bin has zero probability. This is
+% critical for downstream KL-divergence and entropy calculations.
 if exist('OCTAVE_VERSION', 'builtin')
+    % Octave uses histc instead of histcounts; merge the last edge bin
     vec_f = vec(~isnan(vec));
     c1 = histc(vec_f, bin_edges);
-    c1(end-1) = c1(end-1) + c1(end);
+    c1(end-1) = c1(end-1) + c1(end);  % histc includes an extra edge bin
     c1 = c1(1:end-1);
 else
     [c1, ~] = histcounts(vec, bin_edges);
@@ -216,7 +252,7 @@ end
 n_binned = sum(c1);
 nbins = length(c1);
 if n_binned > 0
-    p1 = (c1 + 1) / (n_binned + nbins);
+    p1 = (c1 + 1) / (n_binned + nbins);  % Laplace (add-one) smoothing
 else
     p1 = zeros(size(c1));
 end
