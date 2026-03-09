@@ -4,16 +4,20 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
     % are correctly curated for downstream modeling.
 
     properties
-        ConfigStruct
-        DataVectorsGTVp
-        DataVectorsGTVn
-        SummaryMetrics
-        TempDir
+        ConfigStruct      % Minimal pipeline config for metrics_baseline
+        DataVectorsGTVp   % Mock GTVp voxel-level data (unused directly by metrics_baseline but required input)
+        DataVectorsGTVn   % Mock GTVn voxel-level data
+        SummaryMetrics    % Mock summary metrics with deterministic values for reproducible tests
+        TempDir           % Temporary directory for mock clinical Excel files and output
     end
 
     methods(TestMethodSetup)
         function createMockInputs(testCase)
-            % Create a temp dir for the mock clinical Excel file
+            % Creates 8 mock patients with 3 timepoints: deterministic DWI
+            % metric values (to avoid non-reproducible outlier detection),
+            % a mock clinical Excel file with LF/date columns, and
+            % repeatability sub-fields. The mock data is designed so that
+            % all patients pass the valid_pts filter (finite LF values).
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -86,6 +90,8 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function cleanupTempDir(testCase)
+            % Close any diary opened by metrics_baseline before deleting
+            % the temp directory (avoids file-lock errors on Windows).
             diary off;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
@@ -95,7 +101,10 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
 
     methods(Test)
         function testBaselineExecution(testCase)
-            % Should run without error
+            % Smoke test: verifies metrics_baseline runs without error and
+            % returns correctly dimensioned output arrays. Checks that all
+            % 8 patients pass the valid_pts filter, and that absolute and
+            % percent-change matrices have the expected [nPat x nTp] shape.
             [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
              m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
              ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
@@ -114,8 +123,10 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testOutlierCleaning(testCase)
-            % Insert an outlier into the summary metrics for patient 1 at baseline.
-            % With 8 patients the IQR-based fence is narrow enough to detect 1e6.
+            % Verifies that the IQR-based outlier cleaning in metrics_baseline
+            % replaces extreme values with NaN. Patient 1's baseline ADC is
+            % set to 1e6 (far outside the 3*IQR fence for the 8-patient cohort),
+            % and should be replaced by NaN while other patients remain intact.
             testCase.SummaryMetrics.adc_mean(1, 1) = 1e6;
 
             [~, ~, ~, ~, m_adc_mean, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ...
@@ -130,8 +141,13 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testCauseOfDeathCompetingRisk(testCase)
-            % When CauseOfDeath column is present, non-pancreatic-cancer
-            % deaths without LF should be coded as competing risks (lf==2).
+            % Verifies competing risk classification logic:
+            %   - Patient 1: no LF + lung cancer death -> lf=2 (competing risk)
+            %   - Patient 2: no LF + pancreatic cancer death -> lf=0 (stays censored)
+            %   - Patient 3: no LF + unknown cause -> lf=0 (stays censored)
+            %   - Patient 5: LF + lung cancer death -> lf=1 (LF overrides)
+            % This implements the Cause-Specific Hazards framework where
+            % non-cancer-of-interest deaths are treated as competing events.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end
@@ -184,8 +200,10 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testCauseOfDeathNoWarningWhenPresent(testCase)
-            % When CauseOfDeath column is present, no noCauseOfDeath
-            % warning should be emitted.
+            % Verifies that when the CauseOfDeath column IS present in the
+            % clinical spreadsheet, the metrics_baseline:noCauseOfDeath
+            % warning is NOT emitted. This warning is only meant for cases
+            % where the column is entirely absent.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end
@@ -225,8 +243,10 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testCustomCauseOfDeathColumnName(testCase)
-            % When cause_of_death_column is set to a custom name in the
-            % config, the column should be recognized and renamed internally.
+            % Verifies that the cause_of_death_column config option allows
+            % users to specify a non-default column name (e.g., 'DeathCause')
+            % in their clinical spreadsheet. The function should find and
+            % use this column for competing risk classification.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end
@@ -265,8 +285,11 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testCaseInsensitiveCauseOfDeathColumn(testCase)
-            % When the spreadsheet column has different casing (e.g.,
-            % readtable alters casing), the column should still be found.
+            % Verifies case-insensitive column matching: the config expects
+            % 'CauseOfDeath' but the spreadsheet has 'causeofdeath'. The
+            % function should still find the column and apply competing
+            % risk classification without emitting a noCauseOfDeath warning.
+            % This handles MATLAB's readtable behavior which may alter casing.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end
@@ -308,9 +331,11 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testStringScalarEmptyDisablesCauseOfDeath(testCase)
-            % When cause_of_death_column is a MATLAB string("") scalar
-            % (as jsondecode produces from JSON ""), competing-risk
-            % classification should be disabled without warning.
+            % Verifies that setting cause_of_death_column to string("")
+            % (the value jsondecode produces from JSON "") explicitly
+            % disables competing risk classification without emitting a
+            % warning. This is the expected behavior when the user sets
+            % "cause_of_death_column": "" in config.json to opt out.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end
@@ -349,8 +374,11 @@ classdef test_metrics_baseline < matlab.unittest.TestCase
         end
 
         function testNormalizedCauseOfDeathColumn(testCase)
-            % When the spreadsheet column has underscores or spaces (e.g.,
-            % 'Cause_of_Death'), the normalized fallback should still find it.
+            % Verifies the normalized fallback for column name matching:
+            % the spreadsheet uses 'Cause_of_Death' (with underscores) but
+            % the config expects 'CauseOfDeath'. After stripping underscores
+            % and spaces and doing a case-insensitive compare, the column
+            % should be found and competing risk classification should work.
             if exist('OCTAVE_VERSION', 'builtin')
                 testCase.assumeFail('Test requires MATLAB readtable/writetable.');
             end

@@ -115,24 +115,34 @@ function plot_predictive_diagnostics( ...
         else, curr_sig_disp = ['\Delta ' curr_sig_name]; curr_sig_file = ['Delta_' curr_sig_name]; end
 
         figure('Name', ['Sanity Checks ' curr_sig_disp ' ' fx_label ' — ' dtype_label], 'Position', [100, 100, 1200, 500]);
+        % --- Panel 1: Volume confounder check ---
+        % Tests whether GTV volume change differs between LC and LF groups.
+        % If significant, diffusion metric changes could be artifacts of
+        % partial-volume effects rather than true biological changes.
         subplot(1, 3, 1);
-        vol_fx1 = m_gtv_vol(valid_pts, 1);
-        vol_fx3 = m_gtv_vol(valid_pts, target_fx);
-        vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;
+        vol_fx1 = m_gtv_vol(valid_pts, 1);         % baseline GTV volume
+        vol_fx3 = m_gtv_vol(valid_pts, target_fx);  % GTV volume at target fraction
+        vol_pct = (vol_fx3 - vol_fx1) ./ vol_fx1 * 100;  % percent volume change
 
         % Exclude competing risk patients (lf==2) from sanity check plots
         non_competing = (lf_group <= 1);
         boxplot(vol_pct(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['% Change in GTV Volume (' fx_label ')']);
         title('Confounder Check: Volume', 'FontSize', 12, 'FontWeight', 'bold');
+        % Wilcoxon rank-sum test (non-parametric, appropriate for small N
+        % and non-normal distributions typical in tumor volume data)
         p_vol = perform_statistical_test(vol_pct(non_competing), lf_group(non_competing), 'ranksum');
 
+        % Annotate p-value on the plot (positioned at 90% of y-axis range)
         y_lim = ylim;
         if numel(y_lim) >= 2 && all(isfinite(y_lim)) && y_lim(2) > y_lim(1)
             text(1.5, y_lim(1) + 0.9*(y_lim(2)-y_lim(1)), format_p_value(p_vol), ...
                 'HorizontalAlignment', 'center', 'FontSize', 11);
         end
         grid on;
+        % Clinical interpretation: p > 0.05 means volume change does not
+        % significantly differ between outcomes, so diffusion metrics are
+        % unlikely to be confounded by tumor shrinkage differences
         if p_vol > 0.05, xlabel('Conclusion: No Volumetric Bias');
         else, xlabel('Warning: Volume is a Confounder'); end
 

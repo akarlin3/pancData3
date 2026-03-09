@@ -115,6 +115,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
                 system(['chmod +x ' testCase.MockScript]);
             end
 
+            % Suppress the expected warning about missing output files
             warnState = warning('off', 'convert_dicom:missingFiles');
             restoreWarn = onCleanup(@() warning(warnState));
             bad_dwi_found = convert_dicom(testCase.DicomLoc, testCase.OutLoc, scanID, testCase.MockScript, fx_id);
@@ -123,7 +124,11 @@ classdef test_convert_dicom < matlab.unittest.TestCase
         end
 
         function test_skip_existing_file(testCase)
-            % Test when the primary .nii.gz file already exists
+            % Verifies the caching/skip path: when the output .nii.gz file
+            % already exists, convert_dicom should return 0 immediately
+            % without invoking dcm2niix.  The mock script is deliberately
+            % set to create 10 extra files (which would cause a delta
+            % mismatch and fail), proving that it was never executed.
             scanID = 'scan_003';
             fx_id = 'fx_test';
 

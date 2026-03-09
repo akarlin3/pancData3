@@ -208,6 +208,10 @@ fprintf('\n  2a. Fraction-level missingness (NaN in summary arrays):\n');
 fprintf('  %-12s  %s\n', 'Metric', strjoin(fx_labels,'   '));
 
 % Evaluate missingness using the active DWI type from config, not hardcoded 1.
+% This ensures that when running the dnCNN or IVIMnet pipeline, we check
+% missingness in the corresponding parameter arrays rather than always
+% looking at Standard pipeline data (which might be fully populated even
+% when the DL pipeline has widespread failures).
 if exist('config_struct', 'var') && isfield(config_struct, 'dwi_types_to_run') && isnumeric(config_struct.dwi_types_to_run)
     dtype_miss = config_struct.dwi_types_to_run(1);  % scalar: use first type
 else
@@ -215,6 +219,8 @@ else
 end
 % Clamp to available dimension to avoid out-of-bounds indexing
 dtype_miss = min(dtype_miss, size(adc_mean, 3));
+% Extract the 2D (patients x timepoints) slice for each diffusion
+% parameter from the 3D (patients x timepoints x DWI_type) arrays.
 summary_arrs  = {adc_mean(:,:,dtype_miss), d_mean(:,:,dtype_miss), f_mean(:,:,dtype_miss), dstar_mean(:,:,dtype_miss)};
 summary_names = {'ADC_mean', 'D_mean', 'f_mean', 'Dstar_mean'};
 
@@ -300,6 +306,10 @@ fprintf('\n--- 3. Data Alignment (RT Dose ↔ DWI) ---\n');
 dim_mismatches = 0;   % hard errors: dose/ADC vector length mismatch
 nan_warnings   = 0;   % soft warnings: high NaN fraction in dose
 
+% Check alignment only for Fx1-Fx5 (treatment fractions with dose maps).
+% The post-RT scan (Fx6) does not have an associated RT dose because the
+% treatment course is complete; dose-response analysis is only meaningful
+% for on-treatment timepoints.
 for j = 1:nPat
     text_progress_bar(j, nPat, 'Checking alignment');
     nFx = min(size(data_vectors_gtvp, 2), 5); % dose only for Fx1-5
@@ -419,6 +429,12 @@ for fi = 1:numel(nan_check_fields)
     end
 end
 
+% --- Final go/no-go decision ---
+% is_valid controls whether downstream modules (visualize, metrics) proceed.
+% Dimensional mismatches are hard failures (spatial registration broke).
+% Excessive NaN is a hard failure (data too sparse for statistics).
+% NaN dose warnings and convergence issues are soft warnings (common in
+% clinical pancreatic DWI data due to motion artifacts and incomplete scans).
 if dim_mismatches == 0 && ~excessive_nan
     is_valid = true;
     validation_msg = sprintf('Passed all alignment checks. %d convergence warnings, %d NaN dose warnings.', conv_issues, nan_warnings);

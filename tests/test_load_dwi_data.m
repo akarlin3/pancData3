@@ -103,14 +103,16 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
     methods(Test)
 
         function testSkipToReloadSuccess(testCase)
-            % Verifies that skip_to_reload = true successfully loads the default
-            % dwi_vectors.mat and processes it through compute_summary_metrics
+            % Verifies the happy path for skip_to_reload=true: when
+            % dwi_vectors.mat exists in dataloc, load_dwi_data should
+            % successfully load it, run compute_summary_metrics, and return
+            % non-empty GTVp data vectors and a summary_metrics struct
+            % with the expected patient ID.
 
             % 1. Create a dummy dwi_vectors.mat
             testCase.createDummySave('dwi_vectors.mat');
 
-            % 2. Execute load_dwi_data
-            % Should not throw an error and should return summary_metrics
+            % 2. Execute load_dwi_data — should succeed and return valid outputs
             try
                 [gtvp, gtvn, summary] = load_dwi_data(testCase.ConfigStruct);
 
@@ -172,17 +174,15 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
         end
 
         function testDiscoverFilesEmpty(testCase)
-            % Verifies behavior when skip_to_reload is false but the data directory
-            % contains no valid patient folders.
+            % Verifies behavior when skip_to_reload is false but the data
+            % directory contains no valid patient DICOM folders. The function
+            % should complete without error: Section 2 reads the clinical
+            % sheet, Section 3's parfor loop finds no patients to process,
+            % and the resulting empty data structures are saved and returned.
 
             testCase.ConfigStruct.skip_to_reload = false;
 
-            % Create an empty clinical sheet to prevent readtable from crashing
-            % We need a valid dummy Excel file or a mocked table if it errors
-            % But if id_list is empty, the parfor loop won't run, but readtable
-            % happens BEFORE the loop in Section 2.
-
-            % Mocking the clinical sheet creation for readtable
+            % Create a minimal clinical Excel file so readtable does not crash
             T = table({'P01'}, 0, 0, 'VariableNames', {'Pat', 'LF', 'Immuno'});
             sheet_path = fullfile(testCase.TempDataLoc, testCase.ConfigStruct.clinical_data_sheet);
             writetable(T, sheet_path, 'Sheet', 'Clin List_MR');

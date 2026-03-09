@@ -9,6 +9,8 @@ classdef test_source_code_standards < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function addProjectPaths(testCase)
+            % Add core/, utils/, and dependencies/ so helper functions
+            % that read source files can locate them.
             baseDir = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(fullfile(baseDir, 'core'));
             addpath(fullfile(baseDir, 'utils'));
@@ -422,9 +424,16 @@ classdef test_source_code_standards < matlab.unittest.TestCase
     end
 end
 
-% Local helper functions to read source code for static analysis tests
+% =========================================================================
+% Local helper functions to read source code for static analysis tests.
+% Each helper concatenates one or more source files into a single string
+% so that test methods can use contains() and regexp() to verify patterns.
+% =========================================================================
 
 function code = metrics_code()
+    % Read all metrics module source files into a single string.
+    % This covers the full metrics pipeline: baseline, longitudinal,
+    % dosimetry, stats (comparisons + predictive), and survival.
     files = {'metrics_baseline.m', 'metrics_longitudinal.m', 'metrics_dosimetry.m', ...
              'metrics_stats_comparisons.m', 'metrics_stats_predictive.m', 'metrics_survival.m'};
 
@@ -441,6 +450,8 @@ function code = metrics_code()
 end
 
 function code = loaddwi_code()
+    % Read all data-loading and model-fitting source files into a single string.
+    % Used by tests that verify ADC handling, IVIM patterns, and DIR integration.
     files = {'load_dwi_data.m', 'discover_patient_files.m', 'compute_summary_metrics.m', 'process_single_scan.m', 'fit_models.m'};
 
     code = '';
@@ -456,6 +467,8 @@ function code = loaddwi_code()
 end
 
 function code = ivim_code()
+    % Read the third-party IVIM model fitting source (dependencies/IVIMmodelfit.m).
+    % Tests verify bound parameters and blim defaults without modifying the file.
     fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'dependencies', 'IVIMmodelfit.m'), 'r');
     if fid == -1, code = ''; return; end
     code = fread(fid, '*char')';
@@ -463,6 +476,7 @@ function code = ivim_code()
 end
 
 function code = vis_code()
+    % Read the visualization module source (core/visualize_results.m).
     fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'visualize_results.m'), 'r');
     if fid == -1, code = ''; return; end
     code = fread(fid, '*char')';
@@ -470,6 +484,8 @@ function code = vis_code()
 end
 
 function code = param_maps_code()
+    % Read the parameter maps plotting source (core/plot_parameter_maps.m).
+    % Used to verify protocol validation and deviation handling patterns.
     fid = fopen(fullfile(fileparts(mfilename('fullpath')), '..', 'core', 'plot_parameter_maps.m'), 'r');
     if fid == -1, code = ''; return; end
     code = fread(fid, '*char')';

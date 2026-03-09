@@ -9,13 +9,14 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
     % 5. Zero variance and single sample edge cases.
 
     properties
-        OriginalPath
+        OriginalPath  % Stores the MATLAB path for restoration in teardown
     end
 
     methods(TestMethodSetup)
         function addUtilsToPath(testCase)
+            % Save the current MATLAB path and add the utils directory so
+            % scale_td_panel is accessible during tests.
             testCase.OriginalPath = path;
-            % Add utils directory to path. Assuming tests/ is one level below root.
             utilsPath = fullfile(pwd, 'utils');
             if ~exist(utilsPath, 'dir')
                 % If running from tests/ directory
@@ -27,6 +28,7 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function restorePath(testCase)
+            % Restore the original MATLAB path to avoid side effects.
             path(testCase.OriginalPath);
         end
     end
@@ -139,10 +141,11 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
         end
 
         function testMultipleWeeks(testCase)
-            % Scenario:
+            % Verify that each week's statistics are computed independently.
             % Week 1: Train [10, 20] -> Mu=15, Sig=7.07
             % Week 2: Train [100, 200] -> Mu=150, Sig=70.71
-            % Test rows scaled by respective week stats.
+            % Each row is scaled using only its own week's statistics,
+            % preventing cross-timepoint leakage.
 
             feat_names = {'ADC_Mean'};
             pat_id_td = [1; 2; 1; 2];
@@ -168,10 +171,9 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
         end
 
         function testSingleTrainingSample(testCase)
-            % Scenario:
-            % Week 1.
-            % Only 1 training patient. Value = 10.
-            % Logic: Mu = 10, Sigma = 1.
+            % Edge case: only one training patient in the week.
+            % std() of a single value is 0, so sigma should be clamped to 1
+            % to avoid division by zero. Mu = 10, Sigma = 1.
 
             feat_names = {'ADC_Mean'};
             pat_id_td = [1; 2];
@@ -213,9 +215,10 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
 
         function testBaselineModePostLandmark(testCase)
             % After landmark subsetting, t_start==0 rows are removed.
-            % Baseline mode should use the minimum t_start among training
-            % rows as the effective baseline (e.g., t_start==20 after
-            % landmark at day 20).
+            % In 'baseline' scaling mode, the function should use the
+            % minimum t_start among training rows as the effective baseline
+            % (e.g., t_start==20 after a landmark at day 20). All rows
+            % are then scaled using only those baseline statistics.
             feat_names = {'ADC'};
             pat_id_td = [1; 2; 1; 2];
             t_start_td = [20; 20; 90; 90];  % post-landmark, no t_start==0
@@ -235,8 +238,10 @@ classdef test_scale_td_panel < matlab.unittest.TestCase
         end
 
         function testBaselineModeWithTStartZero(testCase)
-            % When t_start==0 rows exist, baseline mode should still use
-            % them (min(t_start) == 0, same behavior as before).
+            % When t_start==0 rows exist in the data, baseline mode should
+            % use them as the baseline (min(t_start)==0). This confirms
+            % backward compatibility: the post-landmark generalization does
+            % not change behavior when pre-landmark rows are present.
             feat_names = {'ADC'};
             pat_id_td = [1; 2; 1; 2];
             t_start_td = [0; 0; 20; 20];

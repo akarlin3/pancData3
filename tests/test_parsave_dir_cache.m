@@ -1,13 +1,19 @@
 classdef test_parsave_dir_cache < matlab.unittest.TestCase
-    % TEST_PARSAVE_DIR_CACHE Unit tests for parsave_dir_cache.
+    % TEST_PARSAVE_DIR_CACHE Unit tests for the parallel-safe save wrapper.
     %
-    % parsave_dir_cache is a thin wrapper around save() that allows
-    % variable-passing inside parfor loops.  Tests verify:
-    %   - The output file is created on disk
-    %   - All three variables (gtv_mask_warped, D_forward, ref3d) are
-    %     faithfully written to the .mat file
+    % parsave_dir_cache.m (in utils/) is a thin wrapper around MATLAB's save()
+    % that enables saving variables inside parfor loops. MATLAB's save() cannot
+    % be called directly in parfor because it requires variable names to be
+    % known at compile time. This wrapper accepts the data as function arguments
+    % and saves them with fixed variable names: gtv_mask_warped, D_forward, ref3d.
+    %
+    % Tests verify:
+    %   - The output .mat file is created on disk
+    %   - All three variables are faithfully round-tripped (saved then loaded)
+    %   - Variable names in the .mat file match the expected identifiers
     %   - A second call to the same path overwrites the previous file
-    %   - The function accepts arrays of varied sizes
+    %   - Arrays of varied spatial dimensions are handled correctly
+    %   - Edge case: empty (0x0x0) arrays save and load without error
 
     properties
         TempDir
@@ -16,6 +22,7 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create an isolated temp directory for each test and add utils/ to path
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
             testCase.OriginalPath = path();
@@ -26,6 +33,7 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Remove the temp directory and restore the original MATLAB path
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
             end

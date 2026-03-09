@@ -44,6 +44,14 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
                    d95_dstar_sub(valid_pts, target_fx), v50_dstar_sub(valid_pts, target_fx)];
 
 
+    % Feature name labels corresponding to the 22 columns above:
+    %   Cols  1-4:  Baseline (Fx1) absolute diffusion values (_BL)
+    %   Cols  5-8:  Absolute diffusion values at the target fraction (_Abs)
+    %   Cols  9-12: Percent/delta change from baseline (_Pct, _Delta)
+    %   Cols 13-14: Dose metrics for the whole GTVp (D95 = dose covering 95%
+    %               of volume; V50 = fraction receiving >= 50 Gy)
+    %   Cols 15-22: Dose metrics for parameter-specific sub-volumes
+    %               (e.g., D95_Sub_ADC = D95 within the ADC-defined core)
     feat_names_lasso = {'ADC_BL', 'D_BL', 'f_BL', 'Dstar_BL', ...
                         'ADC_Abs', 'D_Abs', 'f_Abs', 'Dstar_Abs', ...
                         'ADC_Pct', 'D_Pct', 'f_Delta', 'Dstar_Pct', ...
@@ -53,6 +61,8 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
                         'D95_Sub_f', 'V50_Sub_f', ...
                         'D95_Sub_Dstar', 'V50_Sub_Dstar'};
 
+    % Track original column positions through filtering so we can map
+    % surviving features back to their canonical names after NaN removal
     original_feature_indices = 1:22;
 
     if target_fx == nTp || target_fx == 6
@@ -67,6 +77,10 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
         original_feature_indices = original_feature_indices(1:12);
     end
 
+    % Defensive check: if any input array has incompatible types (e.g.,
+    % cell instead of numeric), MATLAB's horzcat produces a cell array
+    % instead of a numeric matrix. Catch this early and dump diagnostic
+    % info for debugging rather than failing cryptically downstream.
     if iscell(X_lasso_all)
         vars = {'ADC_abs_BL', 'D_abs_BL', 'f_abs_BL', 'Dstar_abs_BL', 'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
         vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
@@ -80,6 +94,10 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
         error('Invalid data type: cell array detected in X_lasso_all concatenation. See debug_concat_error.txt');
     end
 
+    % Remove all-NaN columns (features with no valid data for any patient).
+    % This typically occurs when dose data is unavailable or when a DWI type
+    % lacks IVIM parameters (e.g., D/f/D* may be all-NaN for Standard DWI
+    % if only ADC was fitted).
     valid_cols = ~all(isnan(X_lasso_all), 1);
     feat_names_lasso_full = feat_names_lasso;  % keep unfiltered copy for display
     X_lasso_all = X_lasso_all(:, valid_cols);

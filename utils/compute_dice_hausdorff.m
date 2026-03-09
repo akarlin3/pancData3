@@ -33,6 +33,7 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
         vox_dims = [1 1 1];
     end
 
+    % Ensure logical type for bitwise operations below
     mask_a = logical(mask_a);
     mask_b = logical(mask_b);
 
@@ -44,10 +45,13 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
             mat2str(size(mask_a)), mat2str(size(mask_b)));
     end
 
+    % Count foreground voxels in each mask
     sum_a = sum(mask_a(:));
     sum_b = sum(mask_b(:));
 
     % --- Edge cases ---
+    % Both empty: metrics are undefined (NaN). One empty: zero overlap
+    % (Dice=0) and infinite surface distance (Hausdorff=Inf).
     if sum_a == 0 && sum_b == 0
         dice = NaN;
         hd_max = NaN;
@@ -62,6 +66,8 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
     end
 
     % --- Dice coefficient ---
+    % Dice = 2 * |intersection| / (|A| + |B|)
+    % Ranges from 0 (no overlap) to 1 (perfect overlap).
     intersection = sum(mask_a(:) & mask_b(:));
     dice = 2 * intersection / (sum_a + sum_b);
 
@@ -80,14 +86,19 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
         surf_b = mask_b;
     end
 
-    % Convert surface voxel indices to physical coordinates (mm)
+    % Convert surface voxel subscript indices to physical coordinates (mm).
+    % Multiplying by vox_dims accounts for anisotropic voxel spacing
+    % (e.g., 1.5 x 1.5 x 5 mm in typical abdominal DWI).
     [ra, ca, sa] = ind2sub(size(mask_a), find(surf_a));
     pts_a = [ra(:), ca(:), sa(:)] .* vox_dims(:)';
 
     [rb, cb, sb] = ind2sub(size(mask_b), find(surf_b));
     pts_b = [rb(:), cb(:), sb(:)] .* vox_dims(:)';
 
-    % Compute pairwise Euclidean distances between surface point sets
+    % Compute full pairwise Euclidean distance matrix between surface point sets.
+    % D_mat(i,j) = distance in mm from surface point i in A to surface point j in B.
+    % Memory: O(n_a * n_b); for typical GTV sizes (< 10k surface voxels) this
+    % fits comfortably in RAM.
     if exist('pdist2', 'file') || exist('pdist2', 'builtin')
         D_mat = pdist2(pts_a, pts_b);
     else
@@ -104,9 +115,13 @@ function [dice, hd_max, hd95] = compute_dice_hausdorff(mask_a, mask_b, vox_dims)
     % Directed Hausdorff distances:
     %   For each point in A, find minimum distance to any point in B
     %   (and vice versa). The symmetric Hausdorff is the max of both.
-    min_a_to_b = min(D_mat, [], 2);   % n_a x 1
-    min_b_to_a = min(D_mat, [], 1)';  % n_b x 1
+    % For each point in A, find its nearest neighbor distance to B (and vice versa)
+    min_a_to_b = min(D_mat, [], 2);   % n_a x 1: directed distances A -> B
+    min_b_to_a = min(D_mat, [], 1)';  % n_b x 1: directed distances B -> A
 
+    % Symmetric Hausdorff = max of both directed Hausdorff distances.
+    % HD95 uses the 95th percentile instead of max to be robust to
+    % single outlier voxels (standard in radiation oncology contouring).
     hd_max = max(max(min_a_to_b), max(min_b_to_a));
     hd95 = max(prctile(min_a_to_b, 95), prctile(min_b_to_a, 95));
 end

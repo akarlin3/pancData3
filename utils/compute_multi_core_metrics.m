@@ -79,15 +79,23 @@ for m_idx = 1:n_all_methods
         per_method.(mname).core_masks{j, k} = m_mask;
     end
 
-    % ADC sub-volume metrics
+    % --- ADC sub-volume metrics ---
+    % Extract ADC values within the core mask and compute summary statistics.
+    % These capture the restricted-diffusion characteristics of the tumor core,
+    % which correlates with cellularity and treatment resistance in pancreatic cancer.
     m_adc_sub = adc_vec(m_mask);
-    per_method.(mname).adc_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
+    per_method.(mname).adc_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;  % volume in cm^3
     if finite_vol > 0
+        % Sub-volume as a fraction of total finite GTV volume
         per_method.(mname).adc_sub_vol_pc(j,k,dwi_type) = per_method.(mname).adc_sub_vol(j,k,dwi_type) / finite_vol;
     end
     if ~isempty(m_adc_sub)
         per_method.(mname).adc_sub_mean(j,k,dwi_type) = nanmean(m_adc_sub);
     end
+    % Higher-order statistics (kurtosis, skewness) require a minimum number
+    % of voxels to be meaningful; below min_vox_hist they are too noisy.
+    % Kurtosis captures the "peakedness" of the ADC distribution (high
+    % kurtosis = more extreme values), while skewness indicates asymmetry.
     if numel(m_adc_sub) >= min_vox_hist
         m_adc_finite = m_adc_sub(~isnan(m_adc_sub));
         if numel(m_adc_finite) >= min_vox_hist
@@ -96,13 +104,22 @@ for m_idx = 1:n_all_methods
         end
     end
 
-    % D/f sub-volume metrics
+    % --- D/f sub-volume metrics (IVIM parameters) ---
+    % D (true diffusion coefficient) and f (perfusion fraction) are IVIM
+    % bi-exponential model parameters that separate tissue cellularity (D)
+    % from microvascular perfusion (f). Only computed when IVIM data exists.
     if ~isempty(d_vec)
         if any(strcmpi(mname, unified_set))
+            % Unified methods: use the same core mask for D and f sub-volumes.
+            % This ensures spatial consistency — the "core" is the same region
+            % regardless of which parameter is being summarized.
             m_f_sub = f_vec(m_mask); %#ok<NASGU>
             per_method.(mname).f_sub_vol(j,k,dwi_type) = sum(m_mask) * vox_vol;
             m_d_sub = d_vec(m_mask);
         else
+            % Non-unified methods: apply independent per-parameter thresholds.
+            % f < f_thresh identifies low-perfusion voxels (ischemic core),
+            % D < d_thresh identifies restricted-diffusion voxels (high cellularity).
             m_f_sub = f_vec(f_vec < f_thresh); %#ok<NASGU>
             per_method.(mname).f_sub_vol(j,k,dwi_type) = numel(f_vec(f_vec < f_thresh)) * vox_vol;
             m_d_sub = d_vec(d_vec < d_thresh);
@@ -119,8 +136,14 @@ for m_idx = 1:n_all_methods
         end
     end
 
-    % fDM volume fractions (only for fdm method, post-baseline)
+    % --- fDM (functional Diffusion Map) volume fractions ---
+    % fDM classifies each voxel as responding, stable, or progressing based
+    % on the change in a diffusion parameter relative to baseline. This is
+    % a per-voxel longitudinal analysis technique (Moffat et al., PNAS 2005)
+    % that captures spatial heterogeneity in treatment response.
+    % Only computed for the 'fdm' method and post-baseline timepoints (k>1).
     if strcmpi(mname, 'fdm') && k > 1 && isfield(core_opts, 'baseline_adc_vec')
+        % Select the diffusion parameter for fDM analysis (ADC or D)
         switch lower(config_struct.fdm_parameter)
             case 'adc'
                 fdm_cur = adc_vec;
@@ -132,12 +155,16 @@ for m_idx = 1:n_all_methods
                 fdm_cur = adc_vec;
                 fdm_bl = core_opts.baseline_adc_vec;
         end
+        % Require matched voxel counts between baseline and current scan
         if ~isempty(fdm_bl) && numel(fdm_bl) == numel(fdm_cur)
-            fdm_sig_pm = config_struct.fdm_thresh;
-            delta_pm = fdm_cur - fdm_bl;
+            fdm_sig_pm = config_struct.fdm_thresh;  % significance threshold for voxel change
+            delta_pm = fdm_cur - fdm_bl;  % per-voxel change from baseline
             valid_pm = ~isnan(delta_pm);
             n_valid_pm = sum(valid_pm);
             if n_valid_pm > 0
+                % Classify voxels: responding (increased diffusion = cell death),
+                % progressing (decreased diffusion = increased cellularity),
+                % stable (change within noise threshold)
                 per_method.(mname).fdm_responding_pc(j,k,dwi_type)  = sum(delta_pm(valid_pm) > fdm_sig_pm) / n_valid_pm;
                 per_method.(mname).fdm_progressing_pc(j,k,dwi_type) = sum(delta_pm(valid_pm) < -fdm_sig_pm) / n_valid_pm;
                 per_method.(mname).fdm_stable_pc(j,k,dwi_type)      = sum(abs(delta_pm(valid_pm)) <= fdm_sig_pm) / n_valid_pm;
@@ -146,7 +173,9 @@ for m_idx = 1:n_all_methods
     end
 end
 
+% Restore original warning state and clear stale warnings so the
+% orchestrator doesn't re-log suppressed ones from extract_tumor_core
 warning(prev_warn_csm);
-lastwarn('');  % clear stale warnings so orchestrator doesn't re-log suppressed ones
+lastwarn('');
 
 end

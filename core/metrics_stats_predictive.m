@@ -86,11 +86,12 @@ diary_file = fullfile(output_folder, ['metrics_stats_predictive_output_' dtype_l
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
 
-% Initialize risk outputs to be returned and used by survival
-risk_scores_all = [];
-is_high_risk = [];
-times_km = [];
-events_km = [];
+% Initialize risk outputs to be returned and used by metrics_survival.m
+% for Kaplan-Meier stratification and Cox proportional hazards modeling.
+risk_scores_all = [];  % continuous LOOCV out-of-fold predicted risk scores
+is_high_risk = [];     % binary high/low risk classification (threshold = median training risk)
+times_km = [];         % time-to-event (days from RT end) for KM plotting
+events_km = [];        % event indicator (0=censored, 1=LF, 2=competing risk)
 % Track the earliest timepoint with significant features.  Earlier timepoints
 % are clinically more actionable — if treatment resistance can be detected
 % at Fx2 (after 1 week) rather than Fx5 (after 5 weeks), there is more
@@ -123,6 +124,10 @@ for target_fx = 2:nTp
     competing_mask = (y_lasso_all == 2);
     y_lasso_all(competing_mask) = NaN;  % mark for exclusion below
 
+    % Filter to patients with at least SOME imaging data in the first 8
+    % columns (baseline + absolute parameters).  Patients with entirely
+    % missing imaging at this timepoint cannot contribute to the model.
+    % The impute_mask also requires a valid (non-NaN) outcome label.
     base_cols = min(8, size(X_lasso_all, 2));
     has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);
     impute_mask = has_any_imaging & ~isnan(y_lasso_all);
@@ -180,6 +185,12 @@ for target_fx = 2:nTp
     is_high_risk_target(impute_mask) = is_high_risk_oof;
 
     %% --- Build feature metadata for diagnostics ---
+    % Map each of the 22 model features back to its source data array,
+    % display name, units, and whether it is an absolute or change metric.
+    % This metadata drives the diagnostic scatter plots and ROC annotations.
+    % Feature indices 1-4 are baseline covariates (Fx1), 5-8 are absolute
+    % values at target_fx, 9-12 are percent/absolute changes, 13-14 are
+    % whole-GTV dose, and 15-22 are sub-volume dose coverage metrics.
     all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 1-4: baseline covariates
                       ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 5-8: absolute at target_fx
                       ADC_pct,       D_pct,       f_delta,       Dstar_pct, ... % 9-12: percent change
@@ -276,9 +287,13 @@ for target_fx = 2:nTp
         fprintf('%s\n', strjoin(sig_disp_names, ', '));
     end
 
+    % Construct time-to-event arrays for Kaplan-Meier survival analysis.
+    % LF patients (m_lf==1) use time-to-failure; censored (m_lf==0) and
+    % competing risk (m_lf==2) patients use time-to-last-follow-up.
+    % This is the Cause-Specific Hazard (CSH) convention: competing events
+    % are treated as censored for the LF endpoint, while still recording
+    % the event type for later competing risk analysis.
     times_km = m_total_time;
-    % Censored (lf==0) and competing risk (lf==2) patients use follow-up
-    % time, consistent with the CSH approach in metrics_survival.m.
     cens_or_cr = (m_lf == 0 | m_lf == 2) & ~isnan(m_total_follow_up_time);
     times_km(cens_or_cr) = m_total_follow_up_time(cens_or_cr);
     events_km = m_lf;

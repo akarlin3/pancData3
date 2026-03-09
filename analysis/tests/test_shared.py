@@ -166,6 +166,7 @@ class TestExtractCorrelations:
         assert results[0][0] == pytest.approx(-0.42)
 
     def test_spearman_rs(self):
+        """Spearman rank correlation 'rs = 0.72' is recognised."""
         results = extract_correlations("Spearman rs = 0.72")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.72)
@@ -177,9 +178,11 @@ class TestExtractCorrelations:
         assert results[0][0] == pytest.approx(0.45)
 
     def test_no_correlations(self):
+        """Text without correlation patterns returns an empty list."""
         assert extract_correlations("No correlations reported") == []
 
     def test_multiple_correlations(self):
+        """Multiple correlation types (r, rs, r-squared) in one string."""
         text = "r = 0.5, rs = 0.6, r² = 0.7"
         # r\u00b2 is r² — check for at least 2 matches
         results = extract_correlations(text.replace("²", "\u00b2"))
@@ -194,6 +197,7 @@ class TestLoadGraphCsv:
     """Verify CSV loading and graceful degradation."""
 
     def test_load_existing_csv(self, saved_files_with_graph_csv: Path):
+        """All rows from the fixture CSV are loaded with correct column names."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         assert len(rows) == len(SAMPLE_GRAPH_CSV_ROWS)
         assert "file_path" in rows[0]
@@ -208,6 +212,7 @@ class TestGroupByGraphName:
     """Verify grouping of CSV rows by normalised graph name."""
 
     def test_grouping_structure(self, saved_files_with_graph_csv: Path):
+        """Feature_BoxPlots rows are grouped under the same key, keyed by DWI type."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         groups = group_by_graph_name(rows)
 
@@ -218,6 +223,7 @@ class TestGroupByGraphName:
         assert "dnCNN" in fb
 
     def test_longitudinal_grouped_separately(self, saved_files_with_graph_csv: Path):
+        """Longitudinal_Mean_Metrics (a different graph name) gets its own group."""
         rows = load_graph_csv(saved_files_with_graph_csv)
         groups = group_by_graph_name(rows)
 
@@ -226,6 +232,7 @@ class TestGroupByGraphName:
         assert "IVIMnet" in lm
 
     def test_empty_rows(self):
+        """An empty row list produces an empty group dictionary."""
         groups = group_by_graph_name([])
         assert groups == {}
 
@@ -238,7 +245,8 @@ class TestFindLatestSavedFolder:
     """Verify auto-detection of the most recent saved_files_* directory."""
 
     def test_finds_latest(self, tmp_path: Path):
-        # Create two timestamped folders
+        """When multiple saved_files_* dirs exist, the lexicographically last is returned."""
+        # Create two timestamped folders; the later timestamp should win
         (tmp_path / "saved_files_20260101_100000").mkdir()
         (tmp_path / "saved_files_20260301_120000").mkdir()
 
@@ -247,6 +255,7 @@ class TestFindLatestSavedFolder:
         assert "20260301" in str(result)
 
     def test_exits_when_none_found(self, tmp_path: Path):
+        """sys.exit is called when no saved_files_* directories exist."""
         with pytest.raises(SystemExit):
             find_latest_saved_folder(str(tmp_path))
 
@@ -255,10 +264,12 @@ class TestResolveFolder:
     """Verify CLI argument resolution of the output folder."""
 
     def test_explicit_folder(self, saved_files_dir: Path):
+        """An explicit folder path given as argv[1] is used directly."""
         result = resolve_folder(["script.py", str(saved_files_dir)])
         assert result == saved_files_dir
 
     def test_nonexistent_folder_exits(self, tmp_path: Path):
+        """A nonexistent explicit path triggers sys.exit."""
         fake = str(tmp_path / "nonexistent")
         with pytest.raises(SystemExit):
             resolve_folder(["script.py", fake])

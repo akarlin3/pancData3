@@ -51,10 +51,11 @@ diff_metrics = {adc_mean(valid_pts,1,dtype), d_mean(valid_pts,1,dtype), f_mean(v
 diff_names   = {'Mean ADC', 'Mean D', 'Mean f'};
 diff_units   = {'mm^2/s',   'mm^2/s',  ''};
 
+% 2 rows (mean dose, D95) x 3 cols (ADC, D, f) = 6 scatter subplots
 figure('Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
        'Position', [150, 150, 1400, 500]);
 
-plot_idx = 1;
+plot_idx = 1;  % sequential subplot index across the 2x3 grid
 n_diff_metrics = numel(diff_metrics);
 for di = 1:n_diff_metrics
     text_progress_bar(di, n_diff_metrics, 'Generating scatter plots');
@@ -72,7 +73,9 @@ for di = 1:n_diff_metrics
 
         subplot(2, numel(diff_metrics), plot_idx);
 
-        % Ensure lf_group is a column vector to match clean, x_vals, and y_vals
+        % Ensure lf_group is a column vector to match clean, x_vals, and y_vals.
+        % lf_group encoding: 0=local control (LC), 1=local failure (LF),
+        % 2=competing risk (non-cancer death without prior LF).
         lf_group_col = lf_group(:);
 
         % Exclude competing-risk patients (lf==2) from scatter and statistics
@@ -85,7 +88,9 @@ for di = 1:n_diff_metrics
             continue;
         end
 
-        % Plot LC (blue) and LF (red) points with black edge
+        % Plot LC (blue, MATLAB default blue) and LF (red/orange, MATLAB default orange)
+        % with black edge for visibility. Marker size 50 provides good contrast
+        % for cohorts of ~20-40 patients without excessive overlap.
         scatter(x_vals(clean & lf_group_col==0), y_vals(clean & lf_group_col==0), ...
             50, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LC'); hold on;
         scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
@@ -117,9 +122,13 @@ for di = 1:n_diff_metrics
         % trend lines and avoid Simpson's paradox inflating pooled r_s.
         % A minimum of 3 points per group is required for a meaningful
         % correlation estimate (fewer points produce unreliable p-values).
+        % Initialize Spearman rho and p-values to NaN (shown when too few data points)
         r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
         if sum(lc_mask) >= 3
             if exist('OCTAVE_VERSION', 'builtin')
+                % Octave uses spearman() and requires manual t-test for p-value.
+                % t = r * sqrt((n-2) / (1-r^2)) follows t-distribution with n-2 df.
+                % eps prevents division by zero when |r| = 1 (perfect correlation).
                 r_lc = spearman(x_vals(lc_mask), y_vals(lc_mask));
                 n_lc = sum(lc_mask);
                 t_lc = r_lc * sqrt((n_lc - 2) / (1 - r_lc^2 + eps));

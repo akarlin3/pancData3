@@ -27,19 +27,30 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     fprintf('   Comparing all 11 tumor core delineation methods.\n\n');
 
     % --- Constants ---
+    % All 11 tumor core delineation methods implemented in extract_tumor_core.m.
+    % Each method identifies the "treatment-resistant core" — the subregion
+    % of the GTV with the most restricted diffusion (low ADC/D), highest
+    % cellularity, or most distinct tissue characteristics. Different methods
+    % use different assumptions about what constitutes the core:
+    %   - Threshold methods (adc/d/df): hard cutoff on parameter values
+    %   - Statistical methods (otsu/gmm/kmeans): unsupervised clustering
+    %   - Spatial methods (region_growing/active_contours): 3D connectivity
+    %   - Temporal methods (fdm): change from baseline (functional diffusion map)
     ALL_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
         'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
         'percentile', 'spectral', 'fdm'};
     n_methods = numel(ALL_METHODS);
 
-    % Reproducible clustering (GMM, k-means, spectral)
+    % Fix random seed for reproducible clustering results (GMM, k-means, spectral).
+    % Without this, different runs could produce different cluster assignments,
+    % making the Dice/Hausdorff comparison non-reproducible.
     rng(42);
 
-    id_list = summary_metrics.id_list;
-    gtv_locations = summary_metrics.gtv_locations;
+    id_list = summary_metrics.id_list;         % patient identifiers for logging
+    gtv_locations = summary_metrics.gtv_locations;  % cell array of GTV .mat file paths
     n_patients = numel(id_list);
-    nTp = size(data_vectors_gtvp, 2);
-    dwi_type = config_struct.dwi_types_to_run;
+    nTp = size(data_vectors_gtvp, 2);          % number of timepoints (fractions)
+    dwi_type = config_struct.dwi_types_to_run; % 1=Standard, 2=DnCNN, 3=IVIMnet
 
     % --- Pre-allocate ---
     dice_sum = zeros(n_methods, n_methods);

@@ -339,8 +339,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 
             fprintf('      ✅ Done: Successfully loaded data.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('load', 'success'); end
-            [warn_msg, warn_id] = lastwarn;  % read current warning
-            lastwarn('');                       % then clear
+            % Capture and log any warnings emitted during load_dwi_data.
+            % MATLAB's lastwarn() only stores the MOST RECENT warning, so we
+            % read it immediately after the step completes and reset it before
+            % the next step.  This pattern is repeated after every major step.
+            [warn_msg, warn_id] = lastwarn;
+            lastwarn('');
             if ~isempty(warn_msg) && log_fid > 0
                 fprintf(log_fid, '[%s] [WARNING] During load_dwi_data: %s (id: %s)\n', ...
                     datestr(now, 'yyyy-mm-dd HH:MM:SS'), warn_msg, warn_id);
@@ -667,7 +671,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     fprintf(log_fid, '[%s] [WARNING] metrics_dosimetry results not found at: %s\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), dosimetry_results_file);
                 end
-                % define defaults just to prevent hard crash
+                % Initialize all dosimetry matrices as NaN so that downstream code
+                % (metrics_stats_comparisons, metrics_stats_predictive) can proceed
+                % without crashing on undefined variables.  NaN-filled matrices are
+                % naturally excluded from statistical tests (NaN-safe rank-sum).
                 nTp_val = nTp;
                 d95_adc_sub = nan(length(m_id_list), nTp_val); v50_adc_sub = nan(length(m_id_list), nTp_val);
                 d95_d_sub = nan(length(m_id_list), nTp_val); v50_d_sub = nan(length(m_id_list), nTp_val);
@@ -964,12 +971,18 @@ function run_metrics_stats_predictive_step(valid_pts, lf_group, dtype_label, con
     f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
     d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, dl_provenance, time_labels, ...
     m_lf, m_total_time, m_total_follow_up_time, predictive_results_file, results_file, current_name)
+% Builds multivariate predictive models (elastic net logistic regression) for
+% local failure prediction.  Assembles a 22-column feature matrix combining
+% diffusion parameters, percent changes, dosimetry metrics, GTV volume, and
+% ADC heterogeneity (adc_sd).  Uses patient-stratified 5-fold CV with nested
+% LOOCV for unbiased risk score estimation.  Outputs risk_scores_all and
+% is_high_risk for downstream survival stratification.
     fprintf('⚙️ [5.4b/5] [%s] Running metrics_stats_predictive...\n', current_name);
-    % Subset adc_sd to baseline-valid patients to match the
-    % dimensions of m_id_list, ADC_abs, etc.  summary_metrics.adc_sd
-    % has N rows (all patients) but valid_pts has M elements
-    % (baseline-valid patients).  Without this mapping, logical
-    % indexing by valid_pts silently selects wrong rows.
+    % Map baseline-valid patient IDs (m_id_list) back to their indices in the
+    % full cohort (summary_metrics.id_list) to extract the correct adc_sd rows.
+    % adc_sd is the standard deviation of ADC within the GTV — a measure of
+    % intra-tumoral diffusion heterogeneity that serves as a candidate
+    % predictive feature alongside the mean parameter values.
     [~, adc_sd_valid_idx] = ismember(m_id_list, summary_metrics.id_list);
     m_adc_sd = summary_metrics.adc_sd(adc_sd_valid_idx, :, :);
 
@@ -1004,16 +1017,26 @@ function run_metrics_stats_predictive_step(valid_pts, lf_group, dtype_label, con
 end
 
 function run_visualize_step(validated_data_gtvp, summary_metrics, config_struct, results_file, current_name)
+% Generates all visualization outputs: parameter maps overlaid on anatomical
+% images, feature distribution histograms/boxplots, longitudinal trajectory
+% plots, and (when calculated_results is available) risk-stratified overlays.
+% Visualization is placed after predictive modeling in the pipeline so that
+% risk group annotations can be included in the plots.
     fprintf('\n⚙️ [5.4c/5] [%s] Visualizing results...\n', current_name);
-    % Load existing results if visualize is run independently
+    % Load existing predictive results if available — enables risk-stratified
+    % coloring on parameter maps and trajectory plots.  When running visualize
+    % independently (without metrics_stats_predictive), the empty struct
+    % fallback causes visualize_results to render basic plots without risk
+    % annotations.
     if exist(results_file, 'file')
         tmp_results = load(results_file, 'calculated_results');
         calculated_results = tmp_results.calculated_results;
         fprintf('      💾 Loaded calculated_results from disk for visualization.\n');
     else
-        calculated_results = struct(); % Empty struct fallback
+        calculated_results = struct();
     end
     visualize_results(validated_data_gtvp, summary_metrics, calculated_results, config_struct);
+    % Write sentinel file confirming successful completion.
     visualize_results_file = fullfile(config_struct.output_folder, sprintf('visualize_results_state_%s.txt', current_name));
     fid = fopen(visualize_results_file, 'w');
     if fid < 0
@@ -1027,12 +1050,20 @@ end
 
 function run_metrics_survival_step(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
     m_total_follow_up_time, nTp, dtype_label, m_gtv_vol, config_struct, summary_metrics, current_name)
+% Performs time-to-event analysis: Cox proportional hazards, competing risks
+% (Cause-Specific Hazards), and Kaplan-Meier estimation.
+% m_lf = binary local failure indicator per patient
+% m_total_time = time to event (local failure or censoring) in months
+% m_total_follow_up_time = total follow-up duration for overall survival
+% nTp = number of timepoints (fractions) available
+% td_scan_days_cfg = actual MRI acquisition days relative to treatment start,
+%   critical for time-dependent Cox models to avoid immortal time bias
     fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
-    % Derive actual scan days from DICOM StudyDate headers stored
-    % in summary_metrics.fx_dates (patients x fractions cell matrix
-    % of 'YYYYMMDD' strings).  Fall back to config.json td_scan_days
-    % if fx_dates are unavailable, then to built-in defaults in
-    % metrics_survival (which emits an immortal-time-bias warning).
+    % Three-level scan day resolution strategy (decreasing data quality):
+    %   1. DICOM StudyDate headers (most accurate — actual scanner timestamps)
+    %   2. config.json td_scan_days (user-specified, e.g., from clinical records)
+    %   3. Built-in defaults in metrics_survival (assumes standard schedule,
+    %      emits immortal-time-bias warning since actual dates may differ)
     td_scan_days_cfg = [];
     if isfield(summary_metrics, 'fx_dates') && ~isempty(summary_metrics.fx_dates)
         n_dates = sum(~cellfun('isempty', summary_metrics.fx_dates(:)));
