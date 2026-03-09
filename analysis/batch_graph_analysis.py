@@ -238,6 +238,10 @@ BACKOFF_BASE = _vision_cfg["backoff_base_seconds"]
 # Maximum output tokens for the vision model response.
 MAX_OUTPUT_TOKENS = _vision_cfg["max_output_tokens"]
 
+# Per-request timeout in seconds.  If the Gemini API does not respond
+# within this window the request is cancelled and treated as a failure.
+REQUEST_TIMEOUT = _vision_cfg["request_timeout_seconds"]
+
 
 async def analyze_image(
     client,
@@ -275,24 +279,35 @@ async def analyze_image(
             progress_bar.set_postfix_str(f"analyzing {image_path.name}", refresh=True)
 
         # Retry loop with exponential backoff for rate-limit errors.
+        response = None
         for attempt in range(MAX_RETRIES + 1):
             try:
-                response = await client.aio.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=[
-                        types.Part.from_bytes(
-                            data=image_bytes,
-                            mime_type=mime,
+                response = await asyncio.wait_for(
+                    client.aio.models.generate_content(
+                        model=GEMINI_MODEL,
+                        contents=[
+                            types.Part.from_bytes(
+                                data=image_bytes,
+                                mime_type=mime,
+                            ),
+                            f"Analyze this graph image. File: {image_path.name}\n"
+                            "Return ONLY the JSON object described in your instructions.",
+                        ],
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            max_output_tokens=MAX_OUTPUT_TOKENS,
                         ),
-                        f"Analyze this graph image. File: {image_path.name}\n"
-                        "Return ONLY the JSON object described in your instructions.",
-                    ],
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_PROMPT,
-                        max_output_tokens=MAX_OUTPUT_TOKENS,
                     ),
+                    timeout=REQUEST_TIMEOUT,
                 )
                 break  # Success: exit the retry loop.
+            except asyncio.TimeoutError:
+                if attempt < MAX_RETRIES:
+                    wait = 2 ** attempt * BACKOFF_BASE
+                    print(f"  [TIMEOUT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
+                    await asyncio.sleep(wait)
+                else:
+                    raise  # Give up after exhausting all retries.
             except Exception as e:
                 # Check for rate-limit errors (HTTP 429 or resource exhausted).
                 err_str = str(e).lower()
@@ -306,6 +321,10 @@ async def analyze_image(
                     raise  # Give up after exhausting all retries.
                 else:
                     raise  # Non-rate-limit errors are re-raised immediately.
+
+        # Guard against the retry loop exhausting without a successful response.
+        if response is None:
+            raise RuntimeError(f"No response received for {image_path.name} after {MAX_RETRIES + 1} attempts")
 
         raw_text = response.text.strip()
 
@@ -470,6 +489,28 @@ async def main():
     client = genai.Client(api_key=api_key)
     semaphore = asyncio.Semaphore(SEM_LIMIT)
 
+    # Per-task timeout: generous enough to cover retries + backoff but
+    # prevents any single image from blocking the batch indefinitely.
+    # With MAX_RETRIES=4 and BACKOFF_BASE=15 the worst-case retry chain
+    # is ~225 s of sleeping plus the request itself, so we add headroom.
+    task_timeout = REQUEST_TIMEOUT * (MAX_RETRIES + 1) + BACKOFF_BASE * (2 ** MAX_RETRIES)
+
+    async def _analyze_with_timeout(img: Path) -> GraphAnalysis:
+        """Wrap analyze_image with a per-task timeout."""
+        try:
+            return await asyncio.wait_for(
+                analyze_image(client, img, semaphore, pbar),
+                timeout=task_timeout,
+            )
+        except asyncio.TimeoutError:
+            if pbar is not None:
+                pbar.update(1)
+            return GraphAnalysis(
+                file_path=str(img),
+                graph_type="error",
+                summary=f"Task timed out after {task_timeout:.0f}s",
+            )
+
     # Launch all analysis tasks concurrently with a progress bar.
     # ``return_exceptions=True`` ensures one failed image does not cancel the
     # entire batch -- failed tasks return their exception object instead.
@@ -479,7 +520,7 @@ async def main():
         unit="img",
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
     )
-    tasks = [analyze_image(client, img, semaphore, pbar) for img in images]
+    tasks = [_analyze_with_timeout(img) for img in images]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     pbar.close()
 

@@ -6,6 +6,7 @@ Tests the non-API-dependent functions:
 - media_type_for: MIME type mapping
 - flatten: Pydantic model → CSV dict flattening
 - Pydantic schema validation (GraphAnalysis, Axis, Trend, InflectionPoint)
+- Timeout configuration: REQUEST_TIMEOUT loaded from config
 
 API-dependent functions (analyze_image, main) are not tested here as they
 require an active GEMINI_API_KEY and network access.
@@ -24,6 +25,7 @@ from batch_graph_analysis import (
     CSV_COLUMNS,
     GraphAnalysis,
     InflectionPoint,
+    REQUEST_TIMEOUT,
     Trend,
     collect_images,
     flatten,
@@ -312,3 +314,22 @@ class TestFlatten:
         row = flatten(ga)
         assert row["color_axis_label"] == "Dice"
         assert row["color_axis_range_max"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Timeout configuration
+# ---------------------------------------------------------------------------
+
+class TestTimeoutConfig:
+    """Verify that timeout settings are loaded from config."""
+
+    def test_request_timeout_is_positive(self):
+        """REQUEST_TIMEOUT must be a positive number (prevents indefinite hangs)."""
+        assert isinstance(REQUEST_TIMEOUT, (int, float))
+        assert REQUEST_TIMEOUT > 0
+
+    def test_request_timeout_matches_config(self):
+        """REQUEST_TIMEOUT should match the vision config value."""
+        from shared import get_config
+        expected = get_config()["vision"]["request_timeout_seconds"]
+        assert REQUEST_TIMEOUT == expected

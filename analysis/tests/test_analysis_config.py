@@ -287,4 +287,11 @@ class TestBackwardCompatibility:
         assert "statistics" in _DEFAULTS
         assert "priority_graphs" in _DEFAULTS
         assert "gemini_model" in _DEFAULTS["vision"]
+        assert "request_timeout_seconds" in _DEFAULTS["vision"]
         assert "p_noteworthy" in _DEFAULTS["statistics"]
+
+    def test_request_timeout_default(self):
+        """Default request timeout is a positive number."""
+        timeout = _DEFAULTS["vision"]["request_timeout_seconds"]
+        assert isinstance(timeout, (int, float))
+        assert timeout > 0
