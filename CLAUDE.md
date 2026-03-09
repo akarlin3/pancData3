@@ -326,7 +326,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML report orchestrator: data loading, section assembly, and CLI entry point for `analysis_report.html` |
 | `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, escaping, badges, nav bar, stat cards, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (executive summary, hypothesis, graphs, statistics, cross-DWI, appendix, etc.) |
+| `report_sections.py` | Section builder functions for the HTML report (executive summary, cohort overview, hypothesis, stats by graph type, statistics with borderline findings, cross-DWI, correlations, treatment response, predictive performance, supplemental MAT data, appendix) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |

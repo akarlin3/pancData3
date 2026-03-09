@@ -61,6 +61,7 @@ from report_formatters import (  # noqa: F401
 # Re-export section builders for backward compatibility.
 from report_sections import (  # noqa: F401
     _section_appendix,
+    _section_cohort_overview,
     _section_correlations,
     _section_cross_dwi_comparison,
     _section_executive_summary,
@@ -68,6 +69,7 @@ from report_sections import (  # noqa: F401
     _section_hypothesis,
     _section_mat_data,
     _section_predictive_performance,
+    _section_stats_by_graph_type,
     _section_statistical_significance,
     _section_treatment_response,
 )
@@ -158,7 +160,9 @@ def generate_report(folder: Path) -> str:
         h.append(f"<span><strong>Graphs analysed:</strong> {len(rows)}</span>")
     h.append("</div>")
 
-    h.extend(_section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp))
+    h.extend(_section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data))
+
+    h.extend(_section_cohort_overview(mat_data, log_data, dwi_types_present))
 
     # ── 2. Data Quality ──
     h.append(_h2("Data Quality", "data-quality"))
@@ -227,6 +231,7 @@ def generate_report(folder: Path) -> str:
 
     h.extend(_section_hypothesis(groups))
     h.extend(_section_graph_overview(rows))
+    h.extend(_section_stats_by_graph_type(rows))
     h.extend(_section_statistical_significance(rows, csv_data, log_data, dwi_types_present))
     h.extend(_section_cross_dwi_comparison(groups, csv_data))
 
@@ -244,12 +249,12 @@ def generate_report(folder: Path) -> str:
                 if not fdr_rows:
                     continue
                 h.append(f"<h3>{_dwi_badge(dwi_type)} \u2014 {len(fdr_rows)} tests</h3>")
-                headers = list(fdr_rows[0].keys())[:7]
+                headers = list(fdr_rows[0].keys())[:10]
                 h.append("<table><thead><tr>")
                 for hdr in headers:
                     h.append(f"<th>{_esc(hdr)}</th>")
                 h.append("</tr></thead><tbody>")
-                for fr in fdr_rows[:30]:
+                for fr in fdr_rows:
                     h.append("<tr>")
                     for hdr in headers:
                         val = str(fr.get(hdr, ""))
@@ -258,15 +263,13 @@ def generate_report(folder: Path) -> str:
                             fval = float(val)
                             if "p" in hdr.lower() and 0 < fval < 0.05:
                                 cls = _sig_class(fval)
-                                h.append(f'<td class="{cls}">{_esc(val[:30])}</td>')
+                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')
                                 continue
                         except (ValueError, TypeError):
                             pass
                         h.append(f"<td>{_esc(val[:40])}</td>")
                     h.append("</tr>")
                 h.append("</tbody></table>")
-                if len(fdr_rows) > 30:
-                    h.append(f"<p><em>\u2026 {len(fdr_rows) - 30} more rows. See FDR_Sig_Global.csv.</em></p>")
     else:
         h.append(_h2("FDR Global Correction Results", "fdr-global"))
         h.append('<p class="meta">No FDR_Sig_Global.csv files found.</p>')

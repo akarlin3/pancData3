@@ -8,15 +8,17 @@ concatenated by :func:`generate_report.generate_report`.
 Sections are assembled in the order they appear in the report:
 
 1. Executive Summary
-2. Data-Driven Hypothesis
-3. Graph Analysis Overview
-4. Statistical Significance
-5. Cross-DWI Comparison
-6. Notable Correlations
-7. Treatment Response (Longitudinal Trends)
-8. Predictive Performance (ROC/AUC, features, Cox PH)
-9. Supplemental Data (MAT files)
-10. Appendix: All Graphs
+2. Cohort Overview
+3. Data-Driven Hypothesis
+4. Graph Analysis Overview
+5. Statistics by Graph Type
+6. Statistical Significance (with Borderline Findings)
+7. Cross-DWI Comparison (all graph groups)
+8. Notable Correlations (grouped by strength)
+9. Treatment Response (Longitudinal Trends + non-longitudinal inflection points)
+10. Predictive Performance (ROC/AUC, features, Cox PH, lambda trends)
+11. Supplemental Data (MAT files, full core method matrix)
+12. Appendix: All Graphs
 """
 
 from __future__ import annotations
@@ -42,12 +44,13 @@ from report_formatters import (
 )
 
 
-def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp) -> list[str]:
+def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data=None) -> list[str]:
     """Build the Executive Summary section.
 
     Displays a summary box with DWI type badges, stat cards for graph
     count, best AUC per DWI type, total significant GLME interactions,
-    and CSV-derived significant metric count.
+    CSV-derived significant metric count, hazard ratio summary,
+    FDR-surviving metric count, correlation count, and cohort info.
 
     Parameters
     ----------
@@ -61,6 +64,8 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         Parsed pipeline CSV exports.
     timestamp : str
         Run timestamp string for display.
+    mat_data : dict or None
+        Parsed MAT file metrics (optional).
 
     Returns
     -------
@@ -82,6 +87,8 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         cards.append(_stat_card("Graphs Analysed", str(len(rows))))
 
     total_sig = 0
+    total_hrs = 0
+    sig_hrs = 0
     if log_data:
         for dwi_type in dwi_types_present:
             if dwi_type not in log_data:
@@ -94,6 +101,10 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
             # Count GLME metrics that pass their BH-adjusted significance threshold.
             sc = log_data[dwi_type].get("stats_comparisons", {})
             total_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
+            # Count hazard ratios
+            hrs = log_data[dwi_type].get("survival", {}).get("hazard_ratios", [])
+            total_hrs += len(hrs)
+            sig_hrs += len([hr for hr in hrs if hr.get("p", 1) < 0.05])
 
     if total_sig > 0:
         cards.append(_stat_card("GLME Sig. Interactions", str(total_sig), "across all DWI types"))
@@ -102,12 +113,140 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         n_csv_sig = sum(len(v) for v in csv_data["significant_metrics"].values())
         cards.append(_stat_card("CSV Sig. Metrics", str(n_csv_sig), "from pipeline CSVs"))
 
+    if csv_data and csv_data.get("fdr_global"):
+        n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
+        if n_fdr > 0:
+            cards.append(_stat_card("FDR-Surviving", str(n_fdr), "metrics after BH correction"))
+
+    if total_hrs > 0:
+        cards.append(_stat_card("Hazard Ratios", f"{sig_hrs}/{total_hrs}", "significant covariates"))
+
+    # Count notable correlations from vision data
+    if rows:
+        from shared import extract_correlations
+        n_corr = 0
+        for r in rows:
+            all_text = r.get("summary", "") + " " + r.get("trends_json", "")
+            for rval, _ in extract_correlations(all_text):
+                if abs(rval) >= 0.3:
+                    n_corr += 1
+        if n_corr > 0:
+            cards.append(_stat_card("Notable Correlations", str(n_corr), "|r| \u2265 0.3"))
+
+    # Cohort info from MAT data
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                lon = mat_data[dt]["longitudinal"]
+                n_pat = lon.get("num_patients", 0)
+                n_tp = lon.get("num_timepoints", 0)
+                if n_pat > 0:
+                    cards.append(_stat_card("Cohort", f"{n_pat} patients", f"{n_tp} timepoints"))
+                    break  # only show once
+
     if cards:
         h.append('<div class="stat-grid">')
         h.extend(cards)
         h.append("</div>")
 
     h.append("</div>")
+    return h
+
+
+def _section_cohort_overview(mat_data, log_data, dwi_types_present) -> list[str]:
+    """Build the Cohort Overview section.
+
+    Displays patient counts, timepoint counts, and data quality
+    summary across all DWI types from MAT file and log data.
+
+    Parameters
+    ----------
+    mat_data : dict
+        Parsed MAT file metrics.
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the cohort overview section.
+    """
+    h: list[str] = []
+    has_data = False
+
+    # Check if we have any cohort data to show
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                has_data = True
+                break
+
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                bl = log_data[dt].get("baseline", {})
+                if bl.get("total_outliers") or bl.get("baseline_exclusion"):
+                    has_data = True
+                    break
+
+    if not has_data:
+        return h
+
+    h.append(_h2("Cohort Overview", "cohort"))
+
+    # Longitudinal data summary from MAT files
+    if mat_data:
+        cohort_rows = []
+        for dt in DWI_TYPES:
+            if dt not in mat_data or "longitudinal" not in mat_data[dt]:
+                continue
+            lon = mat_data[dt]["longitudinal"]
+            n_pat = lon.get("num_patients", 0)
+            n_tp = lon.get("num_timepoints", 0)
+            if n_pat > 0 or n_tp > 0:
+                cohort_rows.append((dt, n_pat, n_tp))
+
+        if cohort_rows:
+            h.append("<h3>Longitudinal Data Dimensions</h3>")
+            h.append("<table><thead><tr><th>DWI Type</th><th>Patients</th>"
+                     "<th>Timepoints</th></tr></thead><tbody>")
+            for dt, n_pat, n_tp in cohort_rows:
+                h.append(f"<tr><td>{_dwi_badge(dt)}</td>"
+                         f"<td><strong>{n_pat}</strong></td>"
+                         f"<td>{n_tp}</td></tr>")
+            h.append("</tbody></table>")
+
+    # Cross-DWI data quality summary
+    if log_data:
+        quality_rows = []
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            bl = log_data[dt].get("baseline", {})
+            total_out = bl.get("total_outliers")
+            baseline_exc = bl.get("baseline_exclusion")
+            if total_out or baseline_exc:
+                out_str = f"{total_out['n_removed']}/{total_out['n_total']} ({total_out['pct']:.1f}%)" if total_out else "\u2014"
+                exc_str = f"{baseline_exc['n_excluded']}/{baseline_exc['n_total']}" if baseline_exc else "\u2014"
+                lf_inc = baseline_exc.get("lf_rate_included") if baseline_exc else None
+                lf_exc = baseline_exc.get("lf_rate_excluded") if baseline_exc else None
+                lf_str = f"{lf_inc:.1f}% / {lf_exc:.1f}%" if lf_inc is not None and lf_exc is not None else "\u2014"
+                quality_rows.append((dt, out_str, exc_str, lf_str))
+
+        if quality_rows:
+            h.append("<h3>Data Quality Summary</h3>")
+            h.append("<table><thead><tr><th>DWI Type</th><th>Outliers Removed</th>"
+                     "<th>Baseline Excluded</th><th>LF Rate (incl/excl)</th>"
+                     "</tr></thead><tbody>")
+            for dt, out_str, exc_str, lf_str in quality_rows:
+                h.append(f"<tr><td>{_dwi_badge(dt)}</td>"
+                         f"<td>{_esc(out_str)}</td>"
+                         f"<td>{_esc(exc_str)}</td>"
+                         f"<td>{_esc(lf_str)}</td></tr>")
+            h.append("</tbody></table>")
+
     return h
 
 
@@ -329,6 +468,104 @@ def _section_graph_overview(rows) -> list[str]:
     return h
 
 
+def _section_stats_by_graph_type(rows) -> list[str]:
+    """Build the Statistics by Graph Type section.
+
+    Aggregates significant p-values, correlations, and trend directions
+    by graph type (box, line, scatter, heatmap, etc.), providing a
+    bird's-eye view of which graph types carry the most statistical signal.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the statistics by graph type section.
+    """
+    h: list[str] = []
+    if not rows:
+        return h
+
+    h.append(_h2("Statistics by Graph Type", "stats-by-type"))
+
+    # Aggregate per graph type
+    type_stats: dict[str, dict] = {}
+    for r in rows:
+        gt = r.get("graph_type", "unknown")
+        if gt not in type_stats:
+            type_stats[gt] = {
+                "count": 0, "sig_p": 0, "nonsig_p": 0,
+                "correlations": 0, "trends": {"increasing": 0, "decreasing": 0, "stable": 0, "other": 0},
+            }
+        ts = type_stats[gt]
+        ts["count"] += 1
+
+        # P-values
+        all_text = r.get("summary", "") + " " + r.get("trends_json", "") + " " + r.get("inflection_points_json", "")
+        for pval, _ in extract_pvalues(all_text):
+            if pval < 0.05:
+                ts["sig_p"] += 1
+            else:
+                ts["nonsig_p"] += 1
+
+        # Correlations
+        for rval, _ in extract_correlations(all_text):
+            if abs(rval) >= 0.3:
+                ts["correlations"] += 1
+
+        # Trends
+        trends_str = r.get("trends_json", "[]") or "[]"
+        try:
+            trends = json.loads(str(trends_str))
+        except Exception:
+            trends = []
+        if isinstance(trends, list):
+            for t in trends:
+                if not isinstance(t, dict):
+                    continue
+                d = str(t.get("direction", "")).lower()
+                if "increas" in d or "up" in d or "higher" in d or "rising" in d:
+                    ts["trends"]["increasing"] += 1
+                elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
+                    ts["trends"]["decreasing"] += 1
+                elif "flat" in d or "stable" in d or "constant" in d:
+                    ts["trends"]["stable"] += 1
+                else:
+                    ts["trends"]["other"] += 1
+
+    # Summary table
+    h.append("<table><thead><tr>"
+             "<th>Graph Type</th><th>Count</th><th>Sig. p-values</th>"
+             "<th>Non-sig. p</th><th>Correlations</th>"
+             "<th>\u2191 Incr.</th><th>\u2193 Decr.</th><th>\u2192 Stable</th><th>Other</th>"
+             "</tr></thead><tbody>")
+    for gt in sorted(type_stats.keys(), key=lambda k: -type_stats[k]["count"]):
+        ts = type_stats[gt]
+        tr = ts["trends"]
+        sig_cls = ' class="sig-1"' if ts["sig_p"] > 0 else ""
+        h.append(f"<tr><td><strong>{_esc(gt)}</strong></td>"
+                 f"<td>{ts['count']}</td>"
+                 f"<td{sig_cls}>{ts['sig_p']}</td>"
+                 f"<td>{ts['nonsig_p']}</td>"
+                 f"<td>{ts['correlations']}</td>"
+                 f"<td>{tr['increasing']}</td>"
+                 f"<td>{tr['decreasing']}</td>"
+                 f"<td>{tr['stable']}</td>"
+                 f"<td>{tr['other']}</td></tr>")
+    h.append("</tbody></table>")
+
+    # Highlight graph types with the most signal
+    most_sig = max(type_stats.items(), key=lambda x: x[1]["sig_p"], default=None)
+    if most_sig and most_sig[1]["sig_p"] > 0:
+        h.append(f'<div class="info-box"><strong>{_esc(most_sig[0])}</strong> graphs carry the most '
+                 f'significant findings ({most_sig[1]["sig_p"]} p &lt; 0.05).</div>')
+
+    return h
+
+
 def _section_statistical_significance(rows, csv_data, log_data, dwi_types_present) -> list[str]:
     """Build the Statistical Significance section.
 
@@ -336,6 +573,9 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
     1. Vision-extracted p-values from graph summaries/trends.
     2. Pipeline CSV significant metrics (Significant_LF_Metrics.csv).
     3. GLME interaction test details and FDR timepoints from log parsing.
+
+    Also includes a Borderline Findings subsection for p-values between
+    0.05 and 0.10 (trend-worthy but not significant).
 
     Parameters
     ----------
@@ -361,6 +601,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
     # Search through summaries, trends, and inflection point descriptions
     # for p-value patterns (e.g. "p = 0.032") using regex extraction.
     sig_findings = []
+    borderline_findings = []
     if rows:
         for r in rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
@@ -368,22 +609,39 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
             for pval, context in extract_pvalues(all_text):
                 if pval < 0.05:
                     sig_findings.append((pval, dwi_type, base_name, context))
+                elif pval < 0.10:
+                    borderline_findings.append((pval, dwi_type, base_name, context))
 
     if sig_findings:
         sig_findings.sort()
-        h.append("<h3>Vision-Extracted Significant Findings (p &lt; 0.05)</h3>")
+        h.append(f"<h3>Vision-Extracted Significant Findings (p &lt; 0.05) \u2014 {len(sig_findings)} total</h3>")
         h.append("<table><thead><tr><th>p-value</th><th>Sig</th><th>DWI</th>"
                  "<th>Graph</th><th>Context</th></tr></thead><tbody>")
-        for p, dwi, graph, ctx in sig_findings[:30]:
-            ctx_clean = _esc(ctx.replace("\n", " ")[:100])
+        for p, dwi, graph, ctx in sig_findings:
+            ctx_clean = _esc(ctx.replace("\n", " ")[:120])
             cls = _sig_class(p)
             cls_attr = f' class="{cls}"' if cls else ""
             h.append(f"<tr><td{cls_attr}>{p:.4f}</td><td{cls_attr}>{_esc(_sig_tag(p))}</td>"
                      f"<td>{_dwi_badge(dwi)}</td><td>{_esc(graph)}</td>"
                      f"<td>{ctx_clean}</td></tr>")
         h.append("</tbody></table>")
-        if len(sig_findings) > 30:
-            h.append(f"<p><em>\u2026 and {len(sig_findings) - 30} more significant findings.</em></p>")
+
+    # Borderline findings (0.05 <= p < 0.10)
+    if borderline_findings:
+        borderline_findings.sort()
+        h.append(f"<details><summary><strong>Borderline Findings (0.05 \u2264 p &lt; 0.10)</strong> "
+                 f"\u2014 {len(borderline_findings)} finding(s)</summary>")
+        h.append('<div class="warn-box">These findings approach but do not reach conventional '
+                 'significance. They may warrant monitoring in future analyses.</div>')
+        h.append("<table><thead><tr><th>p-value</th><th>DWI</th>"
+                 "<th>Graph</th><th>Context</th></tr></thead><tbody>")
+        for p, dwi, graph, ctx in borderline_findings:
+            ctx_clean = _esc(ctx.replace("\n", " ")[:120])
+            h.append(f"<tr><td>{p:.4f}</td>"
+                     f"<td>{_dwi_badge(dwi)}</td><td>{_esc(graph)}</td>"
+                     f"<td>{ctx_clean}</td></tr>")
+        h.append("</tbody></table>")
+        h.append("</details>")
 
     # ── Source 2: Pipeline CSV significant metrics ──
     if csv_data and csv_data.get("significant_metrics"):
@@ -394,15 +652,25 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
             csv_rows = csv_data["significant_metrics"][dwi_type]
             h.append(f"<p>{_dwi_badge(dwi_type)} \u2014 {len(csv_rows)} significant metric(s)</p>")
             if csv_rows:
-                headers = list(csv_rows[0].keys())[:6]
+                headers = list(csv_rows[0].keys())[:10]
                 h.append("<table><thead><tr>")
                 for hdr in headers:
                     h.append(f"<th>{_esc(hdr)}</th>")
                 h.append("</tr></thead><tbody>")
-                for cr in csv_rows[:20]:
+                for cr in csv_rows:
                     h.append("<tr>")
                     for hdr in headers:
-                        h.append(f"<td>{_esc(str(cr.get(hdr, ''))[:30])}</td>")
+                        val = str(cr.get(hdr, ""))
+                        # Highlight p-value columns
+                        try:
+                            fval = float(val)
+                            if "p" in hdr.lower() and 0 < fval < 0.05:
+                                cls = _sig_class(fval)
+                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                        h.append(f"<td>{_esc(val[:40])}</td>")
                     h.append("</tr>")
                 h.append("</tbody></table>")
 
@@ -518,15 +786,30 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
             "Feature_Histograms", "core_method_dice_heatmap",
         ]
 
+        # Build the list of all graph groups with 2+ DWI types, priority first
+        all_comparable = []
+        seen = set()
         for base_name in priority_graphs:
-            if base_name not in groups:
-                continue
-            dwi_dict = groups[base_name]
-            real = [t for t in dwi_dict if t != "Root"]
-            if len(real) < 2:
-                continue
+            if base_name in groups:
+                real = [t for t in groups[base_name] if t != "Root"]
+                if len(real) >= 2:
+                    all_comparable.append((base_name, True))
+                    seen.add(base_name)
+        for base_name in sorted(groups.keys()):
+            if base_name not in seen:
+                real = [t for t in groups[base_name] if t != "Root"]
+                if len(real) >= 2:
+                    all_comparable.append((base_name, False))
 
-            h.append(f"<h3>{_esc(base_name)}</h3>")
+        # Summary counts
+        n_agree = 0
+        n_differ = 0
+
+        for base_name, is_priority in all_comparable:
+            dwi_dict = groups[base_name]
+
+            priority_label = ' <span class="badge badge-standard">priority</span>' if is_priority else ""
+            h.append(f"<h3>{_esc(base_name)}{priority_label}</h3>")
 
             all_trends: dict[str, list] = {}
             for dt in DWI_TYPES:
@@ -561,8 +844,10 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                         vals = list(directions.values())
                         if len(set(vals)) == 1:
                             agree_html = '<span class="agree">AGREE</span>'
+                            n_agree += 1
                         else:
                             agree_html = '<span class="differ">DIFFER</span>'
+                            n_differ += 1
                         h.append(f"<tr><td>{_esc(series)}</td>")
                         for dt in DWI_TYPES:
                             d_str = directions.get(dt, "-")
@@ -571,6 +856,16 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                         h.append(f"<td>{agree_html}</td></tr>")
 
                 h.append("</tbody></table>")
+
+        # Overall agreement summary
+        if n_agree + n_differ > 0:
+            pct_agree = 100 * n_agree / (n_agree + n_differ)
+            cls = "agree" if pct_agree >= 70 else ("differ" if pct_agree < 50 else "")
+            cls_attr = f' class="{cls}"' if cls else ""
+            h.append(f'<div class="summary-box"><strong>Cross-DWI Agreement:</strong> '
+                     f'<span{cls_attr}>{n_agree}/{n_agree + n_differ} series agree '
+                     f'({pct_agree:.0f}%)</span>, '
+                     f'{n_differ} differ across {len(all_comparable)} graph group(s).</div>')
 
     # Cross-reference from CSV
     if csv_data and csv_data.get("cross_reference"):
@@ -628,15 +923,36 @@ def _section_correlations(rows) -> list[str]:
 
         if corr_findings:
             corr_findings.sort(reverse=True)
-            h.append("<table><thead><tr><th>|r|</th><th>r</th><th>Strength</th>"
-                     "<th>DWI</th><th>Graph</th><th>Context</th></tr></thead><tbody>")
-            for _, rval, dwi, graph, ctx in corr_findings[:20]:
-                strength = "Strong" if abs(rval) >= 0.5 else "Moderate"
-                ctx_short = _esc(ctx.replace("\n", " ")[:80])
-                h.append(f"<tr><td><strong>{abs(rval):.2f}</strong></td><td>{rval:+.2f}</td>"
-                         f"<td>{strength}</td><td>{_dwi_badge(dwi)}</td>"
-                         f"<td>{_esc(graph)}</td><td><em>{ctx_short}</em></td></tr>")
-            h.append("</tbody></table>")
+
+            # Split into strong (|r| >= 0.5) and moderate (0.3 <= |r| < 0.5)
+            strong = [(a, r, d, g, c) for a, r, d, g, c in corr_findings if a >= 0.5]
+            moderate = [(a, r, d, g, c) for a, r, d, g, c in corr_findings if a < 0.5]
+
+            h.append(f"<p>{len(corr_findings)} correlation(s) with |r| \u2265 0.3 "
+                     f"({len(strong)} strong, {len(moderate)} moderate).</p>")
+
+            if strong:
+                h.append("<h3>Strong Correlations (|r| \u2265 0.5)</h3>")
+                h.append("<table><thead><tr><th>|r|</th><th>r</th><th>Strength</th>"
+                         "<th>DWI</th><th>Graph</th><th>Context</th></tr></thead><tbody>")
+                for _, rval, dwi, graph, ctx in strong:
+                    ctx_short = _esc(ctx.replace("\n", " ")[:120])
+                    h.append(f'<tr><td class="sig-2"><strong>{abs(rval):.2f}</strong></td>'
+                             f"<td>{rval:+.2f}</td>"
+                             f"<td>Strong</td><td>{_dwi_badge(dwi)}</td>"
+                             f"<td>{_esc(graph)}</td><td><em>{ctx_short}</em></td></tr>")
+                h.append("</tbody></table>")
+
+            if moderate:
+                h.append("<h3>Moderate Correlations (0.3 \u2264 |r| &lt; 0.5)</h3>")
+                h.append("<table><thead><tr><th>|r|</th><th>r</th><th>Strength</th>"
+                         "<th>DWI</th><th>Graph</th><th>Context</th></tr></thead><tbody>")
+                for _, rval, dwi, graph, ctx in moderate:
+                    ctx_short = _esc(ctx.replace("\n", " ")[:120])
+                    h.append(f"<tr><td><strong>{abs(rval):.2f}</strong></td><td>{rval:+.2f}</td>"
+                             f"<td>Moderate</td><td>{_dwi_badge(dwi)}</td>"
+                             f"<td>{_esc(graph)}</td><td><em>{ctx_short}</em></td></tr>")
+                h.append("</tbody></table>")
         else:
             h.append("<p>No notable correlations (|r| &ge; 0.3) found.</p>")
     return h
@@ -723,7 +1039,7 @@ def _section_treatment_response(groups) -> list[str]:
                     except Exception:
                         ips = []
                     if isinstance(ips, list) and ips:
-                        h.append("<details><summary>Inflection points</summary><ul>")
+                        h.append("<details open><summary>Inflection points</summary><ul>")
                         for ip in ips:
                             if isinstance(ip, dict):
                                 x = ip.get("approximate_x", "?")
@@ -742,6 +1058,45 @@ def _section_treatment_response(groups) -> list[str]:
                                      f'<p class="full-summary">{_esc(summary)}</p></details>')
                         else:
                             h.append(f'<p class="full-summary" style="margin-left:1rem">{_esc(summary)}</p>')
+
+        # Non-longitudinal inflection points
+        non_long_ips = []
+        for base_name in sorted(groups.keys()):
+            if "Longitudinal" in base_name:
+                continue
+            dwi_dict = groups[base_name]
+            for dt in DWI_TYPES:
+                if dt not in dwi_dict:
+                    continue
+                r = dwi_dict[dt]
+                ips_str = r.get("inflection_points_json", "[]") if isinstance(r, dict) else "[]"
+                try:
+                    ips = json.loads(str(ips_str))
+                except Exception:
+                    ips = []
+                if isinstance(ips, list):
+                    for ip in ips:
+                        if isinstance(ip, dict) and ip.get("description"):
+                            non_long_ips.append((base_name, dt, ip))
+
+        if non_long_ips:
+            h.append("<h3>Non-Longitudinal Inflection Points</h3>")
+            h.append('<p class="meta">Inflection points detected in non-longitudinal graphs '
+                     'may indicate dose thresholds, feature boundaries, or regime transitions.</p>')
+            h.append("<table><thead><tr><th>Graph</th><th>DWI</th>"
+                     "<th>Location</th><th>Description</th></tr></thead><tbody>")
+            for gname, dt, ip in non_long_ips:
+                x = ip.get("approximate_x", "?")
+                y = ip.get("approximate_y", "")
+                coord = f"x={_esc(str(x))}"
+                if y is not None and y != "":
+                    coord += f", y={_esc(str(y))}"
+                desc_ip = _esc(str(ip.get("description", "")))
+                h.append(f"<tr><td>{_esc(gname)}</td>"
+                         f"<td>{_dwi_badge(dt)}</td>"
+                         f"<td><code>{coord}</code></td>"
+                         f"<td>{desc_ip}</td></tr>")
+            h.append("</tbody></table>")
     return h
 
 
@@ -807,6 +1162,7 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
 
         # Feature selections
         has_fs = False
+        all_lambdas: dict[str, list] = {}
         for dwi_type in dwi_types_present:
             if dwi_type not in log_data:
                 continue
@@ -815,14 +1171,40 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                 if not has_fs:
                     h.append("<h3>Selected Features (Elastic Net)</h3>")
                     has_fs = True
-                h.append(f"<p>{_dwi_badge(dwi_type)}:</p><ul>")
+                h.append(f"<p>{_dwi_badge(dwi_type)}:</p>")
+                h.append("<table><thead><tr><th>Timepoint</th><th>\u03bb</th>"
+                         "<th># Features</th><th>Selected Features</th></tr></thead><tbody>")
                 for sel in fs:
                     features_html = ", ".join(
                         f"<code>{_esc(f)}</code>" for f in sel["features"]
                     )
-                    h.append(f"<li><strong>{_esc(sel['timepoint'])}</strong> "
-                             f"(\u03bb={sel['lambda']:.4f}): {features_html}</li>")
-                h.append("</ul>")
+                    h.append(f"<tr><td><strong>{_esc(sel['timepoint'])}</strong></td>"
+                             f"<td>{sel['lambda']:.4f}</td>"
+                             f"<td>{len(sel['features'])}</td>"
+                             f"<td>{features_html}</td></tr>")
+                    all_lambdas.setdefault(dwi_type, []).append(
+                        (sel["timepoint"], sel["lambda"], len(sel["features"]))
+                    )
+                h.append("</tbody></table>")
+
+        # Lambda trend analysis
+        if all_lambdas:
+            h.append("<h4>Regularisation Trend</h4>")
+            h.append('<p class="meta">Higher \u03bb indicates stronger regularisation '
+                     '(fewer features retained). Trend across timepoints reflects '
+                     'evolving discriminative power.</p>')
+            for dwi_type, entries in all_lambdas.items():
+                if len(entries) >= 2:
+                    first_lam = entries[0][1]
+                    last_lam = entries[-1][1]
+                    if last_lam > first_lam * 1.2:
+                        trend_desc = "increasing (tighter regularisation at later timepoints)"
+                    elif last_lam < first_lam * 0.8:
+                        trend_desc = "decreasing (more features viable at later timepoints)"
+                    else:
+                        trend_desc = "stable across timepoints"
+                    h.append(f"<p>{_dwi_badge(dwi_type)}: \u03bb trend is <strong>{trend_desc}</strong> "
+                             f"({entries[0][0]}: {first_lam:.4f} \u2192 {entries[-1][0]}: {last_lam:.4f})</p>")
 
         # Survival / Cox PH
         has_surv = False
@@ -917,18 +1299,19 @@ def _section_mat_data(mat_data) -> list[str]:
                 core = mat_data[dt]["core_method"]
                 if not core or not core.get("methods"):
                     continue
-                h.append(f"<h4>{_dwi_badge(dt)}</h4>")
+                h.append(f"<h4>{_dwi_badge(dt)} \u2014 {len(core['methods'])} methods</h4>")
                 methods = core["methods"]
                 matrix = core["mean_dice_matrix"]
-                limit = min(6, len(methods))
+                n = len(methods)
+                h.append('<div style="overflow-x:auto">')
                 h.append("<table><thead><tr><th>Method</th>")
-                for m in methods[:limit]:
+                for m in methods:
                     h.append(f"<th>{_esc(m)}</th>")
                 h.append("</tr></thead><tbody>")
-                for i in range(limit):
+                for i in range(n):
                     h.append(f"<tr><td><strong>{_esc(methods[i])}</strong></td>")
-                    for j in range(limit):
-                        val = matrix[i][j]
+                    for j in range(n):
+                        val = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None
                         if isinstance(val, (int, float)):
                             # Colour-code: high Dice = green-ish
                             if i != j:
@@ -940,9 +1323,22 @@ def _section_mat_data(mat_data) -> list[str]:
                             h.append("<td>-</td>")
                     h.append("</tr>")
                 h.append("</tbody></table>")
-                if len(methods) > limit:
-                    h.append(f"<p><em>Showing {limit} of {len(methods)} methods. "
-                             f"Full matrix available in .mat files.</em></p>")
+                h.append("</div>")
+
+                # Summary statistics for core method agreement
+                off_diag = []
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        if i < len(matrix) and j < len(matrix[i]):
+                            val = matrix[i][j]
+                            if isinstance(val, (int, float)) and val > 0:
+                                off_diag.append(val)
+                if off_diag:
+                    avg_dice = sum(off_diag) / len(off_diag)
+                    min_dice = min(off_diag)
+                    max_dice = max(off_diag)
+                    h.append(f'<div class="info-box">Mean pairwise Dice: <strong>{avg_dice:.3f}</strong> '
+                             f'(range: {min_dice:.3f}\u2013{max_dice:.3f} across {len(off_diag)} pairs)</div>')
     return h
 
 
@@ -1012,15 +1408,13 @@ def _section_appendix(rows) -> list[str]:
             trends_cell = ""
             if isinstance(trends_list, list) and trends_list:
                 tags = []
-                for t in trends_list[:4]:  # show max 4 trend tags
+                for t in trends_list:
                     if isinstance(t, dict):
                         direction = t.get("direction", "")
                         series = t.get("series", "")
                         label = f"{series}: {direction}" if series else direction
                         tags.append(_trend_tag(label))
                 trends_cell = "".join(tags)
-                if len(trends_list) > 4:
-                    trends_cell += f" <em>+{len(trends_list) - 4} more</em>"
 
             # Summary: short preview + collapsible full
             summary = r.get("summary", "") or ""

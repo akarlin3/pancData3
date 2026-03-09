@@ -266,9 +266,11 @@ def _trend_tag(direction: str) -> str:
 
 NAV_SECTIONS = [
     ("exec-summary", "Executive Summary"),
+    ("cohort", "Cohort"),
     ("data-quality", "Data Quality"),
     ("hypothesis", "Hypothesis"),
     ("graph-overview", "Graphs"),
+    ("stats-by-type", "By Type"),
     ("significance", "Statistics"),
     ("cross-dwi", "Cross-DWI"),
     ("fdr-global", "FDR Global"),
