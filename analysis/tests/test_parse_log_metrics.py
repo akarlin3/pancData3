@@ -19,6 +19,7 @@ from parse_log_metrics import (
     _read_log,
     parse_all_logs,
     parse_baseline,
+    parse_sanity_checks,
     parse_stats_comparisons,
     parse_stats_predictive,
     parse_survival,
@@ -361,3 +362,120 @@ class TestParseAllLogs:
         empty.mkdir()
         results = parse_all_logs(empty)
         assert results == {}
+
+
+# ---------------------------------------------------------------------------
+# parse_sanity_checks
+# ---------------------------------------------------------------------------
+
+class TestParseSanityChecks:
+    """Verify extraction of convergence, outlier, alignment, and NaN data."""
+
+    def test_all_converged(self):
+        """Detects 'All voxel-level fit values are finite' success message."""
+        text = "  All voxel-level fit values are finite, non-NaN, and non-negative.\n"
+        result = parse_sanity_checks(text)
+        assert result["all_converged"] is True
+        assert result["total_convergence"] == 0
+
+    def test_convergence_flags(self):
+        """Total convergence flags count is extracted."""
+        text = "  Total convergence flags raised: 7\n"
+        result = parse_sanity_checks(text)
+        assert result["total_convergence"] == 7
+        assert result["all_converged"] is False
+
+    def test_convergence_issue_line(self):
+        """Individual convergence issue lines are parsed with Inf/NaN/Neg counts."""
+        text = "  Patient Pat001  Fx1  ADC : Inf=5/100 (5.0%)  NaN=10/100 (10.0%)\n"
+        result = parse_sanity_checks(text)
+        assert len(result["convergence_flags"]) == 1
+        flag = result["convergence_flags"][0]
+        assert flag["patient"] == "Pat001"
+        assert flag["timepoint"] == "Fx1"
+        assert flag["parameter"] == "ADC"
+        assert flag["n_inf"] == 5
+        assert flag["n_nan"] == 10
+
+    def test_convergence_neg_only(self):
+        """Convergence line with only Neg count (no Inf or NaN)."""
+        text = "  Patient Pat002  Fx2  D (DnCNN) : Neg=3/100 (3.0%)\n"
+        result = parse_sanity_checks(text)
+        assert len(result["convergence_flags"]) == 1
+        flag = result["convergence_flags"][0]
+        assert flag["patient"] == "Pat002"
+        assert flag.get("n_neg") == 3
+        assert "n_inf" not in flag
+
+    def test_sanity_outliers(self):
+        """OUTLIER lines are parsed with patient, timepoint, metric, and value."""
+        text = "    OUTLIER: Patient Pat015  Fx3  ADC_mean = 2.5e-3  (median=1.1e-3)\n"
+        result = parse_sanity_checks(text)
+        assert len(result["outliers"]) == 1
+        o = result["outliers"][0]
+        assert o["patient"] == "Pat015"
+        assert o["timepoint"] == "Fx3"
+        assert o["metric"] == "ADC_mean"
+        assert o["value"] == pytest.approx(2.5e-3)
+
+    def test_total_sanity_outliers(self):
+        """Total outlier flags count is extracted."""
+        text = "    Total outlier flags: 5  \u2014 review the original MRI\n"
+        result = parse_sanity_checks(text)
+        assert result["total_outliers"] == 5
+
+    def test_dim_mismatches(self):
+        """Dimensional mismatch count is extracted."""
+        text = "\u274c Dimensional mismatches: 3 (dose/ADC vector length differs)\n"
+        result = parse_sanity_checks(text)
+        assert result["dim_mismatches"] == 3
+
+    def test_nan_dose_warnings(self):
+        """NaN dose warning count is extracted."""
+        text = "\U0001f4a1 NaN dose warnings: 2 pairs have >10% NaN\n"
+        result = parse_sanity_checks(text)
+        assert result["nan_dose_warnings"] == 2
+
+    def test_excessive_nan(self):
+        """Excessive NaN fraction lines are parsed with parameter and percentage."""
+        text = (
+            "\u274c Excessive NaN fraction in D: 65.0% (threshold: 50%)\n"
+            "\u274c Excessive NaN fraction in f: 72.3% (threshold: 50%)\n"
+        )
+        result = parse_sanity_checks(text)
+        assert len(result["excessive_nan"]) == 2
+        assert result["excessive_nan"][0]["parameter"] == "D"
+        assert result["excessive_nan"][0]["pct_nan"] == pytest.approx(65.0)
+        assert result["excessive_nan"][1]["parameter"] == "f"
+        assert result["excessive_nan"][1]["pct_nan"] == pytest.approx(72.3)
+
+    def test_empty_text(self):
+        """Empty input yields all-zero/empty defaults."""
+        result = parse_sanity_checks("")
+        assert result["convergence_flags"] == []
+        assert result["total_convergence"] == 0
+        assert result["all_converged"] is False
+        assert result["outliers"] == []
+        assert result["total_outliers"] == 0
+        assert result["dim_mismatches"] == 0
+        assert result["nan_dose_warnings"] == 0
+        assert result["excessive_nan"] == []
+
+    def test_full_log(self):
+        """Integration: a multi-section sanity check log is parsed correctly."""
+        text = (
+            "======================================================\n"
+            "  SANITY CHECKS \u2014 Understand the Data\n"
+            "======================================================\n"
+            "  Patient Pat001  Fx1  ADC : Inf=2/50 (4.0%)\n"
+            "  Total convergence flags raised: 1\n"
+            "    OUTLIER: Patient Pat003  Fx2  D_mean = 3.1e-3  (median=1.0e-3)\n"
+            "    Total outlier flags: 1\n"
+            "  All dose/DWI pairs are dimensionally consistent with <10% NaN.\n"
+        )
+        result = parse_sanity_checks(text)
+        assert result["total_convergence"] == 1
+        assert len(result["convergence_flags"]) == 1
+        assert result["total_outliers"] == 1
+        assert len(result["outliers"]) == 1
+        assert result["dim_mismatches"] == 0
