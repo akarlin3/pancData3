@@ -47,13 +47,13 @@ pancData3/
 ├── config.json                 # Active configuration (not committed)
 ├── config.example.json         # Configuration template (committed)
 ├── core/                       # Primary pipeline modules (18 files)
-├── utils/                      # Helper utilities (28 files)
+├── utils/                      # Helper utilities (39 files)
 ├── .octave_compat/             # Octave compatibility shims (21 files)
 ├── tests/                      # Full test suite (78 test files)
 │   ├── run_all_tests.m         # MATLAB unittest test runner
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
-├── analysis/                    # Python post-hoc analysis scripts (11 files)
+├── analysis/                    # Python post-hoc analysis scripts (13 files)
 │   └── tests/                  # Python test suite — 6 test files, 126 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
@@ -275,6 +275,17 @@ run('tests/run_all_tests.m')
 | `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
 | `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
 | `plot_cross_dwi_subvolume_comparison.m` | Cross-DWI-type ADC subvolume comparison visualization |
+| `compute_adc_metrics.m` | ADC summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
+| `compute_ivim_metrics.m` | IVIM (D/f/D*) summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
+| `compute_spatial_repeatability.m` | Dice and Hausdorff spatial repeatability between Fx1 repeat sub-volumes |
+| `compute_multi_core_metrics.m` | Multi-method (11 core methods) sub-volume metrics per patient/timepoint |
+| `assemble_predictive_features.m` | Builds 22-column feature matrix for elastic net (extracted from metrics_stats_predictive) |
+| `run_elastic_net_cv.m` | 5-fold elastic net CV + final model fitting (extracted from metrics_stats_predictive) |
+| `run_loocv_risk_scores.m` | Nested LOOCV for unbiased out-of-fold risk scores (extracted from metrics_stats_predictive) |
+| `plot_predictive_diagnostics.m` | ROC curve, sanity check panels, and 2D scatter plots (extracted from metrics_stats_predictive) |
+| `execute_pipeline_step.m` | Generic non-fatal pipeline step executor with try-catch, diary, GUI, warning logging (extracted from run_dwi_pipeline) |
+| `initialize_pipeline.m` | Pipeline initialization: path setup, pre-flight tests, toolbox license checks (extracted from run_dwi_pipeline) |
+| `load_data_from_disk.m` | Load DWI vectors and summary metrics from disk with legacy fallback (extracted from run_dwi_pipeline) |
 
 ### Octave Compatibility (`.octave_compat/`)
 
@@ -299,7 +310,9 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Claude vision API; outputs structured CSV with axes, trends, inflection points |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
-| `generate_report.py` | HTML report generator combining vision CSV, log parsing, and CSV parsing into `analysis_report.html` |
+| `generate_report.py` | HTML report orchestrator: data loading, section assembly, and CLI entry point for `analysis_report.html` |
+| `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, escaping, badges, nav bar, stat cards, HTML template) |
+| `report_sections.py` | Section builder functions for the HTML report (executive summary, hypothesis, graphs, statistics, cross-DWI, appendix, etc.) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
