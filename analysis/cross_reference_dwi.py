@@ -22,6 +22,8 @@ from __future__ import annotations
 import json
 import sys
 
+from tqdm import tqdm
+
 from shared import (
     DWI_TYPES,
     group_by_graph_name,
@@ -49,7 +51,8 @@ def main():
     print(sep)
 
     matched = 0
-    for base_name in sorted(groups.keys()):
+    for base_name in tqdm(sorted(groups.keys()), desc="Cross-referencing graphs", unit="graph",
+                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
         dwi_dict = groups[base_name]
         types_present = sorted(dwi_dict.keys())
         if len(types_present) < 2:

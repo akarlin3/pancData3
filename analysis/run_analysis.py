@@ -27,6 +27,8 @@ import sys
 import time
 from pathlib import Path
 
+from tqdm import tqdm
+
 from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout
 
 # Ensure emoji and special characters print correctly on Windows consoles.
@@ -202,12 +204,28 @@ def main():
         # Track success/failure/skip status for each pipeline step.
         results = {}
 
+        # Determine total number of steps for the progress bar.
+        total_steps = 1  # report generation always runs
+        if not args.report_only:
+            total_steps += 3  # logs, csvs, mat
+            if not args.skip_vision:
+                total_steps += 1  # vision
+
+        pipeline_bar = tqdm(
+            total=total_steps,
+            desc="Analysis pipeline",
+            unit="step",
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} steps [{elapsed}<{remaining}] {postfix}",
+        )
+
         if not args.report_only:
             # Step 1: Vision-based graph analysis (requires GEMINI_API_KEY).
             if not args.skip_vision:
                 csv_path = folder / "graph_analysis_results.csv"
                 print(f"  Vision CSV exists: {csv_path.exists()}")
+                pipeline_bar.set_postfix_str("vision analysis", refresh=True)
                 results["vision"] = _run_script("batch_graph_analysis.py", folder, log_file)
+                pipeline_bar.update(1)
             else:
                 csv_path = folder / "graph_analysis_results.csv"
                 if csv_path.exists():
@@ -217,13 +235,19 @@ def main():
                 results["vision"] = "skipped"
 
             # Step 2: Parse MATLAB diary log files for structured metrics.
+            pipeline_bar.set_postfix_str("parsing logs", refresh=True)
             results["logs"] = _run_script("parse_log_metrics.py", folder, log_file)
+            pipeline_bar.update(1)
 
             # Step 3: Parse pipeline-exported CSV files (significance tables).
+            pipeline_bar.set_postfix_str("parsing CSVs", refresh=True)
             results["csvs"] = _run_script("parse_csv_results.py", folder, log_file)
+            pipeline_bar.update(1)
 
             # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
+            pipeline_bar.set_postfix_str("parsing MAT files", refresh=True)
             results["mat"] = _run_script("parse_mat_metrics.py", folder, log_file)
+            pipeline_bar.update(1)
 
         # Step 4: Assemble the final HTML (+PDF) report from all collected data.
         report_script = ANALYSIS_DIR / "generate_report.py"
@@ -233,6 +257,7 @@ def main():
                 report_args.append("--no-pdf")
             if not args.html:
                 report_args.append("--no-html")
+            pipeline_bar.set_postfix_str("generating report", refresh=True)
             print(f"\n  Running generate_report.py ...")
             t0 = time.time()
             result = subprocess.run(
@@ -251,6 +276,10 @@ def main():
                 results["report"] = False
         else:
             results["report"] = False
+
+        pipeline_bar.update(1)
+        pipeline_bar.set_postfix_str("complete", refresh=True)
+        pipeline_bar.close()
 
         # ── Summary table ──
         print("\n" + "=" * 70)

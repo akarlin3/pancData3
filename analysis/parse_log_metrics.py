@@ -27,6 +27,8 @@ import re
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout
 
 setup_utf8_stdout()
@@ -389,10 +391,17 @@ def parse_all_logs(folder: Path) -> dict:
         Only DWI types whose subfolder exists are included.
     """
     results = {}
-    for dwi_type in DWI_TYPES:
+    # Determine which DWI type subfolders exist for accurate progress.
+    active_types = [d for d in DWI_TYPES if (folder / d).is_dir()]
+    pbar = tqdm(
+        active_types,
+        desc="Parsing logs",
+        unit="type",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}] {postfix}",
+    )
+    for dwi_type in pbar:
         dwi_dir = folder / dwi_type
-        if not dwi_dir.is_dir():
-            continue
+        pbar.set_postfix_str(dwi_type, refresh=True)
 
         # Each log file follows the naming convention:
         #   <module_name>_output_<DWI_type>.txt

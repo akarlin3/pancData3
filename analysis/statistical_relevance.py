@@ -29,6 +29,8 @@ import json
 import sys
 from collections import defaultdict
 
+from tqdm import tqdm
+
 from shared import (
     DWI_TYPES,
     extract_correlations,
@@ -70,7 +72,8 @@ def main():
     sig_findings = []
     nonsig_findings = []
 
-    for r in rows:
+    for r in tqdm(rows, desc="Extracting p-values", unit="graph",
+                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
         dwi_type, base_name = parse_dwi_info(r["file_path"])
         # Concatenate all text fields to search for p-value patterns.
         all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
