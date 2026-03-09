@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-"""Filter statistical relevance findings by graph type."""
+"""Filter statistical relevance findings by graph type.
+
+Groups the vision analysis results by ``graph_type`` (line, scatter, box,
+heatmap, histogram, parameter_map, etc.) and for each type reports:
+
+- **Significant p-values** (p < 0.05) with significance markers.
+- **Non-significant p-values** (top 5 closest to significance shown).
+- **Notable correlations** (|r| >= 0.3) classified by strength/direction.
+- **Trend direction summary** -- counts of increasing, decreasing, stable,
+  and other trends.
+- **Graph list** -- all graphs belonging to this type.
+
+A final summary table aggregates counts across all graph types.
+
+Usage:
+    python statistical_by_graph_type.py [saved_files_path]
+"""
 
 from __future__ import annotations
 
@@ -20,20 +36,21 @@ setup_utf8_stdout()
 
 
 def main():
+    """CLI entry point: group by graph type and print statistical findings."""
     folder = resolve_folder(sys.argv)
     rows = load_graph_csv(folder)
     if not rows:
         sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
 
-    # Group rows by graph_type
-    by_type = defaultdict(list)
+    # Group rows by their graph_type field (line, scatter, box, etc.).
+    by_type: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         by_type[r["graph_type"]].append(r)
 
     sep = "=" * 80
     thin = "-" * 80
 
-    # Type ordering by count (descending)
+    # Sort graph types by count (most common first).
     type_order = sorted(by_type.keys(), key=lambda t: -len(by_type[t]))
 
     for graph_type in type_order:
@@ -43,10 +60,11 @@ def main():
         print(sep)
 
         # ── Significant p-values ──
-        sig = []
-        nonsig = []
+        sig: list[dict] = []
+        nonsig: list[dict] = []
         for r in type_rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
+            # Concatenate all text fields to search for p-value patterns.
             all_text = r["summary"] + " " + r["trends_json"] + " " + r["inflection_points_json"]
             pvals = extract_pvalues(all_text)
             for pval, context in pvals:
@@ -74,16 +92,17 @@ def main():
         else:
             print("\n  (none)")
 
+        # Show top 5 non-significant findings closest to significance threshold.
         print(f"\n  Non-significant: {len(nonsig)}")
         if nonsig:
             nonsig.sort(key=lambda x: x["p"])
-            for f in nonsig[:5]:  # Show top 5 closest to significance
+            for f in nonsig[:5]:
                 print(f"     p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
             if len(nonsig) > 5:
                 print(f"     ... and {len(nonsig) - 5} more")
 
         # ── Correlations ──
-        corrs_found = []
+        corrs_found: list[dict] = []
         for r in type_rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
             all_text = r["summary"] + " " + r["trends_json"]
@@ -101,6 +120,7 @@ def main():
             print(f"\n  {thin}")
             print(f"  Notable correlations (|r| >= 0.3): {len(corrs_found)}")
             print(f"  {thin}")
+            # Sort by absolute correlation strength (strongest first).
             corrs_found.sort(key=lambda x: -abs(x["r"]))
             for c in corrs_found:
                 strength = "STRONG" if abs(c["r"]) >= 0.5 else "MODERATE"
@@ -108,7 +128,8 @@ def main():
                 print(f"\n    r={c['r']:.2f} ({strength} {direction})  [{c['dwi']}] {c['graph']}")
                 print(f"      {c['context']}")
 
-        # ── Trend summary ──
+        # ── Trend direction summary ──
+        # Classify each trend by keyword matching on its direction string.
         trends_up = 0
         trends_down = 0
         trends_stable = 0
@@ -140,6 +161,7 @@ def main():
             print(f"    [{dwi_type}] {base_name}")
 
     # ── Overall summary table ──
+    # Compact tabular view aggregating counts across all graph types.
     print(f"\n\n{sep}")
     print("  SUMMARY TABLE: Statistical Findings by Graph Type")
     print(sep)
