@@ -214,11 +214,14 @@ def _section_hypothesis(groups) -> list[str]:
             except Exception:
                 pass
 
+        # Determine consensus trend direction via keyword voting.
         d_trend_consensus = _get_consensus(d_trends)
         f_trend_consensus = _get_consensus(f_trends)
 
+        # Build specificity text from unique inflection-point descriptions.
         vascular_specificity = ""
         if vascular_inflections:
+            # dict.fromkeys preserves order while deduplicating.
             unique_v = list(dict.fromkeys(vascular_inflections))
             vascular_specificity = f" Specifically, the data highlights {', and '.join(unique_v)}."
 
@@ -272,6 +275,22 @@ def _section_hypothesis(groups) -> list[str]:
 
 
 def _section_graph_overview(rows) -> list[str]:
+    """Build the Graph Analysis Overview section.
+
+    Displays two side-by-side summary tables:
+    - Count of graphs by type (line, scatter, box, etc.)
+    - Count of graphs by DWI type (Standard, dnCNN, IVIMnet, Root)
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty, in which case the section is skipped).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the graph overview section.
+    """
     # ── 2. Graph Analysis Overview ──
     h: list[str] = []
     if rows:

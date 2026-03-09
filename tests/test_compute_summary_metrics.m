@@ -238,9 +238,13 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
         end
 
         function testFx1MaskFallback(testCase)
-            % When DIR warps Fx2 vectors to Fx1 space, the native Fx2
-            % mask has a different voxel count. The code should fall back
-            % to the Fx1 mask for 3D-dependent core methods.
+            % Verifies the Fx1 mask fallback for deformable image
+            % registration (DIR) scenarios. When Fx2 vectors are warped to
+            % Fx1 space, the native Fx2 GTV mask (90 voxels) does not
+            % match the warped vector length (100 voxels). The function
+            % should detect this mismatch and fall back to the Fx1 mask
+            % (100 voxels) for 3D-dependent core methods, producing valid
+            % (non-NaN) sub-volume metrics for both timepoints.
             tmp = tempname;
             mkdir(tmp);
             cleanup = onCleanup(@() rmdir(tmp, 's'));
