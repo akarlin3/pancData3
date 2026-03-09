@@ -238,6 +238,37 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
                     cards.append(_stat_card("Cohort", f"{n_pat} patients", f"{n_tp} timepoints"))
                     break  # only show once
 
+    # Sanity check summary (convergence + alignment)
+    if log_data:
+        all_converged_count = 0
+        total_conv_flags = 0
+        total_dim_issues = 0
+        sanity_types_checked = 0
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            san = log_data[dt].get("sanity_checks", {})
+            if not san:
+                continue
+            sanity_types_checked += 1
+            if san.get("all_converged"):
+                all_converged_count += 1
+            total_conv_flags += san.get("total_convergence", 0)
+            total_dim_issues += san.get("dim_mismatches", 0) + san.get("nan_dose_warnings", 0)
+        if sanity_types_checked > 0:
+            if all_converged_count == sanity_types_checked and total_dim_issues == 0:
+                cards.append(_stat_card("Data Quality", "All Passed",
+                                        "convergence + alignment"))
+            else:
+                issue_parts = []
+                if total_conv_flags > 0:
+                    issue_parts.append(f"{total_conv_flags} conv.")
+                if total_dim_issues > 0:
+                    issue_parts.append(f"{total_dim_issues} align.")
+                cards.append(_stat_card("Data Quality",
+                                        ", ".join(issue_parts) if issue_parts else "Passed",
+                                        "flags across DWI types"))
+
     if cards:
         h.append('<div class="stat-grid">')
         h.extend(cards)
@@ -298,6 +329,30 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
                     best_auc_type = dwi_type
     if best_overall_auc > 0:
         result_bullets.append(f"Peak discriminative performance: AUC = {best_overall_auc:.3f} ({best_auc_type})")
+    # Cross-DWI trend agreement key result (for abstract)
+    if log_data and len(dwi_types_present) >= 2:
+        # Recompute from features overlap data already gathered above
+        if total_all > 0 and total_shared > 0:
+            result_bullets.append(
+                f"{total_shared} of {total_all} elastic-net-selected features "
+                f"({100 * total_shared / total_all:.0f}%) are shared across DWI types"
+            )
+
+    # Sanity check key result
+    if log_data:
+        san_all_ok = True
+        san_total_flags = 0
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            san = log_data[dt].get("sanity_checks", {})
+            if san and not san.get("all_converged"):
+                san_all_ok = False
+            san_total_flags += san.get("total_convergence", 0) if san else 0
+        if san_all_ok and san_total_flags == 0:
+            result_bullets.append("All voxel-level model fits converged successfully across DWI types")
+        elif san_total_flags > 0:
+            result_bullets.append(f"{san_total_flags} convergence flag(s) raised across DWI types (see Data Completeness)")
     if result_bullets:
         h.append("<ul>")
         for rb in result_bullets:
@@ -1019,6 +1074,45 @@ def _section_graph_overview(rows) -> list[str]:
         h.append("</div>")
 
         h.append("</div>")
+
+        # Per-graph-type statistical signal density
+        h.append("<h3>Statistical Signal by Graph Type</h3>")
+        h.append('<p class="meta">Shows which graph types contain the most '
+                 'extractable statistical information (p-values, correlations).</p>')
+        signal_data: list[tuple[str, int, int, int]] = []
+        for gt, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
+            gt_pvals = 0
+            gt_corrs = 0
+            for r in rows:
+                if r.get("graph_type", "unknown") != gt:
+                    continue
+                all_text = (r.get("summary", "") + " " +
+                            r.get("trends_json", "") + " " +
+                            r.get("inflection_points_json", ""))
+                gt_pvals += sum(1 for p, _ in extract_pvalues(all_text) if p < 0.05)
+                gt_corrs += sum(1 for rv, _ in extract_correlations(all_text) if abs(rv) >= 0.3)
+            if gt_pvals > 0 or gt_corrs > 0:
+                signal_data.append((gt, cnt, gt_pvals, gt_corrs))
+
+        if signal_data:
+            h.append("<table><thead><tr>"
+                     "<th>Graph Type</th><th>Count</th>"
+                     "<th>Sig. p-values</th><th>Strong Correlations</th>"
+                     "<th>Signal Density</th>"
+                     "</tr></thead><tbody>")
+            for gt, cnt, n_p, n_c in sorted(signal_data, key=lambda x: -(x[2] + x[3])):
+                density = (n_p + n_c) / cnt if cnt > 0 else 0
+                density_cls = "agree" if density >= 1.0 else ("" if density >= 0.5 else "")
+                d_attr = f' class="{density_cls}"' if density_cls else ""
+                h.append(
+                    f"<tr><td><strong>{_esc(gt)}</strong></td>"
+                    f"<td>{cnt}</td>"
+                    f"<td>{n_p}</td>"
+                    f"<td>{n_c}</td>"
+                    f"<td{d_attr}>{density:.2f}/graph</td></tr>"
+                )
+            h.append("</tbody></table>")
+
     return h
 
 
@@ -1478,6 +1572,7 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
 
                 for series in sorted(all_series):
                     directions: dict[str, str] = {}
+                    descriptions: dict[str, str] = {}
                     for dt in DWI_TYPES:
                         if dt not in all_trends:
                             continue
@@ -1485,6 +1580,7 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                             if isinstance(t, dict):
                                 if (t.get("series") or "overall") == series:
                                     directions[dt] = str(t.get("direction", ""))
+                                    descriptions[dt] = str(t.get("description", ""))
 
                     if len(directions) >= 2:
                         vals = list(directions.values())
@@ -1498,6 +1594,9 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                         for dt in DWI_TYPES:
                             d_str = directions.get(dt, "-")
                             cell = _trend_tag(d_str) if d_str != "-" else "-"
+                            desc = descriptions.get(dt, "")
+                            if desc:
+                                cell += f'<br><span class="axis-info">{_esc(desc[:80])}</span>'
                             h.append(f"<td>{cell}</td>")
                         h.append(f"<td>{agree_html}</td></tr>")
 
@@ -1576,6 +1675,13 @@ def _section_correlations(rows) -> list[str]:
 
             h.append(f"<p>{len(corr_findings)} correlation(s) with |r| \u2265 0.3 "
                      f"({len(strong)} strong, {len(moderate)} moderate).</p>")
+            h.append(
+                '<p class="meta">Correlation strength benchmarks (Cohen): '
+                '|r| \u2265 0.5 strong, 0.3\u20130.5 moderate, &lt; 0.3 weak. '
+                'For DWI parameters, negative correlations with dose metrics suggest '
+                'dose-response relationships; positive ADC\u2013D correlations reflect '
+                'shared diffusion signal.</p>'
+            )
 
             if strong:
                 h.append("<h3>Strong Correlations (|r| \u2265 0.5)</h3>")
@@ -1642,20 +1748,48 @@ def _section_treatment_response(groups) -> list[str]:
                     r = dwi_dict[dt]
                     summary = r.get("summary", "")
 
-                    # Axis info
+                    # Axis info with range analysis
                     x_lbl = r.get("x_axis_label", "")
                     x_unit = r.get("x_axis_units", "")
+                    x_min = r.get("x_axis_range_min", "")
+                    x_max = r.get("x_axis_range_max", "")
                     y_lbl = r.get("y_axis_label", "")
                     y_unit = r.get("y_axis_units", "")
+                    y_min = r.get("y_axis_range_min", "")
+                    y_max = r.get("y_axis_range_max", "")
                     axis_parts = []
                     if x_lbl:
-                        axis_parts.append(f"X: {x_lbl}" + (f" ({x_unit})" if x_unit else ""))
+                        x_range = ""
+                        if x_min and x_max:
+                            x_range = f" [{x_min}\u2013{x_max}]"
+                        axis_parts.append(f"X: {x_lbl}" + (f" ({x_unit})" if x_unit else "") + x_range)
                     if y_lbl:
-                        axis_parts.append(f"Y: {y_lbl}" + (f" ({y_unit})" if y_unit else ""))
+                        y_range = ""
+                        if y_min and y_max:
+                            y_range = f" [{y_min}\u2013{y_max}]"
+                        axis_parts.append(f"Y: {y_lbl}" + (f" ({y_unit})" if y_unit else "") + y_range)
 
                     h.append(f"<p>{_dwi_badge(dt)}")
                     if axis_parts:
                         h.append(f' <span class="axis-info">[{" | ".join(axis_parts)}]</span>')
+
+                    # Extract any p-values mentioned in this specific graph
+                    all_text = (r.get("summary", "") + " " +
+                                r.get("trends_json", "") + " " +
+                                r.get("inflection_points_json", ""))
+                    graph_pvals = extract_pvalues(all_text)
+                    graph_corrs = extract_correlations(all_text)
+                    if graph_pvals or graph_corrs:
+                        stat_parts = []
+                        for pv, _ in graph_pvals:
+                            cls = _sig_class(pv)
+                            cls_attr = f' class="{cls}"' if cls else ""
+                            stat_parts.append(f'<span{cls_attr}>p={pv:.4f}{_sig_tag(pv)}</span>')
+                        for rv, _ in graph_corrs:
+                            if abs(rv) >= 0.3:
+                                stat_parts.append(f"r={rv:+.2f}")
+                        if stat_parts:
+                            h.append(f' <span class="meta">[{", ".join(stat_parts)}]</span>')
                     h.append("</p>")
 
                     # Trends
@@ -1704,6 +1838,36 @@ def _section_treatment_response(groups) -> list[str]:
                                      f'<p class="full-summary">{_esc(summary)}</p></details>')
                         else:
                             h.append(f'<p class="full-summary" style="margin-left:1rem">{_esc(summary)}</p>')
+
+                # Cross-DWI consensus for this longitudinal graph
+                if len(real) >= 2:
+                    all_dirs: dict[str, list[str]] = {}
+                    for dt in real:
+                        r = dwi_dict[dt]
+                        t_str = r.get("trends_json", "[]") if isinstance(r, dict) else "[]"
+                        try:
+                            t_list = json.loads(str(t_str))
+                        except Exception:
+                            t_list = []
+                        if isinstance(t_list, list):
+                            for t in t_list:
+                                if isinstance(t, dict):
+                                    s = t.get("series") or "overall"
+                                    d = str(t.get("direction", ""))
+                                    all_dirs.setdefault(s, []).append(d)
+                    consensus_parts = []
+                    for s, dirs in all_dirs.items():
+                        if len(dirs) >= 2:
+                            if len(set(dirs)) == 1:
+                                consensus_parts.append(f"{s}: all {dirs[0]}")
+                            else:
+                                consensus_parts.append(f"{s}: mixed ({', '.join(dirs)})")
+                    if consensus_parts:
+                        cons_cls = "agree" if all("all" in p for p in consensus_parts) else "differ"
+                        h.append(
+                            f'<div class="info-box"><strong>Cross-DWI consensus:</strong> '
+                            f'<span class="{cons_cls}">{"; ".join(consensus_parts)}</span></div>'
+                        )
 
         # Non-longitudinal inflection points
         non_long_ips = []
@@ -1790,10 +1954,24 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                 sens = f"{sens_val:.1f}%" if isinstance(sens_val, (int, float)) else "-"
                 spec = f"{spec_val:.1f}%" if isinstance(spec_val, (int, float)) else "-"
                 youden_str = f"{youden:.3f}" if isinstance(youden, (int, float)) else "-"
+                # AUC discrimination rating (Hosmer–Lemeshow scale)
+                disc = "-"
+                if isinstance(auc_val, (int, float)):
+                    if auc_val >= 0.9:
+                        disc = "Outstanding"
+                    elif auc_val >= 0.8:
+                        disc = "Excellent"
+                    elif auc_val >= 0.7:
+                        disc = "Acceptable"
+                    elif auc_val >= 0.6:
+                        disc = "Poor"
+                    else:
+                        disc = "No discrimination"
                 roc_rows_html.append(
                     f"<tr><td>{_dwi_badge(str(dwi_type))}</td>"
                     f"<td>{_esc(str(r.get('timepoint', '-')))}</td>"
                     f"<td><strong>{auc}</strong></td>"
+                    f"<td>{disc}</td>"
                     f"<td>{sens}</td><td>{spec}</td>"
                     f"<td>{youden_str}</td></tr>"
                 )
@@ -1805,6 +1983,7 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                 "Receiver Operating Characteristic Performance",
                 "AUC from nested LOOCV with patient-stratified folds."))
             h.append("<thead><tr><th>DWI</th><th>Timepoint</th><th>AUC</th>"
+                     "<th>Discrimination</th>"
                      "<th>Sensitivity</th><th>Specificity</th><th>Youden Cutoff</th>"
                      "</tr></thead><tbody>")
             h.extend(roc_rows_html)
@@ -1898,15 +2077,23 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
                     f"Cause-Specific Cox Proportional Hazards ({dwi_type})",
                     "HR > 1 indicates increased hazard for local failure."))
                 h.append("<thead><tr><th>Covariate</th><th>HR</th>"
-                         "<th>95% CI</th><th>p</th></tr></thead><tbody>")
+                         "<th>95% CI</th><th>Direction</th><th>p</th></tr></thead><tbody>")
                 for hr in sorted(hrs, key=lambda x: x.get("p", 1)):
                     ci = f"[{hr.get('ci_lo', 0):.3f}, {hr.get('ci_hi', 0):.3f}]"
                     p_val = hr.get("p", 1.0)
                     sig = _sig_tag(p_val)
                     cls = _sig_class(p_val)
                     cls_attr = f' class="{cls}"' if cls else ""
+                    hr_val = hr.get('hr', 1.0)
+                    if hr_val > 1:
+                        dir_html = '<span class="differ">Risk \u2191</span>'
+                    elif hr_val < 1:
+                        dir_html = '<span class="agree">Protective \u2193</span>'
+                    else:
+                        dir_html = 'Neutral'
                     h.append(f"<tr><td><code>{_esc(str(hr.get('covariate', '')))}</code></td>"
-                             f"<td>{hr.get('hr', 0):.3f}</td><td>{ci}</td>"
+                             f"<td>{hr_val:.3f}</td><td>{ci}</td>"
+                             f"<td>{dir_html}</td>"
                              f"<td{cls_attr}>{p_val:.4f} {_esc(sig)}</td></tr>")
                 h.append("</tbody></table>")
                 lrt = sv.get("global_lrt")
@@ -1977,6 +2164,34 @@ def _section_mat_data(mat_data) -> list[str]:
                     f"<td>{_fmt_pct(dos.get('v50_d_mean'))}</td></tr>"
                 )
             h.append("</tbody></table>")
+
+            # Clinical interpretation of dosimetry values
+            dos_notes = []
+            for dt in DWI_TYPES:
+                if dt not in mat_data or "dosimetry" not in mat_data[dt]:
+                    continue
+                dos = mat_data[dt]["dosimetry"]
+                if not dos:
+                    continue
+                d95_adc = dos.get("d95_adc_mean")
+                v50_adc = dos.get("v50_adc_mean")
+                if isinstance(d95_adc, (int, float)) and d95_adc == d95_adc:
+                    if d95_adc < 45:
+                        dos_notes.append(f"{dt}: D95 ADC = {d95_adc:.1f} Gy "
+                                         "(below 45 Gy \u2014 potential under-dosing of resistant sub-volume)")
+                    elif d95_adc >= 50:
+                        dos_notes.append(f"{dt}: D95 ADC = {d95_adc:.1f} Gy "
+                                         "(adequate coverage of resistant sub-volume)")
+                if isinstance(v50_adc, (int, float)) and v50_adc == v50_adc:
+                    v50_pct = v50_adc * 100 if v50_adc <= 1.0 else v50_adc
+                    if v50_pct < 90:
+                        dos_notes.append(f"{dt}: V50 ADC = {v50_pct:.0f}% "
+                                         "(partial coverage \u2014 may benefit from dose escalation)")
+            if dos_notes:
+                h.append('<div class="info-box"><strong>Dosimetric interpretation:</strong><ul>')
+                for note in dos_notes:
+                    h.append(f"<li>{_esc(note)}</li>")
+                h.append("</ul></div>")
 
         has_core = any("core_method" in d for d in mat_data.values())
         if has_core:
@@ -2173,6 +2388,37 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
         f"method was used as a bias-reduction technique{_cite('firth')}.</p>"
     )
     h.append(surv_text)
+
+    # ── Data Quality Assurance ──
+    h.append("<h3>Data Quality Assurance</h3>")
+    h.append(
+        "<p>An automated sanity check module validated all fitted parameter maps "
+        "prior to downstream analysis. Checks included: (1) detection of non-finite "
+        "values (Inf, NaN) and negative values in voxel-level ADC, D, f, and D* maps; "
+        "(2) statistical outlier detection via interquartile range (IQR) fencing "
+        "(values > 3 IQR from the median); (3) dimensional alignment verification "
+        "between DWI parameter maps and RT dose grids; and (4) excessive NaN fraction "
+        "warnings (threshold: 50% of in-mask voxels). Outliers were excluded from "
+        "downstream group comparisons and predictive modelling.</p>"
+    )
+
+    # ── Dosimetry ──
+    has_dosimetry = False
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "dosimetry" in mat_data[dt]:
+                has_dosimetry = True
+                break
+    if has_dosimetry:
+        h.append("<h3>Dosimetric Analysis</h3>")
+        h.append(
+            "<p>Radiotherapy dose distributions were resampled onto the DWI parameter "
+            "maps using the RT dose grid. Target coverage was quantified using dose-volume "
+            "histogram (DVH) metrics within diffusion-defined tumour sub-volumes: "
+            "D95 (minimum dose to 95% of the sub-volume) and V50 (fraction of the "
+            "sub-volume receiving \u226550 Gy). Sub-volumes were defined using both ADC "
+            "and IVIM-D thresholding to identify putatively resistant regions.</p>"
+        )
 
     # ── Software ──
     h.append("<h3>Software and Reproducibility</h3>")
@@ -2615,6 +2861,159 @@ def _section_model_diagnostics(log_data, dwi_types_present, mat_data) -> list[st
     return h
 
 
+def _section_sensitivity_analysis(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build a Sensitivity Analysis section for publication robustness.
+
+    Evaluates the robustness of key findings by examining:
+    - Outlier removal impact on sample size
+    - Events-per-variable (EPV) ratio for predictive models
+    - Competing-risk exclusion impact on GLME analysis
+    - Concordance of significant findings across DWI types
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the sensitivity analysis section.
+    """
+    h: list[str] = []
+    items: list[tuple[str, str, str]] = []  # (title, detail, box_class)
+
+    if not log_data:
+        return h
+
+    # 1. Events-per-variable (EPV) check for predictive models
+    # EPV < 10 is a classic overfitting risk indicator
+    n_patients = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+                if n > n_patients:
+                    n_patients = n
+
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        fs_list = log_data[dt].get("stats_predictive", {}).get("feature_selections", [])
+        bl = log_data[dt].get("baseline", {})
+        baseline_exc = bl.get("baseline_exclusion")
+        n_eff = n_patients
+        if baseline_exc:
+            n_eff = baseline_exc.get("n_total", n_patients) - baseline_exc.get("n_excluded", 0)
+
+        for fs in fs_list:
+            n_feat = len(fs.get("features", []))
+            if n_feat > 0 and n_eff > 0:
+                # Assume ~40% event rate for LF (typical in this cohort)
+                n_events_approx = max(int(n_eff * 0.4), 1)
+                epv = n_events_approx / n_feat
+                if epv < 5:
+                    items.append((
+                        f"Low EPV ({dt}, {fs.get('timepoint', '?')})",
+                        f"Events-per-variable ratio \u2248 {epv:.1f} "
+                        f"({n_events_approx} estimated events / {n_feat} features). "
+                        f"EPV < 10 increases overfitting risk; EPV < 5 suggests "
+                        f"model estimates may be unreliable. LOOCV partially "
+                        f"mitigates this, but external validation is essential.",
+                        "warn-box"
+                    ))
+                elif epv < 10:
+                    items.append((
+                        f"Marginal EPV ({dt}, {fs.get('timepoint', '?')})",
+                        f"Events-per-variable ratio \u2248 {epv:.1f}. "
+                        f"This is below the recommended minimum of 10 for "
+                        f"logistic regression. Coefficient estimates may be "
+                        f"unstable across resampling.",
+                        "diag-box"
+                    ))
+
+    # 2. Cross-DWI concordance of significant GLME metrics
+    sig_metrics_by_dwi: dict[str, set[str]] = {}
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        sc = log_data[dt].get("stats_comparisons", {})
+        sig_set = set()
+        for g in sc.get("glme_details", []):
+            if g["p"] < g["adj_alpha"]:
+                sig_set.add(g["metric"])
+        if sig_set:
+            sig_metrics_by_dwi[dt] = sig_set
+
+    if len(sig_metrics_by_dwi) >= 2:
+        all_sig = set()
+        for s in sig_metrics_by_dwi.values():
+            all_sig.update(s)
+        shared_sig = set.intersection(*sig_metrics_by_dwi.values()) if sig_metrics_by_dwi else set()
+        if all_sig:
+            n_shared = len(shared_sig)
+            n_total = len(all_sig)
+            if n_shared == 0:
+                items.append((
+                    "No cross-DWI GLME concordance",
+                    f"Of {n_total} metric(s) reaching FDR-adjusted significance, "
+                    f"none are significant across all DWI types. "
+                    f"This suggests findings may be processing-specific rather "
+                    f"than reflecting robust biological signal.",
+                    "warn-box"
+                ))
+            elif n_shared < n_total:
+                items.append((
+                    "Partial cross-DWI GLME concordance",
+                    f"{n_shared} of {n_total} significant metric(s) are concordant "
+                    f"across all DWI types ({', '.join(sorted(shared_sig))}). "
+                    f"Concordant metrics have higher confidence for clinical validity.",
+                    "info-box"
+                ))
+            else:
+                items.append((
+                    "Full cross-DWI GLME concordance",
+                    f"All {n_total} significant metric(s) are concordant across "
+                    f"DWI types, supporting robust biological signal.",
+                    "info-box"
+                ))
+
+    # 3. Hazard ratio stability check: flag HRs with very wide CIs
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
+        unstable = [hr for hr in hrs
+                    if hr.get("ci_hi", 1) / max(hr.get("ci_lo", 1), 0.001) > 10]
+        if unstable:
+            names = ", ".join(hr.get("covariate", "?") for hr in unstable[:3])
+            items.append((
+                f"Unstable HR estimates ({dt})",
+                f"{len(unstable)} covariate(s) have CI ratio > 10 "
+                f"({names}), indicating very imprecise effect estimates "
+                f"likely due to small sample size or near-separation.",
+                "warn-box"
+            ))
+
+    if not items:
+        return h
+
+    h.append(_h2("Sensitivity Analysis", "sensitivity"))
+    h.append(
+        '<p class="meta">Robustness checks to evaluate the reliability of key '
+        'findings. Issues flagged here should be acknowledged as limitations '
+        'in publication and addressed in future validation studies.</p>'
+    )
+    for title, detail, box_cls in items:
+        h.append(f'<div class="{box_cls}"><strong>{_esc(title)}:</strong> {detail}</div>')
+
+    return h
+
+
 def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
     """Build the Study Limitations section.
 
@@ -2802,11 +3201,32 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
             disc = "acceptable"
         else:
             disc = "limited"
+        # Collect per-DWI best AUC for cross-type comparison
+        per_dwi_auc: list[tuple[str, float, str]] = []
+        for dt in dwi_types_present:
+            if dt in log_data:
+                roc = log_data[dt].get("stats_predictive", {}).get("roc_analyses", [])
+                for r_item in roc:
+                    a = r_item.get("auc", 0)
+                    if a > 0:
+                        per_dwi_auc.append((dt, a, r_item.get("timepoint", "")))
+        auc_comparison = ""
+        if len(per_dwi_auc) > 1:
+            # Show per-type best AUCs for cross-comparison
+            best_per_type: dict[str, tuple[float, str]] = {}
+            for dt, a, tp in per_dwi_auc:
+                if dt not in best_per_type or a > best_per_type[dt][0]:
+                    best_per_type[dt] = (a, tp)
+            if len(best_per_type) >= 2:
+                parts = [f"{dt}: {a:.3f} ({tp})" for dt, (a, tp) in
+                         sorted(best_per_type.items(), key=lambda x: -x[1][0])]
+                auc_comparison = f" Per-type comparison: {'; '.join(parts)}."
         findings.append(
             f"Elastic-net regularised logistic regression achieved {disc} "
             f"discriminative performance (AUC = {best_auc:.3f}, "
             f"{best_type} at {best_tp}), supporting the potential of "
             f"DWI biomarkers for early treatment response prediction."
+            f"{auc_comparison}"
         )
 
     # 3. Cox PH
@@ -2865,7 +3285,52 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                 f"robustness of findings across acquisition strategies."
             )
 
-    # 5. Hypothesis direction
+    # 5. Dosimetry
+    if mat_data:
+        for dt in DWI_TYPES:
+            dosi = (mat_data.get(dt) or {}).get("dosimetry")
+            if dosi:
+                d95_adc = dosi.get("d95_adc_mean")
+                v50_adc = dosi.get("v50_adc_mean")
+                if d95_adc is not None:
+                    v50_pct = (v50_adc * 100 if v50_adc is not None and v50_adc <= 1.0
+                               else v50_adc) if v50_adc is not None else None
+                    dosi_parts = [f"D95 = {d95_adc:.1f} Gy"]
+                    if v50_pct is not None:
+                        dosi_parts.append(f"V50 = {v50_pct:.0f}%")
+                    coverage = "adequate" if d95_adc >= 45.0 else "sub-optimal"
+                    findings.append(
+                        f"Dosimetric analysis of diffusion-defined resistant sub-volumes "
+                        f"shows {coverage} target coverage ({', '.join(dosi_parts)})."
+                    )
+                break
+
+    # 6. Core method agreement (Dice)
+    if mat_data:
+        for dt in DWI_TYPES:
+            core = (mat_data.get(dt) or {}).get("core_method")
+            if core and core.get("mean_dice_matrix"):
+                methods = core.get("methods", [])
+                matrix = core["mean_dice_matrix"]
+                n = len(methods)
+                off_diag = []
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        if i < len(matrix) and j < len(matrix[i]):
+                            val = matrix[i][j]
+                            if isinstance(val, (int, float)) and val > 0:
+                                off_diag.append(val)
+                if off_diag:
+                    avg_dice = sum(off_diag) / len(off_diag)
+                    findings.append(
+                        f"Tumour core delineation across {n} methods shows "
+                        f"{'moderate' if avg_dice < 0.7 else 'good'} spatial "
+                        f"agreement (mean pairwise Dice = {avg_dice:.3f}), "
+                        f"suggesting method selection impacts sub-volume definition."
+                    )
+                break
+
+    # 7. Hypothesis direction
     if groups and "Longitudinal_Mean_Metrics" in groups:
         d_trends = []
         f_trends = []
@@ -2931,6 +3396,102 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
     )
 
     h.append("</div>")
+    return h
+
+
+def _section_patient_flow(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build a CONSORT-style patient flow summary for publication.
+
+    Summarises patient attrition from cohort through each exclusion stage:
+    initial cohort, baseline exclusion, outlier removal, and competing-risk
+    exclusion.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the patient flow section.
+    """
+    h: list[str] = []
+
+    # Gather flow data across DWI types
+    flow_rows: list[tuple[str, int, int, int, int, float]] = []
+    for dt in dwi_types_present:
+        n_initial = 0
+        n_baseline_exc = 0
+        n_outlier_exc = 0
+        n_cr_exc = 0
+        outlier_pct = 0.0
+
+        if mat_data and dt in mat_data and "longitudinal" in mat_data[dt]:
+            n_initial = mat_data[dt]["longitudinal"].get("num_patients", 0)
+
+        if log_data and dt in log_data:
+            bl = log_data[dt].get("baseline", {})
+            baseline_exc = bl.get("baseline_exclusion")
+            if baseline_exc:
+                n_baseline_exc = baseline_exc.get("n_excluded", 0)
+                if n_initial == 0:
+                    n_initial = baseline_exc.get("n_total", 0)
+
+            total_out = bl.get("total_outliers")
+            if total_out:
+                n_outlier_exc = total_out.get("n_removed", 0)
+                outlier_pct = total_out.get("pct", 0)
+
+            sc = log_data[dt].get("stats_comparisons", {})
+            glme_excl = sc.get("glme_excluded")
+            if glme_excl:
+                n_cr_exc = glme_excl.get("n_excluded", 0)
+
+        if n_initial > 0 or n_baseline_exc > 0:
+            flow_rows.append((dt, n_initial, n_baseline_exc, n_outlier_exc,
+                              n_cr_exc, outlier_pct))
+
+    if not flow_rows:
+        return h
+
+    h.append(_h2("Patient Flow", "patient-flow"))
+    h.append(
+        '<p class="meta">CONSORT-style summary of patient inclusion and exclusion '
+        'at each analysis stage. Numbers may differ across DWI types due to '
+        'type-specific data availability and model convergence.</p>'
+    )
+
+    h.append("<table>")
+    h.append(_table_caption(
+        "Patient Flow Summary",
+        "Attrition from initial cohort through analysis stages."))
+    h.append("<thead><tr>"
+             "<th>DWI Type</th>"
+             "<th>Initial Cohort</th>"
+             "<th>Baseline Excluded</th>"
+             "<th>Outliers Removed</th>"
+             "<th>CR Excluded (GLME)</th>"
+             "<th>Analysed (GLME)</th>"
+             "</tr></thead><tbody>")
+    for dt, n_init, n_bl, n_out, n_cr, out_pct in flow_rows:
+        n_analysed = n_init - n_bl - n_cr
+        if n_analysed < 0:
+            n_analysed = n_init - n_bl  # fallback if CR data missing
+        h.append(
+            f"<tr><td>{_dwi_badge(dt)}</td>"
+            f"<td><strong>{n_init}</strong></td>"
+            f"<td>{n_bl}</td>"
+            f"<td>{n_out} ({out_pct:.1f}%)</td>"
+            f"<td>{n_cr}</td>"
+            f"<td><strong>{max(n_analysed, 0)}</strong></td></tr>"
+        )
+    h.append("</tbody></table>")
+
     return h
 
 
@@ -3189,6 +3750,59 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
             f'development.</div>'
         )
 
+    # ── Feature Stability Across Timepoints ──
+    # Identify features that appear consistently across multiple timepoints
+    # within the same DWI type (temporal stability = stronger biomarker).
+    tp_stability_data = False
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        fs_list = log_data[dt].get("stats_predictive", {}).get("feature_selections", [])
+        if len(fs_list) < 2:
+            continue
+
+        # Count how many timepoints each feature is selected at
+        feat_tp_count: dict[str, int] = {}
+        for fs in fs_list:
+            for feat in fs.get("features", []):
+                feat_tp_count[feat] = feat_tp_count.get(feat, 0) + 1
+
+        n_timepoints = len(fs_list)
+        stable_feats = {f: c for f, c in feat_tp_count.items() if c >= 2}
+        if not stable_feats:
+            continue
+
+        if not tp_stability_data:
+            h.append("<h3>Feature Stability Across Timepoints</h3>")
+            h.append(
+                '<p class="meta">Features selected at multiple timepoints within '
+                'the same DWI type demonstrate temporal stability, suggesting they '
+                'capture consistent biological signal rather than timepoint-specific noise.</p>'
+            )
+            tp_stability_data = True
+
+        h.append(f"<p>{_dwi_badge(dt)} ({n_timepoints} timepoints):</p>")
+        h.append("<table><thead><tr><th>Feature</th><th>Timepoints Selected</th>"
+                 "<th>Stability</th></tr></thead><tbody>")
+        for feat, count in sorted(stable_feats.items(), key=lambda x: -x[1]):
+            pct = 100 * count / n_timepoints
+            if pct >= 75:
+                stab_cls = "agree"
+                stab_lbl = "High"
+            elif pct >= 50:
+                stab_cls = ""
+                stab_lbl = "Moderate"
+            else:
+                stab_cls = ""
+                stab_lbl = "Low"
+            s_attr = f' class="{stab_cls}"' if stab_cls else ""
+            h.append(
+                f"<tr><td><code>{_esc(feat)}</code></td>"
+                f"<td>{count}/{n_timepoints} ({pct:.0f}%)</td>"
+                f"<td{s_attr}><strong>{_esc(stab_lbl)}</strong></td></tr>"
+            )
+        h.append("</tbody></table>")
+
     return h
 
 
@@ -3348,98 +3962,157 @@ def _section_appendix(rows) -> list[str]:
     h: list[str] = []
     if rows:
         h.append(_h2("Appendix: All Graphs", "appendix"))
-        h.append(f"<p>{len(rows)} graphs analysed. Expand each row for full details.</p>")
-        h.append("<table><thead><tr>"
-                 "<th>#</th><th>DWI</th><th>Type</th><th>Graph</th>"
-                 "<th>Title</th><th>Axes</th><th>Trends</th><th>Issues</th><th>Summary</th>"
-                 "</tr></thead><tbody>")
+        h.append(f"<p>{len(rows)} graphs analysed. Each graph is shown with full "
+                 "metadata, extracted statistics, and clinical interpretation notes.</p>")
+
+        # Group by graph type for organised presentation
+        type_groups: dict[str, list[tuple[int, dict]]] = {}
         for i, r in enumerate(rows, 1):
-            dwi_type, base_name = parse_dwi_info(r["file_path"])
-            graph_title = r.get("graph_title", "") or ""
-            graph_type = r.get("graph_type", "")
+            gt = r.get("graph_type", "unknown")
+            type_groups.setdefault(gt, []).append((i, r))
 
-            # Axes summary
-            x_lbl = r.get("x_axis_label", "")
-            x_unit = r.get("x_axis_units", "")
-            x_min = r.get("x_axis_range_min", "")
-            x_max = r.get("x_axis_range_max", "")
-            y_lbl = r.get("y_axis_label", "")
-            y_unit = r.get("y_axis_units", "")
-            y_min = r.get("y_axis_range_min", "")
-            y_max = r.get("y_axis_range_max", "")
-            c_lbl = r.get("color_axis_label", "")
-            c_unit = r.get("color_axis_units", "")
+        for gt in sorted(type_groups.keys(), key=lambda k: -len(type_groups[k])):
+            gt_rows = type_groups[gt]
+            h.append(f"<h3>{_esc(gt)} ({len(gt_rows)} graphs)</h3>")
 
-            axis_lines = []
-            if x_lbl:
-                xr = f" [{x_min}\u2013{x_max}]" if x_min and x_max else ""
-                xu = f" ({x_unit})" if x_unit else ""
-                axis_lines.append(f"X: {x_lbl}{xu}{xr}")
-            if y_lbl:
-                yr = f" [{y_min}\u2013{y_max}]" if y_min and y_max else ""
-                yu = f" ({y_unit})" if y_unit else ""
-                axis_lines.append(f"Y: {y_lbl}{yu}{yr}")
-            if c_lbl:
-                cu = f" ({c_unit})" if c_unit else ""
-                axis_lines.append(f"C: {c_lbl}{cu}")
-            axes_cell = '<br>'.join(_esc(a) for a in axis_lines) if axis_lines else "\u2014"
+            h.append("<table><thead><tr>"
+                     "<th>#</th><th>DWI</th><th>Graph</th>"
+                     "<th>Title</th><th>Axes</th><th>Trends</th>"
+                     "<th>Statistics</th><th>Issues</th><th>Details</th>"
+                     "</tr></thead><tbody>")
 
-            # Trends cell
-            trends_str = r.get("trends_json", "[]") or "[]"
-            try:
-                trends_list = json.loads(trends_str)
-            except Exception:
-                trends_list = []
-            trends_cell = ""
-            if isinstance(trends_list, list) and trends_list:
-                tags = []
-                for t in trends_list:
-                    if isinstance(t, dict):
-                        direction = t.get("direction", "")
-                        series = t.get("series", "")
-                        label = f"{series}: {direction}" if series else direction
-                        tags.append(_trend_tag(label))
-                trends_cell = "".join(tags)
+            for i, r in gt_rows:
+                dwi_type, base_name = parse_dwi_info(r["file_path"])
+                graph_title = r.get("graph_title", "") or ""
 
-            # Issues cell
-            issues_str = r.get("issues_json", "[]") or "[]"
-            try:
-                issues_list = json.loads(issues_str)
-            except Exception:
-                issues_list = []
-            if isinstance(issues_list, list) and issues_list:
-                issues_cell = "<ul>" + "".join(
-                    f"<li>{_esc(iss)}</li>" for iss in issues_list
-                ) + "</ul>"
-            else:
-                issues_cell = "\u2014"
+                # Axes summary
+                x_lbl = r.get("x_axis_label", "")
+                x_unit = r.get("x_axis_units", "")
+                x_min = r.get("x_axis_range_min", "")
+                x_max = r.get("x_axis_range_max", "")
+                y_lbl = r.get("y_axis_label", "")
+                y_unit = r.get("y_axis_units", "")
+                y_min = r.get("y_axis_range_min", "")
+                y_max = r.get("y_axis_range_max", "")
+                c_lbl = r.get("color_axis_label", "")
+                c_unit = r.get("color_axis_units", "")
 
-            # Summary: short preview + collapsible full
-            summary = r.get("summary", "") or ""
-            summary_preview = _esc(summary[:100].replace("\n", " "))
-            if len(summary) > 100:
-                summary_cell = (
-                    f"{summary_preview}\u2026"
-                    f"<details><summary>more</summary>"
-                    f'<p class="full-summary">{_esc(summary)}</p>'
-                    f"</details>"
+                axis_lines = []
+                if x_lbl:
+                    xr = f" [{x_min}\u2013{x_max}]" if x_min and x_max else ""
+                    xu = f" ({x_unit})" if x_unit else ""
+                    axis_lines.append(f"X: {x_lbl}{xu}{xr}")
+                if y_lbl:
+                    yr = f" [{y_min}\u2013{y_max}]" if y_min and y_max else ""
+                    yu = f" ({y_unit})" if y_unit else ""
+                    axis_lines.append(f"Y: {y_lbl}{yu}{yr}")
+                if c_lbl:
+                    cu = f" ({c_unit})" if c_unit else ""
+                    axis_lines.append(f"C: {c_lbl}{cu}")
+                axes_cell = '<br>'.join(_esc(a) for a in axis_lines) if axis_lines else "\u2014"
+
+                # Trends cell with descriptions
+                trends_str = r.get("trends_json", "[]") or "[]"
+                try:
+                    trends_list = json.loads(trends_str)
+                except Exception:
+                    trends_list = []
+                trends_cell = ""
+                if isinstance(trends_list, list) and trends_list:
+                    trend_parts = []
+                    for t in trends_list:
+                        if isinstance(t, dict):
+                            direction = t.get("direction", "")
+                            series = t.get("series", "")
+                            desc = t.get("description", "")
+                            label = f"{series}: {direction}" if series else direction
+                            tag = _trend_tag(label)
+                            if desc:
+                                tag += f' <span class="axis-info">{_esc(desc[:80])}</span>'
+                            trend_parts.append(tag)
+                    trends_cell = "<br>".join(trend_parts)
+
+                # Statistics cell: extract p-values and correlations
+                all_text = (r.get("summary", "") + " " +
+                            r.get("trends_json", "") + " " +
+                            r.get("inflection_points_json", ""))
+                pvals = extract_pvalues(all_text)
+                corrs = extract_correlations(all_text)
+                stats_parts = []
+                for pval, ctx in pvals:
+                    cls = _sig_class(pval)
+                    cls_attr = f' class="{cls}"' if cls else ""
+                    stats_parts.append(f'<span{cls_attr}>p={pval:.4f}</span>')
+                for rval, ctx in corrs:
+                    if abs(rval) >= 0.3:
+                        stats_parts.append(f'r={rval:+.2f}')
+                stats_cell = "<br>".join(stats_parts) if stats_parts else "\u2014"
+
+                # Issues cell
+                issues_str = r.get("issues_json", "[]") or "[]"
+                try:
+                    issues_list = json.loads(issues_str)
+                except Exception:
+                    issues_list = []
+                if isinstance(issues_list, list) and issues_list:
+                    issues_cell = "<ul>" + "".join(
+                        f"<li>{_esc(iss)}</li>" for iss in issues_list
+                    ) + "</ul>"
+                else:
+                    issues_cell = "\u2014"
+
+                # Details: inflection points + summary in collapsible
+                detail_parts = []
+                # Inflection points inline
+                ips_str = r.get("inflection_points_json", "[]") or "[]"
+                try:
+                    ips_list = json.loads(ips_str)
+                except Exception:
+                    ips_list = []
+                if isinstance(ips_list, list) and ips_list:
+                    ip_items = []
+                    for ip in ips_list:
+                        if isinstance(ip, dict):
+                            x = ip.get("approximate_x", "?")
+                            y = ip.get("approximate_y", "")
+                            desc_ip = ip.get("description", "")
+                            coord = f"x={_esc(str(x))}"
+                            if y is not None and y != "":
+                                coord += f", y={_esc(str(y))}"
+                            ip_items.append(f"({coord}): {_esc(str(desc_ip))}")
+                    if ip_items:
+                        detail_parts.append(
+                            "<strong>Inflection points:</strong><ul>" +
+                            "".join(f"<li>{item}</li>" for item in ip_items) +
+                            "</ul>"
+                        )
+
+                # Summary
+                summary = r.get("summary", "") or ""
+                if summary:
+                    if len(summary) > 150:
+                        detail_parts.append(
+                            f"<details><summary>Full summary ({len(summary)} chars)</summary>"
+                            f'<p class="full-summary">{_esc(summary)}</p></details>'
+                        )
+                    else:
+                        detail_parts.append(f'<p class="full-summary">{_esc(summary)}</p>')
+
+                details_cell = "".join(detail_parts) if detail_parts else "\u2014"
+
+                title_display = _esc(graph_title) if graph_title else "\u2014"
+                h.append(
+                    f"<tr>"
+                    f"<td>{i}</td>"
+                    f"<td>{_dwi_badge(dwi_type)}</td>"
+                    f"<td>{_esc(base_name)}</td>"
+                    f'<td class="axis-info">{title_display}</td>'
+                    f'<td class="axis-info">{axes_cell}</td>'
+                    f"<td>{trends_cell}</td>"
+                    f"<td>{stats_cell}</td>"
+                    f"<td>{issues_cell}</td>"
+                    f"<td>{details_cell}</td>"
+                    f"</tr>"
                 )
-            else:
-                summary_cell = summary_preview
-
-            title_display = _esc(graph_title) if graph_title else "\u2014"
-            h.append(
-                f"<tr>"
-                f"<td>{i}</td>"
-                f"<td>{_dwi_badge(dwi_type)}</td>"
-                f"<td>{_esc(graph_type)}</td>"
-                f"<td>{_esc(base_name)}</td>"
-                f'<td class="axis-info">{title_display}</td>'
-                f'<td class="axis-info">{axes_cell}</td>'
-                f"<td>{trends_cell}</td>"
-                f"<td>{issues_cell}</td>"
-                f"<td>{summary_cell}</td>"
-                f"</tr>"
-            )
-        h.append("</tbody></table>")
+            h.append("</tbody></table>")
     return h

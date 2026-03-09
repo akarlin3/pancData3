@@ -87,9 +87,11 @@ from report_sections import (  # noqa: F401
     _section_methods,
     _section_model_diagnostics,
     _section_multiple_comparisons,
+    _section_patient_flow,
     _section_power_analysis,
     _section_predictive_performance,
     _section_publication_header,
+    _section_sensitivity_analysis,
     _section_stats_by_graph_type,
     _section_statistical_significance,
     _section_treatment_response,
@@ -196,6 +198,7 @@ def generate_report(folder: Path) -> str:
         ("Executive summary", _section_executive_summary, (log_data, dwi_types_present, rows, csv_data, timestamp, mat_data)),
         ("Methods", _section_methods, (dwi_types_present, mat_data, log_data)),
         ("Cohort overview", _section_cohort_overview, (mat_data, log_data, dwi_types_present)),
+        ("Patient flow", _section_patient_flow, (log_data, dwi_types_present, mat_data)),
     ]
 
     report_bar = tqdm(
@@ -258,20 +261,50 @@ def generate_report(folder: Path) -> str:
                 h.extend(qcards)
                 h.append("</div>")
 
-            # Per-metric outlier flags table
+            # Per-metric outlier flags table with balance assessment
             if outlier_flags:
                 h.append("<h4>Per-Metric Outlier Flags</h4>")
+                h.append('<p class="meta">Disproportionate removal from one outcome group '
+                         'may bias downstream analyses.</p>')
                 h.append("<table><thead><tr>"
                          "<th>Metric</th><th>Flagged</th>"
                          "<th>Local Failure</th><th>Local Control</th><th>Competing Risk</th>"
+                         "<th>Balance</th>"
                          "</tr></thead><tbody>")
                 for o in outlier_flags:
+                    n_total = o['n_flagged']
+                    n_lf = o['n_lf']
+                    n_lc = o['n_lc']
+                    n_cr = o['n_cr']
+                    if n_total > 0:
+                        max_grp = max(n_lf, n_lc, n_cr)
+                        if max_grp / n_total > 0.7 and n_total >= 3:
+                            balance = '<span class="differ">Imbalanced</span>'
+                        else:
+                            balance = '<span class="agree">Balanced</span>'
+                    else:
+                        balance = "\u2014"
                     h.append(
                         f"<tr><td><code>{_esc(o['metric'])}</code></td>"
-                        f"<td><strong>{o['n_flagged']}</strong></td>"
-                        f"<td>{o['n_lf']}</td><td>{o['n_lc']}</td><td>{o['n_cr']}</td></tr>"
+                        f"<td><strong>{n_total}</strong></td>"
+                        f"<td>{n_lf}</td><td>{n_lc}</td><td>{n_cr}</td>"
+                        f"<td>{balance}</td></tr>"
                     )
                 h.append("</tbody></table>")
+
+            # Warn if baseline exclusion creates selection bias
+            if baseline_exc:
+                lf_inc = baseline_exc.get("lf_rate_included")
+                lf_exc = baseline_exc.get("lf_rate_excluded")
+                if lf_inc is not None and lf_exc is not None:
+                    diff = abs(lf_exc - lf_inc)
+                    if diff > 15:
+                        h.append(
+                            f'<div class="warn-box">Baseline exclusion may introduce '
+                            f'selection bias: LF rate among excluded patients '
+                            f'({lf_exc:.1f}%) differs from included patients '
+                            f'({lf_inc:.1f}%) by {diff:.1f} percentage points.</div>'
+                        )
 
     if not has_quality_data:
         h.append('<p class="meta">No baseline quality data found in logs.</p>')
@@ -343,6 +376,7 @@ def generate_report(folder: Path) -> str:
         ("Feature overlap", _section_feature_overlap, (log_data, dwi_types_present)),
         ("Model diagnostics", _section_model_diagnostics, (log_data, dwi_types_present, mat_data)),
         ("Power analysis", _section_power_analysis, (log_data, dwi_types_present, mat_data)),
+        ("Sensitivity analysis", _section_sensitivity_analysis, (log_data, dwi_types_present, mat_data)),
         ("MAT data", _section_mat_data, (mat_data,)),
         ("Limitations", _section_limitations, (log_data, dwi_types_present, mat_data)),
         ("Conclusions", _section_conclusions, (log_data, dwi_types_present, csv_data, mat_data, groups)),

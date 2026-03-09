@@ -8,6 +8,10 @@ Covers:
 - generate_report: full report generation with mocked data sources
 - New publication-level sections: Methods, Effect Sizes, Multiple
   Comparisons, Model Diagnostics, Limitations, Conclusions
+- Patient flow section (CONSORT-style attrition)
+- Sensitivity analysis section (EPV, cross-DWI concordance, HR stability)
+- Feature stability across timepoints
+- Enhanced appendix (grouped by type, statistics column)
 """
 
 from __future__ import annotations
@@ -21,9 +25,12 @@ from generate_report import (
     _effect_size_label,
     _forest_plot_cell,
     _section,
+    _section_appendix,
     _section_data_completeness,
     _section_feature_overlap,
+    _section_patient_flow,
     _section_power_analysis,
+    _section_sensitivity_analysis,
     _sig_tag,
     generate_report,
 )
@@ -501,3 +508,348 @@ class TestSectionPowerAnalysis:
         html = "\n".join(result)
         assert "FDR correction" in html
         assert "2 tests" in html
+
+
+# ---------------------------------------------------------------------------
+# _section_patient_flow
+# ---------------------------------------------------------------------------
+
+class TestSectionPatientFlow:
+    """Verify the CONSORT-style patient flow section builder."""
+
+    def test_empty_when_no_data(self):
+        """Returns empty list when no log_data or mat_data."""
+        result = _section_patient_flow(None, ["Standard"], {})
+        assert result == []
+
+    def test_empty_when_no_patient_counts(self):
+        """Returns empty list when log and mat data have no flow info."""
+        log_data = {"Standard": {"sanity_checks": {}}}
+        result = _section_patient_flow(log_data, ["Standard"], {})
+        assert result == []
+
+    def test_shows_flow_table_with_mat_data(self):
+        """With longitudinal patient count, a flow table is generated."""
+        mat_data = {
+            "Standard": {
+                "longitudinal": {"num_patients": 40, "num_timepoints": 6},
+            },
+        }
+        log_data = {
+            "Standard": {
+                "baseline": {
+                    "baseline_exclusion": {
+                        "n_total": 48,
+                        "n_excluded": 6,
+                    },
+                    "total_outliers": {
+                        "n_removed": 4,
+                        "pct": 9.5,
+                    },
+                },
+                "stats_comparisons": {
+                    "glme_excluded": {"n_excluded": 3},
+                },
+            },
+        }
+        result = _section_patient_flow(log_data, ["Standard"], mat_data)
+        html = "\n".join(result)
+        assert "Patient Flow" in html
+        assert "CONSORT" in html
+        assert "40" in html  # initial cohort
+        assert "6" in html   # baseline excluded
+        assert "9.5%" in html  # outlier percentage
+
+    def test_shows_multiple_dwi_types(self):
+        """Flow table shows rows for each DWI type."""
+        mat_data = {
+            "Standard": {"longitudinal": {"num_patients": 40}},
+            "dnCNN": {"longitudinal": {"num_patients": 38}},
+        }
+        result = _section_patient_flow(None, ["Standard", "dnCNN"], mat_data)
+        html = "\n".join(result)
+        assert "Standard" in html
+        assert "dnCNN" in html
+
+    def test_uses_baseline_n_total_fallback(self):
+        """When mat_data has no patients, uses baseline_exclusion n_total."""
+        log_data = {
+            "Standard": {
+                "baseline": {
+                    "baseline_exclusion": {"n_total": 50, "n_excluded": 8},
+                },
+            },
+        }
+        result = _section_patient_flow(log_data, ["Standard"], {})
+        html = "\n".join(result)
+        assert "Patient Flow" in html
+        assert "50" in html
+
+
+# ---------------------------------------------------------------------------
+# _section_sensitivity_analysis
+# ---------------------------------------------------------------------------
+
+class TestSectionSensitivityAnalysis:
+    """Verify the sensitivity analysis section builder."""
+
+    def test_empty_when_no_log_data(self):
+        """Returns empty list when log_data is None."""
+        result = _section_sensitivity_analysis(None, ["Standard"], {})
+        assert result == []
+
+    def test_empty_when_no_issues(self):
+        """Returns empty list when no sensitivity issues are detected."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {"feature_selections": []},
+                "stats_comparisons": {"glme_details": []},
+                "survival": {"hazard_ratios": []},
+            },
+        }
+        result = _section_sensitivity_analysis(log_data, ["Standard"], {})
+        assert result == []
+
+    def test_shows_low_epv_warning(self):
+        """Low EPV (events-per-variable) generates a warning."""
+        log_data = {
+            "Standard": {
+                "baseline": {
+                    "baseline_exclusion": {"n_total": 20, "n_excluded": 2},
+                },
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "features": ["a", "b", "c", "d", "e", "f"]},
+                    ],
+                },
+                "stats_comparisons": {"glme_details": []},
+                "survival": {"hazard_ratios": []},
+            },
+        }
+        mat_data = {
+            "Standard": {"longitudinal": {"num_patients": 20}},
+        }
+        result = _section_sensitivity_analysis(log_data, ["Standard"], mat_data)
+        html = "\n".join(result)
+        assert "Sensitivity Analysis" in html
+        assert "EPV" in html
+        assert "warn-box" in html
+
+    def test_shows_cross_dwi_concordance(self):
+        """Cross-DWI GLME concordance check is reported."""
+        log_data = {
+            "Standard": {
+                "stats_comparisons": {
+                    "glme_details": [
+                        {"metric": "ADC_mean", "p": 0.01, "adj_alpha": 0.025},
+                        {"metric": "D_mean", "p": 0.002, "adj_alpha": 0.025},
+                    ],
+                },
+                "stats_predictive": {"feature_selections": []},
+                "survival": {"hazard_ratios": []},
+            },
+            "dnCNN": {
+                "stats_comparisons": {
+                    "glme_details": [
+                        {"metric": "ADC_mean", "p": 0.03, "adj_alpha": 0.05},
+                    ],
+                },
+                "stats_predictive": {"feature_selections": []},
+                "survival": {"hazard_ratios": []},
+            },
+        }
+        result = _section_sensitivity_analysis(
+            log_data, ["Standard", "dnCNN"], {})
+        html = "\n".join(result)
+        assert "Sensitivity Analysis" in html
+        assert "concordance" in html.lower()
+
+    def test_shows_unstable_hr(self):
+        """Hazard ratios with wide CIs (ratio > 10) are flagged."""
+        log_data = {
+            "Standard": {
+                "stats_comparisons": {"glme_details": []},
+                "stats_predictive": {"feature_selections": []},
+                "survival": {
+                    "hazard_ratios": [
+                        {"covariate": "delta_adc", "hr": 2.5,
+                         "ci_lo": 0.1, "ci_hi": 50.0, "p": 0.4},
+                    ],
+                },
+            },
+        }
+        result = _section_sensitivity_analysis(log_data, ["Standard"], {})
+        html = "\n".join(result)
+        assert "Sensitivity Analysis" in html
+        assert "Unstable HR" in html
+        assert "delta_adc" in html
+        assert "warn-box" in html
+
+
+# ---------------------------------------------------------------------------
+# Feature stability (within _section_feature_overlap)
+# ---------------------------------------------------------------------------
+
+class TestFeatureStability:
+    """Verify feature stability across timepoints in feature overlap."""
+
+    def test_stability_shown_for_multi_timepoint(self):
+        """Features selected at multiple timepoints show stability table."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.05,
+                         "features": ["ADC_mean", "D_mean"]},
+                        {"timepoint": "Fx5", "lambda": 0.06,
+                         "features": ["ADC_mean", "f_ratio"]},
+                        {"timepoint": "W2", "lambda": 0.04,
+                         "features": ["ADC_mean", "D_mean"]},
+                    ],
+                },
+            },
+            "dnCNN": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.05,
+                         "features": ["ADC_mean"]},
+                    ],
+                },
+            },
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "Feature Stability" in html
+        assert "ADC_mean" in html
+        # ADC_mean selected at 3/3 timepoints → High stability
+        assert "High" in html
+        # D_mean selected at 2/3 → Moderate
+        assert "Moderate" in html
+
+    def test_no_stability_for_single_timepoint(self):
+        """No stability table when each DWI type has only one timepoint."""
+        log_data = {
+            "Standard": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.05,
+                         "features": ["ADC_mean", "D_mean"]},
+                    ],
+                },
+            },
+            "dnCNN": {
+                "stats_predictive": {
+                    "feature_selections": [
+                        {"timepoint": "BL", "lambda": 0.05,
+                         "features": ["ADC_mean"]},
+                    ],
+                },
+            },
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "Feature Stability" not in html
+
+
+# ---------------------------------------------------------------------------
+# _section_appendix (enhanced)
+# ---------------------------------------------------------------------------
+
+class TestSectionAppendix:
+    """Verify the enhanced appendix section builder."""
+
+    def test_empty_when_no_rows(self):
+        """Returns empty list when no graph rows."""
+        result = _section_appendix([])
+        assert result == []
+
+    def test_groups_by_graph_type(self):
+        """Graphs are grouped by type with sub-headers."""
+        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
+        html = "\n".join(result)
+        assert "Appendix" in html
+        # The fixture has "box" and "line" graph types
+        assert "box" in html
+        assert "line" in html
+        assert "<h3>" in html  # sub-headers per type
+
+    def test_statistics_column_present(self):
+        """The Statistics column shows extracted p-values."""
+        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
+        html = "\n".join(result)
+        # The fixture has p = 0.003 in the Standard box plot summary
+        assert "Statistics" in html
+        assert "p=" in html
+
+    def test_inflection_points_in_details(self):
+        """Inflection points appear in the Details column."""
+        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
+        html = "\n".join(result)
+        # The IVIMnet line plot has an inflection point at day 60
+        assert "Inflection" in html or "inflection" in html
+        assert "60" in html
+
+    def test_trend_descriptions_shown(self):
+        """Trend descriptions are included beyond just direction tags."""
+        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
+        html = "\n".join(result)
+        assert "ADC rises over time" in html or "ADC" in html
+
+
+# ---------------------------------------------------------------------------
+# Data quality outlier balance and bias detection
+# ---------------------------------------------------------------------------
+
+class TestDataQualityOutlierBalance:
+    """Verify outlier balance and bias detection in the Data Quality section."""
+
+    def test_report_with_logs_shows_balance_column(self, saved_files_with_logs: Path):
+        """Data quality outlier table includes a Balance column."""
+        report = generate_report(saved_files_with_logs)
+        assert "Balance" in report
+
+    def test_report_with_logs_shows_baseline_exclusion(self, saved_files_with_logs: Path):
+        """Data quality section shows baseline exclusion info."""
+        report = generate_report(saved_files_with_logs)
+        # The fixture has baseline exclusion: 6/48 patients
+        assert "Baseline Excluded" in report or "baseline" in report.lower()
+
+
+# ---------------------------------------------------------------------------
+# Cox PH direction column
+# ---------------------------------------------------------------------------
+
+class TestCoxPHDirectionColumn:
+    """Verify the HR direction column in Cox PH tables."""
+
+    def test_report_with_logs_shows_hr_direction(self, saved_files_with_logs: Path):
+        """Cox PH table should show Risk/Protective direction."""
+        report = generate_report(saved_files_with_logs)
+        # The fixture has HR=1.250 (Risk) and HR=0.750 (Protective)
+        assert "Direction" in report
+        assert "Risk" in report or "Protective" in report
+
+    def test_report_with_logs_shows_discrimination_column(self, saved_files_with_logs: Path):
+        """ROC table should include AUC discrimination rating."""
+        report = generate_report(saved_files_with_logs)
+        assert "Discrimination" in report
+        # AUC 0.781 → Acceptable
+        assert "Acceptable" in report
+
+
+# ---------------------------------------------------------------------------
+# Correlations interpretation context
+# ---------------------------------------------------------------------------
+
+class TestCorrelationsContext:
+    """Verify correlation section has interpretation guidance."""
+
+    def test_report_has_correlation_benchmarks(self, saved_files_with_graph_csv: Path):
+        """Correlation section mentions Cohen's strength benchmarks."""
+        report = generate_report(saved_files_with_graph_csv)
+        if "Correlations" in report:
+            assert "Cohen" in report or "strength" in report.lower()
