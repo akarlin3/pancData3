@@ -330,6 +330,29 @@ def _section_graph_overview(rows) -> list[str]:
 
 
 def _section_statistical_significance(rows, csv_data, log_data, dwi_types_present) -> list[str]:
+    """Build the Statistical Significance section.
+
+    Aggregates significant findings from three sources:
+    1. Vision-extracted p-values from graph summaries/trends.
+    2. Pipeline CSV significant metrics (Significant_LF_Metrics.csv).
+    3. GLME interaction test details and FDR timepoints from log parsing.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the statistical significance section.
+    """
     # ── 3. Statistical Significance ──
     h: list[str] = []
     h.append(_h2("Statistical Significance", "significance"))
