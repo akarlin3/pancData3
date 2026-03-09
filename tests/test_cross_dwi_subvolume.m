@@ -91,12 +91,16 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
         end
 
         function testRepeatPanelShown(testCase)
-            % Checkpoints with repeat scan data populated
+            % When repeat-scan (test-retest) data is present in the
+            % summary_metrics struct, the function should include an
+            % additional panel showing repeatability across the 3 repeat
+            % acquisitions. This tests the adc_sub_vol_pc_rpt field path.
             nPat = 8;
-            nRpt = 3;
+            nRpt = 3; % 3 repeat acquisitions per patient
 
             sm_std = make_mock_sm(nPat, nRpt);
             sm_std.adc_sub_vol_pc(:,1,1) = linspace(0.2, 0.5, nPat)';
+            % Populate repeat-scan subvolume data with slight variations
             sm_std.adc_sub_vol_pc_rpt = nan(nPat, nRpt, 3);
             sm_std.adc_sub_vol_pc_rpt(:,1,1) = linspace(0.20, 0.50, nPat)';
             sm_std.adc_sub_vol_pc_rpt(:,2,1) = linspace(0.18, 0.48, nPat)';
