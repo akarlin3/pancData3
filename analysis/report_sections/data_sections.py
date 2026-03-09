@@ -538,49 +538,50 @@ def _section_appendix(rows) -> list[str]:
             gt_rows = type_groups[gt]
             h.append(f"<h3>{_esc(gt)} ({len(gt_rows)} graphs)</h3>")
 
-            h.append('<table class="table-wide"><thead><tr>'
-                     "<th>#</th><th>DWI</th><th>Graph</th>"
-                     "<th>Title</th><th>Axes</th><th>Trends</th>"
-                     "<th>Statistics</th><th>Issues</th><th>Details</th>"
-                     "</tr></thead><tbody>")
-
             for i, r in gt_rows:
                 dwi_type, base_name = parse_dwi_info(r["file_path"])
                 graph_title = r.get("graph_title", "") or ""
 
-                # Axes summary
+                # ── Build card header ──
+                title_str = f" \u2014 {_esc(graph_title)}" if graph_title else ""
+                h.append(f'<div class="graph-card">')
+                h.append(f'<div class="graph-card-header">'
+                         f'<span>#{i}</span> {_dwi_badge(dwi_type)} '
+                         f'<span>{_esc(base_name)}{title_str}</span></div>')
+                h.append('<dl class="graph-card-grid">')
+
+                # ── Axes ──
                 x_lbl = r.get("x_axis_label", "")
-                x_unit = r.get("x_axis_units", "")
-                x_min = r.get("x_axis_range_min", "")
-                x_max = r.get("x_axis_range_max", "")
                 y_lbl = r.get("y_axis_label", "")
-                y_unit = r.get("y_axis_units", "")
-                y_min = r.get("y_axis_range_min", "")
-                y_max = r.get("y_axis_range_max", "")
                 c_lbl = r.get("color_axis_label", "")
-                c_unit = r.get("color_axis_units", "")
+                if x_lbl or y_lbl or c_lbl:
+                    axis_parts = []
+                    if x_lbl:
+                        x_unit = r.get("x_axis_units", "")
+                        xu = f" ({x_unit})" if x_unit else ""
+                        x_min = r.get("x_axis_range_min", "")
+                        x_max = r.get("x_axis_range_max", "")
+                        xr = f" [{x_min}\u2013{x_max}]" if x_min and x_max else ""
+                        axis_parts.append(f"X: {_esc(x_lbl)}{_esc(xu)}{_esc(xr)}")
+                    if y_lbl:
+                        y_unit = r.get("y_axis_units", "")
+                        yu = f" ({y_unit})" if y_unit else ""
+                        y_min = r.get("y_axis_range_min", "")
+                        y_max = r.get("y_axis_range_max", "")
+                        yr = f" [{y_min}\u2013{y_max}]" if y_min and y_max else ""
+                        axis_parts.append(f"Y: {_esc(y_lbl)}{_esc(yu)}{_esc(yr)}")
+                    if c_lbl:
+                        c_unit = r.get("color_axis_units", "")
+                        cu = f" ({c_unit})" if c_unit else ""
+                        axis_parts.append(f"Color: {_esc(c_lbl)}{_esc(cu)}")
+                    h.append(f'<dt>Axes</dt><dd>{" &bull; ".join(axis_parts)}</dd>')
 
-                axis_lines = []
-                if x_lbl:
-                    xr = f" [{x_min}\u2013{x_max}]" if x_min and x_max else ""
-                    xu = f" ({x_unit})" if x_unit else ""
-                    axis_lines.append(f"X: {x_lbl}{xu}{xr}")
-                if y_lbl:
-                    yr = f" [{y_min}\u2013{y_max}]" if y_min and y_max else ""
-                    yu = f" ({y_unit})" if y_unit else ""
-                    axis_lines.append(f"Y: {y_lbl}{yu}{yr}")
-                if c_lbl:
-                    cu = f" ({c_unit})" if c_unit else ""
-                    axis_lines.append(f"C: {c_lbl}{cu}")
-                axes_cell = '<br>'.join(_esc(a) for a in axis_lines) if axis_lines else "\u2014"
-
-                # Trends cell with descriptions
+                # ── Trends ──
                 trends_str = r.get("trends_json", "[]") or "[]"
                 try:
                     trends_list = json.loads(trends_str)
                 except Exception:
                     trends_list = []
-                trends_cell = ""
                 if isinstance(trends_list, list) and trends_list:
                     trend_parts = []
                     for t in trends_list:
@@ -591,11 +592,12 @@ def _section_appendix(rows) -> list[str]:
                             label = f"{series}: {direction}" if series else direction
                             tag = _trend_tag(label)
                             if desc:
-                                tag += f' <span class="axis-info">{_esc(desc[:80])}</span>'
+                                tag += f' <span class="axis-info">{_esc(desc[:100])}</span>'
                             trend_parts.append(tag)
-                    trends_cell = "<br>".join(trend_parts)
+                    if trend_parts:
+                        h.append(f'<dt>Trends</dt><dd>{"<br>".join(trend_parts)}</dd>')
 
-                # Statistics cell: extract p-values and correlations
+                # ── Statistics ──
                 all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
                 pvals = extract_pvalues(all_text)
                 corrs = extract_correlations(all_text)
@@ -603,28 +605,26 @@ def _section_appendix(rows) -> list[str]:
                 for pval, ctx in pvals:
                     cls = _sig_class(pval)
                     cls_attr = f' class="{cls}"' if cls else ""
-                    stats_parts.append(f'<span{cls_attr}>p={pval:.4f}</span>')
+                    stats_parts.append(f'<span{cls_attr}>p={pval:.4f}</span>'
+                                       f' <span class="axis-info">{_esc(ctx[:60])}</span>')
                 for rval, ctx in corrs:
                     if abs(rval) >= 0.3:
-                        stats_parts.append(f'r={rval:+.2f}')
-                stats_cell = "<br>".join(stats_parts) if stats_parts else "\u2014"
+                        stats_parts.append(f'r={rval:+.2f}'
+                                           f' <span class="axis-info">{_esc(ctx[:60])}</span>')
+                if stats_parts:
+                    h.append(f'<dt>Statistics</dt><dd>{"<br>".join(stats_parts)}</dd>')
 
-                # Issues cell
+                # ── Issues ──
                 issues_str = r.get("issues_json", "[]") or "[]"
                 try:
                     issues_list = json.loads(issues_str)
                 except Exception:
                     issues_list = []
                 if isinstance(issues_list, list) and issues_list:
-                    issues_cell = "<ul>" + "".join(
-                        f"<li>{_esc(iss)}</li>" for iss in issues_list
-                    ) + "</ul>"
-                else:
-                    issues_cell = "\u2014"
+                    items = "".join(f"<li>{_esc(iss)}</li>" for iss in issues_list)
+                    h.append(f'<dt>Issues</dt><dd><ul style="margin:0;padding-left:1.2em">{items}</ul></dd>')
 
-                # Details: inflection points + summary in collapsible
-                detail_parts = []
-                # Inflection points inline
+                # ── Inflection points ──
                 ips_str = r.get("inflection_points_json", "[]") or "[]"
                 try:
                     ips_list = json.loads(ips_str)
@@ -640,42 +640,24 @@ def _section_appendix(rows) -> list[str]:
                             coord = f"x={_esc(str(x))}"
                             if y is not None and y != "":
                                 coord += f", y={_esc(str(y))}"
-                            ip_items.append(f"({coord}): {_esc(str(desc_ip))}")
+                            ip_items.append(f"({coord}) {_esc(str(desc_ip))}")
                     if ip_items:
-                        detail_parts.append(
-                            "<strong>Inflection points:</strong><ul>" +
-                            "".join(f"<li>{item}</li>" for item in ip_items) +
-                            "</ul>"
-                        )
+                        h.append(f'<dt>Inflection pts</dt><dd>{"<br>".join(ip_items)}</dd>')
 
-                # Summary
+                # ── Summary ──
                 summary = r.get("summary", "") or ""
-                if summary:
-                    if len(summary) > 150:
-                        detail_parts.append(
-                            f"<details><summary>Full summary ({len(summary)} chars)</summary>"
-                            f'<p class="full-summary">{_esc(summary)}</p></details>'
+                if summary and not summary.startswith("JSON parse error"):
+                    h.append('<dt class="graph-card-full">Summary</dt>')
+                    if len(summary) > 200:
+                        h.append(
+                            f'<dd class="graph-card-full"><details>'
+                            f'<summary>{_esc(summary[:150])}\u2026</summary>'
+                            f'<p>{_esc(summary)}</p></details></dd>'
                         )
                     else:
-                        detail_parts.append(f'<p class="full-summary">{_esc(summary)}</p>')
+                        h.append(f'<dd class="graph-card-full">{_esc(summary)}</dd>')
 
-                details_cell = "".join(detail_parts) if detail_parts else "\u2014"
-
-                title_display = _esc(graph_title) if graph_title else "\u2014"
-                h.append(
-                    f"<tr>"
-                    f"<td>{i}</td>"
-                    f"<td>{_dwi_badge(dwi_type)}</td>"
-                    f"<td>{_esc(base_name)}</td>"
-                    f'<td class="axis-info">{title_display}</td>'
-                    f'<td class="axis-info">{axes_cell}</td>'
-                    f"<td>{trends_cell}</td>"
-                    f"<td>{stats_cell}</td>"
-                    f"<td>{issues_cell}</td>"
-                    f"<td>{details_cell}</td>"
-                    f"</tr>"
-                )
-            h.append("</tbody></table>")
+                h.append('</dl></div>')
     return h
 
 

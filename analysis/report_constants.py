@@ -123,9 +123,16 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .manuscript-sentence { background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 0.5rem 0.75rem; margin: 0.3rem 0; font-size: 0.9rem; line-height: 1.5; position: relative; }
 .manuscript-sentence .copy-btn { position: absolute; top: 0.35rem; right: 0.5rem; }
 .checklist-table td:first-child { font-weight: 600; white-space: nowrap; }
-.table-wide { font-size: 0.82rem; }
-.table-wide td, .table-wide th { padding: 0.3rem 0.5rem; }
+.table-wide { font-size: 0.82rem; table-layout: fixed; }
+.table-wide td, .table-wide th { padding: 0.3rem 0.5rem; overflow-wrap: break-word; word-break: break-word; }
 .table-wide .axis-info { font-size: 0.75rem; }
+.graph-card { background: #fafbfc; border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem 1rem; margin: 0.5rem 0; font-size: 0.88rem; line-height: 1.55; }
+.graph-card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; font-weight: 600; }
+.graph-card-header .badge { flex-shrink: 0; }
+.graph-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem 1.5rem; margin-top: 0.4rem; }
+.graph-card-grid dt { font-weight: 600; color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 0.3rem; }
+.graph-card-grid dd { margin: 0; }
+.graph-card-full { grid-column: 1 / -1; }
 .table-compact td, .table-compact th { padding: 0.3rem 0.5rem; font-size: 0.85rem; }
 .checklist-done { color: var(--green); }
 .checklist-partial { color: var(--amber); }
@@ -166,6 +173,11 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     img { max-width: 100%; height: auto; }
     .table-wide { font-size: 7pt; }
     .table-wide td, .table-wide th { padding: 0.15rem 0.3rem; }
+    .graph-card { break-inside: avoid; border: 1px solid #ccc; padding: 0.5rem 0.75rem; margin: 0.35rem 0; font-size: 8pt; }
+    .graph-card-grid { display: block; }
+    .graph-card-grid dt { display: inline; font-weight: bold; }
+    .graph-card-grid dd { display: inline; margin: 0; }
+    .graph-card-grid dd::after { content: ""; display: block; }
 }
 """
 
