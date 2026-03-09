@@ -118,19 +118,22 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
         end
 
         function testIdenticalStandardIVIMnet(testCase)
-            % Standard and IVIMnet with identical ADC subvolume
+            % Tests the Standard + IVIMnet combination (skipping dnCNN).
+            % Both types have identical ADC subvolume values, so the scatter
+            % plot should show points on the identity line. This verifies
+            % the function handles the case where only non-adjacent DWI
+            % type indices (1 and 3) are available.
             nPat = 6;
             shared_vals = linspace(0.2, 0.4, nPat)';
 
             sm_std = make_mock_sm(nPat);
-            sm_std.adc_sub_vol_pc(:,1,1) = shared_vals;
+            sm_std.adc_sub_vol_pc(:,1,1) = shared_vals; % DWI type index 1 = Standard
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), sm_std);
 
             sm_ivimnet = make_mock_sm(nPat);
-            sm_ivimnet.adc_sub_vol_pc(:,1,3) = shared_vals;
+            sm_ivimnet.adc_sub_vol_pc(:,1,3) = shared_vals; % DWI type index 3 = IVIMnet
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_IVIMnet.mat'), sm_ivimnet);
 
-            % Should run without error and create the figure
             plot_cross_dwi_subvolume_comparison(sm_std, testCase.ConfigStruct);
 
             out_file = fullfile(testCase.TempDir, 'Cross_DWI_ADC_Subvolume_Fx1.png');
@@ -138,12 +141,15 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
         end
 
         function testAllNaN(testCase)
-            % All-NaN subvolume data — should skip gracefully
+            % When all subvolume data is NaN (no valid voxels for any patient),
+            % the function should skip figure creation rather than producing
+            % an empty or broken scatter plot. This can happen when GTV masks
+            % are missing for all patients.
             nPat = 5;
-            sm_std = make_mock_sm(nPat);
+            sm_std = make_mock_sm(nPat); % adc_sub_vol_pc initialized to all NaN
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_Standard.mat'), sm_std);
 
-            sm_dncnn = make_mock_sm(nPat);
+            sm_dncnn = make_mock_sm(nPat); % Also all NaN
             save_mock(fullfile(testCase.TempDir, 'summary_metrics_dnCNN.mat'), sm_dncnn);
 
             plot_cross_dwi_subvolume_comparison(sm_std, testCase.ConfigStruct);
