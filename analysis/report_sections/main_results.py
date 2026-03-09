@@ -25,6 +25,18 @@ from report_formatters import (
     _table_caption,
     _trend_tag,
 )
+from report_sections._helpers import (
+    _aggregate_dwi_statistics,
+    _aggregate_sanity_checks,
+    _compute_all_groups_trend_agreement,
+    _compute_feature_overlap,
+    _extract_dosimetry,
+    _extract_longitudinal_trend_consensus,
+    _extract_significant_metrics,
+    _find_best_auc,
+    _get_cohort_size,
+    _safe_json_load,
+)
 
 
 def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data=None) -> list[str]:
@@ -70,25 +82,12 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     if rows:
         cards.append(_stat_card("Graphs Analysed", str(len(rows))))
 
-    total_sig = 0
-    total_hrs = 0
-    sig_hrs = 0
-    if log_data:
-        for dwi_type in dwi_types_present:
-            if dwi_type not in log_data:
-                continue
-            # Find the best AUC across all timepoints for this DWI type.
-            roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
-            best_auc = max((r.get("auc", 0) for r in roc), default=0)
-            if best_auc > 0:
-                cards.append(_stat_card(f"Best AUC ({dwi_type})", f"{best_auc:.3f}"))
-            # Count GLME metrics that pass their BH-adjusted significance threshold.
-            sc = log_data[dwi_type].get("stats_comparisons", {})
-            total_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
-            # Count hazard ratios
-            hrs = log_data[dwi_type].get("survival", {}).get("hazard_ratios", [])
-            total_hrs += len(hrs)
-            sig_hrs += len([hr for hr in hrs if hr.get("p", 1) < 0.05])
+    stats = _aggregate_dwi_statistics(log_data, dwi_types_present)
+    total_sig = stats["total_sig"]
+    total_hrs = stats["total_hrs"]
+    sig_hrs = stats["sig_hrs"]
+    for dt_label, auc_val in stats["auc_cards"]:
+        cards.append(_stat_card(f"Best AUC ({dt_label})", f"{auc_val:.3f}"))
 
     if total_sig > 0:
         cards.append(_stat_card("GLME Sig. Interactions", str(total_sig), "across all DWI types"))
@@ -117,73 +116,33 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
             cards.append(_stat_card("Notable Correlations", str(n_corr), "|r| \u2265 0.3"))
 
     # Cross-DWI feature overlap
-    if log_data and len(dwi_types_present) >= 2:
-        tp_features: dict[str, dict[str, list[str]]] = {}
-        for dt in dwi_types_present:
-            if dt not in log_data:
-                continue
-            fs_list = log_data[dt].get("stats_predictive", {}).get("feature_selections", [])
-            for fs in fs_list:
-                tp = fs.get("timepoint", "?")
-                tp_features.setdefault(tp, {})[dt] = fs.get("features", [])
-        total_shared = 0
-        total_all = 0
-        for tp, dts_dict in tp_features.items():
-            if len(dts_dict) < 2:
-                continue
-            all_feats: set[str] = set()
-            for feats in dts_dict.values():
-                all_feats.update(feats)
-            total_all += len(all_feats)
-            for feat in all_feats:
-                if sum(1 for feats in dts_dict.values() if feat in feats) >= 2:
-                    total_shared += 1
-        if total_all > 0:
-            cards.append(_stat_card("Feature Overlap",
-                                    f"{total_shared}/{total_all}",
-                                    "shared across DWI types"))
+    total_shared, total_all = _compute_feature_overlap(log_data, dwi_types_present)
+    if total_all > 0:
+        cards.append(_stat_card("Feature Overlap",
+                                f"{total_shared}/{total_all}",
+                                "shared across DWI types"))
 
     # Cohort info from MAT data
-    if mat_data:
-        for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                lon = mat_data[dt]["longitudinal"]
-                n_pat = lon.get("num_patients", 0)
-                n_tp = lon.get("num_timepoints", 0)
-                if n_pat > 0:
-                    cards.append(_stat_card("Cohort", f"{n_pat} patients", f"{n_tp} timepoints"))
-                    break  # only show once
+    n_pat, n_tp, _ = _get_cohort_size(mat_data)
+    if n_pat > 0:
+        cards.append(_stat_card("Cohort", f"{n_pat} patients", f"{n_tp} timepoints"))
 
     # Sanity check summary (convergence + alignment)
-    if log_data:
-        all_converged_count = 0
-        total_conv_flags = 0
-        total_dim_issues = 0
-        sanity_types_checked = 0
-        for dt in dwi_types_present:
-            if dt not in log_data:
-                continue
-            san = log_data[dt].get("sanity_checks", {})
-            if not san:
-                continue
-            sanity_types_checked += 1
-            if san.get("all_converged"):
-                all_converged_count += 1
-            total_conv_flags += san.get("total_convergence", 0)
-            total_dim_issues += san.get("dim_mismatches", 0) + san.get("nan_dose_warnings", 0)
-        if sanity_types_checked > 0:
-            if all_converged_count == sanity_types_checked and total_dim_issues == 0:
-                cards.append(_stat_card("Data Quality", "All Passed",
-                                        "convergence + alignment"))
-            else:
-                issue_parts = []
-                if total_conv_flags > 0:
-                    issue_parts.append(f"{total_conv_flags} conv.")
-                if total_dim_issues > 0:
-                    issue_parts.append(f"{total_dim_issues} align.")
-                cards.append(_stat_card("Data Quality",
-                                        ", ".join(issue_parts) if issue_parts else "Passed",
-                                        "flags across DWI types"))
+    san_agg = _aggregate_sanity_checks(log_data, dwi_types_present)
+    if san_agg["sanity_types_checked"] > 0:
+        if (san_agg["all_converged_count"] == san_agg["sanity_types_checked"]
+                and san_agg["total_dim_issues"] == 0):
+            cards.append(_stat_card("Data Quality", "All Passed",
+                                    "convergence + alignment"))
+        else:
+            issue_parts = []
+            if san_agg["total_conv_flags"] > 0:
+                issue_parts.append(f"{san_agg['total_conv_flags']} conv.")
+            if san_agg["total_dim_issues"] > 0:
+                issue_parts.append(f"{san_agg['total_dim_issues']} align.")
+            cards.append(_stat_card("Data Quality",
+                                    ", ".join(issue_parts) if issue_parts else "Passed",
+                                    "flags across DWI types"))
 
     if cards:
         h.append('<div class="stat-grid">')
@@ -200,18 +159,11 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
 
     h.append("<h4>Methods</h4>")
     methods_parts = []
-    if mat_data:
-        for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                lon = mat_data[dt]["longitudinal"]
-                n_pat = lon.get("num_patients", 0)
-                n_tp = lon.get("num_timepoints", 0)
-                if n_pat > 0:
-                    methods_parts.append(
-                        f"Longitudinal DWI data from {n_pat} patients across "
-                        f"{n_tp} timepoints were analysed."
-                    )
-                    break
+    if n_pat > 0:
+        methods_parts.append(
+            f"Longitudinal DWI data from {n_pat} patients across "
+            f"{n_tp} timepoints were analysed."
+        )
     methods_parts.append(
         "Statistical analysis included Wilcoxon rank-sum tests with Benjamini\u2013Hochberg "
         "FDR correction, generalised linear mixed-effects (GLME) interaction models, "
@@ -231,18 +183,8 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     if sig_hrs > 0:
         result_bullets.append(f"{sig_hrs} of {total_hrs} Cox PH covariate(s) were statistically significant (p < 0.05)")
     # Best AUC across all types
-    best_overall_auc = 0
-    best_auc_type = ""
-    if log_data:
-        for dwi_type in dwi_types_present:
-            if dwi_type not in log_data:
-                continue
-            roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
-            for r_item in roc:
-                a = r_item.get("auc", 0)
-                if a > best_overall_auc:
-                    best_overall_auc = a
-                    best_auc_type = dwi_type
+    best_roc_overall, best_auc_type = _find_best_auc(log_data, dwi_types_present)
+    best_overall_auc = best_roc_overall.get("auc", 0.0) if best_roc_overall else 0.0
     if best_overall_auc > 0:
         result_bullets.append(f"Peak discriminative performance: AUC = {best_overall_auc:.3f} ({best_auc_type})")
     # Cross-DWI trend agreement key result (for abstract)
@@ -255,20 +197,12 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
             )
 
     # Sanity check key result
-    if log_data:
-        san_all_ok = True
-        san_total_flags = 0
-        for dt in dwi_types_present:
-            if dt not in log_data:
-                continue
-            san = log_data[dt].get("sanity_checks", {})
-            if san and not san.get("all_converged"):
-                san_all_ok = False
-            san_total_flags += san.get("total_convergence", 0) if san else 0
-        if san_all_ok and san_total_flags == 0:
+    if san_agg["sanity_types_checked"] > 0:
+        if (san_agg["all_converged_count"] == san_agg["sanity_types_checked"]
+                and san_agg["total_conv_flags"] == 0):
             result_bullets.append("All voxel-level model fits converged successfully across DWI types")
-        elif san_total_flags > 0:
-            result_bullets.append(f"{san_total_flags} convergence flag(s) raised across DWI types (see Data Completeness)")
+        elif san_agg["total_conv_flags"] > 0:
+            result_bullets.append(f"{san_agg['total_conv_flags']} convergence flag(s) raised across DWI types (see Data Completeness)")
     if result_bullets:
         h.append("<ul>")
         for rb in result_bullets:
@@ -343,55 +277,17 @@ def _section_hypothesis(groups, log_data=None, mat_data=None) -> list[str]:
     cellular_inflections: list[str] = []
 
     # ── Extract statistically significant metrics from log_data ──
-    # These gate which factors are highlighted in the hypothesis and plan.
-    sig_glme: list[dict] = []            # GLME interactions with p < 0.05
-    sig_glme_details: list[dict] = []    # Per-metric rows with p < adj_alpha
-    sig_fdr_timepoints: list[dict] = []  # Timepoints with FDR-sig metrics
-    sig_hr: list[dict] = []              # Significant hazard ratios
-    best_roc: dict | None = None         # Best ROC analysis result
-    best_roc_dt = ""                     # DWI type of best ROC
-    all_feature_selections: list[dict] = []  # Per-timepoint elastic net
-    if log_data:
-        for dt in DWI_TYPES:
-            dt_data = log_data.get(dt)
-            if not dt_data:
-                continue
-            # GLME interaction p-values
-            stats_cmp = dt_data.get("stats_comparisons") or {}
-            for p_val in stats_cmp.get("glme_interactions", []):
-                if p_val < 0.05:
-                    sig_glme.append({"p": p_val, "dwi_type": dt})
-            for detail in stats_cmp.get("glme_details", []):
-                if detail.get("p", 1.0) < detail.get("adj_alpha", 0.05):
-                    sig_glme_details.append({**detail, "dwi_type": dt})
-            for fdr_tp in stats_cmp.get("fdr_timepoints", []):
-                if fdr_tp.get("n_significant", 0) > 0:
-                    sig_fdr_timepoints.append({**fdr_tp, "dwi_type": dt})
-            # Survival hazard ratios
-            surv = dt_data.get("survival") or {}
-            for hr_entry in surv.get("hazard_ratios", []):
-                if hr_entry.get("p", 1.0) < 0.05:
-                    sig_hr.append({**hr_entry, "dwi_type": dt})
-            # Predictive model ROC/AUC
-            pred = dt_data.get("stats_predictive") or {}
-            for roc in pred.get("roc_analyses", []):
-                auc = roc.get("auc", 0.0)
-                if best_roc is None or auc > best_roc.get("auc", 0.0):
-                    best_roc = roc
-                    best_roc_dt = dt
-            for fs in pred.get("feature_selections", []):
-                if fs.get("features"):
-                    all_feature_selections.append({**fs, "dwi_type": dt})
+    sig_metrics = _extract_significant_metrics(log_data)
+    sig_glme = sig_metrics["sig_glme"]
+    sig_glme_details = sig_metrics["sig_glme_details"]
+    sig_fdr_timepoints = sig_metrics["sig_fdr_timepoints"]
+    sig_hr = sig_metrics["sig_hr"]
+    best_roc = sig_metrics["best_roc"]
+    best_roc_dt = sig_metrics["best_roc_dt"]
+    all_feature_selections = sig_metrics["all_feature_selections"]
 
     # ── Extract dosimetry from mat_data ──
-    dosimetry: dict = {}
-    dosimetry_dt = ""
-    if mat_data:
-        for dt in DWI_TYPES:
-            dosi = (mat_data.get(dt) or {}).get("dosimetry")
-            if dosi and not dosimetry:
-                dosimetry = dosi
-                dosimetry_dt = dt
+    dosimetry, dosimetry_dt = _extract_dosimetry(mat_data)
 
     # Analyse the Longitudinal_Mean_Metrics graph (if present) to extract
     # trend directions for D (diffusion) and f (perfusion fraction), plus
@@ -1454,17 +1350,7 @@ def _section_manuscript_ready_findings(
     sentences: list[str] = []
 
     # ── Cohort description sentence ──
-    n_patients = 0
-    n_timepoints = 0
-    if mat_data:
-        for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                lon = mat_data[dt]["longitudinal"]
-                n = lon.get("num_patients", 0)
-                tp = lon.get("num_timepoints", 0)
-                if n > n_patients:
-                    n_patients = n
-                    n_timepoints = tp
+    n_patients, n_timepoints, _ = _get_cohort_size(mat_data)
     if n_patients > 0:
         sentences.append(
             f"A total of {n_patients} patients with pancreatic cancer "
@@ -1608,45 +1494,24 @@ def _section_manuscript_ready_findings(
                 )
 
     # ── Dosimetry sentence ──
-    if mat_data:
-        for dt in DWI_TYPES:
-            dosi = (mat_data.get(dt) or {}).get("dosimetry")
-            if dosi:
-                d95 = dosi.get("d95_adc_mean")
-                v50 = dosi.get("v50_adc_mean")
-                if d95 is not None:
-                    v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
-                               else v50) if v50 is not None else None
-                    parts = [f"D95 = {d95:.1f} Gy"]
-                    if v50_pct is not None:
-                        parts.append(f"V50 = {v50_pct:.0f}%")
-                    sentences.append(
-                        f"Dosimetric analysis of ADC-defined resistant "
-                        f"sub-volumes showed {', '.join(parts)}."
-                    )
-                break
+    dosi, _ = _extract_dosimetry(mat_data)
+    if dosi:
+        d95 = dosi.get("d95_adc_mean")
+        v50 = dosi.get("v50_adc_mean")
+        if d95 is not None:
+            v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
+                       else v50) if v50 is not None else None
+            parts = [f"D95 = {d95:.1f} Gy"]
+            if v50_pct is not None:
+                parts.append(f"V50 = {v50_pct:.0f}%")
+            sentences.append(
+                f"Dosimetric analysis of ADC-defined resistant "
+                f"sub-volumes showed {', '.join(parts)}."
+            )
 
     # ── Longitudinal trend sentence ──
-    if groups and "Longitudinal_Mean_Metrics" in groups:
-        d_trends = []
-        f_trends = []
-        for dt, r in groups["Longitudinal_Mean_Metrics"].items():
-            if dt == "Root":
-                continue
-            try:
-                trends = json.loads(str(r.get("trends_json", "[]")))
-                for t in trends:
-                    if isinstance(t, dict):
-                        series = t.get("series", "")
-                        direction = t.get("direction", "").lower()
-                        if series == "Mean D":
-                            d_trends.append(direction)
-                        elif series == "Mean f":
-                            f_trends.append(direction)
-            except Exception:
-                pass
-        d_cons = _get_consensus(d_trends)
-        f_cons = _get_consensus(f_trends)
+    d_cons, f_cons, _, _ = _extract_longitudinal_trend_consensus(groups)
+    if d_cons != "unknown" or f_cons != "unknown":
         d_word = {"increasing": "increased", "decreasing": "decreased"}.get(
             d_cons, "remained stable"
         )
@@ -1665,51 +1530,21 @@ def _section_manuscript_ready_findings(
         )
 
     # ── Cross-DWI agreement sentence ──
-    if groups:
-        n_agree = 0
-        n_total_series = 0
-        for base_name, dwi_dict in groups.items():
-            real = [t for t in dwi_dict if t != "Root"]
-            if len(real) < 2:
-                continue
-            all_trends_dict: dict[str, list] = {}
-            for dt_key in DWI_TYPES:
-                if dt_key in dwi_dict:
-                    try:
-                        all_trends_dict[dt_key] = json.loads(
-                            str(dwi_dict[dt_key].get("trends_json", "[]"))
-                        )
-                    except Exception:
-                        pass
-            if len(all_trends_dict) >= 2:
-                all_series: set[str] = set()
-                for trends in all_trends_dict.values():
-                    for t in trends:
-                        if isinstance(t, dict):
-                            all_series.add(t.get("series") or "overall")
-                for series in all_series:
-                    dirs: dict[str, str] = {}
-                    for dt_key, trends in all_trends_dict.items():
-                        for t in trends:
-                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
-                                dirs[dt_key] = str(t.get("direction", ""))
-                    if len(dirs) >= 2:
-                        n_total_series += 1
-                        if len(set(dirs.values())) == 1:
-                            n_agree += 1
-        if n_total_series > 0:
-            pct = 100 * n_agree / n_total_series
-            sentences.append(
-                f"Cross-DWI-type trend agreement was {pct:.0f}% "
-                f"({n_agree}/{n_total_series} data series), "
-                + (
-                    "supporting robustness of findings across "
-                    "acquisition strategies."
-                    if pct >= 70
-                    else "suggesting some acquisition-dependent variability "
-                    "in observed trends."
-                )
+    n_agree, n_total_series, pct = _compute_all_groups_trend_agreement(
+        groups, dwi_types_present
+    )
+    if n_total_series > 0:
+        sentences.append(
+            f"Cross-DWI-type trend agreement was {pct:.0f}% "
+            f"({n_agree}/{n_total_series} data series), "
+            + (
+                "supporting robustness of findings across "
+                "acquisition strategies."
+                if pct >= 70
+                else "suggesting some acquisition-dependent variability "
+                "in observed trends."
             )
+        )
 
     if not sentences:
         return h
@@ -1771,17 +1606,7 @@ def _section_results_draft(
     paragraphs: list[tuple[str, str]] = []  # (subsection_title, paragraph_text)
 
     # ── 1. Cohort paragraph ──
-    n_patients = 0
-    n_timepoints = 0
-    if mat_data:
-        for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                lon = mat_data[dt]["longitudinal"]
-                n = lon.get("num_patients", 0)
-                tp = lon.get("num_timepoints", 0)
-                if n > n_patients:
-                    n_patients = n
-                    n_timepoints = tp
+    n_patients, n_timepoints, _ = _get_cohort_size(mat_data)
 
     baseline_exc = None
     if log_data:
@@ -1982,79 +1807,46 @@ def _section_results_draft(
             paragraphs.append(("Survival Analysis", "".join(parts)))
 
     # ── 5. Cross-DWI comparison paragraph ──
-    if groups and len(dwi_types_present) >= 2:
-        n_agree = 0
-        n_total_series = 0
-        for base_name, dwi_dict in groups.items():
-            real = [t for t in dwi_dict if t != "Root"]
-            if len(real) < 2:
-                continue
-            all_trends_dict: dict[str, list] = {}
-            for dt_key in DWI_TYPES:
-                if dt_key in dwi_dict:
-                    try:
-                        all_trends_dict[dt_key] = json.loads(
-                            str(dwi_dict[dt_key].get("trends_json", "[]"))
-                        )
-                    except Exception:
-                        pass
-            if len(all_trends_dict) >= 2:
-                all_series: set[str] = set()
-                for trends in all_trends_dict.values():
-                    for t in trends:
-                        if isinstance(t, dict):
-                            all_series.add(t.get("series") or "overall")
-                for series in all_series:
-                    dirs: dict[str, str] = {}
-                    for dt_key, trends in all_trends_dict.items():
-                        for t in trends:
-                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
-                                dirs[dt_key] = str(t.get("direction", ""))
-                    if len(dirs) >= 2:
-                        n_total_series += 1
-                        if len(set(dirs.values())) == 1:
-                            n_agree += 1
-        if n_total_series > 0:
-            pct = 100 * n_agree / n_total_series
-            robust = "high" if pct >= 80 else "moderate" if pct >= 60 else "limited"
-            paragraphs.append(("Cross-DWI Comparison",
-                f"Trend agreement across the {len(dwi_types_present)} DWI "
-                f"processing strategies (Standard, DnCNN, IVIMnet) was "
-                f"{pct:.0f}% ({n_agree}/{n_total_series} data series), "
-                f"indicating {robust} robustness of the observed biomarker "
-                f"trajectories to the choice of acquisition and "
-                f"post-processing method."
-            ))
+    n_agree, n_total_series, pct = _compute_all_groups_trend_agreement(
+        groups, dwi_types_present
+    )
+    if n_total_series > 0:
+        robust = "high" if pct >= 80 else "moderate" if pct >= 60 else "limited"
+        paragraphs.append(("Cross-DWI Comparison",
+            f"Trend agreement across the {len(dwi_types_present)} DWI "
+            f"processing strategies (Standard, DnCNN, IVIMnet) was "
+            f"{pct:.0f}% ({n_agree}/{n_total_series} data series), "
+            f"indicating {robust} robustness of the observed biomarker "
+            f"trajectories to the choice of acquisition and "
+            f"post-processing method."
+        ))
 
     # ── 6. Dosimetry paragraph ──
-    if mat_data:
-        for dt in DWI_TYPES:
-            dosi = (mat_data.get(dt) or {}).get("dosimetry")
-            if dosi:
-                d95 = dosi.get("d95_adc_mean")
-                v50 = dosi.get("v50_adc_mean")
-                if d95 is not None:
-                    v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
-                               else v50) if v50 is not None else None
-                    coverage = "adequate" if d95 >= 45.0 else "suboptimal"
-                    parts = [
-                        f"Dosimetric analysis of ADC-defined resistant "
-                        f"sub-volumes demonstrated {coverage} target coverage "
-                        f"(D95 = {d95:.1f} Gy"
-                    ]
-                    if v50_pct is not None:
-                        parts.append(f"; V50 = {v50_pct:.0f}%")
-                    parts.append(
-                        "), suggesting that diffusion-defined resistant "
-                        "regions may receive insufficient dose with current "
-                        "treatment plans."
-                        if d95 < 45.0
-                        else "), indicating that current treatment plans "
-                        "provide adequate coverage of diffusion-defined "
-                        "resistant sub-volumes."
-                    )
-                    paragraphs.append(("Dosimetric Analysis", "".join(parts)))
-                break
+    dosi, _ = _extract_dosimetry(mat_data)
+    if dosi:
+        d95 = dosi.get("d95_adc_mean")
+        v50 = dosi.get("v50_adc_mean")
+        if d95 is not None:
+            v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
+                       else v50) if v50 is not None else None
+            coverage = "adequate" if d95 >= 45.0 else "suboptimal"
+            parts = [
+                f"Dosimetric analysis of ADC-defined resistant "
+                f"sub-volumes demonstrated {coverage} target coverage "
+                f"(D95 = {d95:.1f} Gy"
+            ]
+            if v50_pct is not None:
+                parts.append(f"; V50 = {v50_pct:.0f}%")
+            parts.append(
+                "), suggesting that diffusion-defined resistant "
+                "regions may receive insufficient dose with current "
+                "treatment plans."
+                if d95 < 45.0
+                else "), indicating that current treatment plans "
+                "provide adequate coverage of diffusion-defined "
+                "resistant sub-volumes."
+            )
+            paragraphs.append(("Dosimetric Analysis", "".join(parts)))
 
     if not paragraphs:
         return h
