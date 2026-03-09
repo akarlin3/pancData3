@@ -243,15 +243,65 @@ MAX_OUTPUT_TOKENS = _vision_cfg["max_output_tokens"]
 REQUEST_TIMEOUT = _vision_cfg["request_timeout_seconds"]
 
 
+class _RateLimitCoordinator:
+    """Coordinates rate-limit backoff across all workers.
+
+    When any worker hits a 429/rate-limit error it calls :meth:`signal`,
+    which sets a shared cooldown timestamp.  Before each API call workers
+    call :meth:`wait_if_cooling_down` to honour the cooldown.  This
+    prevents the thundering-herd problem where multiple workers slam the
+    API simultaneously after individual backoffs expire.
+    """
+
+    def __init__(self):
+        self._resume_at: float = 0.0  # monotonic timestamp
+        self._lock = asyncio.Lock()
+        self._consecutive_hits: int = 0
+
+    async def signal(self):
+        """Record a rate-limit hit and extend the global cooldown."""
+        async with self._lock:
+            self._consecutive_hits += 1
+            # Exponential cooldown: base * 2^(hits-1), capped at 4× base.
+            wait = min(BACKOFF_BASE * (2 ** (self._consecutive_hits - 1)),
+                       BACKOFF_BASE * 4)
+            now = asyncio.get_event_loop().time()
+            new_resume = now + wait
+            if new_resume > self._resume_at:
+                self._resume_at = new_resume
+                print(f"  [RATE-LIMIT] Global cooldown: {wait:.0f}s "
+                      f"(consecutive hits: {self._consecutive_hits})", flush=True)
+
+    async def wait_if_cooling_down(self):
+        """Sleep until the global cooldown expires (no-op if not active)."""
+        now = asyncio.get_event_loop().time()
+        if now < self._resume_at:
+            delay = self._resume_at - now
+            await asyncio.sleep(delay)
+
+    async def record_success(self):
+        """Reset the consecutive-hit counter after a successful request."""
+        async with self._lock:
+            self._consecutive_hits = 0
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """Check whether *exc* is a rate-limit / quota error."""
+    err_str = str(exc).lower()
+    return ("429" in err_str or "rate" in err_str
+            or "resource" in err_str or "quota" in err_str)
+
+
 async def analyze_image(
     client,
     image_path: Path,
-    semaphore: asyncio.Semaphore,
+    rate_limiter: _RateLimitCoordinator,
     progress_bar: tqdm | None = None,
 ) -> GraphAnalysis:
     """Send one image to Gemini and parse the structured JSON response.
 
-    The function handles rate-limit retries, markdown fence stripping, JSON
+    The function handles rate-limit retries (coordinated via a shared
+    :class:`_RateLimitCoordinator`), markdown fence stripping, JSON
     parsing, and Pydantic validation.  On any non-recoverable error a
     fallback ``GraphAnalysis`` with ``graph_type="unknown"`` or ``"error"``
     is returned so that the batch can continue.
@@ -262,114 +312,115 @@ async def analyze_image(
         Authenticated Google Gen AI client.
     image_path : Path
         Path to the graph image to analyse.
-    semaphore : asyncio.Semaphore
-        Controls concurrent API request count.
+    rate_limiter : _RateLimitCoordinator
+        Shared coordinator that pauses all workers on 429 errors.
 
     Returns
     -------
     GraphAnalysis
         Validated structured analysis, or a fallback object on failure.
     """
-    async with semaphore:
-        image_bytes = image_path.read_bytes()
-        mime = media_type_for(image_path)
-        rel_path = str(image_path)
+    image_bytes = await asyncio.to_thread(image_path.read_bytes)
+    mime = media_type_for(image_path)
+    rel_path = str(image_path)
 
-        if progress_bar is not None:
-            progress_bar.set_postfix_str(f"analyzing {image_path.name}", refresh=True)
+    if progress_bar is not None:
+        progress_bar.set_postfix_str(f"analyzing {image_path.name}", refresh=True)
 
-        # Retry loop with exponential backoff for rate-limit errors.
-        response = None
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                response = await asyncio.wait_for(
-                    client.aio.models.generate_content(
-                        model=GEMINI_MODEL,
-                        contents=[
-                            types.Part.from_bytes(
-                                data=image_bytes,
-                                mime_type=mime,
-                            ),
-                            f"Analyze this graph image. File: {image_path.name}\n"
-                            "Return ONLY the JSON object described in your instructions.",
-                        ],
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            max_output_tokens=MAX_OUTPUT_TOKENS,
+    # Retry loop with exponential backoff for rate-limit errors.
+    response = None
+    for attempt in range(MAX_RETRIES + 1):
+        # Honour any global cooldown before sending a request.
+        await rate_limiter.wait_if_cooling_down()
+
+        try:
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=[
+                        types.Part.from_bytes(
+                            data=image_bytes,
+                            mime_type=mime,
                         ),
+                        f"Analyze this graph image. File: {image_path.name}\n"
+                        "Return ONLY the JSON object described in your instructions.",
+                    ],
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        max_output_tokens=MAX_OUTPUT_TOKENS,
                     ),
-                    timeout=REQUEST_TIMEOUT,
-                )
-                break  # Success: exit the retry loop.
-            except asyncio.TimeoutError:
-                if attempt < MAX_RETRIES:
-                    wait = 2 ** attempt * BACKOFF_BASE
-                    print(f"  [TIMEOUT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
-                    await asyncio.sleep(wait)
-                else:
-                    raise  # Give up after exhausting all retries.
-            except Exception as e:
-                # Check for rate-limit errors (HTTP 429 or resource exhausted).
-                err_str = str(e).lower()
-                is_rate_limit = "429" in err_str or "rate" in err_str or "resource" in err_str or "quota" in err_str
-                if is_rate_limit and attempt < MAX_RETRIES:
-                    # Exponential backoff: base*1, base*2, base*4, base*8
-                    wait = 2 ** attempt * BACKOFF_BASE
-                    print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
-                    await asyncio.sleep(wait)
-                elif is_rate_limit:
-                    raise  # Give up after exhausting all retries.
-                else:
-                    raise  # Non-rate-limit errors are re-raised immediately.
-
-        # Guard against the retry loop exhausting without a successful response.
-        if response is None:
-            raise RuntimeError(f"No response received for {image_path.name} after {MAX_RETRIES + 1} attempts")
-
-        raw_text = response.text.strip()
-
-        # Strip markdown code fences if the model wraps its JSON response
-        # (e.g. "```json\n{...}\n```").
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
-
-        # ── JSON parsing ──
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError as e:
-            if progress_bar is not None:
-                progress_bar.update(1)
-            else:
-                print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
-            return GraphAnalysis(
-                file_path=rel_path,
-                graph_type="unknown",
-                summary=f"JSON parse error: {e}. Raw response: {raw_text[:200]}",
+                ),
+                timeout=REQUEST_TIMEOUT,
             )
-
-        # Inject the file path (not returned by the model).
-        data["file_path"] = rel_path
-
-        # ── Pydantic validation ──
-        try:
-            analysis = GraphAnalysis(**data)
-        except ValidationError as e:
-            if progress_bar is not None:
-                progress_bar.update(1)
+            await rate_limiter.record_success()
+            break  # Success: exit the retry loop.
+        except asyncio.TimeoutError:
+            if attempt < MAX_RETRIES:
+                wait = 2 ** attempt * BACKOFF_BASE
+                print(f"  [TIMEOUT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
+                await asyncio.sleep(wait)
             else:
-                print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
-            # Fallback: preserve whatever fields parsed successfully.
-            return GraphAnalysis(
-                file_path=rel_path,
-                graph_type=data.get("graph_type", "unknown"),
-                summary=data.get("summary", f"Validation error: {e}"),
-            )
+                raise  # Give up after exhausting all retries.
+        except Exception as e:
+            if _is_rate_limit_error(e) and attempt < MAX_RETRIES:
+                await rate_limiter.signal()
+                # Worker-local backoff on top of global cooldown.
+                wait = 2 ** attempt * BACKOFF_BASE
+                print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
+                await asyncio.sleep(wait)
+            elif _is_rate_limit_error(e):
+                raise  # Give up after exhausting all retries.
+            else:
+                raise  # Non-rate-limit errors are re-raised immediately.
 
+    # Guard against the retry loop exhausting without a successful response.
+    if response is None:
+        raise RuntimeError(f"No response received for {image_path.name} after {MAX_RETRIES + 1} attempts")
+
+    raw_text = response.text.strip()
+
+    # Strip markdown code fences if the model wraps its JSON response
+    # (e.g. "```json\n{...}\n```").
+    if raw_text.startswith("```"):
+        raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+
+    # ── JSON parsing ──
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as e:
         if progress_bar is not None:
-            progress_bar.set_postfix_str(image_path.name, refresh=True)
             progress_bar.update(1)
-        return analysis
+        else:
+            print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
+        return GraphAnalysis(
+            file_path=rel_path,
+            graph_type="unknown",
+            summary=f"JSON parse error: {e}. Raw response: {raw_text[:200]}",
+        )
+
+    # Inject the file path (not returned by the model).
+    data["file_path"] = rel_path
+
+    # ── Pydantic validation ──
+    try:
+        analysis = GraphAnalysis(**data)
+    except ValidationError as e:
+        if progress_bar is not None:
+            progress_bar.update(1)
+        else:
+            print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
+        # Fallback: preserve whatever fields parsed successfully.
+        return GraphAnalysis(
+            file_path=rel_path,
+            graph_type=data.get("graph_type", "unknown"),
+            summary=data.get("summary", f"Validation error: {e}"),
+        )
+
+    if progress_bar is not None:
+        progress_bar.set_postfix_str(image_path.name, refresh=True)
+        progress_bar.update(1)
+    return analysis
 
 
 # ── Flatten to CSV rows ──────────────────────────────────────────────────────
@@ -458,11 +509,19 @@ def flatten(a: GraphAnalysis) -> dict:
 async def main():
     """Discover images, send them to the Gemini vision API, and write CSV.
 
-    This is the async entry point.  It:
+    This is the async entry point.  It uses a **worker pool** pattern
+    instead of ``asyncio.gather`` + semaphore: a fixed number of worker
+    coroutines pull images from an ``asyncio.Queue`` one at a time.
+
+    This avoids the freeze caused by the old architecture, where all tasks
+    were created upfront and backoff sleeps held semaphore slots, starving
+    queued tasks and causing cascading rate-limit failures.
+
+    Steps:
     1. Resolves the output folder.
     2. Collects all PNG/JPG images recursively.
     3. Validates the ``GEMINI_API_KEY`` environment variable.
-    4. Launches concurrent analysis tasks (bounded by :data:`SEM_LIMIT`).
+    4. Spawns ``SEM_LIMIT`` worker coroutines pulling from a queue.
     5. Collects results, substituting error placeholders for failures.
     6. Writes ``graph_analysis_results.csv`` to the output folder.
     """
@@ -487,57 +546,70 @@ async def main():
         )
 
     client = genai.Client(api_key=api_key)
-    semaphore = asyncio.Semaphore(SEM_LIMIT)
+    rate_limiter = _RateLimitCoordinator()
 
-    # Per-task timeout: generous enough to cover retries + backoff but
-    # prevents any single image from blocking the batch indefinitely.
-    # With MAX_RETRIES=4 and BACKOFF_BASE=15 the worst-case retry chain
-    # is ~225 s of sleeping plus the request itself, so we add headroom.
-    task_timeout = REQUEST_TIMEOUT * (MAX_RETRIES + 1) + BACKOFF_BASE * (2 ** MAX_RETRIES)
+    # ── Worker pool ──
+    # Instead of creating N tasks (one per image) behind a semaphore, we
+    # create exactly SEM_LIMIT workers that pull from a shared queue.
+    # This ensures only SEM_LIMIT images are ever in-flight, backoff
+    # sleeps don't block other images from progressing, and rate-limit
+    # coordination is handled globally.
+    queue: asyncio.Queue[tuple[int, Path]] = asyncio.Queue()
+    for idx, img in enumerate(images):
+        queue.put_nowait((idx, img))
 
-    async def _analyze_with_timeout(img: Path) -> GraphAnalysis:
-        """Wrap analyze_image with a per-task timeout."""
-        try:
-            return await asyncio.wait_for(
-                analyze_image(client, img, semaphore, pbar),
-                timeout=task_timeout,
-            )
-        except asyncio.TimeoutError:
-            if pbar is not None:
-                pbar.update(1)
-            return GraphAnalysis(
-                file_path=str(img),
-                graph_type="error",
-                summary=f"Task timed out after {task_timeout:.0f}s",
-            )
+    # Pre-allocate result slots (preserves original image order).
+    results: list[GraphAnalysis | None] = [None] * len(images)
 
-    # Launch all analysis tasks concurrently with a progress bar.
-    # ``return_exceptions=True`` ensures one failed image does not cancel the
-    # entire batch -- failed tasks return their exception object instead.
     pbar = tqdm(
         total=len(images),
         desc="Analyzing graphs",
         unit="img",
         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
     )
-    tasks = [_analyze_with_timeout(img) for img in images]
-    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _worker(worker_id: int):
+        """Pull images from the queue and analyse them one at a time."""
+        while True:
+            try:
+                idx, img = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return  # No more work — worker exits.
+            try:
+                result = await analyze_image(client, img, rate_limiter, pbar)
+                results[idx] = result
+            except Exception as e:
+                print(f"  [ERROR] {img.name}: {e}", flush=True)
+                results[idx] = GraphAnalysis(
+                    file_path=str(img),
+                    graph_type="error",
+                    summary=f"API error: {e}",
+                )
+                if pbar is not None:
+                    pbar.update(1)
+            queue.task_done()
+
+    # Spawn workers and wait for all images to be processed.
+    workers = [asyncio.create_task(_worker(i)) for i in range(SEM_LIMIT)]
+    await asyncio.gather(*workers)
     pbar.close()
 
-    # ── Collect results, replacing exceptions with error placeholders ──
-    results: list[GraphAnalysis] = []
+    # ── Collect results ──
+    final_results: list[GraphAnalysis] = []
     errors = 0
-    for img, res in zip(images, raw_results):
-        if isinstance(res, Exception):
+    for img, res in zip(images, results):
+        if res is None:
             errors += 1
-            print(f"  [ERROR] {img.name}: {res}", flush=True)
-            results.append(GraphAnalysis(
+            final_results.append(GraphAnalysis(
                 file_path=str(img),
                 graph_type="error",
-                summary=f"API error: {res}",
+                summary="Worker did not produce a result",
             ))
+        elif res.graph_type == "error":
+            errors += 1
+            final_results.append(res)
         else:
-            results.append(res)
+            final_results.append(res)
 
     if errors:
         print(f"\n  {errors}/{len(images)} images failed (see 'error' rows in CSV)")
@@ -547,16 +619,16 @@ async def main():
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
-        for analysis in results:
+        for analysis in final_results:
             writer.writerow(flatten(analysis))
 
     print()
     print(f"\U0001f4c1 Results saved to: {out_csv}")
-    print(f"   Total graphs analyzed: {len(results)}")
+    print(f"   Total graphs analyzed: {len(final_results)}")
 
     # Print a quick breakdown of graph types found.
     type_counts: dict[str, int] = {}
-    for r in results:
+    for r in final_results:
         type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
     print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
 
