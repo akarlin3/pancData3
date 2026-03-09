@@ -19,6 +19,12 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function createMockInputs(testCase)
+            % Creates mock inputs for compute_summary_metrics:
+            %   - Config with standard thresholds (ADC<1.15e-3, f<0.1, etc.)
+            %   - 2 patients, 3 timepoints with varying data scenarios:
+            %     PT1/TP1: good data (3 voxels), PT1/TP2: empty (missing scan),
+            %     PT1/TP3: contains NaN voxels, PT2/TP1: all f below threshold
+            %   - Supporting metadata (IDs, MRNs, LF status, dose metrics)
             testCase.ConfigStruct = struct('dataloc', pwd, 'adc_thresh', 1e-3, ...
                 'high_adc_thresh', 1.15e-3, 'd_thresh', 1e-3, 'f_thresh', 0.1, ...
                 'dstar_thresh', 0.01, 'use_checkpoints', false, ...
@@ -69,7 +75,11 @@ classdef test_compute_summary_metrics < matlab.unittest.TestCase
 
     methods(Test)
         function testBasicCalculation(testCase)
-            % Ensure basic calculations run without error and output is correct structure
+            % Verifies basic metric computation: output is a struct with
+            % correct patient IDs, expected array dimensions [2 x 3 x 3]
+            % (patients x timepoints x DWI types), correct mean values for
+            % known inputs, NaN-aware mean for vectors with NaN entries,
+            % and NaN output for missing (empty) timepoints.
             summary = compute_summary_metrics(testCase.ConfigStruct, testCase.DataVectors, ...
                 testCase.IDList, testCase.MRNList, testCase.LF, testCase.Immuno, ...
                 testCase.GTVLoc, testCase.DWILoc, testCase.Dmean, testCase.D95, testCase.V50Gy);

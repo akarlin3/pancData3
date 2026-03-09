@@ -128,9 +128,15 @@ else
 end
 [ivim_out.d_sub_kurt_val, ivim_out.d_sub_skew_val] = compute_kurt_skew(d_vec_sub, min_vox_hist);
 
+% Perfusion fraction (f): proportion of signal from microvascular blood flow.
+% In pancreatic cancer, low f indicates hypovascular desmoplastic stroma.
 ivim_out.f_mean_val = nanmean_safe(f_vec);
 [ivim_out.f_kurt_val, ivim_out.f_skew_val] = compute_kurt_skew(f_vec, min_vox_hist);
 
+% Pseudo-diffusion coefficient (D*): rate of signal decay from
+% intravascular incoherent motion. Reflects microvascular flow speed
+% and vessel geometry. More variable than D or f due to sensitivity
+% to cardiac pulsation and respiratory motion.
 ivim_out.dstar_mean_val = nanmean_safe(dstar_vec);
 [ivim_out.dstar_kurt_val, ivim_out.dstar_skew_val] = compute_kurt_skew(dstar_vec, min_vox_hist);
 

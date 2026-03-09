@@ -76,6 +76,7 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
              f"{', '.join(_dwi_badge(d) for d in dwi_types_present)}.</p>")
 
     # Stat cards row
+    # Build stat cards for the summary grid.
     cards = []
     if rows:
         cards.append(_stat_card("Graphs Analysed", str(len(rows))))
@@ -85,10 +86,12 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         for dwi_type in dwi_types_present:
             if dwi_type not in log_data:
                 continue
+            # Find the best AUC across all timepoints for this DWI type.
             roc = log_data[dwi_type].get("stats_predictive", {}).get("roc_analyses", [])
             best_auc = max((r.get("auc", 0) for r in roc), default=0)
             if best_auc > 0:
                 cards.append(_stat_card(f"Best AUC ({dwi_type})", f"{best_auc:.3f}"))
+            # Count GLME metrics that pass their BH-adjusted significance threshold.
             sc = log_data[dwi_type].get("stats_comparisons", {})
             total_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
 
