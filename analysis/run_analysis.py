@@ -102,6 +102,11 @@ def main():
         action="store_true",
         help="Skip PDF generation (produce HTML report only)",
     )
+    parser.add_argument(
+        "--no-html",
+        action="store_true",
+        help="Skip HTML output (produce PDF report only)",
+    )
     args = parser.parse_args()
 
     # ── Resolve output folder ──
@@ -154,6 +159,8 @@ def main():
         report_args = [sys.executable, str(report_script), str(folder)]
         if args.no_pdf:
             report_args.append("--no-pdf")
+        if args.no_html:
+            report_args.append("--no-html")
         print(f"\n  Running generate_report.py ...")
         t0 = time.time()
         result = subprocess.run(
@@ -179,7 +186,7 @@ def main():
 
     report_path = folder / "analysis_report.html"
     pdf_path = folder / "analysis_report.pdf"
-    if report_path.exists():
+    if report_path.exists() and not args.no_html:
         print(f"\n  HTML Report: {report_path}")
     if pdf_path.exists():
         print(f"  PDF Report:  {pdf_path}")

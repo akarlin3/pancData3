@@ -266,6 +266,9 @@ python analysis/run_analysis.py --skip-vision
 # Only generate the HTML report from existing data
 python analysis/run_analysis.py --report-only
 
+# PDF only (no HTML file kept on disk)
+python analysis/run_analysis.py --no-html
+
 # Specify a particular output folder
 python analysis/run_analysis.py --folder saved_files_20260308_010713
 
