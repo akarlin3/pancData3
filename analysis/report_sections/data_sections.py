@@ -464,7 +464,7 @@ def _section_mat_data(mat_data) -> list[str]:
                 matrix = core["mean_dice_matrix"]
                 n = len(methods)
                 h.append('<div style="overflow-x:auto">')
-                h.append("<table><thead><tr><th>Method</th>")
+                h.append('<table class="table-wide"><thead><tr><th>Method</th>')
                 for m in methods:
                     h.append(f"<th>{_esc(m)}</th>")
                 h.append("</tr></thead><tbody>")
@@ -537,7 +537,7 @@ def _section_appendix(rows) -> list[str]:
             gt_rows = type_groups[gt]
             h.append(f"<h3>{_esc(gt)} ({len(gt_rows)} graphs)</h3>")
 
-            h.append("<table><thead><tr>"
+            h.append('<table class="table-wide"><thead><tr>'
                      "<th>#</th><th>DWI</th><th>Graph</th>"
                      "<th>Title</th><th>Axes</th><th>Trends</th>"
                      "<th>Statistics</th><th>Issues</th><th>Details</th>"

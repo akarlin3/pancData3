@@ -815,7 +815,8 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
             h.append(f"<p>{_dwi_badge(dwi_type)} \u2014 {len(csv_rows)} significant metric(s)</p>")
             if csv_rows:
                 headers = list(csv_rows[0].keys())[:10]
-                h.append("<table><thead><tr>")
+                tbl_cls = ' class="table-wide"' if len(headers) > 6 else ""
+                h.append(f"<table{tbl_cls}><thead><tr>")
                 for hdr in headers:
                     h.append(f"<th>{_esc(hdr)}</th>")
                 h.append("</tr></thead><tbody>")

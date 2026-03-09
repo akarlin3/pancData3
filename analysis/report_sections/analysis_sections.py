@@ -270,10 +270,10 @@ def _section_stats_by_graph_type(rows) -> list[str]:
                     ts["trends"]["other"] += 1
 
     # Summary table
-    h.append("<table><thead><tr>"
-             "<th>Graph Type</th><th>Count</th><th>Sig. p-values</th>"
-             "<th>Non-sig. p</th><th>Correlations</th>"
-             "<th>\u2191 Incr.</th><th>\u2193 Decr.</th><th>\u2192 Stable</th><th>Other</th>"
+    h.append('<table class="table-compact"><thead><tr>'
+             "<th>Graph Type</th><th>Count</th><th>Sig. p</th>"
+             "<th>Non-sig. p</th><th>Corr.</th>"
+             "<th>\u2191</th><th>\u2193</th><th>\u2192</th><th>Other</th>"
              "</tr></thead><tbody>")
     for gt in sorted(type_stats.keys(), key=lambda k: -type_stats[k]["count"]):
         ts = type_stats[gt]

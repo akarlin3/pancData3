@@ -740,7 +740,7 @@ def _section_reporting_checklist(
         h.append(_stat_card("N/A", str(n_na), "not applicable"))
     h.append("</div>")
 
-    h.append("<table><thead><tr>"
+    h.append('<table class="checklist-table"><thead><tr>'
              "<th>Item</th><th>Requirement</th>"
              "<th>Status</th><th>Notes</th>"
              "</tr></thead><tbody>")

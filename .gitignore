@@ -54,6 +54,7 @@ __pycache__/
 results/
 test.out
 failure_summary.out
+unrelated
 
 # Configuration (contains local paths)
 config.json

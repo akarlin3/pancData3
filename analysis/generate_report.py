@@ -358,7 +358,8 @@ def generate_report(folder: Path) -> str:
                     continue
                 h.append(f"<h3>{_dwi_badge(dwi_type)} \u2014 {len(fdr_rows)} tests</h3>")
                 headers = list(fdr_rows[0].keys())[:10]
-                h.append("<table><thead><tr>")
+                tbl_cls = ' class="table-wide"' if len(headers) > 6 else ""
+                h.append(f"<table{tbl_cls}><thead><tr>")
                 for hdr in headers:
                     h.append(f"<th>{_esc(hdr)}</th>")
                 h.append("</tr></thead><tbody>")

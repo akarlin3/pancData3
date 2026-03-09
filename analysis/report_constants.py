@@ -123,6 +123,10 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .manuscript-sentence { background: #fffbeb; border: 1px solid #fde68a; border-radius: 4px; padding: 0.5rem 0.75rem; margin: 0.3rem 0; font-size: 0.9rem; line-height: 1.5; position: relative; }
 .manuscript-sentence .copy-btn { position: absolute; top: 0.35rem; right: 0.5rem; }
 .checklist-table td:first-child { font-weight: 600; white-space: nowrap; }
+.table-wide { font-size: 0.82rem; }
+.table-wide td, .table-wide th { padding: 0.3rem 0.5rem; }
+.table-wide .axis-info { font-size: 0.75rem; }
+.table-compact td, .table-compact th { padding: 0.3rem 0.5rem; font-size: 0.85rem; }
 .checklist-done { color: var(--green); }
 .checklist-partial { color: var(--amber); }
 .checklist-na { color: var(--muted); font-style: italic; }
@@ -138,10 +142,12 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     h1 { font-size: 14pt; }
     h2 { font-size: 12pt; page-break-after: avoid; }
     h3 { font-size: 11pt; page-break-after: avoid; }
-    table { font-size: 8pt; page-break-inside: avoid; table-layout: fixed; width: 100%; overflow-wrap: break-word; word-break: break-word; }
-    td, th { overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+    table { font-size: 8pt; table-layout: auto; width: 100%; overflow-wrap: break-word; word-break: break-word; }
+    td, th { overflow-wrap: break-word; word-break: break-word; padding: 0.25rem 0.4rem; }
     th { background: #333 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     tr:nth-child(even) td { background: #f5f5f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
     .stat-grid { grid-template-columns: repeat(4, 1fr); }
     .stat-card { border: 1px solid #ccc; }
     .summary-box, .warn-box, .info-box, .conclusion-box, .diag-box, .methods-box, .abstract-box, .pub-meta {
@@ -152,11 +158,14 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     a { color: var(--accent); text-decoration: none; }
     footer { font-size: 8pt; }
     details { display: block; }
+    details[open] > div, details[open] > p, details[open] > pre { display: block; }
     details > summary { list-style: none; }
     details > summary::before { content: ""; }
     .copy-btn { display: none; }
     .word-count { display: none; }
     img { max-width: 100%; height: auto; }
+    .table-wide { font-size: 7pt; }
+    .table-wide td, .table-wide th { padding: 0.15rem 0.3rem; }
 }
 """
 
