@@ -396,10 +396,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                 fullfile(dataloc, 'summary_metrics*.mat'), ...
                 fullfile(dataloc, 'adc_vectors.mat')
             };
+            % Protect manually curated files from cache clearing
+            protected_files = {'dwi_vectors_ea.mat'};
             n_deleted = 0;
             for cp = 1:numel(cache_patterns)
                 cached = dir(cache_patterns{cp});
                 for cf = 1:numel(cached)
+                    if any(strcmpi(cached(cf).name, protected_files))
+                        fprintf('  🛡️ Skipping protected file: %s\n', cached(cf).name);
+                        continue;
+                    end
                     delete(fullfile(cached(cf).folder, cached(cf).name));
                     n_deleted = n_deleted + 1;
                 end
