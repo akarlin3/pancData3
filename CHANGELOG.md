@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Analysis orchestrator** (`run_analysis.py`): Full analysis workflow runner with `--folder`, `--skip-vision`, `--report-only` CLI flags
+- **Shared utilities** (`shared.py`): Folder discovery, DWI type parsing, p-value/correlation regex extraction for analysis scripts
+- **Direct log parsing** (`parse_log_metrics.py`): Extracts Wilcoxon p-values, AUC, hazard ratios, and GLME interaction terms from MATLAB log files
+- **CSV export parsing** (`parse_csv_results.py`): Parses pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison
+- **HTML report generator** (`generate_report.py`): Combines all data sources into a comprehensive `analysis_report.html`
+- **Report formatting** (`report_formatters.py`): CSS, escaping, badges, nav bar, stat cards, and HTML template for the analysis report
+- **Report sections** (`report_sections.py`): Section builder functions for the HTML report (executive summary, cohort overview, hypothesis, statistics, cross-DWI, correlations, treatment response, predictive performance, supplemental MAT data, appendix)
+- **MAT file parser** (`parse_mat_metrics.py`): Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis
+- **Python test suite** (`analysis/tests/`): 6 test files with 126 tests using pytest, covering shared utilities, log/CSV parsing, batch graph analysis, report generation, and script output validation
+
 ## [1.1.0] - 2026-03-08
 
 ### Added
@@ -29,8 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.2.0-alpha.1] - 2026-03-08
 
 ### Added
-- **Python post-hoc analysis scripts** (`analysis/`): Five new scripts for automated graph extraction and cross-DWI comparison using Claude vision API
-  - `batch_graph_analysis.py`: Async batch processing of pipeline graph images via Claude vision API; outputs structured CSV with axes, trends, and inflection points
+- **Python post-hoc analysis scripts** (`analysis/`): Five new scripts for automated graph extraction and cross-DWI comparison using Google Gemini vision API
+  - `batch_graph_analysis.py`: Async batch processing of pipeline graph images via Google Gemini vision API; outputs structured CSV with axes, trends, and inflection points
   - `cross_reference_dwi.py`: Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries
   - `cross_reference_summary.py`: Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement
   - `statistical_relevance.py`: Extracts p-values and correlation coefficients; reports significant findings and cross-DWI significance
