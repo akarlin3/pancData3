@@ -329,11 +329,11 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 
 **Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
-**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, and `--config` CLI flags.
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, and `--skip-checks` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
 | File | Purpose |
 |---|---|
-| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html` flags |
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks` flags; verifies requirements and runs tests before starting |
 | `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
 | `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |

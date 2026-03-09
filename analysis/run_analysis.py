@@ -2,6 +2,7 @@
 """Orchestrator for the pancData3 analysis suite.
 
 Runs the full post-pipeline analysis workflow:
+0. Pre-flight checks: verify requirements and run test suite
 1. Vision-based graph analysis (batch_graph_analysis.py)
 2. Direct log file parsing (parse_log_metrics.py)
 3. Direct CSV parsing (parse_csv_results.py)
@@ -16,6 +17,7 @@ Usage:
     python run_analysis.py --folder PATH       # specify folder
     python run_analysis.py --skip-vision       # skip Claude API calls
     python run_analysis.py --report-only       # only generate report
+    python run_analysis.py --skip-checks       # skip pre-flight checks
 """
 
 from __future__ import annotations
@@ -67,6 +69,77 @@ class TeeWriter:
     def fileno(self) -> int:
         """Delegate fileno to the terminal stream (for subprocess piping)."""
         return self.terminal.fileno()
+
+
+def _check_requirements() -> bool:
+    """Verify that all packages listed in requirements.txt are installed.
+
+    Returns True if every requirement is satisfied, False otherwise.
+    Missing packages are printed to stdout.
+    """
+    req_file = ANALYSIS_DIR / "requirements.txt"
+    if not req_file.exists():
+        print("  [WARN] requirements.txt not found — skipping requirement check")
+        return True
+
+    missing: list[str] = []
+    import importlib.metadata as _meta
+
+    for line in req_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Strip version specifiers to get the package name.
+        pkg_name = line.split(">=")[0].split("<=")[0].split("==")[0].split("!=")[0].split("<")[0].split(">")[0].strip()
+        try:
+            _meta.version(pkg_name)
+        except _meta.PackageNotFoundError:
+            missing.append(line)
+
+    if missing:
+        print("  Missing Python packages:")
+        for m in missing:
+            print(f"    - {m}")
+        print(f"\n  Install with:  pip install -r {req_file}")
+        return False
+
+    print("  All requirements satisfied.")
+    return True
+
+
+def _run_tests() -> bool:
+    """Run the analysis test suite via pytest.
+
+    Returns True if all tests pass, False otherwise.
+    """
+    test_dir = ANALYSIS_DIR / "tests"
+    if not test_dir.is_dir():
+        print("  [WARN] tests/ directory not found — skipping test run")
+        return True
+
+    print("  Running analysis test suite (pytest) ...")
+    t0 = time.time()
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-v", str(test_dir)],
+        cwd=str(ANALYSIS_DIR),
+        capture_output=True,
+        text=True,
+    )
+    elapsed = time.time() - t0
+
+    # Show the last portion of output (summary) to keep output manageable.
+    if result.stdout:
+        # Print full output so failures are visible.
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+
+    if result.returncode == 0:
+        print(f"  All tests passed ({elapsed:.1f}s)")
+        return True
+    else:
+        print(f"  Tests FAILED (exit code {result.returncode}, {elapsed:.1f}s)")
+        return False
 
 
 def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) -> bool:
@@ -171,6 +244,11 @@ def main():
         default=None,
         help="Path to analysis_config.json (default: auto-detect)",
     )
+    parser.add_argument(
+        "--skip-checks",
+        action="store_true",
+        help="Skip pre-flight checks (requirements verification and test suite)",
+    )
     args = parser.parse_args()
 
     # ── Apply CLI overrides to the centralised config ──
@@ -214,10 +292,26 @@ def main():
         print(f"  Output folder: {folder}")
         print(f"  Skip vision:   {args.skip_vision}")
         print(f"  Report only:   {args.report_only}")
+        print(f"  Skip checks:   {args.skip_checks}")
         print(f"  Gemini model:  {cfg['vision']['gemini_model']}")
         print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()
+
+        # ── Pre-flight checks ──
+        if not args.skip_checks:
+            print("── Pre-flight checks ──")
+            reqs_ok = _check_requirements()
+            if not reqs_ok:
+                sys.exit("Pre-flight check failed: missing requirements. "
+                         "Install them or re-run with --skip-checks.")
+            tests_ok = _run_tests()
+            if not tests_ok:
+                sys.exit("Pre-flight check failed: test suite did not pass. "
+                         "Fix failing tests or re-run with --skip-checks.")
+            print("── Pre-flight checks passed ──\n")
+        else:
+            print("  Skipping pre-flight checks (--skip-checks)\n")
 
         # Track success/failure/skip status for each pipeline step.
         results = {}
