@@ -1,8 +1,24 @@
 classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
-    % TEST_CROSS_DWI_SUBVOLUME Tests for plot_cross_dwi_subvolume_comparison
+    % TEST_CROSS_DWI_SUBVOLUME Tests for plot_cross_dwi_subvolume_comparison.
+    %
+    % plot_cross_dwi_subvolume_comparison generates scatter plots comparing
+    % ADC subvolume percentage across DWI processing types (Standard, dnCNN,
+    % IVIMnet). It loads saved summary_metrics checkpoint files from disk
+    % and overlays data from all available types on a single figure.
+    %
+    % Tests verify:
+    %   1. Two types available -> figure is created
+    %   2. Only one type -> graceful skip (no figure)
+    %   3. Repeat scan data -> figure includes a repeat-scan panel
+    %   4. Standard + IVIMnet (no dnCNN) -> figure is created
+    %   5. All-NaN subvolume data -> graceful skip (no figure)
+    %
+    % Run tests with:
+    %   results = runtests('tests/test_cross_dwi_subvolume.m');
+
     properties
-        TempDir
-        ConfigStruct
+        TempDir       % Temporary directory for mock checkpoint files
+        ConfigStruct  % Mock pipeline configuration
     end
 
     methods(TestMethodSetup)
@@ -10,6 +26,8 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
+            % Configure paths to point at the temp directory where mock
+            % checkpoint .mat files will be saved.
             testCase.ConfigStruct.dataloc = testCase.TempDir;
             testCase.ConfigStruct.output_folder = testCase.TempDir;
             testCase.ConfigStruct.master_output_folder = testCase.TempDir;
@@ -18,12 +36,15 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
             addpath(fullfile(pancDataPath, 'core'));
             addpath(fullfile(pancDataPath, 'utils'));
 
+            % Suppress figure windows during automated testing
             set(0, 'DefaultFigureVisible', 'off');
         end
     end
 
     methods(TestMethodTeardown)
         function cleanUp(testCase)
+            % Turn off diary (module may have opened one) before rmdir
+            % to avoid file-lock issues on Windows.
             diary off;
             close all;
             if exist(testCase.TempDir, 'dir')

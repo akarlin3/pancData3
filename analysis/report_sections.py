@@ -598,6 +598,22 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
 
 
 def _section_correlations(rows) -> list[str]:
+    """Build the Notable Correlations section.
+
+    Extracts correlation coefficients (r, rs, r-squared) from vision
+    graph summaries and trend descriptions, filtering for |r| >= 0.3.
+    Results are sorted by absolute correlation strength (descending).
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the correlations section.
+    """
     # ── 5. Correlations ──
     h: list[str] = []
     if rows:
@@ -627,6 +643,22 @@ def _section_correlations(rows) -> list[str]:
 
 
 def _section_treatment_response(groups) -> list[str]:
+    """Build the Treatment Response / Longitudinal Trends section.
+
+    For each graph with "Longitudinal" in its name, displays per-DWI-type
+    trend tags, axis information, inflection points (in collapsible
+    ``<details>`` blocks), and full summaries.
+
+    Parameters
+    ----------
+    groups : dict[str, dict[str, dict]]
+        Graph rows grouped by base name and DWI type.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the treatment response section.
+    """
     # ── 6. Treatment Response ──
     h: list[str] = []
     if groups:
