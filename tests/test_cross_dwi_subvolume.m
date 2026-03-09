@@ -76,7 +76,9 @@ classdef test_cross_dwi_subvolume < matlab.unittest.TestCase
         end
 
         function testSingleTypeSkips(testCase)
-            % Only one checkpoint available — should skip gracefully
+            % Cross-DWI comparison requires at least 2 DWI types. When
+            % only Standard is available (no dnCNN or IVIMnet checkpoint),
+            % the function should skip gracefully without creating a figure.
             nPat = 5;
             sm_std = make_mock_sm(nPat);
             sm_std.adc_sub_vol_pc(:,1,1) = 0.3 * ones(nPat, 1);

@@ -865,6 +865,24 @@ def _section_predictive_performance(log_data, dwi_types_present) -> list[str]:
 
 
 def _section_mat_data(mat_data) -> list[str]:
+    """Build the Supplemental Data (MAT Files) section.
+
+    Displays two sub-sections from parsed MAT-file JSON:
+    1. **Dosimetry** -- mean D95 and V50 values for ADC and D sub-volumes.
+    2. **Core Method Comparison** -- truncated mean-Dice heatmap matrix
+       showing agreement between tumor core delineation methods.
+
+    Parameters
+    ----------
+    mat_data : dict
+        Mapping of DWI type to parsed MAT metrics dict (from
+        ``parsed_mat_metrics_{dwi}.json``).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the supplemental data section.
+    """
     # ── 7.5. Core Method & Dosimetry ──
     h: list[str] = []
     if mat_data:
@@ -929,6 +947,22 @@ def _section_mat_data(mat_data) -> list[str]:
 
 
 def _section_appendix(rows) -> list[str]:
+    """Build the Appendix: All Graphs section.
+
+    Lists every analysed graph in a detailed table with columns for
+    DWI type, graph type, title, axis details, trend tags, and a
+    collapsible full summary.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Vision CSV rows (may be empty, in which case the section is skipped).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the appendix section.
+    """
     # ── 8. Appendix ──
     h: list[str] = []
     if rows:
