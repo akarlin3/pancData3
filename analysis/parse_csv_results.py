@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 """Parse pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv).
 
-Reads CSV files directly from each DWI type subfolder and produces structured
-cross-DWI comparisons without requiring the Claude Vision API.
+The MATLAB pipeline exports per-DWI-type CSV files containing metrics that
+reached statistical significance in Wilcoxon rank-sum tests (before and
+after BH-FDR correction).  This script reads those CSVs directly and
+produces a structured cross-DWI comparison to identify:
+
+- Which metrics are significant in **all** DWI types (consistent).
+- Which metrics are significant in **some but not all** types (inconsistent).
+
+The results are also consumed by :func:`generate_report.generate_report` to
+populate the "Cross-DWI Significance Inconsistencies" section of the HTML
+report.
+
+Usage:
+    python parse_csv_results.py [saved_files_path]
 """
 
 from __future__ import annotations
@@ -17,7 +29,19 @@ setup_utf8_stdout()
 
 
 def _read_csv(path: Path) -> list[dict]:
-    """Read a CSV file, return empty list if missing."""
+    """Read a CSV file into a list of row dicts.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the CSV file.
+
+    Returns
+    -------
+    list[dict]
+        Rows as dicts keyed by column header.  Returns an empty list if
+        the file does not exist (graceful degradation).
+    """
     if not path.exists():
         return []
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -25,7 +49,21 @@ def _read_csv(path: Path) -> list[dict]:
 
 
 def parse_significant_metrics(folder: Path) -> dict[str, list[dict]]:
-    """Parse Significant_LF_Metrics.csv from each DWI type subfolder."""
+    """Parse ``Significant_LF_Metrics.csv`` from each DWI type subfolder.
+
+    This CSV is exported by ``metrics_stats_comparisons.m`` and lists
+    metrics with Wilcoxon rank-sum p < 0.05 for local failure vs control.
+
+    Parameters
+    ----------
+    folder : Path
+        Path to the ``saved_files_*`` output folder.
+
+    Returns
+    -------
+    dict[str, list[dict]]
+        Mapping of DWI type name to its list of significant metric rows.
+    """
     results: dict[str, list[dict]] = {}
     for dwi_type in DWI_TYPES:
         csv_path = folder / dwi_type / "Significant_LF_Metrics.csv"
@@ -36,7 +74,21 @@ def parse_significant_metrics(folder: Path) -> dict[str, list[dict]]:
 
 
 def parse_fdr_global(folder: Path) -> dict[str, list[dict]]:
-    """Parse FDR_Sig_Global.csv from each DWI type subfolder."""
+    """Parse ``FDR_Sig_Global.csv`` from each DWI type subfolder.
+
+    This CSV contains metrics surviving Benjamini-Hochberg FDR correction
+    across the full feature set.
+
+    Parameters
+    ----------
+    folder : Path
+        Path to the ``saved_files_*`` output folder.
+
+    Returns
+    -------
+    dict[str, list[dict]]
+        Mapping of DWI type name to its list of FDR-significant rows.
+    """
     results: dict[str, list[dict]] = {}
     for dwi_type in DWI_TYPES:
         csv_path = folder / dwi_type / "FDR_Sig_Global.csv"
@@ -47,19 +99,34 @@ def parse_fdr_global(folder: Path) -> dict[str, list[dict]]:
 
 
 def cross_reference_significance(sig_by_dwi: dict[str, list[dict]]) -> list[dict]:
-    """Find metrics significant in one DWI type but not others.
+    """Cross-reference significant metrics across DWI types.
 
-    Returns list of dicts with metric, timepoint, and which DWI types
-    show significance.
+    For each unique ``(metric, timepoint)`` pair found in any DWI type's
+    significance CSV, records which DWI types show significance and which
+    do not.  A metric is "consistent" if it is significant in all three
+    DWI types (or in none -- though the latter would not appear in the CSV).
+
+    Parameters
+    ----------
+    sig_by_dwi : dict[str, list[dict]]
+        Output of :func:`parse_significant_metrics`.
+
+    Returns
+    -------
+    list[dict]
+        Each dict has keys: ``metric``, ``timepoint``, ``significant_in``,
+        ``not_significant_in``, ``consistent``.
     """
-    # Build a set of (metric_key) → set of DWI types where significant
+    # Build mapping: "metric@timepoint" -> set of DWI types.
     metric_dwi_map: dict[str, set[str]] = {}
 
     for dwi_type, rows in sig_by_dwi.items():
         for row in rows:
-            # Try common column names for the metric identifier
+            # The CSV column name may be "Metric" or "metric" depending
+            # on the MATLAB export.
             metric_key = row.get("Metric", row.get("metric", ""))
             tp = row.get("Timepoint", row.get("timepoint", ""))
+            # Composite key separates metric from timepoint with "@".
             key = f"{metric_key}@{tp}" if tp else metric_key
             if key not in metric_dwi_map:
                 metric_dwi_map[key] = set()
@@ -70,12 +137,14 @@ def cross_reference_significance(sig_by_dwi: dict[str, list[dict]]) -> list[dict
         parts = key.split("@", 1)
         metric = parts[0]
         tp = parts[1] if len(parts) > 1 else ""
+        # Determine which DWI types did NOT reach significance.
         missing = [d for d in DWI_TYPES if d not in dwi_set]
         cross_ref.append({
             "metric": metric,
             "timepoint": tp,
             "significant_in": sorted(dwi_set),
             "not_significant_in": missing,
+            # Consistent if ALL or NONE of the DWI types show significance.
             "consistent": len(missing) == 0 or len(dwi_set) == 0,
         })
 
@@ -83,9 +152,17 @@ def cross_reference_significance(sig_by_dwi: dict[str, list[dict]]) -> list[dict
 
 
 def parse_all_csvs(folder: Path) -> dict:
-    """Parse all pipeline CSV exports.
+    """Parse all pipeline CSV exports and cross-reference them.
 
-    Returns a dict with keys: significant_metrics, fdr_global, cross_reference.
+    Parameters
+    ----------
+    folder : Path
+        Path to the ``saved_files_*`` output folder.
+
+    Returns
+    -------
+    dict
+        Keys: ``significant_metrics``, ``fdr_global``, ``cross_reference``.
     """
     sig = parse_significant_metrics(folder)
     fdr = parse_fdr_global(folder)
@@ -99,6 +176,7 @@ def parse_all_csvs(folder: Path) -> dict:
 
 
 def main():
+    """CLI entry point: parse CSVs and print a human-readable summary."""
     folder = resolve_folder(sys.argv)
     results = parse_all_csvs(folder)
 
@@ -117,10 +195,9 @@ def main():
             if dwi_type not in sig:
                 continue
             rows = sig[dwi_type]
-            print(f"\n  [{dwi_type}] — {len(rows)} significant metric(s)")
+            print(f"\n  [{dwi_type}] \u2014 {len(rows)} significant metric(s)")
             for r in rows:
-                cols = list(r.values())
-                # Print first few meaningful columns
+                # Print first few meaningful columns as a compact summary.
                 summary = " | ".join(f"{k}={v}" for k, v in list(r.items())[:5] if v)
                 print(f"    {summary}")
 
@@ -162,6 +239,7 @@ def main():
             if dwi_type not in fdr:
                 continue
             rows = fdr[dwi_type]
+            # Count rows where any column containing "sig" has a non-empty value.
             n_sig = sum(1 for r in rows if any(
                 v and v not in ("", "NaN", "nan") and "sig" in k.lower()
                 for k, v in r.items()

@@ -154,7 +154,10 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
                 vox_dims = data_vectors_gtvp(j,k,1).vox_dims;
             end
 
-            % Build opts for fDM
+            % Build opts for fDM (functional Diffusion Map) method.
+            % fDM identifies core voxels by comparing current-fraction
+            % parameter values to baseline (Fx1). At Fx1 (k=1), no baseline
+            % comparison is possible, so fDM falls back to adc_threshold.
             core_opts = struct('timepoint_index', k);
             if k > 1
                 core_opts.baseline_adc_vec = adc_baseline;
@@ -224,19 +227,23 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             warning(prev_warn_state);
 
             % --- Pairwise Dice (1D) ---
+            % Dice coefficient measures spatial overlap between two binary masks:
+            %   Dice = 2 * |A AND B| / (|A| + |B|)
+            % Dice = 1.0 → identical masks, Dice = 0 → no overlap.
+            % Computed on 1D (voxel-vector) masks; does not require 3D geometry.
             dice_matrix = nan(n_methods, n_methods);
             for a = 1:n_methods
                 for b = a:n_methods
-                    sum_a = sum(masks_1d{a});
-                    sum_b = sum(masks_1d{b});
+                    sum_a = sum(masks_1d{a});   % number of core voxels in method A
+                    sum_b = sum(masks_1d{b});   % number of core voxels in method B
                     if sum_a == 0 && sum_b == 0
-                        dice_matrix(a, b) = NaN;
+                        dice_matrix(a, b) = NaN;  % both empty: Dice is undefined
                     elseif sum_a == 0 || sum_b == 0
-                        dice_matrix(a, b) = 0;
+                        dice_matrix(a, b) = 0;    % one empty: no overlap possible
                     else
                         dice_matrix(a, b) = 2 * sum(masks_1d{a} & masks_1d{b}) / (sum_a + sum_b);
                     end
-                    dice_matrix(b, a) = dice_matrix(a, b);
+                    dice_matrix(b, a) = dice_matrix(a, b);  % symmetric
                 end
             end
             all_dice{j, k} = dice_matrix;
@@ -246,16 +253,22 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             dice_count(valid) = dice_count(valid) + 1;
 
             % --- Pairwise Hausdorff (3D, when available) ---
+            % HD95 (95th percentile Hausdorff distance) measures the maximum
+            % boundary disagreement between two masks in mm, robust to outliers.
+            % Requires 3D mask reconstruction from 1D vectors, which is only
+            % possible when we have the original 3D GTV mask with matching voxel count.
             hd95_matrix = nan(n_methods, n_methods);
             n_gtv_voxels = 0;
             if has_3d
                 n_gtv_voxels = sum(gtv_mask_3d(:) == 1);
             end
             if has_3d && n_gtv_voxels == numel(masks_1d{1})
+                % Reconstruct 1D core masks back into 3D volumes by placing each
+                % voxel-vector value into its spatial position within the GTV.
                 masks_3d = cell(n_methods, 1);
                 for m = 1:n_methods
                     vol_3d = false(size(gtv_mask_3d));
-                    vol_3d(gtv_mask_3d == 1) = masks_1d{m};
+                    vol_3d(gtv_mask_3d == 1) = masks_1d{m};  % map 1D→3D via GTV linear indices
                     masks_3d{m} = vol_3d;
                 end
 
@@ -277,6 +290,8 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     end
 
     % --- Mean matrices ---
+    % Compute element-wise mean from running sums. max(count, 1) prevents
+    % division by zero; pairs with zero observations are then set to NaN.
     mean_dice_matrix = dice_sum ./ max(dice_count, 1);
     mean_dice_matrix(dice_count == 0) = NaN;
 

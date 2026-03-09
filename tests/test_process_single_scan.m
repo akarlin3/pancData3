@@ -9,6 +9,8 @@ classdef test_process_single_scan < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function createTempDir(testCase)
+            % Create a uniquely-named temp directory for each test to
+            % avoid interference between parallel test runs.
             testCase.TempDir = fullfile(tempdir, ['test_pss_' char(java.util.UUID.randomUUID)]);
             mkdir(testCase.TempDir);
         end
@@ -16,6 +18,7 @@ classdef test_process_single_scan < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function removeTempDir(testCase)
+            % Close diary before rmdir to prevent file-lock errors on Windows
             diary off;
             if isfolder(testCase.TempDir)
                 rmdir(testCase.TempDir, 's');
@@ -25,7 +28,10 @@ classdef test_process_single_scan < matlab.unittest.TestCase
 
     methods(Test)
         function test_result_has_nan_defaults(testCase)
-            % When no data exists, result fields should be NaN
+            % When no DICOM/structure/dose data paths are provided,
+            % all numeric result fields should default to NaN rather
+            % than 0 or empty, ensuring downstream code can detect
+            % missing data via isnan() checks.
             ctx = testCase.makeMinimalCtx();
             ctx.dicomloc = '';
             ctx.struct_file = '';
@@ -47,7 +53,8 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_result_has_empty_bad_dwi_list(testCase)
-            % No data means no bad DWI entries
+            % When no DWI data is found, the bad_dwi_list (which tracks
+            % scans that failed quality checks) should be empty.
             ctx = testCase.makeMinimalCtx();
             ctx.dicomloc = '';
             ctx.struct_file = '';
@@ -59,7 +66,8 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_fx_id_naming_for_fraction_1(testCase)
-            % Verify nii output directory is created
+            % Verify that process_single_scan creates the 'nii' output
+            % directory under basefolder (needed for NIfTI conversion output).
             ctx = testCase.makeMinimalCtx();
             ctx.fi = 1;
             ctx.dicomloc = '';
@@ -72,7 +80,9 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_fx_id_naming_for_post(testCase)
-            % When fi > n_rtdose_cols, fx_id should be 'post'
+            % When the fraction index (fi) exceeds the number of RT dose
+            % columns, the scan is post-treatment and fx_id should be
+            % set to 'post'. Verify no errors occur in this case.
             ctx = testCase.makeMinimalCtx();
             ctx.fi = 6;
             ctx.n_rtdose_cols = 5;

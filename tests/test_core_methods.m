@@ -82,19 +82,25 @@ function test_core_methods()
         end
     end
 
-    % Test fDM method separately (requires opts with baseline vectors)
+    % -----------------------------------------------------------------------
+    % fDM (functional Diffusion Map) method — tested separately because it
+    % requires an opts struct with timepoint_index and baseline vectors.
+    % -----------------------------------------------------------------------
     config_struct.core_method = 'fdm';
     try
-        % fDM at baseline (k=1) should fall back to threshold
+        % fDM at baseline (timepoint_index = 1): no prior timepoint exists,
+        % so the method should fall back to simple ADC threshold.
         opts_baseline = struct('timepoint_index', 1);
         core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts_baseline);
         assert(islogical(core_mask), 'fDM baseline: Output is not logical');
         assert(length(core_mask) == 100, 'fDM baseline: Output length is incorrect');
         fprintf('[PASS] fdm (baseline fallback): Found %d core voxels\n', sum(core_mask));
 
-        % fDM at k=2 with simulated baseline
+        % fDM at timepoint 2: compares current ADC to baseline and classifies
+        % voxels with a negative delta (ADC decrease = treatment resistance)
+        % as core. Simulated baseline is current + noise, so some voxels
+        % will show a decrease and some an increase.
         opts_fx2 = struct('timepoint_index', 2);
-        % Simulate treatment response: some voxels increase ADC, some decrease
         opts_fx2.baseline_adc_vec = adc_vec + 0.0003 * randn(100, 1);
         core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts_fx2);
         assert(islogical(core_mask), 'fDM fx2: Output is not logical');
@@ -106,10 +112,14 @@ function test_core_methods()
         rethrow(ME);
     end
 
-    % Edge case test: empty inputs
+    % -----------------------------------------------------------------------
+    % Edge case: all-NaN input vectors (no valid voxel data).
+    % This can occur when a patient's GTV mask does not overlap with the
+    % DWI field-of-view, leaving all parameter values as NaN.
+    % Every method must handle this gracefully and return an all-false mask.
+    % -----------------------------------------------------------------------
     config_struct.core_method = 'otsu';
     empty_vec = nan(10,1);
-    % Should return gracefully with all-false mask
     empty_mask = extract_tumor_core(config_struct, empty_vec, empty_vec, empty_vec, empty_vec, false, []);
     assert(sum(empty_mask) == 0, 'Empty input should yield empty mask');
     fprintf('[PASS] edge_case: Handled NaN/Empty input successfully\n');

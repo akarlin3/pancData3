@@ -229,6 +229,10 @@ function test_run_compare_cores_injection()
 end
 
 %% --- Helper: Create mock data for compute_summary_metrics ---
+% Builds a minimal but complete set of inputs for compute_summary_metrics:
+% 2 patients, 2 timepoints, 50 voxels per scan, bimodal ADC distribution
+% (15 low-ADC "core" voxels + 35 higher-ADC "margin" voxels) to give
+% clustering-based methods a separation signal.
 function [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates]  = make_mock_data()
     rng(42);
     n_pat = 2;

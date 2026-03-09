@@ -188,12 +188,17 @@ function plot_predictive_diagnostics( ...
         % Exclude competing-risk patients (lf==2) from scatter, consistent
         % with the boxplot exclusion above (non_competing mask).
         scatter_mask = (lf_group <= 1);
+        % Jitter x-positions to avoid overplotting: LC at x=1, LF at x=2,
+        % with small random horizontal offset for visibility
         x_scatter = ones(sum(scatter_mask), 1);
         x_scatter(lf_group(scatter_mask)==1) = 2;
         x_scatter = x_scatter + (rand(size(x_scatter))-0.5)*0.2;
         scatter_vals = curr_sig_pct_full(valid_pts, sig_col_idx(vi));
         scatter(x_scatter, scatter_vals(scatter_mask), 50, 'filled', 'MarkerEdgeColor', 'k');
 
+        % Determine the base parameter index (1=ADC, 2=D, 3=f, 4=D*) from
+        % the original 22-feature index. CoR band is only shown for ADC
+        % percent-change features since CoR is derived from ADC repeatability.
         base_idx = mod(selected_indices(vi)-1, 4) + 1;
 
         if sig_is_pct_imaging(vi) && base_idx == 1
@@ -215,11 +220,13 @@ function plot_predictive_diagnostics( ...
         xlim([0.5 2.5]);
 
         sgtitle(['Validation (' curr_sig_disp '): Volume, Texture, and Noise (' fx_label ', ' dtype_label ')'], 'FontSize', 14, 'FontWeight', 'bold');
+        % Shrink subplot heights slightly to make room for the sgtitle
         allAx = findall(gcf, 'Type', 'Axes');
         for k = 1:numel(allAx)
             pos = get(allAx(k), 'Position');
             set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
         end
+        % Sanitize filename: replace asterisk (D*) with 'star' for filesystem safety
         safe_name = strrep(curr_sig_file, '*', 'star');
         set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
         saveas(gcf, fullfile(output_folder, ['Sanity_Checks_' safe_name '_' fx_label '_' dtype_label '.png']));
@@ -264,6 +271,10 @@ function plot_predictive_diagnostics( ...
                     mdl = fitglm([x_val, y_val], group, 'Distribution', 'binomial', 'Options', statset('MaxIter', 1e7));
                 end
                 warning(w_state);
+                % Extract logistic regression coefficients: [intercept, beta1, beta2]
+                % Decision boundary is where P(LF) = 0.5, i.e., the linear
+                % predictor = 0: intercept + beta1*x + beta2*y = 0
+                % Solving for y: y = -(intercept + beta1*x) / beta2
                 coefs = mdl.Coefficients.Estimate;
                 if numel(coefs) >= 3 && coefs(3) ~= 0
                     x_range = linspace(min(x_val), max(x_val), 100);

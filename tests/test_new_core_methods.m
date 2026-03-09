@@ -1,35 +1,54 @@
 classdef test_new_core_methods < matlab.unittest.TestCase
 % TEST_NEW_CORE_METHODS  Detailed tests for percentile, spectral, and fDM
 %   tumor core extraction methods.
+%
+%   These three methods were added after the original 8 core methods.
+%   Unlike the threshold-based methods, they use data-driven or longitudinal
+%   approaches:
+%     - Percentile: selects the lowest N-th percentile of ADC as core,
+%       capped by a safety floor (adc_thresh) to prevent overly aggressive
+%       core delineation
+%     - Spectral: uses spectral clustering on multi-parameter feature space
+%       (ADC, D, f, D*) to identify the most restricted cluster as core
+%     - fDM (functional Diffusion Map): identifies treatment-resistant voxels
+%       by comparing current and baseline diffusion values; voxels with a
+%       negative delta (ADC decreased) are classified as progressing (core)
+%
+%   Run tests with:
+%     results = runtests('tests/test_new_core_methods.m');
 
     properties
-        ConfigStruct
-        AdcVec
-        DVec
-        FVec
-        DstarVec
-        GtvMask3d
+        ConfigStruct  % Mock pipeline configuration with core method settings
+        AdcVec        % 100-element ADC vector (bimodal: 30 low + 70 high)
+        DVec          % 100-element D vector (bimodal, correlated with ADC)
+        FVec          % 100-element f vector (bimodal: 30 low + 70 high)
+        DstarVec      % 100-element D* vector (bimodal, unlike test_core_methods which uses NaN)
+        GtvMask3d     % 10x10x1 logical mask (entire slab is within GTV)
     end
 
     methods (TestMethodSetup)
         function setupFixtures(testCase)
+            % Build a reproducible bimodal voxel population and config struct.
+            % Unlike test_core_methods, D* is populated here (not NaN) to
+            % allow spectral clustering to use all 4 IVIM parameters.
             [dir_path, ~, ~] = fileparts(mfilename('fullpath'));
             addpath(fullfile(dir_path, '..', 'utils'));
             addpath(fullfile(dir_path, '..', 'core'));
 
-            rng(42);
+            rng(42); % Fixed seed for reproducible random data
             testCase.ConfigStruct = struct();
-            testCase.ConfigStruct.adc_thresh = 0.001;
-            testCase.ConfigStruct.d_thresh = 0.001;
-            testCase.ConfigStruct.f_thresh = 0.1;
-            testCase.ConfigStruct.dstar_thresh = 0.01;
-            testCase.ConfigStruct.min_vox_hist = 50;
+            testCase.ConfigStruct.adc_thresh = 0.001;   % mm^2/s
+            testCase.ConfigStruct.d_thresh = 0.001;     % mm^2/s
+            testCase.ConfigStruct.f_thresh = 0.1;       % 10%
+            testCase.ConfigStruct.dstar_thresh = 0.01;  % mm^2/s
+            testCase.ConfigStruct.min_vox_hist = 50;    % Reduced for test data size
             testCase.ConfigStruct.core_percentile = 25;
-            testCase.ConfigStruct.core_n_clusters = 2;
+            testCase.ConfigStruct.core_n_clusters = 2;  % Binary: core vs. margin
             testCase.ConfigStruct.fdm_parameter = 'adc';
-            testCase.ConfigStruct.fdm_thresh = 0.0002;
+            testCase.ConfigStruct.fdm_thresh = 0.0002;  % mm^2/s delta threshold
 
-            % 30 low-ADC + 70 high-ADC voxels
+            % Bimodal distribution: 30 "core" voxels with low diffusion values
+            % and 70 "margin" voxels with high diffusion values.
             testCase.AdcVec = [0.0005 + 0.0001*randn(30,1); 0.0015 + 0.0002*randn(70,1)];
             testCase.DVec   = [0.0004 + 0.0001*randn(30,1); 0.0014 + 0.0002*randn(70,1)];
             testCase.FVec   = [0.05 + 0.01*randn(30,1);     0.2 + 0.05*randn(70,1)];

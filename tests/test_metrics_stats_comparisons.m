@@ -1,10 +1,17 @@
 classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
     % TEST_METRICS_STATS_COMPARISONS Unit tests for metrics_stats_comparisons.
-    % Tests Wilcoxon rank-sum, BH FDR correction, and GLME components.
+    %
+    % Validates the statistical group comparison module including:
+    %   - Wilcoxon rank-sum tests (LF vs LC groups)
+    %   - Benjamini-Hochberg FDR correction for multiple comparisons
+    %   - GLME (Generalized Linear Mixed-Effects) model fitting
+    %   - Competing risk exclusion (lf_group==2 filtered out)
+    %   - Edge cases: all-NaN metrics, single timepoint, patient filtering
+    %   - Output file generation (diary logs, CSVs, PNGs)
 
     properties
-        OutputFolder
-        OldVisible
+        OutputFolder  % Temporary directory for test output files
+        OldVisible    % Saved figure visibility state for restoration
     end
 
     methods(TestMethodSetup)

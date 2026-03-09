@@ -126,7 +126,9 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testDtypeLabelAppearsInFilename(testCase)
-            % The dtype_label is embedded in the saved filename.
+            % Verifies that the dtype_label string ('dnCNN' here) is
+            % correctly embedded in the output PNG filename, enabling
+            % automated identification of DWI type in batch output folders.
             nTp = 3;
             n   = 5;
             lbl = 'dnCNN';
@@ -143,8 +145,10 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testOutcomeStratifiedFigures(testCase)
-            % When m_lf is provided, per-outcome PNGs should be created
-            % for each outcome group present in the data.
+            % Verifies that when the optional m_lf argument is provided,
+            % separate per-outcome figures are created for each group
+            % present in the data: LC (lf=0), LF (lf=1), and Competing
+            % Risk (lf=2). Each group gets its own PNG file.
             rng(2);
             n   = 12;
             nTp = 4;
@@ -179,8 +183,9 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testCombinedStratifiedFigure(testCase)
-            % The combined overlay figure comparing outcome groups should
-            % be saved as _ByOutcome.png.
+            % Verifies that a combined overlay figure (all outcome groups
+            % on the same axes for comparison) is saved as _ByOutcome.png
+            % in addition to the individual per-outcome figures.
             rng(3);
             n   = 10;
             nTp = 4;
@@ -207,8 +212,10 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testBackwardCompatibilityNoOutcome(testCase)
-            % Calling without m_lf (11 args) should still work and produce
-            % only the all-patients figure.
+            % Verifies backward compatibility: calling with 11 arguments
+            % (omitting m_lf) should produce only the all-patients figure
+            % and NO outcome-stratified figures. This ensures older code
+            % that doesn't pass m_lf continues to work.
             rng(4);
             n   = 8;
             nTp = 4;
@@ -239,8 +246,10 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testMissingOutcomeGroupSkipped(testCase)
-            % When only LC and LF are present (no competing risk),
-            % only those two per-outcome figures should be created.
+            % Verifies that outcome groups not present in the data are
+            % gracefully skipped. With m_lf containing only 0 (LC) and 1
+            % (LF) but no 2 (competing risk), only LC and LF figures
+            % should be created — no CompetingRisk PNG should exist.
             rng(5);
             n   = 6;
             nTp = 3;

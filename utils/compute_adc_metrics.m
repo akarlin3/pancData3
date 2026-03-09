@@ -50,7 +50,8 @@ function adc_out = compute_adc_metrics(config_struct, adc_vec, d_vec, f_vec, dst
 %     .fdm_progressing_pc  - fDM progressing fraction (NaN if not applicable)
 %     .fdm_stable_pc       - fDM stable fraction (NaN if not applicable)
 
-% Initialize output with NaN defaults
+% Initialize all output fields to NaN so that downstream code can safely
+% aggregate across patients/timepoints without special-casing missing data.
 adc_out = struct();
 adc_out.gtv_vol_val = NaN;
 adc_out.adc_mean_val = NaN;
@@ -84,6 +85,10 @@ n_finite_adc = sum(~isnan(adc_vec));
 % fits or artefacts) are still part of the tumour contour.
 adc_out.gtv_vol_val = numel(adc_vec) * vox_vol;
 
+% Whole-GTV ADC distribution statistics.
+% Kurtosis and skewness characterize the shape of the ADC distribution:
+%   - High kurtosis = heavy tails (heterogeneous tumor microenvironment)
+%   - Negative skewness = tail toward low ADC (dominant restricted diffusion)
 adc_out.adc_mean_val = nanmean_safe(adc_vec);
 [adc_out.adc_kurt_val, adc_out.adc_skew_val] = compute_kurt_skew(adc_vec, min_vox_hist);
 adc_out.adc_sd_val = nanstd_safe(adc_vec);

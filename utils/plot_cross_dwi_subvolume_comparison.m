@@ -349,7 +349,9 @@ function plot_repeat_variability(rpt_data, type_label)
 end
 
 function plot_paired_difference(fx1_data, types_available)
-% Right panel: Bland-Altman-style paired difference (Standard - dnCNN).
+% Right panel: Bland-Altman plot of paired differences (Standard - dnCNN).
+% X-axis = mean of the two measurements; Y-axis = difference.
+% Horizontal lines show mean difference (bias) and 95% limits of agreement.
     hold on;
 
     if ~types_available(1) || ~types_available(2)
@@ -373,18 +375,21 @@ function plot_paired_difference(fx1_data, types_available)
         return;
     end
 
+    % Bland-Altman convention: difference on Y, mean on X
     diff_vals = std_vals(paired_valid) - dncnn_vals(paired_valid);
     mean_vals = (std_vals(paired_valid) + dncnn_vals(paired_valid)) / 2;
 
     scatter(mean_vals, diff_vals, 40, [0.2 0.4 0.8], 'filled', 'MarkerFaceAlpha', 0.6);
 
-    % Mean difference line
+    % Mean difference (bias): if DnCNN systematically reduces subvolume,
+    % mean_diff > 0 indicates Standard yields larger subvolumes
     mean_diff = mean(diff_vals, 'omitnan');
     xl = xlim;
-    plot(xl, [mean_diff mean_diff], 'r-', 'LineWidth', 1.5);
-    plot(xl, [0 0], 'k--', 'LineWidth', 0.8);
+    plot(xl, [mean_diff mean_diff], 'r-', 'LineWidth', 1.5);  % bias line
+    plot(xl, [0 0], 'k--', 'LineWidth', 0.8);                  % zero reference
 
-    % Limits of agreement (mean +/- 1.96*SD)
+    % 95% Limits of Agreement (LoA): mean +/- 1.96*SD
+    % Points outside LoA indicate clinically meaningful disagreement
     sd_diff = std(diff_vals, 'omitnan');
     loa_upper = mean_diff + 1.96 * sd_diff;
     loa_lower = mean_diff - 1.96 * sd_diff;
