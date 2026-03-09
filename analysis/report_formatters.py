@@ -110,6 +110,31 @@ def _table_caption(title: str, description: str = "") -> str:
     )
 
 
+def _figure_caption(title: str, description: str = "") -> str:
+    """Return an HTML ``<figcaption>`` with an auto-incremented figure number.
+
+    Parameters
+    ----------
+    title : str
+        Short caption title (e.g. "Longitudinal ADC Trends").
+    description : str, optional
+        Additional descriptive text displayed after the title.
+
+    Returns
+    -------
+    str
+        HTML ``<figcaption>`` element.
+    """
+    num = _numbering.next_figure(title)
+    desc_html = f" {_html.escape(description)}" if description else ""
+    return (
+        f'<figcaption style="text-align:left;font-size:0.9rem;'
+        f'color:#374151;padding:0.4rem 0;font-weight:600">'
+        f'Figure {num}. {_html.escape(title)}'
+        f'<span style="font-weight:400">{desc_html}</span></figcaption>'
+    )
+
+
 def _esc(text: str) -> str:
     """HTML-escape a string to prevent XSS and rendering issues.
 
@@ -474,6 +499,10 @@ NAV_SECTIONS = [
     ("conclusions", "Conclusions"),
     ("reporting-checklist", "Checklist"),
     ("table-index", "Tables"),
+    ("figure-index", "Figures"),
+    ("results-draft", "Results Draft"),
+    ("figure-gallery", "Gallery"),
+    ("journal-guide", "Journal"),
     ("data-availability", "Data"),
     ("references", "References"),
     ("appendix", "All Graphs"),

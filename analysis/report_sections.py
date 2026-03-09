@@ -41,6 +41,7 @@ from report_formatters import (
     _effect_size_class,
     _effect_size_label,
     _esc,
+    _figure_caption,
     _forest_plot_cell,
     _get_consensus,
     _h2,
@@ -4187,6 +4188,7 @@ def _section_manuscript_ready_findings(
                 break
 
     # ── GLME significance sentence ──
+    glme_excluded = None
     if log_data:
         total_glme_tested = 0
         total_glme_sig = 0
@@ -4202,18 +4204,29 @@ def _section_manuscript_ready_findings(
                     total_glme_sig += 1
                     if g["metric"] not in sig_metric_names:
                         sig_metric_names.append(g["metric"])
+            if sc.get("glme_excluded") and glme_excluded is None:
+                glme_excluded = sc["glme_excluded"]
         if total_glme_tested > 0:
+            exc_str = ""
+            if glme_excluded:
+                n_analysed = glme_excluded["n_total"] - glme_excluded["n_excluded"]
+                exc_str = (
+                    f"Among {n_analysed} evaluable patients "
+                    f"(excluding {glme_excluded['n_excluded']} with "
+                    f"competing-risk events), "
+                )
             if total_glme_sig > 0:
                 metric_str = ", ".join(sig_metric_names[:3])
                 sentences.append(
-                    f"GLME interaction testing identified {total_glme_sig} "
+                    f"{exc_str}GLME interaction testing identified "
+                    f"{total_glme_sig} "
                     f"of {total_glme_tested} metrics with significant "
                     f"time-by-outcome interaction effects after BH-FDR "
                     f"correction ({metric_str})."
                 )
             else:
                 sentences.append(
-                    f"None of the {total_glme_tested} metrics tested "
+                    f"{exc_str}none of the {total_glme_tested} metrics tested "
                     f"showed significant time-by-outcome interaction "
                     f"effects after BH-FDR correction (all p > adjusted alpha)."
                 )
@@ -4261,6 +4274,7 @@ def _section_manuscript_ready_findings(
 
     # ── Cox PH hazard ratio sentences ──
     if log_data:
+        import math as _math
         for dt in dwi_types_present:
             if dt not in log_data:
                 continue
@@ -4276,11 +4290,20 @@ def _section_manuscript_ready_findings(
                 ci_str = ""
                 if ci_lo is not None and ci_hi is not None:
                     ci_str = f"; 95% CI [{ci_lo:.2f}, {ci_hi:.2f}]"
+                # Effect size classification based on log(HR)
+                log_hr = _math.log(hr_val) if hr_val > 0 else 0
+                abs_log_hr = abs(log_hr)
+                if abs_log_hr >= 0.8:
+                    eff_label = "large effect"
+                elif abs_log_hr >= 0.5:
+                    eff_label = "medium effect"
+                else:
+                    eff_label = "small effect"
                 sentences.append(
                     f"In cause-specific Cox regression, {cov} was "
                     f"significantly associated with {direction} hazard "
                     f"of local failure (HR = {hr_val:.3f}{ci_str}; "
-                    f"p = {p_val:.4f})."
+                    f"p = {p_val:.4f}; {eff_label})."
                 )
 
     # ── Dosimetry sentence ──
@@ -4601,5 +4624,604 @@ def _section_table_index() -> list[str]:
     for num, title in numbering.table_titles:
         h.append(f"<li><strong>Table {num}.</strong> {_esc(title)}</li>")
     h.append("</ol>")
+
+    return h
+
+
+def _section_figure_index() -> list[str]:
+    """Build a List of Figures section from auto-numbered figure captions.
+
+    This section is generated from the :class:`_NumberingContext` which
+    tracks all ``_figure_caption`` calls during report generation.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the list of figures section.
+    """
+    h: list[str] = []
+    numbering = get_numbering()
+    if not numbering.figure_titles:
+        return h
+
+    h.append(_h2("List of Figures", "figure-index"))
+    h.append('<ol class="toc-list">')
+    for num, title in numbering.figure_titles:
+        h.append(f"<li><strong>Figure {num}.</strong> {_esc(title)}</li>")
+    h.append("</ol>")
+
+    return h
+
+
+def _section_results_draft(
+    log_data, dwi_types_present, csv_data, mat_data, groups
+) -> list[str]:
+    """Build a draft Results section with publication-ready paragraphs.
+
+    Generates a structured Results section draft that follows the standard
+    organisation of a biomedical research paper: Cohort, Baseline, Group
+    Comparisons, Predictive Modelling, Survival Analysis, Cross-DWI.
+    Each paragraph is individually copyable.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    mat_data : dict
+        Parsed MAT file metrics.
+    groups : dict
+        Grouped vision graph data.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the draft results section.
+    """
+    h: list[str] = []
+    paragraphs: list[tuple[str, str]] = []  # (subsection_title, paragraph_text)
+
+    # ── 1. Cohort paragraph ──
+    n_patients = 0
+    n_timepoints = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                lon = mat_data[dt]["longitudinal"]
+                n = lon.get("num_patients", 0)
+                tp = lon.get("num_timepoints", 0)
+                if n > n_patients:
+                    n_patients = n
+                    n_timepoints = tp
+
+    baseline_exc = None
+    if log_data:
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            bl = log_data[dt].get("baseline", {})
+            if bl.get("baseline_exclusion"):
+                baseline_exc = bl["baseline_exclusion"]
+                break
+
+    if n_patients > 0:
+        parts = [
+            f"A total of {n_patients} patients with histologically confirmed "
+            f"pancreatic cancer who underwent concurrent chemoradiotherapy were "
+            f"included in this analysis. DWI was acquired at {n_timepoints} "
+            f"timepoints during the course of treatment."
+        ]
+        if baseline_exc and baseline_exc.get("n_excluded", 0) > 0:
+            n_inc = baseline_exc["n_total"] - baseline_exc["n_excluded"]
+            parts.append(
+                f" {baseline_exc['n_excluded']} patients were excluded due to "
+                f"missing baseline DWI data, leaving {n_inc} patients for "
+                f"baseline analysis."
+            )
+        paragraphs.append(("Patient Cohort", "".join(parts)))
+
+    # ── 2. Group comparisons paragraph ──
+    if log_data:
+        total_tested = 0
+        total_sig = 0
+        sig_metrics: list[str] = []
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            sc = log_data[dt].get("stats_comparisons", {})
+            details = sc.get("glme_details", [])
+            total_tested += len(details)
+            for g in details:
+                if g["p"] < g["adj_alpha"]:
+                    total_sig += 1
+                    if g["metric"] not in sig_metrics:
+                        sig_metrics.append(g["metric"])
+
+        if total_tested > 0:
+            glme_exc = None
+            for dt in dwi_types_present:
+                if dt in log_data:
+                    glme_exc = log_data[dt].get("stats_comparisons", {}).get("glme_excluded")
+                    if glme_exc:
+                        break
+
+            parts = []
+            if glme_exc:
+                parts.append(
+                    f"After excluding {glme_exc['n_excluded']} of "
+                    f"{glme_exc['n_total']} patients ({glme_exc['pct']:.1f}%) "
+                    f"with competing-risk events, "
+                )
+            else:
+                parts.append("")
+
+            if total_sig > 0:
+                metric_str = ", ".join(sig_metrics[:5])
+                parts.append(
+                    f"GLME interaction testing identified {total_sig} of "
+                    f"{total_tested} metrics with significant time\u00d7outcome "
+                    f"interaction effects after Benjamini\u2013Hochberg FDR "
+                    f"correction ({metric_str}). "
+                )
+            else:
+                parts.append(
+                    f"None of the {total_tested} metrics tested demonstrated "
+                    f"significant time\u00d7outcome interaction effects after "
+                    f"Benjamini\u2013Hochberg FDR correction. "
+                )
+
+            # Add FDR global if available
+            if csv_data and csv_data.get("fdr_global"):
+                n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
+                if n_fdr > 0:
+                    parts.append(
+                        f"Globally, {n_fdr} metric(s) survived FDR correction "
+                        f"across the full feature set."
+                    )
+
+            paragraphs.append(("Group Comparisons", "".join(parts)))
+
+    # ── 3. Predictive modelling paragraph ──
+    if log_data:
+        all_roc: list[tuple[str, dict]] = []
+        all_features: list[tuple[str, dict]] = []
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            sp = log_data[dt].get("stats_predictive", {})
+            for r_item in sp.get("roc_analyses", []):
+                all_roc.append((dt, r_item))
+            for fs in sp.get("feature_selections", []):
+                all_features.append((dt, fs))
+
+        if all_roc:
+            # Find best AUC
+            best_dt, best_roc = max(all_roc, key=lambda x: x[1].get("auc", 0))
+            best_auc = best_roc.get("auc", 0)
+            best_tp = best_roc.get("timepoint", "")
+            best_sens = best_roc.get("sensitivity")
+            best_spec = best_roc.get("specificity")
+
+            parts = [
+                f"Elastic-net regularised logistic regression with LOOCV "
+                f"achieved peak discriminative performance at {best_tp} "
+                f"using {best_dt} DWI (AUC = {best_auc:.3f}"
+            ]
+            if best_sens is not None and best_spec is not None:
+                parts.append(
+                    f"; sensitivity = {best_sens:.1f}%, "
+                    f"specificity = {best_spec:.1f}%"
+                )
+            parts.append("). ")
+
+            # Feature counts across timepoints
+            if all_features:
+                unique_feats: set[str] = set()
+                for _, fs in all_features:
+                    unique_feats.update(fs.get("features", []))
+                parts.append(
+                    f"Across all timepoints and DWI types, {len(unique_feats)} "
+                    f"unique features were selected by the elastic-net model. "
+                )
+
+            # Cross-DWI AUC comparison
+            if len(dwi_types_present) >= 2:
+                best_per_type: dict[str, float] = {}
+                for dt, r_item in all_roc:
+                    a = r_item.get("auc", 0)
+                    if dt not in best_per_type or a > best_per_type[dt]:
+                        best_per_type[dt] = a
+                if len(best_per_type) >= 2:
+                    auc_strs = [f"{dt}: {a:.3f}" for dt, a in
+                                sorted(best_per_type.items(), key=lambda x: -x[1])]
+                    parts.append(
+                        f"Peak AUC by DWI type: {'; '.join(auc_strs)}."
+                    )
+
+            paragraphs.append(("Predictive Modelling", "".join(parts)))
+
+    # ── 4. Survival analysis paragraph ──
+    if log_data:
+        all_hrs: list[tuple[str, dict]] = []
+        global_lrt = None
+        ipcw_used = False
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            sv = log_data[dt].get("survival", {})
+            for hr_item in sv.get("hazard_ratios", []):
+                all_hrs.append((dt, hr_item))
+            if sv.get("global_lrt") and global_lrt is None:
+                global_lrt = sv["global_lrt"]
+            if sv.get("ipcw"):
+                ipcw_used = True
+
+        if all_hrs:
+            sig_hrs = [(dt, hr) for dt, hr in all_hrs if hr.get("p", 1) < 0.05]
+            parts = ["Cause-specific Cox proportional hazards modelling"]
+            if ipcw_used:
+                parts.append(" with IPCW adjustment for competing risks")
+            if global_lrt:
+                parts.append(
+                    f" yielded a global model fit of "
+                    f"\u03c7\u00b2({global_lrt['df']}) = {global_lrt['chi2']:.2f}, "
+                    f"p = {global_lrt['p']:.4f}. "
+                )
+            else:
+                parts.append(". ")
+
+            if sig_hrs:
+                for dt, hr_item in sorted(sig_hrs, key=lambda x: x[1]["p"])[:3]:
+                    hr_val = hr_item["hr"]
+                    ci_lo = hr_item.get("ci_lo")
+                    ci_hi = hr_item.get("ci_hi")
+                    direction = "increased" if hr_val > 1 else "decreased"
+                    ci_str = ""
+                    if ci_lo is not None and ci_hi is not None:
+                        ci_str = f"; 95% CI [{ci_lo:.2f}, {ci_hi:.2f}]"
+                    parts.append(
+                        f"{hr_item['covariate']} was associated with "
+                        f"{direction} hazard of local failure "
+                        f"(HR = {hr_val:.3f}{ci_str}; p = {hr_item['p']:.4f}). "
+                    )
+            else:
+                parts.append(
+                    f"None of the {len(all_hrs)} covariates tested achieved "
+                    f"statistical significance at the 0.05 level. "
+                )
+
+            paragraphs.append(("Survival Analysis", "".join(parts)))
+
+    # ── 5. Cross-DWI comparison paragraph ──
+    if groups and len(dwi_types_present) >= 2:
+        n_agree = 0
+        n_total_series = 0
+        for base_name, dwi_dict in groups.items():
+            real = [t for t in dwi_dict if t != "Root"]
+            if len(real) < 2:
+                continue
+            all_trends_dict: dict[str, list] = {}
+            for dt_key in DWI_TYPES:
+                if dt_key in dwi_dict:
+                    try:
+                        all_trends_dict[dt_key] = json.loads(
+                            str(dwi_dict[dt_key].get("trends_json", "[]"))
+                        )
+                    except Exception:
+                        pass
+            if len(all_trends_dict) >= 2:
+                all_series: set[str] = set()
+                for trends in all_trends_dict.values():
+                    for t in trends:
+                        if isinstance(t, dict):
+                            all_series.add(t.get("series") or "overall")
+                for series in all_series:
+                    dirs: dict[str, str] = {}
+                    for dt_key, trends in all_trends_dict.items():
+                        for t in trends:
+                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
+                                dirs[dt_key] = str(t.get("direction", ""))
+                    if len(dirs) >= 2:
+                        n_total_series += 1
+                        if len(set(dirs.values())) == 1:
+                            n_agree += 1
+        if n_total_series > 0:
+            pct = 100 * n_agree / n_total_series
+            robust = "high" if pct >= 80 else "moderate" if pct >= 60 else "limited"
+            paragraphs.append(("Cross-DWI Comparison",
+                f"Trend agreement across the {len(dwi_types_present)} DWI "
+                f"processing strategies (Standard, DnCNN, IVIMnet) was "
+                f"{pct:.0f}% ({n_agree}/{n_total_series} data series), "
+                f"indicating {robust} robustness of the observed biomarker "
+                f"trajectories to the choice of acquisition and "
+                f"post-processing method."
+            ))
+
+    # ── 6. Dosimetry paragraph ──
+    if mat_data:
+        for dt in DWI_TYPES:
+            dosi = (mat_data.get(dt) or {}).get("dosimetry")
+            if dosi:
+                d95 = dosi.get("d95_adc_mean")
+                v50 = dosi.get("v50_adc_mean")
+                if d95 is not None:
+                    v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
+                               else v50) if v50 is not None else None
+                    coverage = "adequate" if d95 >= 45.0 else "suboptimal"
+                    parts = [
+                        f"Dosimetric analysis of ADC-defined resistant "
+                        f"sub-volumes demonstrated {coverage} target coverage "
+                        f"(D95 = {d95:.1f} Gy"
+                    ]
+                    if v50_pct is not None:
+                        parts.append(f"; V50 = {v50_pct:.0f}%")
+                    parts.append(
+                        "), suggesting that diffusion-defined resistant "
+                        "regions may receive insufficient dose with current "
+                        "treatment plans."
+                        if d95 < 45.0
+                        else "), indicating that current treatment plans "
+                        "provide adequate coverage of diffusion-defined "
+                        "resistant sub-volumes."
+                    )
+                    paragraphs.append(("Dosimetric Analysis", "".join(parts)))
+                break
+
+    if not paragraphs:
+        return h
+
+    h.append(_h2("Draft Results Section", "results-draft"))
+    h.append(
+        '<p class="meta">Auto-generated Results section draft following '
+        "standard biomedical publication structure. Each subsection is "
+        "individually copyable for direct insertion into your manuscript. "
+        "Review and adapt the language before submission.</p>"
+    )
+
+    # Copy-all button for the entire results section
+    all_text = "\n\n".join(
+        f"{title}\n\n{text}" for title, text in paragraphs
+    )
+    h.append(
+        f'<div style="margin-bottom:1rem" id="results-draft-all" '
+        f'data-copy="{_esc(all_text)}">'
+        f'{_copy_button("results-draft-all")} '
+        f'<span class="meta">Copy entire Results draft</span>'
+        f"</div>"
+    )
+
+    for title, text in paragraphs:
+        h.append(f"<h3>{_esc(title)}</h3>")
+        h.append(_manuscript_sentence(text))
+
+    return h
+
+
+def _section_figure_gallery(folder) -> list[str]:
+    """Build a Figure Gallery section with embedded images and captions.
+
+    Embeds all pipeline-generated figures (PNG/JPG) from the output folder
+    as base64 data URIs so the report is fully self-contained. Each figure
+    receives an auto-numbered caption with a descriptive title derived
+    from the filename.
+
+    Parameters
+    ----------
+    folder : Path
+        Path to the ``saved_files_*`` output folder.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the figure gallery section.
+    """
+    import base64
+    from pathlib import Path
+
+    h: list[str] = []
+    figures: list[tuple[str, str, Path]] = []  # (dwi_type, clean_name, path)
+
+    # Collect all image files from DWI-type subfolders
+    for dt in DWI_TYPES:
+        dt_dir = Path(folder) / dt
+        if not dt_dir.is_dir():
+            continue
+        for ext in ("*.png", "*.jpg", "*.jpeg"):
+            for img_path in sorted(dt_dir.glob(ext)):
+                # Skip empty files
+                if img_path.stat().st_size == 0:
+                    continue
+                # Generate a clean name from the filename
+                clean = img_path.stem.replace("_", " ").replace("-", " ").title()
+                figures.append((dt, clean, img_path))
+
+    # Also check root folder for cross-DWI comparison figures
+    root_folder = Path(folder)
+    for ext in ("*.png", "*.jpg", "*.jpeg"):
+        for img_path in sorted(root_folder.glob(ext)):
+            if img_path.stat().st_size < 1024:
+                continue
+            clean = img_path.stem.replace("_", " ").replace("-", " ").title()
+            figures.append(("Root", clean, img_path))
+
+    if not figures:
+        return h
+
+    h.append(_h2("Figure Gallery", "figure-gallery"))
+    h.append(
+        f'<p class="meta">All pipeline-generated figures are embedded below '
+        f"with auto-numbered captions. {len(figures)} figure(s) found across "
+        f"the output folder. Figures are grouped by DWI type.</p>"
+    )
+
+    current_dt = ""
+    for dt, clean_name, img_path in figures:
+        if dt != current_dt:
+            current_dt = dt
+            h.append(f"<h3>{_dwi_badge(dt) if dt != 'Root' else 'Cross-DWI'} Figures</h3>")
+
+        # Read and encode the image as base64
+        try:
+            img_bytes = img_path.read_bytes()
+            mime = "image/png" if img_path.suffix.lower() == ".png" else "image/jpeg"
+            b64 = base64.b64encode(img_bytes).decode("ascii")
+            caption = _figure_caption(
+                f"{clean_name} ({dt})" if dt != "Root" else clean_name,
+                f"Generated by the pancData3 pipeline."
+            )
+            h.append("<figure style=\"margin:1rem 0;page-break-inside:avoid\">")
+            h.append(
+                f'<img src="data:{mime};base64,{b64}" '
+                f'alt="{_esc(clean_name)}" '
+                f'style="max-width:100%;height:auto;border:1px solid var(--border);'
+                f'border-radius:4px">'
+            )
+            h.append(caption)
+            h.append("</figure>")
+        except Exception:
+            # Skip files that can't be read
+            pass
+
+    return h
+
+
+def _section_journal_guide(log_data, dwi_types_present, mat_data) -> list[str]:
+    """Build a Journal Submission Guidance section.
+
+    Provides target journal recommendations, word count estimates, and
+    formatting checklists to accelerate manuscript preparation.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the journal submission guidance section.
+    """
+    h: list[str] = []
+    h.append(_h2("Journal Submission Guidance", "journal-guide"))
+    h.append(
+        '<p class="meta">Recommendations for target journals and formatting '
+        "requirements based on the study design and findings.</p>"
+    )
+
+    # Assess study characteristics for journal matching
+    has_survival = bool(log_data) and any(
+        log_data.get(dt, {}).get("survival", {}).get("hazard_ratios")
+        for dt in dwi_types_present
+    )
+    has_predictive = bool(log_data) and any(
+        log_data.get(dt, {}).get("stats_predictive", {}).get("roc_analyses")
+        for dt in dwi_types_present
+    )
+    n_patients = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+                if n > n_patients:
+                    n_patients = n
+
+    # Target journal recommendations
+    h.append("<h3>Suggested Target Journals</h3>")
+    journals = [
+        ("Radiotherapy and Oncology", "3000\u20134000", "Original Article",
+         "Pancreatic RT, DWI biomarkers, treatment response"),
+        ("International Journal of Radiation Oncology, Biology, Physics (Red Journal)",
+         "3500\u20134500", "Clinical Investigation",
+         "RT dose-response, imaging biomarkers"),
+        ("Physics in Medicine & Biology", "4000\u20136000", "Paper",
+         "DWI methodology, IVIM modelling, denoising comparison"),
+        ("Medical Physics", "4000\u20136000", "Research Article",
+         "Quantitative imaging, model comparison, dosimetric analysis"),
+    ]
+    if has_survival:
+        journals.append((
+            "Acta Oncologica", "3000\u20134000", "Original Article",
+            "Survival analysis, prognostic biomarkers"
+        ))
+    if has_predictive:
+        journals.append((
+            "European Radiology", "3500\u20134500", "Original Article",
+            "Predictive modelling, radiomics, machine learning"
+        ))
+
+    h.append("<table>")
+    h.append(_table_caption("Suggested Target Journals",
+                            "Word limits and scope alignment."))
+    h.append("<thead><tr><th>Journal</th><th>Word Limit</th>"
+             "<th>Article Type</th><th>Scope Match</th></tr></thead><tbody>")
+    for name, words, atype, scope in journals:
+        h.append(
+            f"<tr><td><strong>{_esc(name)}</strong></td>"
+            f"<td>{_esc(words)}</td>"
+            f"<td>{_esc(atype)}</td>"
+            f"<td>{_esc(scope)}</td></tr>"
+        )
+    h.append("</tbody></table>")
+
+    # Manuscript structure checklist
+    h.append("<h3>Manuscript Preparation Checklist</h3>")
+    checklist = [
+        ("Title page", "Title, all authors with affiliations, corresponding author, "
+         "running head, word count, keywords"),
+        ("Abstract", "Structured (Purpose/Methods/Results/Conclusions), "
+         "250 words max for most journals"),
+        ("Introduction", "Scientific rationale, knowledge gap, study objectives "
+         "(typically 400\u2013600 words)"),
+        ("Methods", "Auto-generated in this report; review for completeness"),
+        ("Results", "Draft available in this report; add demographics table"),
+        ("Discussion", "Interpret findings, compare with literature, limitations, "
+         "future directions (typically 1000\u20131500 words)"),
+        ("References", "BibTeX export available in this report; verify journal "
+         "formatting style"),
+        ("Figures", "Gallery with captions available; ensure resolution "
+         "\u2265300 DPI for print"),
+        ("Tables", "Auto-numbered in this report; check journal table formatting"),
+        ("Supplementary", "Consider moving detailed tables to supplement"),
+        ("Cover letter", "Highlight novelty (multi-strategy DWI, longitudinal "
+         "design, cross-DWI comparison)"),
+        ("ICMJE forms", "All authors must complete ICMJE disclosure forms"),
+        ("IRB statement", "Include protocol number in Methods"),
+    ]
+
+    h.append('<table><thead><tr><th>Item</th><th>Notes</th>'
+             '</tr></thead><tbody>')
+    for item, notes in checklist:
+        h.append(f"<tr><td><strong>{_esc(item)}</strong></td>"
+                 f"<td>{_esc(notes)}</td></tr>")
+    h.append("</tbody></table>")
+
+    # Suggested keywords
+    h.append("<h3>Suggested Keywords</h3>")
+    keywords = [
+        "diffusion-weighted imaging", "IVIM", "pancreatic cancer",
+        "radiotherapy", "treatment response", "biomarker",
+    ]
+    if has_predictive:
+        keywords.append("elastic net")
+        keywords.append("predictive modelling")
+    if has_survival:
+        keywords.append("survival analysis")
+        keywords.append("competing risks")
+    if len(dwi_types_present) >= 2:
+        keywords.append("deep learning denoising")
+    h.append(
+        '<div class="manuscript-sentence" data-copy="'
+        + _esc("; ".join(keywords)) + '">'
+        + _esc("; ".join(keywords))
+        + '<button class="copy-btn" onclick="copyText(this)">Copy</button>'
+        + "</div>"
+    )
 
     return h
