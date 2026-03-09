@@ -64,4 +64,7 @@ def test_gemini_api_connection(tmp_path: Path):
         assert "SUCCESS" in response.text.upper()
         
     except Exception as e:
+        err_str = str(e).lower()
+        if "429" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "rate" in err_str:
+            pytest.skip(f"API rate limit reached (quota exhausted): {e}")
         pytest.fail(f"API connection failed with exception: {e}")
