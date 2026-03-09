@@ -109,11 +109,20 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
             mat: typing.Any = scipy_io.loadmat(str(dosimetry_mat), squeeze_me=True)
             # d95_adc_sub: D95 (minimum dose to 95% of sub-volume) for ADC
             # v50_adc_sub: V50 (fraction of sub-volume receiving >=50 Gy) for ADC
+            def _safe_nanmean(arr):
+                """Compute nanmean and convert to plain Python float for JSON."""
+                val = numpy_np.nanmean(arr)
+                # Convert numpy scalar to Python float; NaN becomes None
+                # so JSON serialisation does not produce invalid output.
+                if numpy_np.isnan(val):
+                    return None
+                return float(val)
+
             out_data["dosimetry"] = {
-                "d95_adc_mean": numpy_np.nanmean(mat.get("d95_adc_sub", numpy_np.nan)),
-                "v50_adc_mean": numpy_np.nanmean(mat.get("v50_adc_sub", numpy_np.nan)),
-                "d95_d_mean": numpy_np.nanmean(mat.get("d95_d_sub", numpy_np.nan)),
-                "v50_d_mean": numpy_np.nanmean(mat.get("v50_d_sub", numpy_np.nan)),
+                "d95_adc_mean": _safe_nanmean(mat.get("d95_adc_sub", numpy_np.nan)),
+                "v50_adc_mean": _safe_nanmean(mat.get("v50_adc_sub", numpy_np.nan)),
+                "d95_d_mean": _safe_nanmean(mat.get("d95_d_sub", numpy_np.nan)),
+                "v50_d_mean": _safe_nanmean(mat.get("v50_d_sub", numpy_np.nan)),
             }
         except Exception as e:
             print(f"Error parsing {dosimetry_mat.name}: {e}")

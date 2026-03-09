@@ -146,8 +146,8 @@ def cross_reference_significance(sig_by_dwi: dict[str, list[dict]]) -> list[dict
             "timepoint": tp,
             "significant_in": sorted(dwi_set),
             "not_significant_in": missing,
-            # Consistent if ALL or NONE of the DWI types show significance.
-            "consistent": len(missing) == 0 or len(dwi_set) == 0,
+            # Consistent if ALL known DWI types show significance (no missing).
+            "consistent": len(missing) == 0,
         })
 
     return cross_ref

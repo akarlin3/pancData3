@@ -40,9 +40,24 @@ from shared import get_config, resolve_folder, setup_utf8_stdout
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
-from google import genai
-from google.genai import types
+# Lazy-import google.genai so that the module can be imported (and tested)
+# without the google-genai package installed.  The actual imports happen
+# inside ``analyze_image`` and ``main``, which are only called when running
+# the vision pipeline.
+genai = None  # type: ignore[assignment]
+types = None  # type: ignore[assignment]
+
 from pydantic import BaseModel, Field, ValidationError
+
+
+def _ensure_genai():
+    """Import google.genai lazily; raise ImportError if unavailable."""
+    global genai, types
+    if genai is None:
+        from google import genai as _genai
+        from google.genai import types as _types
+        genai = _genai
+        types = _types
 
 
 # ── Pydantic schema ──────────────────────────────────────────────────────────
@@ -225,7 +240,7 @@ MAX_OUTPUT_TOKENS = _vision_cfg["max_output_tokens"]
 
 
 async def analyze_image(
-    client: genai.Client,
+    client,
     image_path: Path,
     semaphore: asyncio.Semaphore,
     progress_bar: tqdm | None = None,
@@ -432,6 +447,7 @@ async def main():
     5. Collects results, substituting error placeholders for failures.
     6. Writes ``graph_analysis_results.csv`` to the output folder.
     """
+    _ensure_genai()
     folder = resolve_folder(sys.argv)
     images = collect_images(folder)
 

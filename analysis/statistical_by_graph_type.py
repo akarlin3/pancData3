@@ -148,11 +148,11 @@ def main():
             trends = json.loads(r["trends_json"])
             for t in trends:
                 d = t["direction"].lower()
-                if "increas" in d or "upward" in d or "rising" in d:
+                if "increas" in d or "up" in d or "higher" in d or "rising" in d:
                     trends_up += 1
-                elif "decreas" in d or "downward" in d or "declining" in d or "drop" in d:
+                elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
                     trends_down += 1
-                elif "stable" in d or "flat" in d or "no " in d or "constant" in d:
+                elif "flat" in d or "stable" in d or "constant" in d:
                     trends_stable += 1
                 else:
                     trends_other += 1

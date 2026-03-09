@@ -39,11 +39,17 @@ ANALYSIS_DIR = Path(__file__).resolve().parent
 
 
 class TeeWriter:
-    """Write to both a terminal stream and a log file simultaneously."""
+    """Write to both a terminal stream and a log file simultaneously.
+
+    Implements enough of the file-like interface (``write``, ``flush``,
+    ``isatty``, ``encoding``, ``fileno``) to be usable as a drop-in
+    ``sys.stdout`` / ``sys.stderr`` replacement.
+    """
 
     def __init__(self, terminal: io.TextIOBase, log_file: io.TextIOBase):
         self.terminal = terminal
         self.log_file = log_file
+        self.encoding = getattr(terminal, "encoding", "utf-8")
 
     def write(self, message: str) -> int:
         self.terminal.write(message)
@@ -53,6 +59,14 @@ class TeeWriter:
     def flush(self) -> None:
         self.terminal.flush()
         self.log_file.flush()
+
+    def isatty(self) -> bool:
+        """Return the terminal stream's isatty status."""
+        return hasattr(self.terminal, "isatty") and self.terminal.isatty()
+
+    def fileno(self) -> int:
+        """Delegate fileno to the terminal stream (for subprocess piping)."""
+        return self.terminal.fileno()
 
 
 def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) -> bool:
@@ -161,12 +175,16 @@ def main():
 
     # ── Apply CLI overrides to the centralised config ──
     # Load the config (from file or defaults), then patch with CLI args.
+    import os as _os
     import shared as _shared_mod
     cfg = load_analysis_config(config_path=args.config)
     if args.gemini_model:
         cfg["vision"]["gemini_model"] = args.gemini_model
+        # Propagate to subprocess children via environment variable.
+        _os.environ["PANCDATA3_GEMINI_MODEL"] = args.gemini_model
     if args.concurrency is not None:
         cfg["vision"]["max_concurrent_requests"] = args.concurrency
+        _os.environ["PANCDATA3_GEMINI_CONCURRENCY"] = str(args.concurrency)
     # Install the patched config into the shared module cache so that
     # child scripts (imported as modules) see the CLI overrides.
     _shared_mod._config_cache = cfg

@@ -23,16 +23,7 @@ if str(ANALYSIS_DIR) not in sys.path:
 import parse_mat_metrics
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def saved_files_dir(tmp_path: Path) -> Path:
-    """Create a minimal saved_files directory with DWI subfolders."""
-    folder = tmp_path / "saved_files_20260301_120000"
-    for dwi in ("Standard", "dnCNN", "IVIMnet"):
-        (folder / dwi).mkdir(parents=True)
-    return folder
+# Uses saved_files_dir fixture from conftest.py
 
 
 # ── parse_mat_files_for_dwi ──────────────────────────────────────────────

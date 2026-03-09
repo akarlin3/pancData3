@@ -235,7 +235,14 @@ def parse_stats_predictive(text: str) -> dict:
     dict
         Keys: ``feature_selections``, ``roc_analyses``.
     """
-    result = {"feature_selections": [], "roc_analyses": []}
+    result = {"feature_selections": [], "roc_analyses": [], "firth_refits": []}
+
+    # Extract Firth penalised-likelihood refits per timepoint.
+    for m in RE_FIRTH.finditer(text):
+        result["firth_refits"].append({
+            "timepoint": m.group(1),
+            "n_features": int(m.group(2)),
+        })
 
     # Extract elastic-net feature selections per timepoint.
     for m in RE_ELASTIC_NET.finditer(text):

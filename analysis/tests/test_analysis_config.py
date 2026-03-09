@@ -184,6 +184,35 @@ class TestLoadAnalysisConfig:
         )
         assert cfg["dwi_types"] == ["Standard", "dnCNN", "IVIMnet"]
 
+    def test_env_var_overrides_gemini_model(self, tmp_path: Path, monkeypatch):
+        """PANCDATA3_GEMINI_MODEL env var overrides the config file value."""
+        monkeypatch.setenv("PANCDATA3_GEMINI_MODEL", "gemini-2.5-flash")
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["gemini_model"] == "gemini-2.5-flash"
+
+    def test_env_var_overrides_concurrency(self, tmp_path: Path, monkeypatch):
+        """PANCDATA3_GEMINI_CONCURRENCY env var overrides the config file value."""
+        monkeypatch.setenv("PANCDATA3_GEMINI_CONCURRENCY", "8")
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["max_concurrent_requests"] == 8
+
+    def test_env_var_invalid_concurrency_ignored(self, tmp_path: Path, monkeypatch):
+        """Non-integer PANCDATA3_GEMINI_CONCURRENCY is silently ignored."""
+        monkeypatch.delenv("PANCDATA3_GEMINI_CONCURRENCY", raising=False)
+        monkeypatch.setenv("PANCDATA3_GEMINI_CONCURRENCY", "not_a_number")
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        # Should retain default value (invalid string is not parsed as int).
+        assert cfg["vision"]["max_concurrent_requests"] == _DEFAULTS["vision"]["max_concurrent_requests"]
+
     def test_full_override_chain(self, tmp_path: Path):
         """Both analysis config and MATLAB config apply in order."""
         analysis_cfg = {
