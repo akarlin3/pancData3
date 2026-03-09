@@ -21,7 +21,6 @@ import base64
 import json
 from pathlib import Path
 
-import pytest
 
 from batch_graph_analysis import (
     Axis,
@@ -377,39 +376,44 @@ class TestIsRateLimitError:
 class TestRateLimitCoordinator:
     """Verify shared rate-limit coordination across workers."""
 
-    @pytest.mark.asyncio
-    async def test_no_cooldown_initially(self):
+    def test_no_cooldown_initially(self):
         """A fresh coordinator should not block."""
-        coord = _RateLimitCoordinator()
-        # Should return immediately (no cooldown active).
-        await coord.wait_if_cooling_down()
+        async def _run():
+            coord = _RateLimitCoordinator()
+            # Should return immediately (no cooldown active).
+            await coord.wait_if_cooling_down()
+        asyncio.run(_run())
 
-    @pytest.mark.asyncio
-    async def test_signal_sets_cooldown(self):
+    def test_signal_sets_cooldown(self):
         """After signal(), the coordinator should report a cooldown."""
-        coord = _RateLimitCoordinator()
-        await coord.signal()
-        # _resume_at should be in the future.
-        now = asyncio.get_event_loop().time()
-        assert coord._resume_at > now
+        async def _run():
+            coord = _RateLimitCoordinator()
+            await coord.signal()
+            # _resume_at should be in the future.
+            loop = asyncio.get_event_loop()
+            now = loop.time()
+            assert coord._resume_at > now
+        asyncio.run(_run())
 
-    @pytest.mark.asyncio
-    async def test_consecutive_hits_increase_cooldown(self):
+    def test_consecutive_hits_increase_cooldown(self):
         """Multiple consecutive signals should increase the cooldown."""
-        coord = _RateLimitCoordinator()
-        await coord.signal()
-        first_resume = coord._resume_at
-        await coord.signal()
-        second_resume = coord._resume_at
-        # Second cooldown should extend further into the future.
-        assert second_resume >= first_resume
+        async def _run():
+            coord = _RateLimitCoordinator()
+            await coord.signal()
+            first_resume = coord._resume_at
+            await coord.signal()
+            second_resume = coord._resume_at
+            # Second cooldown should extend further into the future.
+            assert second_resume >= first_resume
+        asyncio.run(_run())
 
-    @pytest.mark.asyncio
-    async def test_success_resets_consecutive_counter(self):
+    def test_success_resets_consecutive_counter(self):
         """record_success() should reset the consecutive hit counter."""
-        coord = _RateLimitCoordinator()
-        await coord.signal()
-        await coord.signal()
-        assert coord._consecutive_hits == 2
-        await coord.record_success()
-        assert coord._consecutive_hits == 0
+        async def _run():
+            coord = _RateLimitCoordinator()
+            await coord.signal()
+            await coord.signal()
+            assert coord._consecutive_hits == 2
+            await coord.record_success()
+            assert coord._consecutive_hits == 0
+        asyncio.run(_run())

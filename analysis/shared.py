@@ -34,7 +34,7 @@ from pathlib import Path
 _DEFAULTS: dict = {
     "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
     "vision": {
-        "gemini_model": "gemini-3.5-pro",
+        "gemini_model": "gemini-3.1-pro-preview",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 2048,
