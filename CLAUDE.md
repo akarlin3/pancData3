@@ -16,6 +16,7 @@ This file provides essential context for AI assistants (Claude, Antigravity, etc
 **Language:** MATLAB (R2021a+)
 **License:** MIT (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
+**Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
 
 ---
 
@@ -370,6 +371,15 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 - Checkpointing allows recovery from interruptions mid-cohort.
 - Parallel pool capped at 2 workers (`execute_all_workflows.m`).
 
+### Cross-Platform Compatibility
+
+- `escape_shell_arg.m` auto-detects `ispc()` for Windows (double-quote) vs Unix (single-quote) shell escaping.
+- All file paths use `fullfile()`, `filesep`, and `pathsep` — never hardcoded separators.
+- `ProgressBarPlugin.m` uses `isunix`/`ispc` for platform-specific terminal width detection.
+- `test_convert_dicom.m` generates `.bat` scripts on Windows and shell scripts on Unix.
+- Python analysis scripts use `pathlib.Path` throughout and reconfigure `stdout` to UTF-8 on Windows for emoji support.
+- CI runs the full MATLAB and Python test suites on Linux, macOS, and Windows.
+
 ### Security
 
 - `safe_load_mask.m` inspects variable type before loading; rejects non-numeric classes to prevent arbitrary code execution from `.mat` files.
@@ -497,6 +507,7 @@ After **every feature implementation** (adding a new file, adding a config field
 - Branch naming follows: `claude/<description>-<session-id>` for Claude branches.
 - `.gitignore` excludes: MATLAB autosave files (`*.asv`, `*.m~`, `*.mex*`), imaging data (`*.nii`, `*.dcm`, `*.h5`), CSVs, and clinical spreadsheets (`*.xlsx`) to prevent accidental PHI commits.
 - After pushing a branch, Claude should create a pull request targeting `main` using `gh pr create` **only if `gh` is available** (check with `which gh` first). Include a summary of changes and a test plan in the PR body. If `gh` is not installed, skip PR creation silently (do not notify the user).
+- CI (`.github/workflows/ci.yml`) runs MATLAB tests and Python analysis tests on all three platforms (Linux, macOS, Windows) plus an Octave smoke test on Linux.
 
 ---
 
