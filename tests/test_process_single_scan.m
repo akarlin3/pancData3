@@ -96,9 +96,10 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_b0_ref_output_on_fx1(testCase)
-            % At fi==1, b0_ref_out should be populated when DWI exists
-            % Since we can't easily create NIfTI, verify it stays empty
-            % when no DWI file exists
+            % The b0_ref output (baseline b=0 reference image) is produced
+            % at fi==1 for use in subsequent DIR registration. Since we
+            % cannot easily create synthetic NIfTI data, verify that it
+            % remains empty when no DWI file exists.
             ctx = testCase.makeMinimalCtx();
             ctx.fi = 1;
             ctx.dicomloc = '';
@@ -111,7 +112,9 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         end
 
         function test_data_gtvp_initialized(testCase)
-            % data_gtvp should be a struct with expected fields
+            % The GTVp (primary tumor) data struct should always be
+            % initialized with the expected DWI parameter vector fields,
+            % even when no actual data is loaded.
             ctx = testCase.makeMinimalCtx();
             ctx.dicomloc = '';
             ctx.struct_file = '';

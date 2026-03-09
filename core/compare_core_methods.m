@@ -332,10 +332,13 @@ end
 function generate_comparison_figures(results, output_folder, dwi_type_name)
 % Generate heatmaps and bar charts for core method comparison.
 
+    % Replace underscores with spaces for human-readable axis labels
     method_labels = strrep(results.method_names, '_', ' ');
     n_methods = numel(results.method_names);
 
     % --- Figure 1: Mean Dice Heatmap ---
+    % Dice range is [0, 1], so caxis is fixed. Parula colormap is
+    % perceptually uniform and accessible to colour-blind readers.
     fig1 = figure('Visible', 'off', 'Position', [100 100 800 700]);
     imagesc(results.mean_dice_matrix);
     colorbar;

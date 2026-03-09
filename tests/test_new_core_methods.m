@@ -62,18 +62,20 @@ classdef test_new_core_methods < matlab.unittest.TestCase
     % ==================================================================
     methods (Test)
         function testPercentileSelectsApproxNPercent(testCase)
+            % Verifies that the percentile method selects approximately the
+            % bottom N% of ADC voxels as core. With 100 voxels and
+            % core_percentile=25, expect ~25 voxels selected. The adc_thresh
+            % safety floor is set very high (0.01) so it does not interfere.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'percentile';
             cfg.core_percentile = 25;
-            % Set adc_thresh very high so it does not cap
-            cfg.adc_thresh = 0.01;
+            cfg.adc_thresh = 0.01; % Effectively disabled
 
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, true, testCase.GtvMask3d);
 
             n_core = sum(mask);
-            % With 100 voxels and 25th percentile, expect ~25 core voxels
-            % (ties at the boundary can cause +-1)
+            % Allow +-2 tolerance for ties at the percentile boundary
             testCase.verifyGreaterThanOrEqual(n_core, 23);
             testCase.verifyLessThanOrEqual(n_core, 27);
         end

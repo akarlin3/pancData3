@@ -93,11 +93,13 @@ adc_out.adc_mean_val = nanmean_safe(adc_vec);
 [adc_out.adc_kurt_val, adc_out.adc_skew_val] = compute_kurt_skew(adc_vec, min_vox_hist);
 adc_out.adc_sd_val = nanstd_safe(adc_vec);
 
-% CORE DELINEATION METHOD ABSTRACTION
+% CORE DELINEATION: Extract the restricted-diffusion tumor core using the
+% configured method (threshold, Otsu, GMM, fDM, etc.). The returned mask
+% is reused by compute_ivim_metrics for unified core methods.
 adc_vec_sub_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
-adc_vec_sub = adc_vec(adc_vec_sub_mask);
-adc_vec_high_sub = adc_vec(adc_vec > high_adc_thresh);
-adc_out.adc_vec_sub_mask = adc_vec_sub_mask;
+adc_vec_sub = adc_vec(adc_vec_sub_mask);           % ADC values within the core
+adc_vec_high_sub = adc_vec(adc_vec > high_adc_thresh);  % High-ADC sub-volume (necrosis/edema)
+adc_out.adc_vec_sub_mask = adc_vec_sub_mask;  % Export mask for IVIM reuse
 
 % Compute fDM volume fractions when using fDM core method
 if strcmpi(config_struct.core_method, 'fdm') && k > 1

@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """Generate a comprehensive HTML analysis report.
 
-Combines vision-based graph analysis (if available), direct CSV parsing, and
-log file parsing into a single structured HTML report.
+Combines data from three sources into a single standalone HTML file:
+
+1. **Vision CSV** (``graph_analysis_results.csv``) -- structured graph
+   metadata extracted by the Claude vision model.
+2. **Pipeline CSV exports** (``Significant_LF_Metrics.csv``,
+   ``FDR_Sig_Global.csv``) -- significance tables from MATLAB.
+3. **Log file parsing** -- structured metrics regex-extracted from MATLAB
+   diary logs by :mod:`parse_log_metrics`.
+4. **MAT file parsing** (optional) -- core-method comparison matrices and
+   dosimetry summaries from :mod:`parse_mat_metrics`.
+
+The report is written as ``analysis_report.html`` in the output folder and
+includes a sticky navigation bar, stat cards, colour-coded significance
+tables, cross-DWI trend comparisons, and a full appendix of every analysed
+graph.
 
 Usage:
     python generate_report.py [saved_files_path]

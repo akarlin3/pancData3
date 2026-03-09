@@ -23,19 +23,23 @@ class TestSigTag:
     """Verify p-value to significance star mapping."""
 
     def test_three_stars(self):
+        """p < 0.001 gets triple stars (highly significant)."""
         assert _sig_tag(0.0001) == "***"
         assert _sig_tag(0.0009) == "***"
 
     def test_two_stars(self):
+        """0.001 <= p < 0.01 gets double stars."""
         assert _sig_tag(0.001) == "**"
         assert _sig_tag(0.005) == "**"
         assert _sig_tag(0.009) == "**"
 
     def test_one_star(self):
+        """0.01 <= p < 0.05 gets a single star."""
         assert _sig_tag(0.01) == "*"
         assert _sig_tag(0.049) == "*"
 
     def test_not_significant(self):
+        """p >= 0.05 gets no star (empty string)."""
         assert _sig_tag(0.05) == ""
         assert _sig_tag(0.5) == ""
         assert _sig_tag(1.0) == ""

@@ -16,6 +16,8 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
 
     methods(TestMethodSetup)
         function setup(testCase)
+            % Create a uniquely-named temp directory (UUID suffix prevents
+            % collisions in parallel test runs) and suppress figure pop-ups.
             testCase.OutputFolder = fullfile(tempdir, ['test_msc_' char(java.util.UUID.randomUUID)]);
             mkdir(testCase.OutputFolder);
             testCase.OldVisible = get(0, 'DefaultFigureVisible');
@@ -35,7 +37,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
 
     methods(Test)
         function test_runs_with_minimal_data(testCase)
-            % Smoke test: function should run without error with small data
+            % Smoke test: verifies the function runs end-to-end without
+            % error on a minimal dataset (20 patients, 3 timepoints, 1
+            % metric). Checks that the diary log file is created.
             rng(42);
             nPat = 20;
             nTp = 3;
@@ -64,7 +68,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_competing_risk_excluded(testCase)
-            % Patients with lf_group==2 should be excluded from rank-sum
+            % Verifies that patients coded as competing risks (lf_group==2)
+            % are excluded from Wilcoxon rank-sum comparisons. Only LC
+            % (lf=0) and LF (lf=1) groups participate in the test.
             rng(42);
             nPat = 30;
             nTp = 2;
