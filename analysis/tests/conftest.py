@@ -8,6 +8,7 @@ by all analysis scripts.
 from __future__ import annotations
 
 import csv
+import importlib.util
 import json
 import os
 import sys
@@ -19,6 +20,24 @@ import pytest
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_DIR))
+
+
+# ---------------------------------------------------------------------------
+# Dependency pre-flight check
+# ---------------------------------------------------------------------------
+# Verify that required third-party packages are installed before test
+# collection begins.  This gives a single, clear error message instead of
+# cryptic ImportError tracebacks scattered across individual test files.
+
+_REQUIRED_PACKAGES = ["tqdm", "pydantic", "markdown"]
+_missing = [pkg for pkg in _REQUIRED_PACKAGES if importlib.util.find_spec(pkg) is None]
+if _missing:
+    _requirements_file = ANALYSIS_DIR / "requirements.txt"
+    pytest.exit(
+        f"Missing required packages: {', '.join(_missing)}. "
+        f"Install them with:  pip install -r {_requirements_file}",
+        returncode=1,
+    )
 
 
 # ---------------------------------------------------------------------------
