@@ -48,7 +48,9 @@ from report_formatters import (  # noqa: F401
     HTML_TEMPLATE,
     NAV_SECTIONS,
     REFERENCES,
+    REPORT_JS,
     _cite,
+    _copy_button,
     _dwi_badge,
     _effect_size_class,
     _effect_size_label,
@@ -56,6 +58,7 @@ from report_formatters import (  # noqa: F401
     _forest_plot_cell,
     _get_consensus,
     _h2,
+    _manuscript_sentence,
     _nav_bar,
     _references_section,
     _section,
@@ -64,6 +67,7 @@ from report_formatters import (  # noqa: F401
     _stat_card,
     _table_caption,
     _trend_tag,
+    get_numbering,
     reset_numbering,
 )
 
@@ -83,6 +87,7 @@ from report_sections import (  # noqa: F401
     _section_graph_overview,
     _section_hypothesis,
     _section_limitations,
+    _section_manuscript_ready_findings,
     _section_mat_data,
     _section_methods,
     _section_model_diagnostics,
@@ -91,9 +96,11 @@ from report_sections import (  # noqa: F401
     _section_power_analysis,
     _section_predictive_performance,
     _section_publication_header,
+    _section_reporting_checklist,
     _section_sensitivity_analysis,
     _section_stats_by_graph_type,
     _section_statistical_significance,
+    _section_table_index,
     _section_treatment_response,
 )
 
@@ -175,6 +182,7 @@ def generate_report(folder: Path) -> str:
     h.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
     h.append(f"<title>Analysis Report \u2014 {_esc(timestamp)}</title>")
     h.append(f"<style>{CSS}</style>")
+    h.append(f"<script>{REPORT_JS}</script>")
     h.append("</head>")
     h.append("<body>")
 
@@ -196,6 +204,7 @@ def generate_report(folder: Path) -> str:
     # Build a list of (section_name, builder_fn, args) for progress tracking.
     section_steps = [
         ("Executive summary", _section_executive_summary, (log_data, dwi_types_present, rows, csv_data, timestamp, mat_data)),
+        ("Manuscript findings", _section_manuscript_ready_findings, (log_data, dwi_types_present, csv_data, mat_data, groups)),
         ("Methods", _section_methods, (dwi_types_present, mat_data, log_data)),
         ("Cohort overview", _section_cohort_overview, (mat_data, log_data, dwi_types_present)),
         ("Patient flow", _section_patient_flow, (log_data, dwi_types_present, mat_data)),
@@ -380,6 +389,8 @@ def generate_report(folder: Path) -> str:
         ("MAT data", _section_mat_data, (mat_data,)),
         ("Limitations", _section_limitations, (log_data, dwi_types_present, mat_data)),
         ("Conclusions", _section_conclusions, (log_data, dwi_types_present, csv_data, mat_data, groups)),
+        ("Reporting checklist", _section_reporting_checklist, (log_data, dwi_types_present, mat_data, csv_data, rows)),
+        ("Table index", _section_table_index, ()),
         ("Data availability", _section_data_availability, ()),
         ("References", _references_section, ()),
         ("Appendix", _section_appendix, (rows,)),

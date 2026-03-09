@@ -21,18 +21,26 @@ from pathlib import Path
 import pytest
 
 from generate_report import (
+    _copy_button,
     _effect_size_class,
     _effect_size_label,
     _forest_plot_cell,
+    _manuscript_sentence,
     _section,
     _section_appendix,
     _section_data_completeness,
     _section_feature_overlap,
+    _section_manuscript_ready_findings,
     _section_patient_flow,
     _section_power_analysis,
+    _section_reporting_checklist,
     _section_sensitivity_analysis,
+    _section_table_index,
     _sig_tag,
     generate_report,
+    get_numbering,
+    reset_numbering,
+    REPORT_JS,
 )
 
 
@@ -853,3 +861,209 @@ class TestCorrelationsContext:
         report = generate_report(saved_files_with_graph_csv)
         if "Correlations" in report:
             assert "Cohen" in report or "strength" in report.lower()
+
+
+# ---------------------------------------------------------------------------
+# Manuscript ready findings
+# ---------------------------------------------------------------------------
+
+class TestManuscriptReadyFindings:
+    """Verify the Key Findings for Manuscript section."""
+
+    def test_empty_without_data(self):
+        """Section returns empty when no data is available."""
+        result = _section_manuscript_ready_findings(None, [], None, {}, {})
+        assert result == []
+
+    def test_generates_sentences_with_log_data(self, saved_files_with_logs: Path):
+        """Section generates copyable sentences from log data."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {}
+        )
+        html = "\n".join(result)
+        assert "manuscript-sentence" in html
+        assert "Manuscript" in html
+        # Should have copy buttons
+        assert "copy-btn" in html
+
+    def test_includes_auc_sentence(self, saved_files_with_logs: Path):
+        """Section includes AUC performance sentence when ROC data exists."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {}
+        )
+        html = "\n".join(result)
+        assert "AUC" in html or "elastic-net" in html.lower()
+
+    def test_includes_hazard_ratio_sentence(self, saved_files_with_logs: Path):
+        """Section includes HR sentence when survival data exists."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {}
+        )
+        html = "\n".join(result)
+        assert "HR" in html or "hazard" in html.lower() or "Cox" in html
+
+    def test_copy_all_button_present(self, saved_files_with_logs: Path):
+        """Section has a copy-all button for the full paragraph."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {}
+        )
+        html = "\n".join(result)
+        assert "all-findings" in html
+
+
+# ---------------------------------------------------------------------------
+# Reporting checklist
+# ---------------------------------------------------------------------------
+
+class TestReportingChecklist:
+    """Verify the STROBE/REMARK reporting checklist section."""
+
+    def test_checklist_with_no_data(self):
+        """Checklist renders even without any data."""
+        result = _section_reporting_checklist(None, [], {}, None, [])
+        html = "\n".join(result)
+        assert "Reporting Guideline" in html
+        assert "STROBE" in html
+        assert "REMARK" in html
+
+    def test_checklist_counts_addressed_items(self, saved_files_with_logs: Path):
+        """Checklist correctly counts addressed vs partial items."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result = _section_reporting_checklist(
+            log_data, ["Standard"], {}, None, []
+        )
+        html = "\n".join(result)
+        assert "Addressed" in html
+        assert "checklist-done" in html
+
+    def test_checklist_has_dynamic_status(self, saved_files_with_logs: Path):
+        """Checklist status changes based on available data."""
+        from parse_log_metrics import parse_all_logs
+        log_data = parse_all_logs(saved_files_with_logs)
+        result_with = _section_reporting_checklist(
+            log_data, ["Standard"], {}, None, []
+        )
+        result_without = _section_reporting_checklist(
+            None, [], {}, None, []
+        )
+        # With data should have more 'done' items
+        done_with = "\n".join(result_with).count("checklist-done")
+        done_without = "\n".join(result_without).count("checklist-done")
+        assert done_with >= done_without
+
+
+# ---------------------------------------------------------------------------
+# Table index
+# ---------------------------------------------------------------------------
+
+class TestTableIndex:
+    """Verify the List of Tables section."""
+
+    def test_empty_without_tables(self):
+        """Returns empty when no tables have been numbered."""
+        reset_numbering()
+        result = _section_table_index()
+        assert result == []
+
+    def test_lists_numbered_tables(self):
+        """Lists all tables that were numbered during report generation."""
+        reset_numbering()
+        from report_formatters import _table_caption
+        _table_caption("Test Table One", "description")
+        _table_caption("Test Table Two")
+        result = _section_table_index()
+        html = "\n".join(result)
+        assert "Test Table One" in html
+        assert "Test Table Two" in html
+        assert "Table 1" in html
+        assert "Table 2" in html
+        reset_numbering()
+
+
+# ---------------------------------------------------------------------------
+# Copy button and manuscript sentence helpers
+# ---------------------------------------------------------------------------
+
+class TestCopyHelpers:
+    """Verify copy-to-clipboard helper functions."""
+
+    def test_copy_button_with_target(self):
+        """Copy button generates onclick with target ID."""
+        btn = _copy_button("my-target")
+        assert "my-target" in btn
+        assert "copy-btn" in btn
+
+    def test_copy_button_without_target(self):
+        """Copy button without target uses copyText(this)."""
+        btn = _copy_button()
+        assert "copyText(this)" in btn
+
+    def test_manuscript_sentence_has_copy(self):
+        """Manuscript sentence includes copy button and data-copy attr."""
+        html = _manuscript_sentence("Test finding here.")
+        assert "Test finding here." in html
+        assert "data-copy" in html
+        assert "copy-btn" in html
+
+    def test_manuscript_sentence_escapes_html(self):
+        """HTML characters are escaped in manuscript sentences."""
+        html = _manuscript_sentence("p < 0.05 & HR > 1")
+        assert "&lt;" in html or "p < 0.05" not in html.split("data-copy")[0]
+
+
+# ---------------------------------------------------------------------------
+# BibTeX export
+# ---------------------------------------------------------------------------
+
+class TestBibTeXExport:
+    """Verify BibTeX export in references section."""
+
+    def test_report_contains_bibtex(self, saved_files_with_graph_csv: Path):
+        """Report includes BibTeX export block."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "BibTeX" in report
+        assert "@article" in report or "@book" in report
+
+    def test_report_contains_js(self, saved_files_with_graph_csv: Path):
+        """Report includes JavaScript for copy-to-clipboard."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "copyText" in report
+
+    def test_report_js_constant_exists(self):
+        """REPORT_JS constant is a non-empty string."""
+        assert isinstance(REPORT_JS, str)
+        assert len(REPORT_JS) > 50
+        assert "copyText" in REPORT_JS
+
+
+# ---------------------------------------------------------------------------
+# Full integration: new sections in report
+# ---------------------------------------------------------------------------
+
+class TestNewSectionsIntegration:
+    """Verify new sections appear in the full report."""
+
+    def test_report_has_checklist(self, saved_files_with_graph_csv: Path):
+        """Full report includes the reporting checklist section."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Reporting Guideline" in report
+
+    def test_report_has_bibtex_block(self, saved_files_with_graph_csv: Path):
+        """Full report includes the BibTeX export."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "bibtex-block" in report
+
+    def test_report_has_strobe_reference(self, saved_files_with_graph_csv: Path):
+        """Full report includes STROBE and REMARK references."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "STROBE" in report
+        assert "REMARK" in report

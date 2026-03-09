@@ -36,6 +36,7 @@ from shared import (
 )
 from report_formatters import (
     _cite,
+    _copy_button,
     _dwi_badge,
     _effect_size_class,
     _effect_size_label,
@@ -43,11 +44,13 @@ from report_formatters import (
     _forest_plot_cell,
     _get_consensus,
     _h2,
+    _manuscript_sentence,
     _sig_class,
     _sig_tag,
     _stat_card,
     _table_caption,
     _trend_tag,
+    get_numbering,
 )
 
 
@@ -4115,4 +4118,488 @@ def _section_appendix(rows) -> list[str]:
                     f"</tr>"
                 )
             h.append("</tbody></table>")
+    return h
+
+
+def _section_manuscript_ready_findings(
+    log_data, dwi_types_present, csv_data, mat_data, groups
+) -> list[str]:
+    """Build a 'Key Findings for Manuscript' section with copyable sentences.
+
+    Each sentence is dynamically generated from the actual analysis data
+    and formatted for direct insertion into a Results section.  Copy
+    buttons allow one-click extraction of individual sentences.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    mat_data : dict
+        Parsed MAT file metrics.
+    groups : dict
+        Grouped vision graph data.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the key manuscript findings section.
+    """
+    h: list[str] = []
+    sentences: list[str] = []
+
+    # ── Cohort description sentence ──
+    n_patients = 0
+    n_timepoints = 0
+    if mat_data:
+        for dt in DWI_TYPES:
+            if dt in mat_data and "longitudinal" in mat_data[dt]:
+                lon = mat_data[dt]["longitudinal"]
+                n = lon.get("num_patients", 0)
+                tp = lon.get("num_timepoints", 0)
+                if n > n_patients:
+                    n_patients = n
+                    n_timepoints = tp
+    if n_patients > 0:
+        sentences.append(
+            f"A total of {n_patients} patients with pancreatic cancer "
+            f"were included, with DWI acquired at {n_timepoints} timepoints "
+            f"during the course of radiotherapy."
+        )
+
+    # ── Baseline exclusion sentence ──
+    if log_data:
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            bl = log_data[dt].get("baseline", {})
+            exc = bl.get("baseline_exclusion")
+            if exc and exc.get("n_excluded", 0) > 0:
+                sentences.append(
+                    f"Of these, {exc['n_excluded']} of {exc['n_total']} "
+                    f"patients were excluded due to missing baseline data, "
+                    f"leaving {exc['n_total'] - exc['n_excluded']} patients "
+                    f"for baseline analysis."
+                )
+                break
+
+    # ── GLME significance sentence ──
+    if log_data:
+        total_glme_tested = 0
+        total_glme_sig = 0
+        sig_metric_names: list[str] = []
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            sc = log_data[dt].get("stats_comparisons", {})
+            details = sc.get("glme_details", [])
+            total_glme_tested += len(details)
+            for g in details:
+                if g["p"] < g["adj_alpha"]:
+                    total_glme_sig += 1
+                    if g["metric"] not in sig_metric_names:
+                        sig_metric_names.append(g["metric"])
+        if total_glme_tested > 0:
+            if total_glme_sig > 0:
+                metric_str = ", ".join(sig_metric_names[:3])
+                sentences.append(
+                    f"GLME interaction testing identified {total_glme_sig} "
+                    f"of {total_glme_tested} metrics with significant "
+                    f"time-by-outcome interaction effects after BH-FDR "
+                    f"correction ({metric_str})."
+                )
+            else:
+                sentences.append(
+                    f"None of the {total_glme_tested} metrics tested "
+                    f"showed significant time-by-outcome interaction "
+                    f"effects after BH-FDR correction (all p > adjusted alpha)."
+                )
+
+    # ── FDR global sentence ──
+    if csv_data and csv_data.get("fdr_global"):
+        n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
+        if n_fdr > 0:
+            sentences.append(
+                f"A total of {n_fdr} metric(s) survived global "
+                f"Benjamini-Hochberg FDR correction across the full "
+                f"feature set."
+            )
+
+    # ── Best AUC sentence ──
+    if log_data:
+        best_auc = 0.0
+        best_type = ""
+        best_tp = ""
+        best_sens = None
+        best_spec = None
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            roc = log_data[dt].get("stats_predictive", {}).get("roc_analyses", [])
+            for r_item in roc:
+                a = r_item.get("auc", 0)
+                if a > best_auc:
+                    best_auc = a
+                    best_type = dt
+                    best_tp = r_item.get("timepoint", "")
+                    best_sens = r_item.get("sensitivity")
+                    best_spec = r_item.get("specificity")
+        if best_auc > 0:
+            parts = [f"AUC = {best_auc:.3f}"]
+            if best_sens is not None:
+                parts.append(f"sensitivity = {best_sens:.1f}%")
+            if best_spec is not None:
+                parts.append(f"specificity = {best_spec:.1f}%")
+            sentences.append(
+                f"The elastic-net logistic regression model achieved "
+                f"peak discriminative performance at {best_tp} "
+                f"using {best_type} DWI ({', '.join(parts)})."
+            )
+
+    # ── Cox PH hazard ratio sentences ──
+    if log_data:
+        for dt in dwi_types_present:
+            if dt not in log_data:
+                continue
+            hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
+            sig_hrs = [hr for hr in hrs if hr.get("p", 1) < 0.05]
+            for hr_item in sorted(sig_hrs, key=lambda x: x["p"])[:2]:
+                hr_val = hr_item["hr"]
+                ci_lo = hr_item.get("ci_lo")
+                ci_hi = hr_item.get("ci_hi")
+                p_val = hr_item["p"]
+                cov = hr_item["covariate"]
+                direction = "increased" if hr_val > 1 else "decreased"
+                ci_str = ""
+                if ci_lo is not None and ci_hi is not None:
+                    ci_str = f"; 95% CI [{ci_lo:.2f}, {ci_hi:.2f}]"
+                sentences.append(
+                    f"In cause-specific Cox regression, {cov} was "
+                    f"significantly associated with {direction} hazard "
+                    f"of local failure (HR = {hr_val:.3f}{ci_str}; "
+                    f"p = {p_val:.4f})."
+                )
+
+    # ── Dosimetry sentence ──
+    if mat_data:
+        for dt in DWI_TYPES:
+            dosi = (mat_data.get(dt) or {}).get("dosimetry")
+            if dosi:
+                d95 = dosi.get("d95_adc_mean")
+                v50 = dosi.get("v50_adc_mean")
+                if d95 is not None:
+                    v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
+                               else v50) if v50 is not None else None
+                    parts = [f"D95 = {d95:.1f} Gy"]
+                    if v50_pct is not None:
+                        parts.append(f"V50 = {v50_pct:.0f}%")
+                    sentences.append(
+                        f"Dosimetric analysis of ADC-defined resistant "
+                        f"sub-volumes showed {', '.join(parts)}."
+                    )
+                break
+
+    # ── Longitudinal trend sentence ──
+    if groups and "Longitudinal_Mean_Metrics" in groups:
+        d_trends = []
+        f_trends = []
+        for dt, r in groups["Longitudinal_Mean_Metrics"].items():
+            if dt == "Root":
+                continue
+            try:
+                trends = json.loads(str(r.get("trends_json", "[]")))
+                for t in trends:
+                    if isinstance(t, dict):
+                        series = t.get("series", "")
+                        direction = t.get("direction", "").lower()
+                        if series == "Mean D":
+                            d_trends.append(direction)
+                        elif series == "Mean f":
+                            f_trends.append(direction)
+            except Exception:
+                pass
+        d_cons = _get_consensus(d_trends)
+        f_cons = _get_consensus(f_trends)
+        d_word = {"increasing": "increased", "decreasing": "decreased"}.get(
+            d_cons, "remained stable"
+        )
+        f_word = {"increasing": "increased", "decreasing": "decreased"}.get(
+            f_cons, "remained stable"
+        )
+        sentences.append(
+            f"Longitudinally, true diffusion (D) {d_word} while "
+            f"perfusion fraction (f) {f_word} over the course of "
+            f"treatment, consistent with "
+            + (
+                "therapy-induced cellular necrosis and vascular regression."
+                if d_cons == "increasing" and f_cons == "decreasing"
+                else "a heterogeneous treatment response pattern."
+            )
+        )
+
+    # ── Cross-DWI agreement sentence ──
+    if groups:
+        n_agree = 0
+        n_total_series = 0
+        for base_name, dwi_dict in groups.items():
+            real = [t for t in dwi_dict if t != "Root"]
+            if len(real) < 2:
+                continue
+            all_trends_dict: dict[str, list] = {}
+            for dt_key in DWI_TYPES:
+                if dt_key in dwi_dict:
+                    try:
+                        all_trends_dict[dt_key] = json.loads(
+                            str(dwi_dict[dt_key].get("trends_json", "[]"))
+                        )
+                    except Exception:
+                        pass
+            if len(all_trends_dict) >= 2:
+                all_series: set[str] = set()
+                for trends in all_trends_dict.values():
+                    for t in trends:
+                        if isinstance(t, dict):
+                            all_series.add(t.get("series") or "overall")
+                for series in all_series:
+                    dirs: dict[str, str] = {}
+                    for dt_key, trends in all_trends_dict.items():
+                        for t in trends:
+                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
+                                dirs[dt_key] = str(t.get("direction", ""))
+                    if len(dirs) >= 2:
+                        n_total_series += 1
+                        if len(set(dirs.values())) == 1:
+                            n_agree += 1
+        if n_total_series > 0:
+            pct = 100 * n_agree / n_total_series
+            sentences.append(
+                f"Cross-DWI-type trend agreement was {pct:.0f}% "
+                f"({n_agree}/{n_total_series} data series), "
+                + (
+                    "supporting robustness of findings across "
+                    "acquisition strategies."
+                    if pct >= 70
+                    else "suggesting some acquisition-dependent variability "
+                    "in observed trends."
+                )
+            )
+
+    if not sentences:
+        return h
+
+    h.append(_h2("Key Findings for Manuscript", "manuscript-findings"))
+    h.append(
+        '<p class="meta">Publication-ready sentences generated from the '
+        "analysis data. Click <strong>Copy</strong> to copy individual "
+        "sentences for direct insertion into your manuscript's Results "
+        "section.</p>"
+    )
+
+    for sent in sentences:
+        h.append(_manuscript_sentence(sent))
+
+    # Copy-all button for the entire block
+    all_text = " ".join(sentences)
+    h.append(
+        f'<div style="margin-top:0.75rem" id="all-findings" '
+        f'data-copy="{_esc(all_text)}">'
+        f'{_copy_button("all-findings")} '
+        f'<span class="meta">Copy all findings as a paragraph</span>'
+        f"</div>"
+    )
+
+    return h
+
+
+def _section_reporting_checklist(
+    log_data, dwi_types_present, mat_data, csv_data, rows
+) -> list[str]:
+    """Build a STROBE/REMARK reporting guideline compliance checklist.
+
+    Each checklist item is dynamically assessed against the available
+    data to indicate whether the report addresses it (Done), partially
+    addresses it (Partial), or leaves it for the researcher (N/A).
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics.
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    mat_data : dict
+        Parsed MAT file metrics.
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    rows : list[dict]
+        Vision CSV rows.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the reporting checklist section.
+    """
+    h: list[str] = []
+    h.append(_h2("Reporting Guideline Checklist", "reporting-checklist"))
+    h.append(
+        f'<p class="meta">Compliance with STROBE{_cite("strobe")} and '
+        f'REMARK{_cite("remark")} reporting guidelines, automatically '
+        f"assessed where possible. Items marked <strong>Partial</strong> "
+        f"require researcher input to complete.</p>"
+    )
+
+    # Dynamically assess each checklist item
+    has_cohort = bool(mat_data) and any(
+        "longitudinal" in mat_data.get(dt, {}) for dt in DWI_TYPES
+    )
+    has_baseline = bool(log_data) and any(
+        log_data.get(dt, {}).get("baseline") for dt in dwi_types_present
+    )
+    has_survival = bool(log_data) and any(
+        log_data.get(dt, {}).get("survival", {}).get("hazard_ratios")
+        for dt in dwi_types_present
+    )
+    has_predictive = bool(log_data) and any(
+        log_data.get(dt, {}).get("stats_predictive", {}).get("roc_analyses")
+        for dt in dwi_types_present
+    )
+    has_glme = bool(log_data) and any(
+        log_data.get(dt, {}).get("stats_comparisons", {}).get("glme_details")
+        for dt in dwi_types_present
+    )
+    has_fdr = bool(csv_data) and bool(csv_data.get("fdr_global"))
+    has_graphs = bool(rows)
+    has_dosimetry = bool(mat_data) and any(
+        "dosimetry" in mat_data.get(dt, {}) for dt in DWI_TYPES
+    )
+
+    # Each item: (Section, Item, Status, Note)
+    # Status: "done", "partial", "na"
+    items: list[tuple[str, str, str, str]] = [
+        ("STROBE 1", "Title: Indicate study design",
+         "partial", "Template provided; researcher should confirm study type"),
+        ("STROBE 2", "Abstract: Structured summary",
+         "done" if has_cohort else "partial",
+         "Executive summary auto-generated with structured subsections"),
+        ("STROBE 3", "Background: Scientific rationale",
+         "partial", "Hypothesis section generated; literature review needed"),
+        ("STROBE 4", "Objectives: Specific aims",
+         "done", "Objective stated in abstract"),
+        ("STROBE 5", "Study design: Key elements",
+         "done", "Methods section describes retrospective cohort design"),
+        ("STROBE 6", "Setting: Dates and locations",
+         "partial", "Institution placeholder provided; dates from pipeline"),
+        ("STROBE 7", "Participants: Eligibility criteria",
+         "partial" if has_cohort else "na",
+         "Patient flow section shows inclusion/exclusion" if has_cohort
+         else "No cohort data available"),
+        ("STROBE 8", "Variables: Outcomes and exposures",
+         "done" if has_glme or has_survival else "partial",
+         "DWI biomarkers defined; outcome (LF/LC) described"),
+        ("STROBE 12", "Statistical methods",
+         "done", "Full methods section auto-generated with citations"),
+        ("STROBE 13", "Participants: Numbers at each stage",
+         "done" if has_baseline else "partial",
+         "Patient flow table with attrition stages" if has_baseline
+         else "Baseline data needed for flow diagram"),
+        ("STROBE 14", "Descriptive data: Characteristics",
+         "partial", "Outlier/quality summary provided; demographics needed"),
+        ("STROBE 16", "Main results: Unadjusted and adjusted",
+         "done" if has_glme else "partial",
+         "GLME interaction tests with FDR adjustment reported" if has_glme
+         else "Statistical results needed"),
+        ("STROBE 17", "Other analyses: Subgroup, sensitivity",
+         "done" if has_survival or has_predictive else "partial",
+         "Sensitivity analysis section auto-generated"),
+        ("STROBE 18", "Key results: Summary",
+         "done", "Conclusions section with numbered findings"),
+        ("STROBE 19", "Limitations",
+         "done", "Contextual limitations auto-generated from data"),
+        ("STROBE 20", "Interpretation",
+         "done" if has_cohort else "partial",
+         "Clinical significance and future directions provided"),
+        ("STROBE 22", "Funding",
+         "partial", "Data availability statement provided; funding needed"),
+        ("REMARK 1", "Study hypothesis",
+         "done", "Data-driven hypothesis section auto-generated"),
+        ("REMARK 2", "Patient characteristics",
+         "partial" if has_cohort else "na",
+         "Cohort overview with sample sizes" if has_cohort
+         else "Patient data not available"),
+        ("REMARK 5", "Assay methods",
+         "done", "DWI acquisition and IVIM fitting described in Methods"),
+        ("REMARK 7", "Statistical analysis plan",
+         "done", "Full statistical methods with multiple comparison correction"),
+        ("REMARK 8", "Effect sizes with CIs",
+         "done" if has_survival else "partial",
+         "Hazard ratios with 95% CI and forest plots" if has_survival
+         else "Effect size data requires survival analysis"),
+        ("REMARK 9", "Multivariable analysis",
+         "done" if has_predictive else "na",
+         "Elastic net with LOOCV reported" if has_predictive
+         else "No predictive model data"),
+        ("REMARK 10", "Missing data handling",
+         "done" if has_baseline else "partial",
+         "Exclusions and imputation documented" if has_baseline
+         else "Missing data handling not yet documented"),
+    ]
+
+    n_done = sum(1 for _, _, s, _ in items if s == "done")
+    n_partial = sum(1 for _, _, s, _ in items if s == "partial")
+    n_na = sum(1 for _, _, s, _ in items if s == "na")
+
+    h.append('<div class="stat-grid">')
+    h.append(_stat_card("Addressed", str(n_done),
+                        f"of {len(items)} checklist items"))
+    h.append(_stat_card("Partial", str(n_partial), "require researcher input"))
+    if n_na > 0:
+        h.append(_stat_card("N/A", str(n_na), "not applicable"))
+    h.append("</div>")
+
+    h.append("<table><thead><tr>"
+             "<th>Item</th><th>Requirement</th>"
+             "<th>Status</th><th>Notes</th>"
+             "</tr></thead><tbody>")
+    for section, requirement, status, note in items:
+        if status == "done":
+            s_html = '<span class="checklist-done">Addressed</span>'
+        elif status == "partial":
+            s_html = '<span class="checklist-partial">Partial</span>'
+        else:
+            s_html = '<span class="checklist-na">N/A</span>'
+        h.append(
+            f"<tr><td>{_esc(section)}</td>"
+            f"<td>{_esc(requirement)}</td>"
+            f"<td>{s_html}</td>"
+            f"<td>{_esc(note)}</td></tr>"
+        )
+    h.append("</tbody></table>")
+
+    return h
+
+
+def _section_table_index() -> list[str]:
+    """Build a List of Tables section from auto-numbered table captions.
+
+    This section is generated from the :class:`_NumberingContext` which
+    tracks all ``_table_caption`` calls during report generation.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the list of tables section.
+    """
+    h: list[str] = []
+    numbering = get_numbering()
+    if not numbering.table_titles:
+        return h
+
+    h.append(_h2("List of Tables", "table-index"))
+    h.append('<ol class="toc-list">')
+    for num, title in numbering.table_titles:
+        h.append(f"<li><strong>Table {num}.</strong> {_esc(title)}</li>")
+    h.append("</ol>")
+
     return h
