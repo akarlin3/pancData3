@@ -88,9 +88,10 @@ for p_idx = 1:n_vp
         continue;
     end
     
+    % Partition data: all intervals NOT belonging to held-out patient
     train_mask = (pat_id_td ~= p_idx);
-    
-    % Scale specifically for this LOOCV fold
+
+    % Scale features using only training patients (prevents leakage)
     train_pat_ids = unique(pat_id_td(train_mask));
     X_td_scaled = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, train_pat_ids);
 
@@ -135,10 +136,13 @@ for p_idx = 1:n_vp
         end
     end
     warning(w_state);
+    % When both Cox and Firth fitting fail, assign plausible mock coefficients
+    % so the C-index computation can still be exercised end-to-end.
     if all(isnan(b_loo))
-        b_loo = [0.1; -0.2; 0.05; -0.1]; % Simulating some effects for mock data
+        b_loo = [0.1; -0.2; 0.05; -0.1];
     end
-    
+
+    % Store out-of-fold linear predictor (risk score) and interval bounds
     oof_risk_history{p_idx} = struct('risk', X_test * b_loo, 't_start', T_start_test, 't_stop', T_stop_test);
     
     train_pat_mask = true(n_vp, 1);
@@ -211,6 +215,11 @@ for p_idx = 1:n_vp
 end
 
 fprintf('  Found %d events (type 1) out of %d patients.\n', sum(surv_event_all == 1), n_vp);
+
+% --- Compute IPCW-weighted concordance index ---
+% For each pair (i, j) where patient i has the event of interest at T_i
+% and patient j survives past T_i, count concordant/discordant pairs
+% weighted by the inverse probability of censoring (IPCW).
 concordant = 0; discordant = 0; weights_sum = 0;
 
 for i = 1:n_vp
@@ -264,6 +273,7 @@ for i = 1:n_vp
         elseif G_Ti < 0.05
             G_Ti = 0.05;
         end
+        % IPCW weight: inverse squared censoring probability at event time
         W_i = 1 / (G_Ti^2);
         
         for j = 1:n_vp
@@ -349,6 +359,7 @@ for i = 1:n_vp
     end
 end
 
+% Final C-index: ratio of concordant to total comparable pairs
 if weights_sum > 0
     IPCW_C = concordant / weights_sum;
     fprintf('  Competing-Risks Concordance Index (Wolbers, CIF-weighted IPCW): %.4f\n\n', IPCW_C);

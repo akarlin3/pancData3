@@ -98,26 +98,31 @@ class TestExtractPvalues:
     """Verify regex-based p-value extraction from free text."""
 
     def test_basic_equality(self):
+        """'p = 0.032' with an equals sign is the most common form."""
         results = extract_pvalues("The result was p = 0.032 significant")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.032)
 
     def test_less_than_sign(self):
+        """'p < 0.001' using a less-than comparator should also match."""
         results = extract_pvalues("p < 0.001 was observed")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.001)
 
     def test_scientific_notation(self):
+        """Scientific notation like '3.5e-04' must be parsed correctly."""
         results = extract_pvalues("p = 3.5e-04 highly significant")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(3.5e-04)
 
     def test_pvalue_keyword_form(self):
+        """The hyphenated form 'p-value = ...' should be recognised."""
         results = extract_pvalues("p-value = 0.045 for the test")
         assert len(results) >= 1
         assert any(abs(v - 0.045) < 1e-6 for v, _ in results)
 
     def test_multiple_pvalues(self):
+        """Multiple p-values in one string should all be captured."""
         text = "First test p = 0.01, second test p = 0.5, third p = 1e-5"
         results = extract_pvalues(text)
         values = [v for v, _ in results]
@@ -125,9 +130,11 @@ class TestExtractPvalues:
         assert len(results) >= 3
 
     def test_no_pvalues(self):
+        """Text without any p-value pattern should return an empty list."""
         assert extract_pvalues("No statistical results here") == []
 
     def test_case_insensitive(self):
+        """Uppercase 'P' should match just like lowercase 'p'."""
         results = extract_pvalues("P = 0.05 uppercase match")
         assert len(results) >= 1
 
@@ -147,11 +154,13 @@ class TestExtractCorrelations:
     """Verify regex-based correlation coefficient extraction."""
 
     def test_pearson_r(self):
+        """Standard 'r = 0.85' Pearson correlation is extracted."""
         results = extract_correlations("Pearson r = 0.85 strong positive")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(0.85)
 
     def test_negative_r(self):
+        """Negative correlation coefficients (r = -0.42) are supported."""
         results = extract_correlations("r = -0.42 negative correlation")
         assert len(results) == 1
         assert results[0][0] == pytest.approx(-0.42)

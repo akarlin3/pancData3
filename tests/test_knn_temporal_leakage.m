@@ -1,14 +1,37 @@
 %% test_knn_temporal_leakage.m
-% Verification script for patient-aware KNN imputation
+% Verification script for patient-aware KNN imputation.
+%
+% In longitudinal DWI studies, each patient has multiple timepoints. When a
+% feature value is missing at one timepoint, KNN imputation finds the k
+% nearest rows to fill it in. Without patient-awareness, KNN will select
+% other timepoints from the SAME patient as nearest neighbours (since their
+% features are nearly identical), effectively leaking the patient's own
+% temporal trajectory into the imputed value.
+%
+% knn_impute_train_test prevents this by setting infinite distances between
+% rows belonging to the same patient, forcing the algorithm to borrow
+% information only from other patients.
+%
+% Tests:
+%   1. Train-set imputation excludes same-patient rows
+%   2. Test-set imputation excludes same-patient rows
+%
+% Usage:
+%   test_knn_temporal_leakage   % from MATLAB command window (run as script)
 
-% 1. Setup Mock Data
+% -----------------------------------------------------------------------
+%  1. Setup Mock Data
+% -----------------------------------------------------------------------
 % 2 patients, 3 timepoints each.
-% Baseline features are identical for the same patient (temporal leakage trap).
+% Feature 1 is constant within each patient (1 for Pat 1, 5 for Pat 2),
+% making intra-patient rows appear extremely close in feature space.
+% This is an intentional leakage trap: without the patient-exclusion fix,
+% KNN will always pick same-patient rows as nearest neighbours.
 pat_ids = [1; 1; 1; 2; 2; 2];
 X = [
-    1, 10; % Pat 1, T1
-    1, NaN; % Pat 1, T2 (Missing feat 2)
-    1, 12; % Pat 1, T3
+    1, 10; % Pat 1, T1 — both features present
+    1, NaN; % Pat 1, T2 — feature 2 missing (the value to impute)
+    1, 12; % Pat 1, T3 — both features present
     5, 50; % Pat 2, T1
     5, 52; % Pat 2, T2
     5, 54; % Pat 2, T3
@@ -16,7 +39,11 @@ X = [
 
 fprintf('Running Patient-Aware KNN Imputation Verification...\n');
 
-% 2. Run Imputation
+% -----------------------------------------------------------------------
+%  2. Run Train-Set Imputation
+% -----------------------------------------------------------------------
+% k=2 nearest neighbours. Empty test set ([]). Patient IDs enforce the
+% exclusion constraint: rows from the same patient get infinite distance.
 k = 2;
 [X_imp, ~] = knn_impute_train_test(X, [], k, pat_ids, []);
 

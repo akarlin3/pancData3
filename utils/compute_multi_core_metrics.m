@@ -34,9 +34,18 @@ function per_method = compute_multi_core_metrics(per_method, config_struct, ...
 %   per_method       - Updated struct with per-method metrics filled in for (j,k,dwi_type)
 
 n_all_methods = numel(ALL_CORE_METHODS);
+% "Unified" methods produce a single core mask applied to all parameters,
+% as opposed to parameter-specific thresholding (where D, f, D* each get
+% independent sub-volumes). This matters for computing D/f sub-volume
+% metrics below: unified methods use the shared core mask, while others
+% apply per-parameter thresholds independently.
 unified_set = {'percentile', 'spectral', 'fdm'};
 
 rng(42);  % reproducible clustering (GMM, k-means, spectral)
+% Suppress expected warnings from extract_tumor_core when methods cannot
+% run (e.g., too few voxels for spectral clustering, no 3D mask for
+% active contours). These are expected in multi-method comparison runs
+% where not every method can succeed for every patient.
 prev_warn_csm = warning('query');
 warning('off', 'extract_tumor_core:tooFewForSpectral');
 warning('off', 'extract_tumor_core:no3DForActiveContours');
@@ -49,15 +58,23 @@ warning('off', 'extract_tumor_core:noSpectralCluster');
 
 for m_idx = 1:n_all_methods
     mname = ALL_CORE_METHODS{m_idx};
+    % Create a temporary config with this method name so extract_tumor_core
+    % uses the correct delineation algorithm while preserving all other settings
     temp_cfg = config_struct;
     temp_cfg.core_method = mname;
 
     try
+        % extract_tumor_core returns a logical mask (same length as adc_vec)
+        % identifying voxels belonging to the tumor core sub-volume
         m_mask = extract_tumor_core(temp_cfg, adc_vec, d_vec, f_vec, dstar_vec, has_3d_iter, gtv_mask_3d, core_opts);
     catch
+        % If the method fails (e.g., insufficient voxels), default to
+        % an all-false mask so downstream metrics are NaN rather than erroring
         m_mask = false(size(adc_vec));
     end
 
+    % Optionally store the binary core mask for downstream analysis
+    % (e.g., Dice/Hausdorff comparison between methods via compare_core_methods)
     if store_masks
         per_method.(mname).core_masks{j, k} = m_mask;
     end

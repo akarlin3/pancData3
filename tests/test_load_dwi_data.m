@@ -6,20 +6,23 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
     % discovery behavior in load_dwi_data.m.
 
     properties
-        TempDataLoc
-        ConfigStruct
-        OriginalPath
+        TempDataLoc      % Temporary directory acting as the pipeline's dataloc
+        ConfigStruct     % Configuration struct with skip_to_reload=true by default
+        OriginalPath     % Saved MATLAB path for restoration in teardown
     end
 
     methods(TestMethodSetup)
         function setupEnvironment(testCase)
-            % Create a temporary directory to act as dataloc
+            % Creates a temporary directory and a minimal config struct
+            % configured for reload-mode testing. The config uses
+            % skip_to_reload=true so that load_dwi_data attempts to read
+            % a pre-existing .mat file rather than running the full DICOM
+            % conversion and model fitting pipeline.
             testCase.TempDataLoc = tempname;
             mkdir(testCase.TempDataLoc);
 
-            % Create a dummy clinical data sheet as it's loaded in Section 2
-            % readtable('mock.xlsx', 'Sheet', 'Clin List')
-            % Use .xlsx because readtable/writetable use the 'Sheet' argument
+            % Clinical data sheet path — not actually written here; tests
+            % that need it create their own via writetable.
             dummy_sheet = fullfile(testCase.TempDataLoc, 'mock.xlsx');
 
             testCase.ConfigStruct = struct();
@@ -49,21 +52,23 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardownEnvironment(testCase)
-            % Clean up temporary directory
+            % Remove all temporary files and restore the original MATLAB
+            % path to prevent test pollution between methods.
             if exist(testCase.TempDataLoc, 'dir')
                 rmdir(testCase.TempDataLoc, 's');
             end
-            % Restore path
             path(testCase.OriginalPath);
         end
     end
 
     methods
         function createDummySave(testCase, filename)
-            % Creates a valid dwi_vectors.mat file with all required variables
-            % needed by compute_summary_metrics
-
-            % We need to mock the variables saved at the end of Section 3
+            % Creates a minimal but valid dwi_vectors .mat file containing
+            % all variables that load_dwi_data expects when reloading:
+            % data_vectors_gtvp/gtvn (struct arrays), patient metadata
+            % (id_list, mrn_list, lf, immuno), DICOM dates, file locations,
+            % and dose metrics. These mimic the output of Section 3 of
+            % load_dwi_data.m (the full DICOM processing path).
             data_vectors_gtvp = repmat(struct('adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], 'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], 'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], 'ID', 'P01', 'MRN', 'MRN01', ...
                 'LF', 0, 'Immuno', 0, 'Fraction', 1, 'Repeatability_index', 1, 'vox_vol', 1), [1, 6, 6]);
             data_vectors_gtvn = repmat(struct('adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], 'adc_vector_dncnn', [], 'd_vector_dncnn', [], 'f_vector_dncnn', [], 'dstar_vector_dncnn', [], 'd_vector_ivimnet', [], 'f_vector_ivimnet', [], 'dstar_vector_ivimnet', [], 'ID', 'P01', 'MRN', 'MRN01'), [1, 6, 6]);

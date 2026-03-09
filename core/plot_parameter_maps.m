@@ -38,14 +38,15 @@ function plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_f
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 
 if nargin < 6 || isempty(dtype)
-    dtype = 1;  % default to Standard
+    dtype = 1;  % default to Standard (1=Standard, 2=DnCNN, 3=IVIMnet)
 end
 
 fprintf('\n--- 1. Parameter Maps overlaid on Anatomy ---\n');
 
-% Track how many patients have been plotted so far
+% Track how many patients have been plotted so far (across all figures)
 patients_plotted = 0;
-% Maximum number of patient rows per figure panel
+% Maximum number of patient rows per figure panel. Each row contains 3
+% subplots (b0, ADC map, ADC overlay), so a 5-row figure has 15 subplots.
 pats_per_fig     = 5;
 
 % Expected b-value protocol for validation.

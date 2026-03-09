@@ -904,29 +904,49 @@ end
 
 function run_metrics_dosimetry_step(m_id_list, summary_metrics, nTp, config_struct, ...
     m_data_vectors_gtvp, dosimetry_results_file, current_name)
+% Computes dose-volume metrics (D95, V50) within diffusion-defined tumor
+% sub-volumes.  Each diffusion parameter (ADC, D, f, D*) defines a separate
+% sub-volume based on its threshold, yielding 8 output matrices (4 params x
+% 2 dose metrics), each of size patients x timepoints.
+% When run_all_core_methods is true, dosimetry is additionally computed for
+% each of the 11 tumor core delineation methods, producing per_method_dosimetry.
     fprintf('⚙️ [5.3/5] [%s] Running metrics_dosimetry...\n', current_name);
     if config_struct.run_all_core_methods
+        % Extended mode: compute dosimetry for all 11 core methods in addition
+        % to the default sub-volume approach.  The per_method_dosimetry struct
+        % enables comparison of how different tumor core definitions affect
+        % dose-response correlations.
         [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry] = ...
             metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                               m_data_vectors_gtvp, summary_metrics.gtv_locations);
     else
+        % Standard mode: dosimetry only for the configured core_method's sub-volumes.
         [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub] = ...
             metrics_dosimetry(m_id_list, summary_metrics.id_list, nTp, config_struct, ...
                               m_data_vectors_gtvp, summary_metrics.gtv_locations);
-        per_method_dosimetry = struct();
+        per_method_dosimetry = struct();  % Empty placeholder for consistent save format
     end
 
+    % Persist all dosimetry results to disk for downstream steps and re-runs.
     save(dosimetry_results_file, 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub', 'per_method_dosimetry');
     fprintf('      ✅ Done.\n');
 end
 
 function run_metrics_stats_comparisons_step(valid_pts, lf_group, metric_sets, set_names, ...
     time_labels, dtype_label, config_struct, nTp, ADC_abs, D_abs, f_abs, Dstar_abs, current_name)
+% Performs univariate group comparisons (Wilcoxon rank-sum) between local
+% failure and no-local-failure groups for every feature in metric_sets.
+% valid_pts is a logical mask selecting patients with complete baseline data.
+% lf_group is a binary vector (1 = local failure, 0 = no local failure)
+% aligned with valid_pts.  metric_sets is a cell array of feature groups
+% (absolute values, percent change, D95 dose, V50 dose) with corresponding
+% display names in set_names.  Results include BH-FDR corrected p-values.
     fprintf('⚙️ [5.4a/5] [%s] Running metrics_stats_comparisons...\n', current_name);
     metrics_stats_comparisons(valid_pts, lf_group, ...
         metric_sets, set_names, time_labels, dtype_label, config_struct.output_folder, config_struct.dataloc, nTp, ...
         ADC_abs, D_abs, f_abs, Dstar_abs);
 
+    % Write sentinel file confirming successful completion.
     comparisons_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_comparisons_results_%s.txt', current_name));
     fid = fopen(comparisons_results_file, 'w');
     if fid < 0

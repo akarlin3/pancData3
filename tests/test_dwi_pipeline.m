@@ -445,12 +445,12 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
             S_2d = reshape(mockSignal, [prod(sz(1:3)), length(bvals)]);
             adc_vec = zeros(numel(mockMask), 1);
 
-            % Simple OLS log-linear fit for demonstration
+            % Simple OLS log-linear fit: ADC = -b \ ln(S(b)/S(0))
+            % This mirrors the mono-exponential model S(b) = S(0)*exp(-b*ADC)
             S_a = S_2d;
-            % (-b(2:end) \ log(S(b>0)/S(b=0)))
             adc_vec = (-bvals(2:end)' \ log(S_a(:,2:end) ./ S_a(:,1))')';
 
-            % Extract GTV only
+            % Extract only GTV-masked voxels for downstream assertions
             final_adc_features = adc_vec(mockMask == 1);
 
             % -----------------------------------------------------------------
