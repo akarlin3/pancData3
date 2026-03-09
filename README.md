@@ -252,7 +252,7 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 
 - Python 3.12+
 - `pip install -r analysis/requirements.txt`
-- `ANTHROPIC_API_KEY` environment variable (only needed for vision-based graph analysis)
+- `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
 
 ### Usage
 
@@ -279,7 +279,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 |---|---|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with CLI flags |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, regex extractors |
-| `batch_graph_analysis.py` | Sends all pipeline graph images to Claude vision API; extracts axes, trends, inflection points into a structured CSV |
+| `batch_graph_analysis.py` | Sends all pipeline graph images to Google Gemini vision API; extracts axes, trends, inflection points into a structured CSV |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
 | `generate_report.py` | HTML report generator combining all data sources into `analysis_report.html` |
