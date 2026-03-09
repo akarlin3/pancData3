@@ -299,9 +299,15 @@ def generate_report(folder: Path) -> str:
     if groups and "Longitudinal_Mean_Metrics" in groups:
         d_trends = []
         f_trends = []
+        
+        # New: Collect inflection points to specify fractions and thresholds 
+        vascular_inflections = []
+        cellular_inflections = []
+        
         for dt, r in groups["Longitudinal_Mean_Metrics"].items():
             if dt == "Root": continue
             try:
+                # 1. Parse Trends
                 trends = json.loads(str(r.get("trends_json", "[]")))
                 for t in trends:
                     if not isinstance(t, dict): continue
@@ -311,6 +317,47 @@ def generate_report(folder: Path) -> str:
                         d_trends.append(direction)
                     elif series == "Mean f":
                         f_trends.append(direction)
+                        
+                # 2. Parse Inflection Points
+                ips = json.loads(str(r.get("inflection_points_json", "[]")))
+                for ip in ips:
+                    if not isinstance(ip, dict): continue
+                    x_val = float(ip.get("approximate_x", 0))
+                    y_val = ip.get("approximate_y")
+                    desc = ip.get("description", "").lower()
+                    
+                    # Convert x_val = 2.0 to "Fx2", x_val = 3.0 to "Fx3", etc.
+                    fx_label = f"Fx{int(x_val)}" if x_val > 0 else "baseline"
+                    
+                    # Extract magnitude if present
+                    magnitude = ""
+                    if y_val is not None:
+                        try:
+                            mag_val = abs(float(y_val))
+                            if mag_val > 1: # Assuming percentage change
+                                magnitude = f" of ~{int(mag_val)}%"
+                        except ValueError:
+                            pass
+                    
+                    if not magnitude:
+                        import re
+                        pct_match = re.search(r'(\d+)%', desc)
+                        if pct_match:
+                            magnitude = f" of ~{pct_match.group(1)}%"
+
+                    # Categorize inflection points
+                    if "d*" in desc or "f" in desc or "vascular" in desc or "perfusion" in desc:
+                        if "drop" in desc or "decrease" in desc or "decline" in desc:
+                            vascular_inflections.append(f"a significant vascular drop{magnitude} observed around {fx_label}")
+                        elif "increase" in desc or "rise" in desc or "peak" in desc:
+                            vascular_inflections.append(f"a vascular increase{magnitude} observed around {fx_label}")
+                    
+                    if "adc" in desc or " d " in desc or "diffusion" in desc:
+                        if "increase" in desc or "rise" in desc or "peak" in desc:
+                            cellular_inflections.append(f"a significant diffusion increase{magnitude} observed around {fx_label}")
+                        elif "drop" in desc or "decrease" in desc or "decline" in desc:
+                            cellular_inflections.append(f"a diffusion decrease{magnitude} observed around {fx_label}")
+                            
             except Exception:
                 pass
                 
@@ -324,41 +371,57 @@ def generate_report(folder: Path) -> str:
             
         d_trend_consensus = _get_consensus(d_trends)
         f_trend_consensus = _get_consensus(f_trends)
+        
+        # Format inflection insights
+        vascular_specificity = ""
+        if vascular_inflections:
+            unique_v = list(dict.fromkeys(vascular_inflections))
+            vascular_specificity = f" Specifically, the data highlights {', and '.join(unique_v)}."
+            
+        cellular_specificity = ""
+        if cellular_inflections:
+            unique_c = list(dict.fromkeys(cellular_inflections))
+            cellular_specificity = f" Specifically, the data highlights {', and '.join(unique_c)}."
 
     h.append("<p>Based on the quantitative metrics and longitudinal trends extracted from the data, the following radiological-pathological hypothesis is proposed:</p>")
     h.append("<ul>")
     
     # Cellular Response
     if d_trend_consensus == "increasing":
-        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows an increase in true diffusion (<em>D</em>) over time. "
+        h.append(f"<li><strong>Cellular Response (D, ADC):</strong> The data shows an increase in true diffusion (<em>D</em>) over time.{cellular_specificity} "
                  "This suggests that effective radiation therapy is inducing cellular necrosis and apoptosis, "
                  "leading to a breakdown of cell membranes. This expands the extracellular space, explaining the increased water mobility.</li>")
     elif d_trend_consensus == "decreasing":
-        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows a decrease in true diffusion (<em>D</em>) over time. "
+        h.append(f"<li><strong>Cellular Response (D, ADC):</strong> The data shows a decrease in true diffusion (<em>D</em>) over time.{cellular_specificity} "
                  "This suggests limited cell kill or potential cellular swelling (cytotoxic edema), indicating a highly cellular, densely packed tumor resistant to therapy.</li>")
     else:
-        h.append("<li><strong>Cellular Response (D, ADC):</strong> The data shows relatively stable or variable true diffusion (<em>D</em>) over time. "
+        h.append(f"<li><strong>Cellular Response (D, ADC):</strong> The data shows relatively stable or variable true diffusion (<em>D</em>) over time.{cellular_specificity} "
                  "This suggests a steady state between cellular destruction and tumor proliferation, or a timeline where major necrotic changes are not yet dominant.</li>")
 
     # Vascular Response
     if f_trend_consensus == "decreasing":
-        h.append("<li><strong>Vascular Response (f, D*):</strong> The data reveals drops in microcapillary perfusion fraction (<em>f</em>) and/or pseudo-diffusion (<em>D*</em>). "
+        h.append(f"<li><strong>Vascular Response (f, D*):</strong> The data reveals drops in microcapillary perfusion fraction (<em>f</em>) and/or pseudo-diffusion (<em>D*</em>).{vascular_specificity} "
                  "These decreases indicate that radiation causes early endothelial damage and vascular regression, effectively cutting off the tumor's blood supply.</li>")
     elif f_trend_consensus == "increasing":
-        h.append("<li><strong>Vascular Response (f, D*):</strong> The data shows an increase in microcapillary perfusion fraction (<em>f</em>). "
+        h.append(f"<li><strong>Vascular Response (f, D*):</strong> The data shows an increase in microcapillary perfusion fraction (<em>f</em>).{vascular_specificity} "
                  "This suggests reactive angiogenesis, hyperemic inflammatory response, or a robust vascular supply aiding tumor survival and radiation resistance.</li>")
     else:
-        h.append("<li><strong>Vascular Response (f, D*):</strong> The microcapillary perfusion fraction (<em>f</em>) remains relatively stable, "
+        h.append(f"<li><strong>Vascular Response (f, D*):</strong> The microcapillary perfusion fraction (<em>f</em>) remains relatively stable,{vascular_specificity} "
                  "suggesting that the tumor's vascular network has not been significantly altered or compromised by the treatment doses applied so far.</li>")
 
     # Outcome Trajectory
+    outcome_specificity = ""
+    if vascular_inflections or cellular_inflections:
+        combined = list(dict.fromkeys(cellular_inflections + vascular_inflections))
+        outcome_specificity = f" (supported by {', '.join(combined)})"
+
     if d_trend_consensus == "increasing" and f_trend_consensus == "decreasing":
-        h.append("<li><strong>Outcome Trajectory:</strong> The combination of early decreases in perfusion coupled with "
-                 "subsequent increases in diffusion strongly supports the hypothesis that the tumor is responding effectively to treatment, "
+        h.append(f"<li><strong>Outcome Trajectory:</strong> The combination of early decreases in perfusion coupled with "
+                 f"subsequent increases in diffusion strongly supports the hypothesis that the tumor is responding effectively to treatment{outcome_specificity}, "
                  "correlating with long-term Local Control.</li>")
     else:
-        h.append("<li><strong>Outcome Trajectory:</strong> The observed variation in diffusion and perfusion responses suggests "
-                 "a heterogeneous or limited overall treatment effect. Tumors not exhibiting strong, concomitant increases in diffusion and decreases in perfusion "
+        h.append(f"<li><strong>Outcome Trajectory:</strong> The observed variation in diffusion and perfusion responses suggests "
+                 f"a heterogeneous or limited overall treatment effect{outcome_specificity}. Tumors not exhibiting strong, concomitant increases in diffusion and decreases in perfusion "
                  "may remain at higher risk for Local Failure or harbor therapy-resistant sub-volumes.</li>")
 
     h.append("</ul>")
