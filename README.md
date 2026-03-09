@@ -290,6 +290,9 @@ python analysis/run_analysis.py --html
 # Specify a particular output folder
 python analysis/run_analysis.py --folder saved_files_20260308_010713
 
+# Skip pre-flight checks (requirements verification and test suite)
+python analysis/run_analysis.py --skip-checks
+
 # Individual scripts can still be run standalone
 python analysis/batch_graph_analysis.py
 python analysis/parse_log_metrics.py [saved_files_path]
