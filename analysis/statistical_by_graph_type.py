@@ -23,6 +23,8 @@ import json
 import sys
 from collections import defaultdict
 
+from tqdm import tqdm
+
 from shared import (
     extract_correlations,
     extract_pvalues,
@@ -58,7 +60,8 @@ def main():
     # Sort graph types by count (most common first).
     type_order = sorted(by_type.keys(), key=lambda t: -len(by_type[t]))
 
-    for graph_type in type_order:
+    for graph_type in tqdm(type_order, desc="Analyzing graph types", unit="type",
+                           bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
         type_rows = by_type[graph_type]
         print(f"\n{sep}")
         print(f"  GRAPH TYPE: {graph_type.upper()} ({len(type_rows)} graphs)")

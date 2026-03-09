@@ -33,6 +33,8 @@ from pathlib import Path
 
 import typing
 
+from tqdm import tqdm
+
 # Attempt to import scipy and numpy.  These are optional dependencies --
 # if not installed, the script degrades gracefully (returns empty data).
 try:
@@ -153,15 +155,20 @@ def main():
         print("No DWI type folders found.")
         return
 
-    for dwi in dwi_types:
+    pbar = tqdm(
+        dwi_types,
+        desc="Parsing MAT files",
+        unit="type",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}] {postfix}",
+    )
+    for dwi in pbar:
+        pbar.set_postfix_str(dwi, refresh=True)
         data = parse_mat_files_for_dwi(folder, dwi)
 
         # Write JSON output alongside the source folder.
         out_json = folder / f"parsed_mat_metrics_{dwi}.json"
         with open(out_json, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
-
-        print(f"Extracted MAT data for {dwi}")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,8 @@ import csv
 import sys
 from pathlib import Path
 
+from tqdm import tqdm
+
 from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout
 
 setup_utf8_stdout()
@@ -164,8 +166,22 @@ def parse_all_csvs(folder: Path) -> dict:
     dict
         Keys: ``significant_metrics``, ``fdr_global``, ``cross_reference``.
     """
-    sig = parse_significant_metrics(folder)
-    fdr = parse_fdr_global(folder)
+    steps = [
+        ("Significant metrics", lambda: parse_significant_metrics(folder)),
+        ("FDR global", lambda: parse_fdr_global(folder)),
+    ]
+    pbar = tqdm(
+        steps,
+        desc="Parsing CSVs",
+        unit="file",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}] {postfix}",
+    )
+    results_list = []
+    for name, fn in pbar:
+        pbar.set_postfix_str(name, refresh=True)
+        results_list.append(fn())
+
+    sig, fdr = results_list
     cross_ref = cross_reference_significance(sig)
 
     return {

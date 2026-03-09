@@ -22,6 +22,8 @@ from __future__ import annotations
 import json
 import sys
 
+from tqdm import tqdm
+
 from shared import (
     DWI_TYPES,
     get_config,
@@ -52,7 +54,8 @@ def main():
     # Loaded from the centralised analysis config.
     priority_graphs = get_config()["priority_graphs"]
 
-    for base_name in priority_graphs:
+    for base_name in tqdm(priority_graphs, desc="Comparing priority graphs", unit="graph",
+                          bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
         if base_name not in groups:
             continue
         dwi_dict = groups[base_name]

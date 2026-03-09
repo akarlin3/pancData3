@@ -29,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 import markdown
+from tqdm import tqdm
 
 from shared import (
     DWI_TYPES,
@@ -157,6 +158,10 @@ def generate_report(folder: Path) -> str:
     # Reset table/figure numbering for this report.
     reset_numbering()
 
+    # Section builders to call (name for progress display, callable, args).
+    # We build this list and iterate with a progress bar.
+    section_steps: list[tuple[str, object, tuple]] = []
+
     h = []  # Accumulator for HTML chunks (joined at the end).
     h.append("<!DOCTYPE html>")
     h.append('<html lang="en">')
@@ -183,13 +188,27 @@ def generate_report(folder: Path) -> str:
     # ── Publication metadata (author/institution placeholders) ──
     h.extend(_section_publication_header())
 
-    h.extend(_section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp, mat_data))
+    # Build a list of (section_name, builder_fn, args) for progress tracking.
+    section_steps = [
+        ("Executive summary", _section_executive_summary, (log_data, dwi_types_present, rows, csv_data, timestamp, mat_data)),
+        ("Methods", _section_methods, (dwi_types_present, mat_data, log_data)),
+        ("Cohort overview", _section_cohort_overview, (mat_data, log_data, dwi_types_present)),
+    ]
 
-    h.extend(_section_methods(dwi_types_present, mat_data, log_data))
+    report_bar = tqdm(
+        total=20,  # approximate total sections
+        desc="Building report",
+        unit="section",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} sections [{elapsed}<{remaining}] {postfix}",
+    )
 
-    h.extend(_section_cohort_overview(mat_data, log_data, dwi_types_present))
+    for name, fn, fn_args in section_steps:
+        report_bar.set_postfix_str(name, refresh=True)
+        h.extend(fn(*fn_args))
+        report_bar.update(1)
 
     # ── 2. Data Quality ──
+    report_bar.set_postfix_str("Data quality", refresh=True)
     h.append(_h2("Data Quality", "data-quality"))
     has_quality_data = False
 
@@ -253,17 +272,27 @@ def generate_report(folder: Path) -> str:
 
     if not has_quality_data:
         h.append('<p class="meta">No baseline quality data found in logs.</p>')
+    report_bar.update(1)
 
-    h.extend(_section_hypothesis(groups, log_data, mat_data))
-    h.extend(_section_graph_overview(rows))
-    h.extend(_section_graph_issues(rows))
-    h.extend(_section_stats_by_graph_type(rows))
-    h.extend(_section_statistical_significance(rows, csv_data, log_data, dwi_types_present))
-    h.extend(_section_effect_sizes(log_data, dwi_types_present, csv_data))
-    h.extend(_section_multiple_comparisons(log_data, dwi_types_present, csv_data))
-    h.extend(_section_cross_dwi_comparison(groups, csv_data))
+    # Remaining sections with progress tracking.
+    remaining_sections = [
+        ("Hypothesis", _section_hypothesis, (groups, log_data, mat_data)),
+        ("Graph overview", _section_graph_overview, (rows,)),
+        ("Graph issues", _section_graph_issues, (rows,)),
+        ("Stats by graph type", _section_stats_by_graph_type, (rows,)),
+        ("Statistical significance", _section_statistical_significance, (rows, csv_data, log_data, dwi_types_present)),
+        ("Effect sizes", _section_effect_sizes, (log_data, dwi_types_present, csv_data)),
+        ("Multiple comparisons", _section_multiple_comparisons, (log_data, dwi_types_present, csv_data)),
+        ("Cross-DWI comparison", _section_cross_dwi_comparison, (groups, csv_data)),
+    ]
+
+    for name, fn, fn_args in remaining_sections:
+        report_bar.set_postfix_str(name, refresh=True)
+        h.extend(fn(*fn_args))
+        report_bar.update(1)
 
     # ── 7. FDR Global ──
+    report_bar.set_postfix_str("FDR global", refresh=True)
     if csv_data and csv_data.get("fdr_global"):
         fdr_global = csv_data["fdr_global"]
         if fdr_global:
@@ -301,17 +330,32 @@ def generate_report(folder: Path) -> str:
     else:
         h.append(_h2("FDR Global Correction Results", "fdr-global"))
         h.append('<p class="meta">No FDR_Sig_Global.csv files found.</p>')
+    report_bar.update(1)
 
-    h.extend(_section_correlations(rows))
-    h.extend(_section_treatment_response(groups))
-    h.extend(_section_predictive_performance(log_data, dwi_types_present))
-    h.extend(_section_model_diagnostics(log_data, dwi_types_present, mat_data))
-    h.extend(_section_mat_data(mat_data))
-    h.extend(_section_limitations(log_data, dwi_types_present, mat_data))
-    h.extend(_section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups))
-    h.extend(_section_data_availability())
-    h.extend(_references_section())
-    h.extend(_section_appendix(rows))
+    final_sections = [
+        ("Correlations", _section_correlations, (rows,)),
+        ("Treatment response", _section_treatment_response, (groups,)),
+        ("Predictive performance", _section_predictive_performance, (log_data, dwi_types_present)),
+        ("Model diagnostics", _section_model_diagnostics, (log_data, dwi_types_present, mat_data)),
+        ("MAT data", _section_mat_data, (mat_data,)),
+        ("Limitations", _section_limitations, (log_data, dwi_types_present, mat_data)),
+        ("Conclusions", _section_conclusions, (log_data, dwi_types_present, csv_data, mat_data, groups)),
+        ("Data availability", _section_data_availability, ()),
+        ("References", _references_section, ()),
+        ("Appendix", _section_appendix, (rows,)),
+    ]
+
+    # Update total to reflect actual section count.
+    report_bar.total = report_bar.n + len(final_sections)
+    report_bar.refresh()
+
+    for name, fn, fn_args in final_sections:
+        report_bar.set_postfix_str(name, refresh=True)
+        h.extend(fn(*fn_args))
+        report_bar.update(1)
+
+    report_bar.set_postfix_str("complete", refresh=True)
+    report_bar.close()
 
     # Footer
     h.append(f"<footer>Report generated by pancData3 analysis suite on {now}</footer>")

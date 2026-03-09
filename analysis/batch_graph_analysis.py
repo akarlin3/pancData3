@@ -33,6 +33,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from tqdm import tqdm
+
 from shared import get_config, resolve_folder, setup_utf8_stdout
 
 # Ensure emoji and special characters print correctly on Windows consoles.
@@ -226,6 +228,7 @@ async def analyze_image(
     client: genai.Client,
     image_path: Path,
     semaphore: asyncio.Semaphore,
+    progress_bar: tqdm | None = None,
 ) -> GraphAnalysis:
     """Send one image to Gemini and parse the structured JSON response.
 
@@ -253,7 +256,8 @@ async def analyze_image(
         mime = media_type_for(image_path)
         rel_path = str(image_path)
 
-        print(f"  \u2699\ufe0f  Analyzing: {image_path.name} ...", flush=True)
+        if progress_bar is not None:
+            progress_bar.set_postfix_str(f"analyzing {image_path.name}", refresh=True)
 
         # Retry loop with exponential backoff for rate-limit errors.
         for attempt in range(MAX_RETRIES + 1):
@@ -300,7 +304,10 @@ async def analyze_image(
         try:
             data = json.loads(raw_text)
         except json.JSONDecodeError as e:
-            print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
+            if progress_bar is not None:
+                progress_bar.update(1)
+            else:
+                print(f"  \u274c  JSON parse error for {image_path.name}: {e}", flush=True)
             return GraphAnalysis(
                 file_path=rel_path,
                 graph_type="unknown",
@@ -314,7 +321,10 @@ async def analyze_image(
         try:
             analysis = GraphAnalysis(**data)
         except ValidationError as e:
-            print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
+            if progress_bar is not None:
+                progress_bar.update(1)
+            else:
+                print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
             # Fallback: preserve whatever fields parsed successfully.
             return GraphAnalysis(
                 file_path=rel_path,
@@ -322,7 +332,9 @@ async def analyze_image(
                 summary=data.get("summary", f"Validation error: {e}"),
             )
 
-        print(f"  \u2705  Done: {image_path.name} ({analysis.graph_type})", flush=True)
+        if progress_bar is not None:
+            progress_bar.set_postfix_str(image_path.name, refresh=True)
+            progress_bar.update(1)
         return analysis
 
 
@@ -442,11 +454,18 @@ async def main():
     client = genai.Client(api_key=api_key)
     semaphore = asyncio.Semaphore(SEM_LIMIT)
 
-    # Launch all analysis tasks concurrently.
+    # Launch all analysis tasks concurrently with a progress bar.
     # ``return_exceptions=True`` ensures one failed image does not cancel the
     # entire batch -- failed tasks return their exception object instead.
-    tasks = [analyze_image(client, img, semaphore) for img in images]
+    pbar = tqdm(
+        total=len(images),
+        desc="Analyzing graphs",
+        unit="img",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+    )
+    tasks = [analyze_image(client, img, semaphore, pbar) for img in images]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    pbar.close()
 
     # ── Collect results, replacing exceptions with error placeholders ──
     results: list[GraphAnalysis] = []
