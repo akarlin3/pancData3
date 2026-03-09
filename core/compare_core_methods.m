@@ -396,10 +396,13 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
     end
 
     % --- Figure 3: Volume Fraction Bar Chart ---
-    % Reshape to (observations x methods) for nanmean/nanstd
+    % Shows what fraction of the GTV each method classifies as "core".
+    % Methods that identify very small or very large cores relative to
+    % the GTV may be too aggressive or too conservative, respectively.
+    % Reshape 3D (patients x timepoints x methods) to 2D for nanmean/nanstd
     vf_2d = reshape(results.volume_fractions, [], n_methods);
-    mean_vol_frac = nanmean(vf_2d, 1);
-    std_vol_frac = nanstd(vf_2d, 0, 1);
+    mean_vol_frac = nanmean(vf_2d, 1);   % mean core fraction per method
+    std_vol_frac = nanstd(vf_2d, 0, 1);  % std dev for error bars
 
     fig3 = figure('Visible', 'off', 'Position', [100 100 900 500]);
     bar(mean_vol_frac(:) * 100);
@@ -415,6 +418,10 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
     close(fig3);
 
     % --- Figure 4: Fallback Summary (if any) ---
+    % Some methods (region_growing, active_contours) require 3D masks and
+    % fDM requires baseline data. When prerequisites are missing, these
+    % methods fall back to adc_threshold. This chart shows how often each
+    % method fell back, helping assess whether comparison results are valid.
     n_fallbacks = squeeze(sum(sum(results.fallback_flags, 1), 2));
     if any(n_fallbacks > 0)
         n_total = results.n_patients * results.nTp;

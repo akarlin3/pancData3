@@ -48,6 +48,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     addpath(fullfile(pipeline_dir, 'dependencies'));
 
     % --- 2) Resolve config path ---
+    % If the config path is relative (e.g., 'config.json'), try resolving
+    % it against the pipeline root directory. This supports both absolute
+    % paths and calls from within the repository directory.
     resolved_config_path = config_path;
     if ~isfile(resolved_config_path) && isfile(fullfile(pipeline_dir, resolved_config_path))
         resolved_config_path = fullfile(pipeline_dir, resolved_config_path);
@@ -57,6 +60,9 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
     tests_passed = tests_passed_in;
     tests_timestamp = tests_timestamp_in;
 
+    % Check for pre-flight skip via environment variable (used by CI or
+    % automated scripts that have already validated the codebase) or via
+    % the config.json skip_tests flag (used during development).
     skip_preflight = strcmp(getenv('SKIP_PIPELINE_PREFLIGHT'), '1');
     if ~skip_preflight
         try

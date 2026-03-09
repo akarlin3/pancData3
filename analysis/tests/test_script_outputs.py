@@ -26,10 +26,20 @@ import pytest
 # ---------------------------------------------------------------------------
 
 class TestCrossReferenceDwi:
-    """Test cross_reference_dwi.main output."""
+    """Test cross_reference_dwi.main stdout output.
+
+    This script compares graph analysis results across DWI types (Standard,
+    dnCNN, IVIMnet), looking for graphs that appear in multiple types and
+    comparing their trends and summaries.
+    """
 
     def test_outputs_matched_graphs(self, saved_files_with_graph_csv: Path, capsys):
-        """Feature_BoxPlots appears in both Standard and dnCNN → should be matched."""
+        """Feature_BoxPlots appears in both Standard and dnCNN → should be matched.
+
+        Patches sys.argv to pass the saved_files directory as the CLI argument,
+        then captures stdout and checks that the matched graph name and both
+        DWI types appear in the output.
+        """
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from cross_reference_dwi import main
             main()
@@ -51,9 +61,15 @@ class TestCrossReferenceDwi:
 # ---------------------------------------------------------------------------
 
 class TestCrossReferenceSummary:
-    """Test cross_reference_summary.main output."""
+    """Test cross_reference_summary.main output.
+
+    The summary script focuses on a curated list of priority graphs and
+    produces a concise AGREE/DIFFER verdict for each, rather than the
+    full detailed comparison from cross_reference_dwi.
+    """
 
     def test_outputs_priority_graphs(self, saved_files_with_graph_csv: Path, capsys):
+        """Feature_BoxPlots is a priority graph; its trend agreement/disagreement is reported."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
             from cross_reference_summary import main
             main()
@@ -63,6 +79,7 @@ class TestCrossReferenceSummary:
         assert "AGREE" in out or "DIFFER" in out
 
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
+        """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
             from cross_reference_summary import main
             with pytest.raises(SystemExit):

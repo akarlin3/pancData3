@@ -146,10 +146,10 @@ def generate_report(folder: Path) -> str:
     h.append("</head>")
     h.append("<body>")
 
-    # ── Sticky nav ──
+    # ── Sticky navigation bar (anchors to each report section) ──
     h.append(_nav_bar())
 
-    # ── Header ──
+    # ── Report header with metadata ──
     h.append(f"<h1>Analysis Report \u2014 {_esc(timestamp)}</h1>")
     h.append('<div class="meta">')
     h.append(f"<span><strong>Generated:</strong> {now}</span>")
@@ -286,7 +286,24 @@ def generate_report(folder: Path) -> str:
 
 
 def markdown_to_html(md_text: str, title: str) -> str:
-    """Convert Markdown text to a styled standalone HTML document."""
+    """Convert Markdown text to a styled standalone HTML document.
+
+    Uses the ``python-markdown`` library with table, fenced-code, and
+    table-of-contents extensions.  The result is wrapped in the
+    :data:`report_formatters.HTML_TEMPLATE` for consistent styling.
+
+    Parameters
+    ----------
+    md_text : str
+        Raw Markdown content.
+    title : str
+        HTML ``<title>`` for the document.
+
+    Returns
+    -------
+    str
+        Complete HTML document string.
+    """
     body = markdown.markdown(
         md_text,
         extensions=["tables", "fenced_code", "toc"],
@@ -295,6 +312,7 @@ def markdown_to_html(md_text: str, title: str) -> str:
 
 
 def main():
+    """CLI entry point: generate the HTML report and write it to disk."""
     folder = resolve_folder(sys.argv)
     html_report = generate_report(folder)
 

@@ -103,6 +103,9 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testPercentileAllNaN(testCase)
+            % Edge case: when all voxels are NaN (no valid data), the
+            % percentile method must return an all-false mask rather than
+            % crashing on prctile() or producing undefined behaviour.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'percentile';
             nan_vec = nan(100, 1);
@@ -111,11 +114,14 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testPercentile100SelectsAll(testCase)
+            % Boundary case: core_percentile=100 means "include all voxels
+            % up to the 100th percentile", which is the entire population.
+            % With adc_thresh set unreasonably high, the safety floor does
+            % not interfere, so all 100 voxels should be selected.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'percentile';
             cfg.core_percentile = 100;
-            % adc_thresh very high so safety floor does not interfere
-            cfg.adc_thresh = 1;
+            cfg.adc_thresh = 1; % Safety floor effectively disabled
 
             mask = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, ...
                 testCase.FVec, testCase.DstarVec, false, []);

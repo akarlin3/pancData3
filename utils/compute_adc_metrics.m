@@ -101,8 +101,12 @@ adc_vec_sub = adc_vec(adc_vec_sub_mask);           % ADC values within the core
 adc_vec_high_sub = adc_vec(adc_vec > high_adc_thresh);  % High-ADC sub-volume (necrosis/edema)
 adc_out.adc_vec_sub_mask = adc_vec_sub_mask;  % Export mask for IVIM reuse
 
-% Compute fDM volume fractions when using fDM core method
+% Compute Functional Diffusion Map (fDM) volume fractions when fDM core
+% method is active and we are past baseline (k > 1). fDM classifies each
+% voxel into responding/stable/progressing based on whether the diffusion
+% parameter changed beyond the significance threshold from baseline.
 if strcmpi(config_struct.core_method, 'fdm') && k > 1
+    % Select which parameter to use for voxel-level change detection
     switch lower(config_struct.fdm_parameter)
         case 'adc'
             fdm_current = adc_vec;
@@ -112,6 +116,8 @@ if strcmpi(config_struct.core_method, 'fdm') && k > 1
             fdm_baseline = core_opts.baseline_d_vec;
     end
     if ~isempty(fdm_baseline) && numel(fdm_baseline) == numel(fdm_current)
+        % Use repeatability-derived Coefficient of Reproducibility (CoR)
+        % when available; otherwise fall back to config threshold
         fdm_sig = config_struct.fdm_thresh;
         if isfield(core_opts, 'repeatability_cor') && ~isnan(core_opts.repeatability_cor)
             fdm_sig = core_opts.repeatability_cor;
@@ -120,16 +126,20 @@ if strcmpi(config_struct.core_method, 'fdm') && k > 1
         valid_delta = ~isnan(delta_fdm);
         n_valid_fdm = sum(valid_delta);
         if n_valid_fdm > 0
+            % Responding: diffusivity increased beyond threshold (cell kill / edema)
             adc_out.fdm_responding_pc  = sum(delta_fdm(valid_delta) > fdm_sig) / n_valid_fdm;
+            % Progressing: diffusivity decreased beyond threshold (increased cellularity)
             adc_out.fdm_progressing_pc = sum(delta_fdm(valid_delta) < -fdm_sig) / n_valid_fdm;
+            % Stable: change within noise floor (no detectable treatment effect)
             adc_out.fdm_stable_pc      = sum(abs(delta_fdm(valid_delta)) <= fdm_sig) / n_valid_fdm;
         end
     end
 end
 
+% Restricted sub-volume: absolute volume (cm^3) and as a fraction of GTV.
 adc_out.adc_sub_vol_val = sum(adc_vec_sub_mask) * vox_vol;
-% Use count of finite (non-NaN) voxels as denominator so
-% NaN voxels do not artificially deflate the percentage.
+% Use count of finite (non-NaN) voxels as denominator so that voxels
+% with failed ADC fits do not artificially deflate the percentage.
 finite_vol = n_finite_adc * vox_vol;
 if finite_vol > 0
     adc_out.adc_sub_vol_pc_val = adc_out.adc_sub_vol_val / finite_vol;
@@ -143,6 +153,8 @@ else
 end
 [adc_out.adc_sub_kurt_val, adc_out.adc_sub_skew_val] = compute_kurt_skew(adc_vec_sub, min_vox_hist);
 
+% Laplace-smoothed histogram: adds 1 to each bin count (additive smoothing)
+% to avoid zero-probability bins in downstream KL-divergence or entropy calculations.
 adc_out.adc_histogram = compute_histogram_laplace(adc_vec, bin_edges);
 % NOTE: KS-test p-values are liberal because within-patient
 % voxels are spatially autocorrelated (violates independence).

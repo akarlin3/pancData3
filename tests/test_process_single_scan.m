@@ -161,6 +161,9 @@ classdef test_process_single_scan < matlab.unittest.TestCase
 
     methods(Access = private)
         function ctx = makeMinimalCtx(testCase)
+            % Build the minimum context struct required by process_single_scan.
+            % All data paths are set to empty strings so no actual
+            % DICOM/NIfTI I/O occurs -- only initialization logic runs.
             ctx = struct();
             ctx.fi = 1;
             ctx.rpi = 1;

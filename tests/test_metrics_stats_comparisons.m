@@ -152,7 +152,10 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_fdr_correction_with_known_pvalues(testCase)
-            % Create data where some comparisons should be significant
+            % Verifies that BH FDR correction works with a known effect
+            % pattern: strong group separation at Fx1 (shift of +3 SD),
+            % weak at Fx2, none at Fx3. The Fx1 comparison should appear
+            % in Significant_LF_Metrics.csv after FDR correction.
             rng(42);
             nPat = 40;
             nTp = 3;
@@ -189,7 +192,9 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_single_timepoint_glme_skips(testCase)
-            % With only 1 timepoint, GLME should still run (just intercept)
+            % Verifies that with only 1 timepoint, the GLME model still
+            % runs (using just the intercept term, no time interaction).
+            % This is a boundary case that tests the model formula generation.
             rng(42);
             nPat = 20;
             nTp = 1;
@@ -213,7 +218,10 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         end
 
         function test_valid_pts_mask_filters_patients(testCase)
-            % Only patients where valid_pts==true should be analyzed
+            % Verifies that the valid_pts logical mask correctly filters
+            % patients before statistical testing. Only the first 10
+            % patients (valid_pts=true) should be included; the last 10
+            % are excluded even though they have valid data.
             rng(42);
             nPat = 20;
             nTp = 2;
