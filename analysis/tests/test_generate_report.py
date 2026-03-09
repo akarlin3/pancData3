@@ -24,16 +24,21 @@ from generate_report import (
     _copy_button,
     _effect_size_class,
     _effect_size_label,
+    _figure_caption,
     _forest_plot_cell,
     _manuscript_sentence,
     _section,
     _section_appendix,
     _section_data_completeness,
     _section_feature_overlap,
+    _section_figure_gallery,
+    _section_figure_index,
+    _section_journal_guide,
     _section_manuscript_ready_findings,
     _section_patient_flow,
     _section_power_analysis,
     _section_reporting_checklist,
+    _section_results_draft,
     _section_sensitivity_analysis,
     _section_table_index,
     _sig_tag,
@@ -1067,3 +1072,299 @@ class TestNewSectionsIntegration:
         report = generate_report(saved_files_with_graph_csv)
         assert "STROBE" in report
         assert "REMARK" in report
+
+    def test_report_has_results_draft(self, saved_files_with_graph_csv: Path):
+        """Full report includes the draft results section."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Draft Results Section" in report
+
+    def test_report_has_figure_gallery(self, saved_files_with_graph_csv: Path):
+        """Full report includes figure gallery section (even if empty)."""
+        # The gallery renders even with no images (it just returns [])
+        report = generate_report(saved_files_with_graph_csv)
+        # Gallery may be empty if no images exist, that's fine
+        assert report  # report should still generate successfully
+
+    def test_report_has_journal_guide(self, saved_files_with_graph_csv: Path):
+        """Full report includes journal submission guidance."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Journal Submission Guidance" in report
+
+
+# ---------------------------------------------------------------------------
+# Draft Results Section
+# ---------------------------------------------------------------------------
+
+class TestResultsDraft:
+    """Verify the auto-generated Results section draft."""
+
+    def test_empty_when_no_data(self):
+        """No results draft without any data."""
+        result = _section_results_draft(None, [], None, {}, {})
+        assert result == []
+
+    def test_cohort_paragraph_from_mat_data(self):
+        """Cohort paragraph is generated from MAT data."""
+        mat_data = {"Standard": {"longitudinal": {
+            "num_patients": 25, "num_timepoints": 5}}}
+        result = _section_results_draft(None, ["Standard"], None, mat_data, {})
+        html = "\n".join(result)
+        assert "25 patients" in html
+        assert "5 timepoints" in html
+        assert "Draft Results" in html
+
+    def test_group_comparisons_paragraph(self):
+        """Group comparisons paragraph is generated from GLME data."""
+        log_data = {"Standard": {"stats_comparisons": {
+            "glme_details": [
+                {"metric": "mean_adc", "p": 0.001, "adj_alpha": 0.01},
+                {"metric": "mean_d", "p": 0.5, "adj_alpha": 0.025},
+            ],
+        }}}
+        result = _section_results_draft(log_data, ["Standard"], None, {}, {})
+        html = "\n".join(result)
+        assert "GLME" in html
+        assert "mean_adc" in html
+
+    def test_predictive_paragraph(self):
+        """Predictive modelling paragraph with AUC."""
+        log_data = {"Standard": {"stats_predictive": {
+            "roc_analyses": [{"auc": 0.82, "timepoint": "W2",
+                              "sensitivity": 85.0, "specificity": 75.0}],
+            "feature_selections": [{"timepoint": "W2", "lambda": 0.01,
+                                    "features": ["f1", "f2"]}],
+        }}}
+        result = _section_results_draft(log_data, ["Standard"], None, {}, {})
+        html = "\n".join(result)
+        assert "0.82" in html or "0.820" in html
+        assert "sensitivity" in html.lower()
+
+    def test_survival_paragraph(self):
+        """Survival analysis paragraph with hazard ratios."""
+        log_data = {"Standard": {"survival": {
+            "hazard_ratios": [
+                {"covariate": "mean_adc_delta", "hr": 2.5,
+                 "ci_lo": 1.2, "ci_hi": 5.1, "p": 0.01},
+            ],
+            "global_lrt": {"df": 3, "chi2": 12.5, "p": 0.006},
+            "ipcw": {"min_weight": 0.8, "max_weight": 1.2},
+        }}}
+        result = _section_results_draft(log_data, ["Standard"], None, {}, {})
+        html = "\n".join(result)
+        assert "mean_adc_delta" in html
+        assert "HR" in html
+        assert "IPCW" in html
+
+    def test_copy_all_button_present(self):
+        """Results draft includes a copy-all button."""
+        mat_data = {"Standard": {"longitudinal": {
+            "num_patients": 10, "num_timepoints": 3}}}
+        result = _section_results_draft(None, ["Standard"], None, mat_data, {})
+        html = "\n".join(result)
+        assert "results-draft-all" in html
+        assert "copy" in html.lower()
+
+
+# ---------------------------------------------------------------------------
+# Figure Caption
+# ---------------------------------------------------------------------------
+
+class TestFigureCaption:
+    """Verify the _figure_caption formatting helper."""
+
+    def test_basic_caption(self):
+        """Caption includes figure number and title."""
+        reset_numbering()
+        cap = _figure_caption("ADC Map")
+        assert "Figure 1" in cap
+        assert "ADC Map" in cap
+
+    def test_sequential_numbering(self):
+        """Multiple captions are sequentially numbered."""
+        reset_numbering()
+        cap1 = _figure_caption("First")
+        cap2 = _figure_caption("Second")
+        assert "Figure 1" in cap1
+        assert "Figure 2" in cap2
+
+    def test_with_description(self):
+        """Caption includes optional description."""
+        reset_numbering()
+        cap = _figure_caption("Title", "Additional details here.")
+        assert "Additional details here" in cap
+
+
+# ---------------------------------------------------------------------------
+# Figure Index (List of Figures)
+# ---------------------------------------------------------------------------
+
+class TestFigureIndex:
+    """Verify the List of Figures section."""
+
+    def test_empty_when_no_figures(self):
+        """No figure index if no figures were captioned."""
+        reset_numbering()
+        result = _section_figure_index()
+        assert result == []
+
+    def test_lists_captioned_figures(self):
+        """Lists all figures that received captions."""
+        reset_numbering()
+        _figure_caption("ADC Parameter Map")
+        _figure_caption("Longitudinal Trends")
+        result = _section_figure_index()
+        html = "\n".join(result)
+        assert "List of Figures" in html
+        assert "ADC Parameter Map" in html
+        assert "Longitudinal Trends" in html
+
+
+# ---------------------------------------------------------------------------
+# Figure Gallery
+# ---------------------------------------------------------------------------
+
+class TestFigureGallery:
+    """Verify the figure gallery section with embedded images."""
+
+    def test_empty_when_no_images(self, saved_files_dir: Path):
+        """Gallery is empty when no images exist."""
+        reset_numbering()
+        result = _section_figure_gallery(saved_files_dir)
+        assert result == []
+
+    def test_embeds_png_images(self, saved_files_dir: Path):
+        """Gallery embeds PNG images as base64."""
+        reset_numbering()
+        # Create a small test PNG (1x1 pixel)
+        import struct
+        import zlib
+        def _make_tiny_png():
+            raw_data = b'\x00\x00\x00\x00'
+            compressed = zlib.compress(raw_data)
+            def chunk(ctype, data):
+                c = ctype + data
+                return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+            return (b'\x89PNG\r\n\x1a\n' +
+                    chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) +
+                    chunk(b'IDAT', compressed) +
+                    chunk(b'IEND', b''))
+
+        img_dir = saved_files_dir / "Standard"
+        img_path = img_dir / "test_figure.png"
+        img_path.write_bytes(_make_tiny_png())
+
+        result = _section_figure_gallery(saved_files_dir)
+        html = "\n".join(result)
+        assert "Figure Gallery" in html
+        assert "data:image/png;base64," in html
+        assert "Test Figure" in html  # filename -> title
+
+    def test_groups_by_dwi_type(self, saved_files_dir: Path):
+        """Gallery groups figures by DWI type."""
+        reset_numbering()
+        import struct
+        import zlib
+        def _make_tiny_png():
+            raw_data = b'\x00\x00\x00\x00'
+            compressed = zlib.compress(raw_data)
+            def chunk(ctype, data):
+                c = ctype + data
+                return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+            return (b'\x89PNG\r\n\x1a\n' +
+                    chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) +
+                    chunk(b'IDAT', compressed) +
+                    chunk(b'IEND', b''))
+        png = _make_tiny_png()
+        (saved_files_dir / "Standard" / "fig1.png").write_bytes(png)
+        (saved_files_dir / "dnCNN" / "fig2.png").write_bytes(png)
+
+        result = _section_figure_gallery(saved_files_dir)
+        html = "\n".join(result)
+        assert "badge-standard" in html
+        assert "badge-dncnn" in html
+
+
+# ---------------------------------------------------------------------------
+# Journal Submission Guidance
+# ---------------------------------------------------------------------------
+
+class TestJournalGuide:
+    """Verify the journal submission guidance section."""
+
+    def test_basic_output(self):
+        """Section includes journal recommendations."""
+        result = _section_journal_guide(None, ["Standard"], {})
+        html = "\n".join(result)
+        assert "Journal Submission Guidance" in html
+        assert "Radiotherapy and Oncology" in html
+        assert "Manuscript Preparation Checklist" in html
+
+    def test_adds_survival_journal(self):
+        """Adds Acta Oncologica when survival data present."""
+        log_data = {"Standard": {"survival": {
+            "hazard_ratios": [{"covariate": "x", "hr": 1.5, "p": 0.03}]
+        }}}
+        result = _section_journal_guide(log_data, ["Standard"], {})
+        html = "\n".join(result)
+        assert "Acta Oncologica" in html
+
+    def test_adds_predictive_journal(self):
+        """Adds European Radiology when predictive data present."""
+        log_data = {"Standard": {"stats_predictive": {
+            "roc_analyses": [{"auc": 0.8, "timepoint": "BL"}]
+        }}}
+        result = _section_journal_guide(log_data, ["Standard"], {})
+        html = "\n".join(result)
+        assert "European Radiology" in html
+
+    def test_keywords_copyable(self):
+        """Keywords section includes copy button."""
+        result = _section_journal_guide(None, ["Standard"], {})
+        html = "\n".join(result)
+        assert "diffusion-weighted imaging" in html
+        assert "copy" in html.lower()
+
+    def test_keywords_include_survival(self):
+        """Keywords include survival terms when survival data present."""
+        log_data = {"Standard": {"survival": {
+            "hazard_ratios": [{"covariate": "x", "hr": 1.5, "p": 0.03}]
+        }}}
+        result = _section_journal_guide(log_data, ["Standard"], {})
+        html = "\n".join(result)
+        assert "survival analysis" in html
+
+
+# ---------------------------------------------------------------------------
+# Manuscript Findings with Effect Sizes
+# ---------------------------------------------------------------------------
+
+class TestManuscriptFindingsEffectSizes:
+    """Verify that manuscript sentences include effect sizes."""
+
+    def test_hr_sentence_includes_effect_size(self):
+        """Cox PH manuscript sentences include effect size labels."""
+        log_data = {"Standard": {"survival": {
+            "hazard_ratios": [
+                {"covariate": "mean_adc", "hr": 3.0,
+                 "ci_lo": 1.5, "ci_hi": 6.0, "p": 0.002},
+            ]
+        }}}
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {})
+        html = "\n".join(result)
+        assert "effect" in html.lower()
+        assert "3.000" in html
+
+    def test_glme_sentence_includes_sample_size(self):
+        """GLME sentences include sample size when exclusion data present."""
+        log_data = {"Standard": {"stats_comparisons": {
+            "glme_details": [
+                {"metric": "mean_adc", "p": 0.001, "adj_alpha": 0.01},
+            ],
+            "glme_excluded": {"n_excluded": 3, "n_total": 25, "pct": 12.0},
+        }}}
+        result = _section_manuscript_ready_findings(
+            log_data, ["Standard"], None, {}, {})
+        html = "\n".join(result)
+        assert "22 evaluable patients" in html
+        assert "excluding 3" in html

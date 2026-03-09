@@ -25,6 +25,7 @@ from report_formatters import (
     _effect_size_class,
     _effect_size_label,
     _esc,
+    _figure_caption,
     _forest_plot_cell,
     _get_consensus,
     _h2,
@@ -34,6 +35,7 @@ from report_formatters import (
     _sig_tag,
     _stat_card,
     _trend_tag,
+    reset_numbering,
 )
 
 
@@ -326,3 +328,41 @@ class TestConstants:
 
     def test_nav_sections_nonempty(self):
         assert len(NAV_SECTIONS) > 10
+
+    def test_nav_sections_has_new_entries(self):
+        """NAV_SECTIONS includes new section anchors."""
+        anchors = [a for a, _ in NAV_SECTIONS]
+        assert "figure-index" in anchors
+        assert "results-draft" in anchors
+        assert "figure-gallery" in anchors
+        assert "journal-guide" in anchors
+
+
+# ── _figure_caption ──────────────────────────────────────────────────────
+
+
+class TestFigureCaption:
+    def test_returns_figcaption_tag(self):
+        reset_numbering()
+        cap = _figure_caption("Test Title")
+        assert "<figcaption" in cap
+        assert "Figure 1" in cap
+        assert "Test Title" in cap
+
+    def test_sequential_numbering(self):
+        reset_numbering()
+        c1 = _figure_caption("A")
+        c2 = _figure_caption("B")
+        assert "Figure 1" in c1
+        assert "Figure 2" in c2
+
+    def test_description_included(self):
+        reset_numbering()
+        cap = _figure_caption("Title", "Extra description text.")
+        assert "Extra description text" in cap
+
+    def test_escapes_html(self):
+        reset_numbering()
+        cap = _figure_caption("Title <script>")
+        assert "<script>" not in cap
+        assert "&lt;script&gt;" in cap
