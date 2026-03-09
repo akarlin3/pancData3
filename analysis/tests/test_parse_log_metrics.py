@@ -133,6 +133,8 @@ class TestParseStatsPredictive:
         text = (
             "PRIMARY ROC ANALYSIS results for BL\n"
             "  AUC = 0.78\n"
+            "  Youden Optimal Score Cutoff = 0.450\n"
+            "  Sensitivity = 82.5% | Specificity = 68.2%\n"
             "PRIMARY ROC ANALYSIS results for W2\n"
             "  AUC = 0.65\n"
         )
@@ -140,6 +142,11 @@ class TestParseStatsPredictive:
         assert len(result["roc_analyses"]) == 2
         assert result["roc_analyses"][0]["auc"] == pytest.approx(0.78)
         assert result["roc_analyses"][1]["auc"] == pytest.approx(0.65)
+        # Second block has no Youden/sensitivity/specificity lines;
+        # verify no state leak from first block.
+        assert result["roc_analyses"][1].get("youden_cutoff") is None
+        assert result["roc_analyses"][1].get("sensitivity") is None
+        assert result["roc_analyses"][1].get("specificity") is None
 
     def test_firth_refit(self):
         """Firth penalised-likelihood refit line is captured."""

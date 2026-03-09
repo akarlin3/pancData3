@@ -276,9 +276,12 @@ class TestResolveFolder:
 
     def test_auto_detect_with_no_args(self, tmp_path: Path, monkeypatch):
         """With no CLI args, falls back to find_latest_saved_folder."""
-        (tmp_path / "saved_files_20260301_120000").mkdir()
-        # Patch __file__ indirectly by calling with base_dir
-        # We can't easily patch __file__, so test the exit path
-        # when no saved_files exist at the default location.
-        # This is tested via find_latest_saved_folder above.
-        pass
+        folder = tmp_path / "saved_files_20260301_120000"
+        folder.mkdir()
+        # Patch find_latest_saved_folder so resolve_folder's fallback
+        # path returns our temp directory without needing __file__ tricks.
+        monkeypatch.setattr(
+            "shared.find_latest_saved_folder", lambda base_dir=None: folder
+        )
+        result = resolve_folder([])
+        assert result == folder
