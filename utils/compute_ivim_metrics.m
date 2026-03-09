@@ -100,10 +100,14 @@ else
     d_vec_sub = d_vec(d_vec < d_thresh);
 end
 
+% Whole-GTV true diffusion (D) statistics.
+% D isolates tissue cellularity from perfusion effects (unlike ADC which
+% conflates both). Lower D = denser cell packing = more aggressive tumor.
 ivim_out.d_mean_val = nanmean_safe(d_vec);
 [ivim_out.d_kurt_val, ivim_out.d_skew_val] = compute_kurt_skew(d_vec, min_vox_hist);
 ivim_out.d_sd_val = nanstd_safe(d_vec);
 
+% Laplace-smoothed D histogram for distribution comparison across timepoints
 ivim_out.d_histogram = compute_histogram_laplace(d_vec, bin_edges);
 % NOTE: KS-test p-values are liberal (see ADC comment in compute_adc_metrics).
 % Skip k==1: d_vec and d_baseline are the same data.

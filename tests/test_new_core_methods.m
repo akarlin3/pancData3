@@ -321,21 +321,27 @@ classdef test_new_core_methods < matlab.unittest.TestCase
         end
 
         function testFdmRepeatabilityCorOverridesThresh(testCase)
+            % The Coefficient of Repeatability (CoR) from test-retest data
+            % can override the configured fdm_thresh to provide a
+            % patient-specific or scanner-specific noise floor. Here
+            % fdm_thresh=0.01 is so large that no voxels would qualify, but
+            % repeatability_cor=0.0003 is small enough that the actual
+            % delta of -0.0005 exceeds it, classifying all voxels as core.
             cfg = testCase.ConfigStruct;
             cfg.core_method = 'fdm';
-            cfg.fdm_thresh = 0.01; % very large → nothing would be classified
+            cfg.fdm_thresh = 0.01; % Very large: nothing detected without CoR
 
             n = 60;
             baseline = 0.001 * ones(n, 1);
-            current = baseline - 0.0005; % small decrease
+            current = baseline - 0.0005; % Small decrease (delta = -0.0005)
 
             opts = struct('timepoint_index', 2);
             opts.baseline_adc_vec = baseline;
-            opts.repeatability_cor = 0.0003; % small → should detect the change
+            opts.repeatability_cor = 0.0003; % Overrides fdm_thresh
 
             mask = extract_tumor_core(cfg, current, nan(n,1), nan(n,1), nan(n,1), false, [], opts);
 
-            % With CoR=0.0003, delta of -0.0005 exceeds threshold → core
+            % All voxels have |delta| = 0.0005 > CoR = 0.0003, and delta < 0 (progressing)
             testCase.verifyEqual(sum(mask), n);
         end
     end

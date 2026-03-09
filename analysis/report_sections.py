@@ -1,6 +1,22 @@
 """Section builders for the HTML analysis report.
 
-Each function returns a list of HTML string chunks for one report section.
+Each public function in this module corresponds to one major section of the
+HTML report.  They accept pre-loaded data (log dicts, CSV dicts, vision rows,
+grouped graph dicts) and return a ``list[str]`` of HTML chunks that are
+concatenated by :func:`generate_report.generate_report`.
+
+Sections are assembled in the order they appear in the report:
+
+1. Executive Summary
+2. Data-Driven Hypothesis
+3. Graph Analysis Overview
+4. Statistical Significance
+5. Cross-DWI Comparison
+6. Notable Correlations
+7. Treatment Response (Longitudinal Trends)
+8. Predictive Performance (ROC/AUC, features, Cox PH)
+9. Supplemental Data (MAT files)
+10. Appendix: All Graphs
 """
 
 from __future__ import annotations
@@ -27,6 +43,30 @@ from report_formatters import (
 
 
 def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, timestamp) -> list[str]:
+    """Build the Executive Summary section.
+
+    Displays a summary box with DWI type badges, stat cards for graph
+    count, best AUC per DWI type, total significant GLME interactions,
+    and CSV-derived significant metric count.
+
+    Parameters
+    ----------
+    log_data : dict or None
+        Parsed log metrics (from :func:`parse_log_metrics.parse_all_logs`).
+    dwi_types_present : list[str]
+        DWI types found in this pipeline run.
+    rows : list[dict]
+        Vision CSV rows (may be empty).
+    csv_data : dict or None
+        Parsed pipeline CSV exports.
+    timestamp : str
+        Run timestamp string for display.
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the executive summary section.
+    """
     # ── 1. Executive Summary ──
     h: list[str] = []
     h.append(_h2("Executive Summary", "exec-summary"))

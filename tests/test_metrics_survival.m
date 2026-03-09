@@ -176,8 +176,11 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testNaNFollowUpTimeHandled(testCase)
-            % Patients with m_lf == 0 but NaN follow-up time are handled gracefully
-            % (the censoring mask excludes them; the panel is built without them).
+            % Verifies graceful handling when all censored patients have
+            % NaN follow-up times (common when follow-up dates are missing
+            % from the clinical spreadsheet). These patients should be
+            % excluded from the panel via the censoring mask, and the
+            % function should complete without error.
             rng(99);
             n   = 15;
             nTp = 4;
@@ -200,9 +203,12 @@ classdef test_metrics_survival < matlab.unittest.TestCase
         end
 
         function testIPCWFrequencyPreservesN(testCase)
-            % Verify that IPCW frequency weights do not inflate sample size.
-            % With mean-stabilised weights ~1 and direct rounding,
-            % sum(freq) should be close to N (not 10*N).
+            % Verifies that the IPCW (Inverse Probability of Censoring
+            % Weighting) frequency conversion preserves effective sample
+            % size. The pipeline stabilizes weights to mean=1 and rounds
+            % to integers, so sum(freq) should be within [0.5*N, 1.5*N].
+            % This guards against the bug where unstabilized weights
+            % could inflate the effective N by 10x or more.
             rng(42);
             n = 30;
             raw_weights = 0.5 + rand(n, 1);              % range [0.5, 1.5]
