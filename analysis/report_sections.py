@@ -357,7 +357,9 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
     h: list[str] = []
     h.append(_h2("Statistical Significance", "significance"))
 
-    # From vision CSV
+    # ── Source 1: Vision-extracted p-values ──
+    # Search through summaries, trends, and inflection point descriptions
+    # for p-value patterns (e.g. "p = 0.032") using regex extraction.
     sig_findings = []
     if rows:
         for r in rows:
@@ -383,7 +385,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
         if len(sig_findings) > 30:
             h.append(f"<p><em>\u2026 and {len(sig_findings) - 30} more significant findings.</em></p>")
 
-    # From direct CSV parsing
+    # ── Source 2: Pipeline CSV significant metrics ──
     if csv_data and csv_data.get("significant_metrics"):
         h.append("<h3>Pipeline CSV Significant Metrics</h3>")
         for dwi_type in DWI_TYPES:
