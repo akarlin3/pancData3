@@ -95,7 +95,7 @@ def main():
     parser.add_argument(
         "--report-only",
         action="store_true",
-        help="Only generate the HTML report from existing data",
+        help="Only generate the report from existing data (skip parsing steps)",
     )
     parser.add_argument(
         "--no-pdf",
@@ -103,9 +103,9 @@ def main():
         help="Skip PDF generation (produce HTML report only)",
     )
     parser.add_argument(
-        "--no-html",
+        "--html",
         action="store_true",
-        help="Skip HTML output (produce PDF report only)",
+        help="Also write the HTML report to disk (default: PDF only)",
     )
     args = parser.parse_args()
 
@@ -159,7 +159,7 @@ def main():
         report_args = [sys.executable, str(report_script), str(folder)]
         if args.no_pdf:
             report_args.append("--no-pdf")
-        if args.no_html:
+        if not args.html:
             report_args.append("--no-html")
         print(f"\n  Running generate_report.py ...")
         t0 = time.time()
@@ -186,7 +186,7 @@ def main():
 
     report_path = folder / "analysis_report.html"
     pdf_path = folder / "analysis_report.pdf"
-    if report_path.exists() and not args.no_html:
+    if report_path.exists() and args.html:
         print(f"\n  HTML Report: {report_path}")
     if pdf_path.exists():
         print(f"  PDF Report:  {pdf_path}")
