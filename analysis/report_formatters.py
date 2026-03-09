@@ -671,8 +671,12 @@ def _get_consensus(trend_list: list[str]) -> str:
         ``"unknown"`` (if the list is empty).
     """
     if not trend_list: return "unknown"
-    increasers = sum(1 for x in trend_list if "increas" in x or "higher" in x or "up" in x)
-    decreasers = sum(1 for x in trend_list if "decreas" in x or "lower" in x or "down" in x)
+    # Keywords must match _trend_tag() to ensure consistent classification.
+    increasers = sum(1 for x in trend_list
+                     if "increas" in x or "higher" in x or "up" in x or "rising" in x)
+    decreasers = sum(1 for x in trend_list
+                     if "decreas" in x or "lower" in x or "down" in x
+                     or "falling" in x or "drop" in x)
     if increasers > decreasers: return "increasing"
     if decreasers > increasers: return "decreasing"
     return "stable"

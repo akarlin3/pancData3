@@ -160,6 +160,19 @@ def load_analysis_config(
         except (json.JSONDecodeError, OSError):
             pass
 
+    # ── Layer 4: Environment variable overrides ──
+    # These allow run_analysis.py to propagate CLI flags (--gemini-model,
+    # --concurrency) to child scripts that run as separate subprocesses.
+    env_model = os.environ.get("PANCDATA3_GEMINI_MODEL")
+    if env_model:
+        cfg["vision"]["gemini_model"] = env_model
+    env_concurrency = os.environ.get("PANCDATA3_GEMINI_CONCURRENCY")
+    if env_concurrency:
+        try:
+            cfg["vision"]["max_concurrent_requests"] = int(env_concurrency)
+        except ValueError:
+            pass
+
     return cfg
 
 

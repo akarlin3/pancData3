@@ -303,6 +303,15 @@ class TestGetConsensus:
     def test_no_keywords_stable(self):
         assert _get_consensus(["flat", "constant"]) == "stable"
 
+    def test_rising_counts_as_increasing(self):
+        assert _get_consensus(["rising", "rising", "decreasing"]) == "increasing"
+
+    def test_falling_counts_as_decreasing(self):
+        assert _get_consensus(["falling", "falling", "increasing"]) == "decreasing"
+
+    def test_drop_counts_as_decreasing(self):
+        assert _get_consensus(["drop", "drop", "increasing"]) == "decreasing"
+
 
 # ── Constants ────────────────────────────────────────────────────────────
 
