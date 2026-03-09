@@ -54,7 +54,7 @@ pancData3/
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (13 files)
-│   └── tests/                  # Python test suite — 6 test files, 126 tests (pytest)
+│   └── tests/                  # Python test suite — 6 test files, 142 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -325,8 +325,8 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML report orchestrator: data loading, section assembly, and CLI entry point for `analysis_report.html` |
-| `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, escaping, badges, nav bar, stat cards, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (executive summary, cohort overview, hypothesis, stats by graph type, statistics with borderline findings, cross-DWI, correlations, treatment response, predictive performance, supplemental MAT data, appendix) |
+| `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, HTML template) |
+| `report_sections.py` | Section builder functions for the HTML report (structured abstract, methods, cohort overview, hypothesis, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions, appendix) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -342,7 +342,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
 | `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
-| `test_generate_report.py` | Significance tags, section headers, full Markdown report generation |
+| `test_generate_report.py` | Significance tags, section headers, forest plot cells, effect size helpers, full HTML report generation with publication-level sections |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
 
 ---

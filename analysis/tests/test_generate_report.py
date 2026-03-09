@@ -1,9 +1,13 @@
-"""Tests for generate_report.py — Markdown report generation.
+"""Tests for generate_report.py — HTML report generation.
 
 Covers:
 - _sig_tag: p-value → significance star mapping
 - _section: Markdown heading generation
+- _forest_plot_cell: forest plot HTML generation
+- _effect_size_class / _effect_size_label: effect size classification
 - generate_report: full report generation with mocked data sources
+- New publication-level sections: Methods, Effect Sizes, Multiple
+  Comparisons, Model Diagnostics, Limitations, Conclusions
 """
 
 from __future__ import annotations
@@ -12,7 +16,14 @@ from pathlib import Path
 
 import pytest
 
-from generate_report import _section, _sig_tag, generate_report
+from generate_report import (
+    _effect_size_class,
+    _effect_size_label,
+    _forest_plot_cell,
+    _section,
+    _sig_tag,
+    generate_report,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +152,113 @@ class TestGenerateReport:
         if "Cross-DWI" in report:
             assert "DIFFER" in report or "AGREE" in report
 
-    def test_report_is_valid_markdown(self, saved_files_with_graph_csv: Path):
+    def test_report_is_valid_html(self, saved_files_with_graph_csv: Path):
         """Basic structural check: headings and tables."""
         report = generate_report(saved_files_with_graph_csv)
-        assert report.count("#") >= 3  # at least a few headings
-        assert "|" in report  # at least one table
+        assert "<h2" in report  # at least a few headings
+        assert "<table" in report  # at least one table
+
+    def test_report_contains_methods_section(self, saved_files_with_graph_csv: Path):
+        """The Methods section should describe statistical methodology."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Statistical Methods" in report
+        assert "Wilcoxon" in report
+        assert "Benjamini" in report
+        assert "Cox" in report
+
+    def test_report_contains_structured_abstract(self, saved_files_with_graph_csv: Path):
+        """Executive summary should have structured abstract subsections."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Objective" in report
+        assert "Key Results" in report
+        assert "Conclusions" in report
+
+    def test_report_contains_limitations(self, saved_files_with_graph_csv: Path):
+        """Limitations section should appear in the report."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Limitations" in report
+        assert "Single-institution" in report
+
+    def test_report_contains_model_diagnostics(self, saved_files_with_graph_csv: Path):
+        """Model diagnostics section should have assumptions listed."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Model Diagnostics" in report
+        assert "Proportional hazards" in report
+
+    def test_report_contains_conclusions_section(self, saved_files_with_graph_csv: Path):
+        """Conclusions section should appear."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Conclusions" in report
+        assert "Future directions" in report
+
+    def test_report_with_logs_has_effect_sizes(self, saved_files_with_logs: Path):
+        """With log data, the Effect Size section should report HR effects."""
+        report = generate_report(saved_files_with_logs)
+        assert "Effect Size" in report
+
+    def test_report_with_logs_has_multiple_comparisons(self, saved_files_with_logs: Path):
+        """With log data, the Multiple Comparisons section should appear."""
+        report = generate_report(saved_files_with_logs)
+        assert "Multiple Comparison" in report
+        assert "BH-FDR" in report or "FDR" in report
+
+    def test_report_with_logs_has_diagnostics_detail(self, saved_files_with_logs: Path):
+        """With log data, model diagnostics should show data-driven issues."""
+        report = generate_report(saved_files_with_logs)
+        assert "IPCW" in report or "weight" in report or "Assumptions" in report
+
+    def test_report_with_logs_has_discrimination_table(self, saved_files_with_logs: Path):
+        """AUC discrimination interpretation should appear."""
+        report = generate_report(saved_files_with_logs)
+        # The fixture has AUC = 0.781, which maps to "Acceptable"
+        assert "Acceptable" in report or "Discrimination" in report or "discrimination" in report
+
+
+# ---------------------------------------------------------------------------
+# _forest_plot_cell
+# ---------------------------------------------------------------------------
+
+class TestForestPlotCell:
+    """Verify forest plot HTML generation."""
+
+    def test_returns_html(self):
+        """Forest plot cell should return valid HTML."""
+        result = _forest_plot_cell(1.5, 1.1, 2.0, 0.03)
+        assert "<div" in result
+        assert "forest-row" in result
+        assert "forest-point-sig" in result  # p < 0.05
+
+    def test_non_significant_point(self):
+        """Non-significant HR should use the ns class."""
+        result = _forest_plot_cell(1.1, 0.8, 1.5, 0.12)
+        assert "forest-point-ns" in result
+
+    def test_reference_line_present(self):
+        """The HR=1.0 reference line should always be present."""
+        result = _forest_plot_cell(0.5, 0.3, 0.8, 0.01)
+        assert "forest-ref" in result
+
+
+# ---------------------------------------------------------------------------
+# _effect_size_class / _effect_size_label
+# ---------------------------------------------------------------------------
+
+class TestEffectSize:
+    """Verify effect size classification helpers."""
+
+    def test_large_effect(self):
+        assert _effect_size_class(0.9) == "effect-lg"
+        assert _effect_size_label(0.9) == "Large"
+
+    def test_medium_effect(self):
+        assert _effect_size_class(0.6) == "effect-md"
+        assert _effect_size_label(0.6) == "Medium"
+
+    def test_small_effect(self):
+        assert _effect_size_class(0.3) == "effect-sm"
+        assert _effect_size_label(0.3) == "Small"
+
+    def test_negative_values_use_absolute(self):
+        """Negative effect sizes should be classified by absolute value."""
+        assert _effect_size_class(-0.9) == "effect-lg"
+        assert _effect_size_label(-0.5) == "Medium"
