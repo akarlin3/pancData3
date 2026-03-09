@@ -53,38 +53,44 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     dwi_type = config_struct.dwi_types_to_run; % 1=Standard, 2=DnCNN, 3=IVIMnet
 
     % --- Pre-allocate ---
-    dice_sum = zeros(n_methods, n_methods);
-    dice_count = zeros(n_methods, n_methods);
-    hd95_sum = zeros(n_methods, n_methods);
-    hd95_count = zeros(n_methods, n_methods);
+    % Running sums and counts for incremental mean computation:
+    % mean = sum / count, computed after the main loop completes.
+    dice_sum = zeros(n_methods, n_methods);    % running sum of pairwise Dice coefficients
+    dice_count = zeros(n_methods, n_methods);  % number of valid Dice observations per pair
+    hd95_sum = zeros(n_methods, n_methods);    % running sum of pairwise HD95 distances (mm)
+    hd95_count = zeros(n_methods, n_methods);  % number of valid HD95 observations per pair
 
-    volume_fractions = nan(n_patients, nTp, n_methods);
-    fallback_flags = false(n_patients, nTp, n_methods);
+    % Per-patient-timepoint storage for detailed analysis
+    volume_fractions = nan(n_patients, nTp, n_methods);   % core volume as fraction of GTV
+    fallback_flags = false(n_patients, nTp, n_methods);   % true when method fell back to adc_threshold
 
-    all_dice = cell(n_patients, nTp);
-    all_hd95 = cell(n_patients, nTp);
+    % Cell arrays store the full pairwise matrices for each patient x timepoint
+    all_dice = cell(n_patients, nTp);   % each cell: n_methods x n_methods Dice matrix
+    all_hd95 = cell(n_patients, nTp);   % each cell: n_methods x n_methods HD95 matrix (mm)
 
     % --- Main loop: patient x timepoint ---
     for j = 1:n_patients
         text_progress_bar(j, n_patients, 'Comparing core methods');
         for k = 1:nTp
-            % Extract voxel vectors based on DWI type
+            % Extract the appropriate voxel-level parameter vectors based on
+            % the DWI processing pipeline. Each type stores vectors in
+            % different struct fields within data_vectors_gtvp.
             switch dwi_type
-                case 1  % Standard
+                case 1  % Standard (conventional fitting on raw DWI)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector;
                     dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector;
                     adc_baseline = data_vectors_gtvp(j,1,1).adc_vector;
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector;
-                case 2  % dnCNN
+                case 2  % dnCNN (fitting on DnCNN-denoised DWI)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector_dncnn;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector_dncnn;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector_dncnn;
                     dstar_vec = data_vectors_gtvp(j,k,1).dstar_vector_dncnn;
                     adc_baseline = data_vectors_gtvp(j,1,1).adc_vector_dncnn;
                     d_baseline = data_vectors_gtvp(j,1,1).d_vector_dncnn;
-                case 3  % IVIMnet
+                case 3  % IVIMnet (neural network IVIM estimation; ADC still from standard)
                     adc_vec = data_vectors_gtvp(j,k,1).adc_vector;
                     d_vec = data_vectors_gtvp(j,k,1).d_vector_ivimnet;
                     f_vec = data_vectors_gtvp(j,k,1).f_vector_ivimnet;

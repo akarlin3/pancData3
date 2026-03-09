@@ -146,10 +146,14 @@ function plot_predictive_diagnostics( ...
         if p_vol > 0.05, xlabel('Conclusion: No Volumetric Bias');
         else, xlabel('Warning: Volume is a Confounder'); end
 
+        % --- Panel 2: ADC heterogeneity (texture) change ---
+        % Intra-tumoral ADC standard deviation captures spatial heterogeneity.
+        % In pancreatic cancer, increasing heterogeneity during RT may
+        % indicate mixed response (some regions dying, others resistant).
         subplot(1, 3, 2);
-        sd_fx1  = adc_sd(valid_pts, 1, dtype);
-        sd_fxN  = adc_sd(valid_pts, target_fx, dtype);
-        sd_delta = sd_fxN - sd_fx1;
+        sd_fx1  = adc_sd(valid_pts, 1, dtype);          % baseline ADC SD
+        sd_fxN  = adc_sd(valid_pts, target_fx, dtype);   % ADC SD at target fraction
+        sd_delta = sd_fxN - sd_fx1;                       % change in heterogeneity
 
         boxplot(sd_delta(non_competing), lf_group(non_competing), 'Labels', {'LC (0)', 'LF (1)'});
         ylabel(['\Delta ADC SD (' fx_label ') [mm^2/s]']);
@@ -163,10 +167,16 @@ function plot_predictive_diagnostics( ...
         end
         grid on;
 
+        % --- Panel 3: Signal vs. noise floor ---
+        % Overlays the Coefficient of Reproducibility (CoR) band to show
+        % whether observed biomarker changes exceed measurement noise.
         subplot(1, 3, 3);
         hold on;
-        % Derive wCV from baseline ADC SD and mean instead of hardcoding.
-        % wCV = SD/mean; CoR for percent change = 1.96*sqrt(2)*wCV*100.
+        % Derive within-subject coefficient of variation (wCV) from baseline
+        % ADC standard deviation and mean. The CoR represents the minimum
+        % detectable change: CoR = 1.96 * sqrt(2) * wCV * 100 (in percent).
+        % This follows Bland-Altman repeatability methodology — changes
+        % below CoR cannot be reliably distinguished from measurement noise.
         baseline_sd  = adc_sd(valid_pts, 1, dtype);
         baseline_adc_vals = ADC_abs(valid_pts, 1);
         wcv_vals = baseline_sd ./ baseline_adc_vals;

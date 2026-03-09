@@ -40,18 +40,21 @@ class TestCollectImages:
     """Verify recursive image file discovery."""
 
     def test_finds_png_files(self, tmp_path: Path):
+        """PNG files (the primary pipeline output format) are discovered."""
         (tmp_path / "graph1.png").write_bytes(b"\x89PNG")
         (tmp_path / "graph2.png").write_bytes(b"\x89PNG")
         result = collect_images(tmp_path)
         assert len(result) == 2
 
     def test_finds_jpg_files(self, tmp_path: Path):
+        """Both .jpg and .jpeg extensions are recognised as image files."""
         (tmp_path / "photo.jpg").write_bytes(b"\xff\xd8")
         (tmp_path / "photo2.jpeg").write_bytes(b"\xff\xd8")
         result = collect_images(tmp_path)
         assert len(result) == 2
 
     def test_ignores_non_image_files(self, tmp_path: Path):
+        """CSV and text files are excluded; only the PNG is returned."""
         (tmp_path / "data.csv").write_text("a,b,c")
         (tmp_path / "log.txt").write_text("log entry")
         (tmp_path / "graph.png").write_bytes(b"\x89PNG")
@@ -59,6 +62,7 @@ class TestCollectImages:
         assert len(result) == 1
 
     def test_recursive_discovery(self, tmp_path: Path):
+        """Images in subdirectories (e.g., Standard/) are included."""
         sub = tmp_path / "Standard"
         sub.mkdir()
         (sub / "plot.png").write_bytes(b"\x89PNG")
@@ -67,6 +71,7 @@ class TestCollectImages:
         assert len(result) == 2
 
     def test_empty_directory(self, tmp_path: Path):
+        """An empty directory returns an empty list."""
         result = collect_images(tmp_path)
         assert result == []
 
@@ -93,6 +98,7 @@ class TestImageToBase64:
     """Verify base64 encoding of image files."""
 
     def test_encodes_correctly(self, tmp_path: Path):
+        """Round-trip: encoding then decoding recovers the original bytes."""
         data = b"fake image data for testing"
         p = tmp_path / "test.png"
         p.write_bytes(data)
@@ -101,6 +107,7 @@ class TestImageToBase64:
         assert base64.standard_b64decode(encoded) == data
 
     def test_returns_string(self, tmp_path: Path):
+        """The encoded result is a Python str (not bytes)."""
         p = tmp_path / "test.png"
         p.write_bytes(b"\x89PNG")
         assert isinstance(image_to_base64(p), str)

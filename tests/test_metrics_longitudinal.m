@@ -37,8 +37,9 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
     methods(Test)
 
         function testOutputFigureCreated(testCase)
-            % Standard call with 10 patients and 4 timepoints.
-            % Verifies the expected PNG is written to output_folder.
+            % Verifies the standard case: 10 patients, 4 timepoints.
+            % The function should save a PNG file named
+            % Longitudinal_Mean_Metrics_{dtype_label}.png to output_folder.
             rng(1);
             n   = 10;
             nTp = 4;
@@ -63,7 +64,9 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testSinglePatientNoError(testCase)
-            % Edge case: only one patient. Mean = the patient's value; SEM = NaN.
+            % Edge case: single patient. nanmean equals the patient's own
+            % values and SEM is NaN (undefined for n=1). The function must
+            % handle this without dividing by zero or erroring on NaN SEM.
             nTp = 4;
             ADC_abs   = rand(1, nTp) * 2e-3;
             D_abs     = rand(1, nTp) * 1e-3;
@@ -98,7 +101,9 @@ classdef test_metrics_longitudinal < matlab.unittest.TestCase
         end
 
         function testSixTimepointsNoError(testCase)
-            % nTp = 6 (maximum in this study) should generate a valid figure.
+            % Verifies that nTp=6 (the maximum timepoint count in the
+            % pancreatic DWI study protocol) produces a valid figure.
+            % Tests that x-axis label generation handles all 6 fractions.
             rng(5);
             n   = 15;
             nTp = 6;

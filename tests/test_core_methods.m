@@ -53,7 +53,8 @@ function test_core_methods()
     has_3d = true;
     gtv_mask_3d = true(10, 10, 1); % Entire slab is within GTV
 
-    % List of all algorithms to test (non-longitudinal methods)
+    % All 10 non-longitudinal core methods to test. The fDM method requires
+    % additional opts (baseline vectors) and is tested separately below.
     methods = {'adc_threshold', 'd_threshold', 'df_intersection', 'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', 'percentile', 'spectral'};
 
     for i=1:length(methods)
@@ -61,12 +62,15 @@ function test_core_methods()
         try
             core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d);
 
-            % Assertions
+            % Basic contract checks: output must be logical, correct length
             assert(islogical(core_mask), sprintf('Method %s: Output is not logical', methods{i}));
             assert(length(core_mask) == 100, sprintf('Method %s: Output length is incorrect', methods{i}));
 
-            % GMM might flip signs/clusters, Kmeans might flip, active contour is wild on small 10x10.
-            % But at a minimum they should yield "some" core and "some" margin.
+            % Sanity: with a clearly bimodal distribution, every method should
+            % find at least some core voxels and leave some as margin.
+            % Note: GMM/kmeans may occasionally flip cluster labels, and
+            % active_contours can behave unpredictably on small 10x10 grids,
+            % but the bimodal gap is large enough to prevent degenerate results.
             n_core = sum(core_mask);
             assert(n_core > 0 && n_core < 100, sprintf('Method %s: Mask is all or nothing (%d voxels)', methods{i}, n_core));
 

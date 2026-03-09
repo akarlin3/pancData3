@@ -215,7 +215,8 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
     boxplot(box_data, 'Labels', labels, 'Positions', positions, ...
             'Widths', 0.5, 'Colors', [0.3 0.3 0.3]);
 
-    % Overlay individual patient points with jitter
+    % Overlay individual patient data points with random horizontal jitter
+    % to prevent overplotting; reveals the underlying distribution shape
     colors = lines(n_types);
     jitter_width = 0.15;
     for i = 1:n_types
@@ -225,7 +226,9 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
         scatter(x_jitter, vals(valid), 25, colors(i, :), 'filled', 'MarkerFaceAlpha', 0.5);
     end
 
-    % Connect same-patient points
+    % Connect same-patient data points across DWI types with gray lines.
+    % This spaghetti plot reveals whether patients track consistently
+    % across processing methods (parallel lines = systematic shift).
     for p = 1:size(box_data, 1)
         pt_vals = box_data(p, :);
         valid = ~isnan(pt_vals);
@@ -234,7 +237,8 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
         end
     end
 
-    % Signed-rank test between Standard and dnCNN if both available
+    % Wilcoxon signed-rank test: non-parametric paired test for systematic
+    % difference in subvolume between Standard and dnCNN processing.
     if types_available(1) && types_available(2)
         std_vals = fx1_data(:, 1);
         dncnn_vals = fx1_data(:, 2);
@@ -315,7 +319,10 @@ function plot_repeat_variability(rpt_data, type_label)
         end
     end
 
-    % Compute and display wCV
+    % Compute within-subject coefficient of variation (wCV) across repeat scans.
+    % wCV = SD / mean for each patient; the median across patients gives a
+    % robust estimate of measurement reproducibility. This is the noise floor
+    % for using subvolume as a longitudinal biomarker.
     pts_with_rpts = sum(~isnan(rpt_data), 2) >= 2;
     if sum(pts_with_rpts) >= 3
         rpt_subset = rpt_data(pts_with_rpts, :);
@@ -326,6 +333,7 @@ function plot_repeat_variability(rpt_data, type_label)
             pt_means = mean(rpt_subset, 2, 'omitnan');
             pt_sds = std(rpt_subset, 0, 2, 'omitnan');
         end
+        % Guard against division by zero for patients with 0% subvolume
         pt_means(pt_means == 0) = NaN;
         wcv_vals = pt_sds ./ pt_means;
         median_wcv = median(wcv_vals, 'omitnan') * 100;

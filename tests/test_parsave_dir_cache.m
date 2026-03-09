@@ -44,7 +44,8 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
     methods(Test)
 
         function testFileIsCreated(testCase)
-            % The .mat file should exist after the call.
+            % Basic smoke test: verify the .mat file is created on disk after calling
+            % parsave_dir_cache with random 5x5x5 arrays (typical small volume size).
             fname = fullfile(testCase.TempDir, 'cache_test.mat');
             parsave_dir_cache(fname, rand(5,5,5) > 0.5, rand(5,5,5,3), rand(5,5,5));
 
@@ -53,7 +54,8 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
         end
 
         function testVariablesSavedWithCorrectValues(testCase)
-            % Load the saved file and verify all three arrays round-trip correctly.
+            % Verify data integrity: save known arrays, reload, and compare.
+            % Uses a fixed random seed so the test is deterministic.
             fname = fullfile(testCase.TempDir, 'cache_vars.mat');
             rng(7);
             gtv_mask_warped = rand(4,4,4) > 0.5;
@@ -89,7 +91,9 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
         end
 
         function testOverwritesPreviousFile(testCase)
-            % A second call with different data should overwrite the first.
+            % Verify idempotent overwrite: a second call with different data
+            % should completely replace the previous file contents. This is
+            % critical for checkpoint recovery where stale data must not persist.
             fname = fullfile(testCase.TempDir, 'cache_overwrite.mat');
 
             % First write
@@ -110,7 +114,8 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
         end
 
         function testAcceptsVariedArraySizes(testCase)
-            % Arrays with different spatial dimensions should all save correctly.
+            % Verify that non-cubic arrays (8x10x6) save correctly. Real patient
+            % volumes are rarely cubic, so this tests dimensional generality.
             fname = fullfile(testCase.TempDir, 'cache_sizes.mat');
             gtv   = rand(8, 10, 6) > 0.5;
             Dfwd  = rand(8, 10, 6, 3);
@@ -128,7 +133,9 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
         end
 
         function testEmptyArraysSavedCorrectly(testCase)
-            % Edge case: all-empty arrays should be saved and loaded without error.
+            % Edge case: empty (0x0x0) arrays must save and reload without error.
+            % This can occur when a patient has no valid GTV mask or no
+            % deformation field data.
             fname = fullfile(testCase.TempDir, 'cache_empty.mat');
             gtv   = false(0,0,0);
             Dfwd  = zeros(0,0,0,3);

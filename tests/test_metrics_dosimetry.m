@@ -248,8 +248,10 @@ classdef test_metrics_dosimetry < matlab.unittest.TestCase
         end
 
         function testNTpCellWrappingHandled(testCase)
-            % The function accepts nTp as a scalar cell array {nTp_val}
-            % in addition to a plain scalar.
+            % Verifies that nTp can be passed as a cell-wrapped scalar
+            % ({nTp_val}) in addition to a plain numeric scalar. The
+            % function should unwrap it via `if iscell(nTp), nTp = nTp{1}; end`
+            % and produce correctly sized outputs.
             [m_id, id, nTp, cfg, dv, gtv] = ...
                 testCase.buildEmptyVectorInputs(2, 2, 2);
 

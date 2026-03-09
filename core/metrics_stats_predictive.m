@@ -325,6 +325,10 @@ end
 % handled the separation.  The orchestrator (run_dwi_pipeline.m) checks
 % lastwarn after each module and logs it to error.log — clearing it here
 % prevents logging a warning that Firth has already resolved.
+% Perfect separation occurs when a linear combination of features perfectly
+% predicts the outcome (common with small N and many features), causing
+% standard MLE to diverge to infinity.  Firth's penalized likelihood
+% (Jeffreys prior) guarantees finite estimates in this scenario.
 if use_firth
     [~, last_warn_id] = lastwarn;
     if strcmp(last_warn_id, 'stats:lassoGlm:PerfectSeparation')

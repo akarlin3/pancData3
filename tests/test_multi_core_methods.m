@@ -96,6 +96,11 @@ function test_all_methods_computed(ALL_METHODS)
 end
 
 %% --- Test: Backward compatibility ---
+% When run_all_core_methods=true, the top-level sub-volume fields
+% (e.g., sm.adc_sub_vol) must still match the values from the method
+% specified by config.core_method (here 'adc_threshold'). This ensures
+% that enabling the multi-method feature does not change the default
+% pipeline behavior.
 function test_backward_compat(ALL_METHODS)
     fprintf('  Testing backward compatibility...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -121,6 +126,10 @@ function test_backward_compat(ALL_METHODS)
 end
 
 %% --- Test: Mask storage ---
+% When store_core_masks=true, each method's sub-struct should include
+% a core_masks cell array of size [nPat x nTp] containing logical masks.
+% When store_core_masks=false (tested in test_all_methods_computed),
+% core_masks should be absent to save memory.
 function test_mask_storage(ALL_METHODS)
     fprintf('  Testing mask storage...\n');
     [config, dvg, id_list, mrn_list, lf, immuno, gtv_locs, dwi_locs, dmean, d95, v50, dates] = make_mock_data();
@@ -146,6 +155,10 @@ function test_mask_storage(ALL_METHODS)
 end
 
 %% --- Test: Config backward compatibility (missing fields default to false) ---
+% Old config files that predate the multi-core feature will not contain
+% run_compare_cores, run_all_core_methods, or store_core_masks fields.
+% parse_config must add these with default value false so the pipeline
+% runs unchanged on legacy configs.
 function test_config_backward_compat()
     fprintf('  Testing config backward compatibility...\n');
     [dir_path, ~, ~] = fileparts(mfilename('fullpath'));
@@ -177,6 +190,10 @@ function test_config_backward_compat()
 end
 
 %% --- Test: run_compare_cores injection into steps ---
+% When config.run_compare_cores=true, run_dwi_pipeline automatically
+% injects a 'compare_cores' step right after 'metrics_baseline'.
+% This test verifies the injection logic in isolation, checking both
+% the true case (step added) and the false case (step not added).
 function test_run_compare_cores_injection()
     fprintf('  Testing run_compare_cores step injection...\n');
 
