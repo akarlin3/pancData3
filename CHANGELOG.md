@@ -26,6 +26,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - Updated documentation (`CLAUDE.md`, `README.md`) with analysis script descriptions and requirements
 
+## [1.1.1] - 2026-03-09
+
+### Fixed
+- Cache clearing (`run_dwi_pipeline.m`) deleted manually curated `dwi_vectors_ea.mat` because the `dwi_vectors*.mat` glob matched it; added a protected-files guard to skip it during cache clearing
+
 ## [1.1.0] - 2026-03-08
 
 ### Added
