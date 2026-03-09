@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
-"""Concise cross-DWI summary: key differences between Standard, dnCNN, IVIMnet."""
+"""Concise cross-DWI summary focusing on clinically priority graphs.
+
+Unlike :mod:`cross_reference_dwi` (which prints every matched graph in full
+detail), this script focuses on a curated list of clinically important graph
+types and provides a compact comparison:
+
+1. **Trend agreement/disagreement** -- per data series, shows whether
+   Standard, dnCNN, and IVIMnet agree on the direction ("AGREE" vs "DIFFER").
+2. **Truncated summaries** -- side-by-side plain-English summaries (capped
+   at 180 characters each).
+3. **Parameter map counts** -- which DWI types produced parameter maps.
+4. **Inflection points** -- longitudinal inflection points compared across
+   DWI types.
+
+Usage:
+    python cross_reference_summary.py [saved_files_path]
+"""
 
 from __future__ import annotations
 
@@ -18,6 +34,7 @@ setup_utf8_stdout()
 
 
 def main():
+    """CLI entry point: load vision CSV and print concise cross-DWI summary."""
     folder = resolve_folder(sys.argv)
     rows = load_graph_csv(folder)
     if not rows:
@@ -30,7 +47,9 @@ def main():
     print("  CROSS-DWI TYPE SUMMARY: Key Differences")
     print(sep)
 
-    # Focus on the most clinically interesting graphs
+    # Curated list of clinically interesting graphs to compare across DWI types.
+    # These cover dose-response, longitudinal trajectories, feature distributions,
+    # and tumor core method agreement.
     priority_graphs = [
         "Dose_vs_Diffusion",
         "Longitudinal_Mean_Metrics",
@@ -47,6 +66,7 @@ def main():
         if base_name not in groups:
             continue
         dwi_dict = groups[base_name]
+        # Need at least 2 real DWI types (not Root) for comparison.
         real = [t for t in dwi_dict if t != "Root"]
         if len(real) < 2:
             continue
@@ -55,7 +75,7 @@ def main():
         print(f"  {base_name}")
         print(f"{'-' * 80}")
 
-        # Collect trends per DWI type
+        # ── Collect trends per DWI type ──
         all_trends = {}
         for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
@@ -64,10 +84,10 @@ def main():
             trends = json.loads(r["trends_json"])
             all_trends[dwi_type] = trends
 
-        # Compare trend directions
+        # ── Compare trend directions across DWI types ──
         if all_trends:
-            # Get union of series names
-            all_series = set()
+            # Build union of all series names across DWI types.
+            all_series: set[str] = set()
             for dwi_type, trends in all_trends.items():
                 for t in trends:
                     s = t.get("series") or "overall"
@@ -75,7 +95,8 @@ def main():
 
             print()
             for series in sorted(all_series):
-                directions = {}
+                # Collect the direction for this series from each DWI type.
+                directions: dict[str, str] = {}
                 for dwi_type in DWI_TYPES:
                     if dwi_type not in all_trends:
                         continue
@@ -86,12 +107,14 @@ def main():
 
                 if len(directions) >= 2:
                     vals = list(directions.values())
+                    # All directions identical = AGREE; otherwise DIFFER.
                     match = "AGREE" if len(set(vals)) == 1 else "DIFFER"
+                    # ">>" prefix highlights disagreements visually.
                     tag = "  " if match == "AGREE" else ">>"
                     compact = ", ".join(f"{k}={v}" for k, v in directions.items())
                     print(f"  {tag} [{series}]: {compact}  ({match})")
 
-        # Print summaries side by side
+        # ── Print truncated summaries side by side ──
         print()
         for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
@@ -101,7 +124,7 @@ def main():
                 summary = summary[:180] + "..."
             print(f"    {dwi_type}: {summary}")
 
-    # Overall stats
+    # ── Parameter map counts by DWI type ──
     print(f"\n{sep}")
     print("  PARAMETER MAP COUNTS BY DWI TYPE")
     print(sep)
@@ -113,7 +136,7 @@ def main():
         if types:
             print(f"  {base_name}: {', '.join(sorted(types))}")
 
-    # Inflection points comparison for longitudinal graphs
+    # ── Inflection points comparison for longitudinal graphs ──
     print(f"\n{sep}")
     print("  INFLECTION POINTS: Longitudinal Graphs")
     print(sep)
