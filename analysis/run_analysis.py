@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import io
 import subprocess
 import sys
 import time
@@ -35,7 +36,24 @@ setup_utf8_stdout()
 ANALYSIS_DIR = Path(__file__).resolve().parent
 
 
-def _run_script(name: str, folder: Path) -> bool:
+class TeeWriter:
+    """Write to both a terminal stream and a log file simultaneously."""
+
+    def __init__(self, terminal: io.TextIOBase, log_file: io.TextIOBase):
+        self.terminal = terminal
+        self.log_file = log_file
+
+    def write(self, message: str) -> int:
+        self.terminal.write(message)
+        self.log_file.write(message)
+        return len(message)
+
+    def flush(self) -> None:
+        self.terminal.flush()
+        self.log_file.flush()
+
+
+def _run_script(name: str, folder: Path, log_file: io.TextIOBase | None = None) -> bool:
     """Run a sibling Python script as a subprocess.
 
     Parameters
@@ -46,6 +64,9 @@ def _run_script(name: str, folder: Path) -> bool:
     folder : Path
         Path to the ``saved_files_*`` output folder, passed as the first
         positional argument to the child script.
+    log_file : io.TextIOBase or None
+        If provided, subprocess stdout and stderr are captured and written
+        to both the terminal and this log file.
 
     Returns
     -------
@@ -64,9 +85,18 @@ def _run_script(name: str, folder: Path) -> bool:
     result = subprocess.run(
         [sys.executable, str(script), str(folder)],
         cwd=str(ANALYSIS_DIR),
-        capture_output=False,
+        capture_output=True,
+        text=True,
     )
     elapsed = time.time() - t0
+
+    # Emit captured output to terminal and log file.
+    for stream_output in (result.stdout, result.stderr):
+        if stream_output:
+            sys.stdout.write(stream_output)
+            if log_file is not None:
+                log_file.write(stream_output)
+
     if result.returncode == 0:
         print(f"  Done: {name} ({elapsed:.1f}s)")
         return True
@@ -118,79 +148,100 @@ def main():
         # Auto-detect the most recent saved_files_* directory.
         folder = find_latest_saved_folder()
 
-    # ── Print banner ──
-    print("=" * 70)
-    print("  pancData3 Analysis Suite")
-    print("=" * 70)
-    print(f"  Output folder: {folder}")
-    print(f"  Skip vision:   {args.skip_vision}")
-    print(f"  Report only:   {args.report_only}")
-    print()
+    # ── Open log file and tee all output ──
+    log_path = folder / "run_analysis_output.log"
+    log_file = open(log_path, "w", encoding="utf-8")
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    sys.stdout = TeeWriter(original_stdout, log_file)
+    sys.stderr = TeeWriter(original_stderr, log_file)
 
-    # Track success/failure/skip status for each pipeline step.
-    results = {}
+    try:
+        # ── Print banner ──
+        print("=" * 70)
+        print("  pancData3 Analysis Suite")
+        print("=" * 70)
+        print(f"  Output folder: {folder}")
+        print(f"  Skip vision:   {args.skip_vision}")
+        print(f"  Report only:   {args.report_only}")
+        print(f"  Log file:      {log_path}")
+        print()
 
-    if not args.report_only:
-        # Step 1: Vision-based graph analysis (requires GEMINI_API_KEY).
-        if not args.skip_vision:
-            csv_path = folder / "graph_analysis_results.csv"
-            print(f"  Vision CSV exists: {csv_path.exists()}")
-            results["vision"] = _run_script("batch_graph_analysis.py", folder)
-        else:
-            csv_path = folder / "graph_analysis_results.csv"
-            if csv_path.exists():
-                print(f"  Skipping vision analysis (existing CSV: {csv_path})")
+        # Track success/failure/skip status for each pipeline step.
+        results = {}
+
+        if not args.report_only:
+            # Step 1: Vision-based graph analysis (requires GEMINI_API_KEY).
+            if not args.skip_vision:
+                csv_path = folder / "graph_analysis_results.csv"
+                print(f"  Vision CSV exists: {csv_path.exists()}")
+                results["vision"] = _run_script("batch_graph_analysis.py", folder, log_file)
             else:
-                print("  Skipping vision analysis (no existing CSV)")
-            results["vision"] = "skipped"
+                csv_path = folder / "graph_analysis_results.csv"
+                if csv_path.exists():
+                    print(f"  Skipping vision analysis (existing CSV: {csv_path})")
+                else:
+                    print("  Skipping vision analysis (no existing CSV)")
+                results["vision"] = "skipped"
 
-        # Step 2: Parse MATLAB diary log files for structured metrics.
-        results["logs"] = _run_script("parse_log_metrics.py", folder)
+            # Step 2: Parse MATLAB diary log files for structured metrics.
+            results["logs"] = _run_script("parse_log_metrics.py", folder, log_file)
 
-        # Step 3: Parse pipeline-exported CSV files (significance tables).
-        results["csvs"] = _run_script("parse_csv_results.py", folder)
+            # Step 3: Parse pipeline-exported CSV files (significance tables).
+            results["csvs"] = _run_script("parse_csv_results.py", folder, log_file)
 
-        # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
-        results["mat"] = _run_script("parse_mat_metrics.py", folder)
+            # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
+            results["mat"] = _run_script("parse_mat_metrics.py", folder, log_file)
 
-    # Step 4: Assemble the final HTML (+PDF) report from all collected data.
-    report_script = ANALYSIS_DIR / "generate_report.py"
-    if report_script.exists():
-        report_args = [sys.executable, str(report_script), str(folder)]
-        if args.no_pdf:
-            report_args.append("--no-pdf")
-        if not args.html:
-            report_args.append("--no-html")
-        print(f"\n  Running generate_report.py ...")
-        t0 = time.time()
-        result = subprocess.run(
-            report_args, cwd=str(ANALYSIS_DIR), capture_output=False,
-        )
-        elapsed = time.time() - t0
-        if result.returncode == 0:
-            print(f"  Done: generate_report.py ({elapsed:.1f}s)")
-            results["report"] = True
+        # Step 4: Assemble the final HTML (+PDF) report from all collected data.
+        report_script = ANALYSIS_DIR / "generate_report.py"
+        if report_script.exists():
+            report_args = [sys.executable, str(report_script), str(folder)]
+            if args.no_pdf:
+                report_args.append("--no-pdf")
+            if not args.html:
+                report_args.append("--no-html")
+            print(f"\n  Running generate_report.py ...")
+            t0 = time.time()
+            result = subprocess.run(
+                report_args, cwd=str(ANALYSIS_DIR),
+                capture_output=True, text=True,
+            )
+            elapsed = time.time() - t0
+            for stream_output in (result.stdout, result.stderr):
+                if stream_output:
+                    sys.stdout.write(stream_output)
+            if result.returncode == 0:
+                print(f"  Done: generate_report.py ({elapsed:.1f}s)")
+                results["report"] = True
+            else:
+                print(f"  FAILED: generate_report.py (exit code {result.returncode}, {elapsed:.1f}s)")
+                results["report"] = False
         else:
-            print(f"  FAILED: generate_report.py (exit code {result.returncode}, {elapsed:.1f}s)")
             results["report"] = False
-    else:
-        results["report"] = False
 
-    # ── Summary table ──
-    print("\n" + "=" * 70)
-    print("  Analysis Complete")
-    print("=" * 70)
-    for step, status in results.items():
-        icon = "OK" if status is True else ("SKIP" if status == "skipped" else "FAIL")
-        print(f"  [{icon:>4}] {step}")
+        # ── Summary table ──
+        print("\n" + "=" * 70)
+        print("  Analysis Complete")
+        print("=" * 70)
+        for step, status in results.items():
+            icon = "OK" if status is True else ("SKIP" if status == "skipped" else "FAIL")
+            print(f"  [{icon:>4}] {step}")
 
-    report_path = folder / "analysis_report.html"
-    pdf_path = folder / "analysis_report.pdf"
-    if report_path.exists() and args.html:
-        print(f"\n  HTML Report: {report_path}")
-    if pdf_path.exists():
-        print(f"  PDF Report:  {pdf_path}")
-    print()
+        report_path = folder / "analysis_report.html"
+        pdf_path = folder / "analysis_report.pdf"
+        if report_path.exists() and args.html:
+            print(f"\n  HTML Report: {report_path}")
+        if pdf_path.exists():
+            print(f"  PDF Report:  {pdf_path}")
+        print(f"  Log file:    {log_path}")
+        print()
+
+    finally:
+        # Restore original streams and close the log file.
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        log_file.close()
 
 
 if __name__ == "__main__":
