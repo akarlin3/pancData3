@@ -112,6 +112,13 @@ class TestGenerateReport:
         assert "box" in report
         assert "line" in report
 
+    def test_report_contains_graph_issues(self, saved_files_with_graph_csv: Path):
+        """Graph Issues section should show detected issues from the CSV."""
+        report = generate_report(saved_files_with_graph_csv)
+        assert "Graph Issues" in report
+        assert "Y-axis label partially obscured by legend" in report
+        assert "Overlapping legend text" in report
+
     def test_report_extracts_significant_pvalues(self, saved_files_with_graph_csv: Path):
         """P-values < 0.05 from the graph CSV should appear in the report."""
         report = generate_report(saved_files_with_graph_csv)

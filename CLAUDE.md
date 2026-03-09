@@ -55,7 +55,7 @@ pancData3/
 │   ├── benchmarks/             # Performance benchmarks (7 files)
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (13 files)
-│   └── tests/                  # Python test suite — 9 test files, 227 tests (pytest)
+│   └── tests/                  # Python test suite — 9 test files, 230 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -327,19 +327,19 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 |---|---|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html` flags |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction |
-| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, quality issues |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
 | `report_formatters.py` | Formatting utilities and constants for the HTML report (CSS, print styles, escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table numbering, citation system, references, HTML template) |
-| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, hypothesis, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
+| `report_sections.py` | Section builder functions for the HTML report (publication header, structured abstract, methods with citations, cohort overview, hypothesis, graph issues, stats by graph type, statistics with borderline findings, effect sizes with forest plots, multiple comparison correction summary, cross-DWI, correlations, treatment response, predictive performance, model diagnostics, supplemental MAT data, limitations, conclusions with clinical significance, data availability, appendix) |
 | `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 9 test files with 227 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 9 test files with 230 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|

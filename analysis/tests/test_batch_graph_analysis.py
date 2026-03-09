@@ -181,6 +181,7 @@ class TestPydanticSchemas:
         )
         assert ga.trends == []
         assert ga.inflection_points == []
+        assert ga.issues == []
         assert ga.x_axis is None
 
     def test_graph_analysis_full(self):
@@ -276,6 +277,29 @@ class TestFlatten:
         assert row["num_inflection_points"] == 1
         parsed = json.loads(row["inflection_points_json"])
         assert parsed[0]["approximate_x"] == 30
+
+    def test_issues_serialised_as_json(self):
+        """Issues list is serialised to a JSON string in the issues_json column."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="box",
+            issues=["Missing axis label", "Legend overlaps data"],
+            summary="Box plot with issues.",
+        )
+        row = flatten(ga)
+        assert row["num_issues"] == 2
+        parsed = json.loads(row["issues_json"])
+        assert len(parsed) == 2
+        assert parsed[0] == "Missing axis label"
+
+    def test_empty_issues(self):
+        """A graph with no issues has num_issues=0 and issues_json='[]'."""
+        ga = GraphAnalysis(
+            file_path="img.png", graph_type="line", summary="Clean graph."
+        )
+        row = flatten(ga)
+        assert row["num_issues"] == 0
+        assert json.loads(row["issues_json"]) == []
 
     def test_color_axis_flattened(self):
         """The optional color_axis (used by heatmaps) is flattened like x/y axes."""

@@ -312,7 +312,7 @@ python analysis/statistical_relevance.py [saved_files_path]
 
 ### Analysis Test Suite
 
-The analysis scripts have a Python test suite (227 tests across 9 files) using pytest:
+The analysis scripts have a Python test suite (230 tests across 9 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -349,7 +349,7 @@ pancData3/
 │   ├── benchmarks/             #   Performance benchmarks (7 files)
 │   └── diagnostics/            #   Diagnostic spot-checks (5 files)
 ├── analysis/                   # Python post-hoc analysis suite (13 files)
-│   └── tests/                  # Python test suite (9 test files, 227 tests)
+│   └── tests/                  # Python test suite (9 test files, 230 tests)
 │   ├── run_analysis.py         #   Orchestrator (full workflow runner)
 │   ├── shared.py               #   Shared utilities
 │   ├── batch_graph_analysis.py #   Vision API batch graph extraction
