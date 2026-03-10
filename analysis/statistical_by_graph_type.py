@@ -170,11 +170,56 @@ def main():
             print(f"  {thin}")
             print(f"    Increasing: {trends_up}  |  Decreasing: {trends_down}  |  Stable: {trends_stable}  |  Other: {trends_other}")
 
+        # ── Structured statistical tests ──
+        structured_tests: list[dict] = []
+        for r in type_rows:
+            dwi_type, base_name = parse_dwi_info(r["file_path"])
+            try:
+                tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
+            except Exception:
+                tests = []
+            for st in tests:
+                if isinstance(st, dict) and st.get("test_name"):
+                    structured_tests.append({**st, "dwi": dwi_type, "graph": base_name})
+
+        if structured_tests:
+            print(f"\n  {thin}")
+            print(f"  Structured statistical tests ({len(structured_tests)}):")
+            print(f"  {thin}")
+            for st in structured_tests:
+                pval_str = f"p={st['p_value']:.4f}" if st.get("p_value") is not None else "p=N/A"
+                groups = f" ({st['comparison_groups']})" if st.get("comparison_groups") else ""
+                print(f"    [{st['dwi']}] {st['graph']}: {st['test_name']} {pval_str}{groups}")
+
+        # ── Data density / comparison type breakdown ──
+        densities: dict[str, int] = {}
+        comp_types: dict[str, int] = {}
+        for r in type_rows:
+            d = r.get("data_density", "") or ""
+            if d:
+                densities[d] = densities.get(d, 0) + 1
+            c = r.get("comparison_type", "") or ""
+            if c:
+                comp_types[c] = comp_types.get(c, 0) + 1
+
+        if densities:
+            density_str = ", ".join(f"{k}: {v}" for k, v in sorted(densities.items()))
+            print(f"\n  Data density: {density_str}")
+        if comp_types:
+            comp_str = ", ".join(f"{k}: {v}" for k, v in sorted(comp_types.items()))
+            print(f"  Comparison types: {comp_str}")
+
         # ── Graph list ──
         print(f"\n  Graphs in this type:")
         for r in type_rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
-            print(f"    [{dwi_type}] {base_name}")
+            meta = []
+            if r.get("sample_size"):
+                meta.append(r["sample_size"])
+            if r.get("figure_quality"):
+                meta.append(f"quality:{r['figure_quality']}")
+            suffix = f"  ({', '.join(meta)})" if meta else ""
+            print(f"    [{dwi_type}] {base_name}{suffix}")
 
     # ── Overall summary table ──
     # Compact tabular view aggregating counts across all graph types.

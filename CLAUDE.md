@@ -56,7 +56,7 @@ pancData3/
 │   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
 ├── analysis/                    # Python post-hoc analysis scripts (20 files)
 │   ├── report_sections/        # Report section builders (8 files)
-│   └── tests/                  # Python test suite — 10 test files, 367 tests (pytest)
+│   └── tests/                  # Python test suite — 10 test files, 388 tests (pytest)
 ├── dependencies/               # Third-party scripts — DO NOT MODIFY
 ├── .agents/
 │   ├── rules/physics_rules.md  # Agent safety and delegation rules
@@ -336,7 +336,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks` flags; verifies requirements and runs tests before starting |
 | `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
-| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points |
+| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
 | `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
 | `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
@@ -349,7 +349,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
 
-**Python Test Suite (pytest):** 10 test files with 367 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 10 test files with 388 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -357,7 +357,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
-| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas, CSV flattening |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening |
 | `test_generate_report.py` | Significance tags, section headers, full HTML report generation, data completeness, feature overlap, power analysis, manuscript findings, reporting checklist, table/figure index, copy helpers, BibTeX export, draft Results section, figure gallery, journal guide |
 | `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |

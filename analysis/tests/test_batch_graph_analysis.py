@@ -27,7 +27,10 @@ from batch_graph_analysis import (
     CSV_COLUMNS,
     GraphAnalysis,
     InflectionPoint,
+    Outlier,
+    ReferenceLine,
     REQUEST_TIMEOUT,
+    StatisticalTest,
     Trend,
     _RateLimitCoordinator,
     _is_rate_limit_error,
@@ -166,12 +169,45 @@ class TestPydanticSchemas:
         ax = Axis(label="X")
         assert ax.units is None
         assert ax.range_min is None
+        assert ax.scale_type is None
+        assert ax.tick_count is None
+        assert ax.tick_labels == []
+
+    def test_axis_scale_type(self):
+        """Axis stores scale_type when provided."""
+        ax = Axis(label="Time", scale_type="log")
+        assert ax.scale_type == "log"
+
+    def test_axis_tick_labels(self):
+        """Axis stores categorical tick labels."""
+        ax = Axis(label="Timepoint", scale_type="categorical",
+                  tick_labels=["BL", "Fx1", "W2"])
+        assert ax.tick_labels == ["BL", "Fx1", "W2"]
+        assert ax.tick_count is None
 
     def test_trend_required_fields(self):
         """Trend requires direction and description; series is optional (None)."""
         t = Trend(direction="increasing", description="ADC rises")
         assert t.series is None
         assert t.direction == "increasing"
+        assert t.magnitude is None
+        assert t.statistical_significance is None
+        assert t.confidence_band is None
+        assert t.start_value is None
+        assert t.end_value is None
+
+    def test_trend_full_fields(self):
+        """Trend with all optional fields populated."""
+        t = Trend(
+            series="LF", direction="decreasing", description="LF declines",
+            magnitude="~20% decline", statistical_significance="p=0.003",
+            confidence_band="95% CI shaded", start_value=0.002, end_value=0.0016,
+        )
+        assert t.magnitude == "~20% decline"
+        assert t.statistical_significance == "p=0.003"
+        assert t.confidence_band == "95% CI shaded"
+        assert t.start_value == 0.002
+        assert t.end_value == 0.0016
 
     def test_inflection_point(self):
         """InflectionPoint stores approximate x/y coordinates and description."""
@@ -179,6 +215,49 @@ class TestPydanticSchemas:
             approximate_x=60.0, approximate_y=0.001, description="divergence"
         )
         assert ip.approximate_x == 60.0
+        assert ip.magnitude is None
+
+    def test_inflection_point_with_magnitude(self):
+        """InflectionPoint stores magnitude of change."""
+        ip = InflectionPoint(
+            approximate_x=60.0, description="jump", magnitude=0.0005
+        )
+        assert ip.magnitude == 0.0005
+
+    def test_statistical_test(self):
+        """StatisticalTest stores test details."""
+        st = StatisticalTest(
+            test_name="Wilcoxon", statistic_value=3.45, p_value=0.003,
+            comparison_groups="LF vs LC",
+        )
+        assert st.test_name == "Wilcoxon"
+        assert st.p_value == 0.003
+        assert st.comparison_groups == "LF vs LC"
+
+    def test_statistical_test_minimal(self):
+        """StatisticalTest with only required test_name."""
+        st = StatisticalTest(test_name="ANOVA")
+        assert st.statistic_value is None
+        assert st.p_value is None
+
+    def test_outlier(self):
+        """Outlier stores location and description."""
+        o = Outlier(
+            approximate_x=5.0, approximate_y=0.005, series="ADC",
+            description="extreme high value",
+        )
+        assert o.approximate_y == 0.005
+        assert o.series == "ADC"
+
+    def test_reference_line(self):
+        """ReferenceLine stores orientation, value, label, style."""
+        rl = ReferenceLine(
+            orientation="horizontal", value=0.001,
+            label="ADC threshold", style="dashed",
+        )
+        assert rl.orientation == "horizontal"
+        assert rl.value == 0.001
+        assert rl.style == "dashed"
 
     def test_graph_analysis_minimal(self):
         """GraphAnalysis with only required fields defaults lists to empty and axes to None."""
@@ -187,8 +266,22 @@ class TestPydanticSchemas:
         )
         assert ga.trends == []
         assert ga.inflection_points == []
+        assert ga.statistical_tests == []
+        assert ga.outliers == []
+        assert ga.reference_lines == []
         assert ga.issues == []
+        assert ga.annotations == []
+        assert ga.legend_items == []
         assert ga.x_axis is None
+        assert ga.sample_size is None
+        assert ga.data_series_count is None
+        assert ga.error_bars is None
+        assert ga.clinical_relevance is None
+        assert ga.data_density is None
+        assert ga.spatial_pattern is None
+        assert ga.subpanel_count is None
+        assert ga.comparison_type is None
+        assert ga.figure_quality is None
 
     def test_graph_analysis_full(self):
         """GraphAnalysis with all optional fields populated stores nested models."""
@@ -200,11 +293,39 @@ class TestPydanticSchemas:
             y_axis=Axis(label="Y", units="mm"),
             trends=[Trend(direction="flat", description="no change")],
             inflection_points=[InflectionPoint(description="peak")],
+            statistical_tests=[StatisticalTest(test_name="t-test", p_value=0.04)],
+            outliers=[Outlier(description="high point")],
+            reference_lines=[ReferenceLine(orientation="horizontal", value=1.0)],
             summary="A scatter plot.",
+            sample_size="n=30",
+            data_series_count=3,
+            error_bars="SD",
+            annotations=["*", "ns"],
+            clinical_relevance="No significant association with treatment response.",
+            data_density="moderate",
+            spatial_pattern=None,
+            legend_items=["Group A", "Group B", "Group C"],
+            subpanel_count=2,
+            comparison_type="unpaired",
+            figure_quality="high",
         )
         assert ga.graph_title == "My Graph"
         assert len(ga.trends) == 1
         assert len(ga.inflection_points) == 1
+        assert len(ga.statistical_tests) == 1
+        assert ga.statistical_tests[0].p_value == 0.04
+        assert len(ga.outliers) == 1
+        assert len(ga.reference_lines) == 1
+        assert ga.sample_size == "n=30"
+        assert ga.data_series_count == 3
+        assert ga.error_bars == "SD"
+        assert ga.annotations == ["*", "ns"]
+        assert ga.clinical_relevance is not None
+        assert ga.data_density == "moderate"
+        assert len(ga.legend_items) == 3
+        assert ga.subpanel_count == 2
+        assert ga.comparison_type == "unpaired"
+        assert ga.figure_quality == "high"
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +439,119 @@ class TestFlatten:
         row = flatten(ga)
         assert row["color_axis_label"] == "Dice"
         assert row["color_axis_range_max"] == 1
+
+    def test_statistical_tests_serialised(self):
+        """StatisticalTest objects are serialised to JSON in statistical_tests_json."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="box",
+            statistical_tests=[
+                StatisticalTest(test_name="Wilcoxon", p_value=0.003, comparison_groups="LF vs LC"),
+            ],
+            summary="Box plot with stats.",
+        )
+        row = flatten(ga)
+        assert row["num_statistical_tests"] == 1
+        parsed = json.loads(row["statistical_tests_json"])
+        assert parsed[0]["test_name"] == "Wilcoxon"
+        assert parsed[0]["p_value"] == 0.003
+
+    def test_outliers_serialised(self):
+        """Outlier objects are serialised to JSON in outliers_json."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="scatter",
+            outliers=[Outlier(approximate_y=0.005, description="extreme value")],
+            summary="Scatter with outlier.",
+        )
+        row = flatten(ga)
+        assert row["num_outliers"] == 1
+        parsed = json.loads(row["outliers_json"])
+        assert parsed[0]["approximate_y"] == 0.005
+
+    def test_reference_lines_serialised(self):
+        """ReferenceLine objects are serialised to JSON."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="line",
+            reference_lines=[
+                ReferenceLine(orientation="horizontal", value=0.001,
+                              label="threshold", style="dashed"),
+            ],
+            summary="Line with reference.",
+        )
+        row = flatten(ga)
+        assert row["num_reference_lines"] == 1
+        parsed = json.loads(row["reference_lines_json"])
+        assert parsed[0]["orientation"] == "horizontal"
+        assert parsed[0]["value"] == 0.001
+
+    def test_new_scalar_fields_flattened(self):
+        """New scalar metadata fields are correctly flattened."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="box",
+            summary="Box plot.",
+            sample_size="n=42",
+            data_series_count=3,
+            error_bars="SD",
+            annotations=["*", "**"],
+            clinical_relevance="Significant association with response.",
+            data_density="moderate",
+            spatial_pattern=None,
+            legend_items=["LF", "LC", "CR"],
+            subpanel_count=4,
+            comparison_type="unpaired",
+            figure_quality="high",
+        )
+        row = flatten(ga)
+        assert row["sample_size"] == "n=42"
+        assert row["data_series_count"] == 3
+        assert row["error_bars"] == "SD"
+        assert row["num_annotations"] == 2
+        assert json.loads(row["annotations_json"]) == ["*", "**"]
+        assert row["clinical_relevance"] == "Significant association with response."
+        assert row["data_density"] == "moderate"
+        assert row["spatial_pattern"] == ""
+        assert row["num_legend_items"] == 3
+        assert json.loads(row["legend_items_json"]) == ["LF", "LC", "CR"]
+        assert row["subpanel_count"] == 4
+        assert row["comparison_type"] == "unpaired"
+        assert row["figure_quality"] == "high"
+
+    def test_axis_scale_type_and_ticks_flattened(self):
+        """Axis scale_type, tick_count, and tick_labels are flattened correctly."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="bar",
+            x_axis=Axis(label="Group", scale_type="categorical",
+                        tick_count=3, tick_labels=["A", "B", "C"]),
+            summary="Bar chart.",
+        )
+        row = flatten(ga)
+        assert row["x_axis_scale_type"] == "categorical"
+        assert row["x_axis_tick_count"] == 3
+        assert json.loads(row["x_axis_tick_labels_json"]) == ["A", "B", "C"]
+
+    def test_trends_with_new_fields_serialised(self):
+        """Trend magnitude, significance, confidence_band, start/end values are serialised."""
+        ga = GraphAnalysis(
+            file_path="img.png",
+            graph_type="line",
+            trends=[
+                Trend(series="LF", direction="decreasing", description="declines",
+                      magnitude="~20%", statistical_significance="p<0.05",
+                      confidence_band="95% CI", start_value=0.002, end_value=0.001),
+            ],
+            summary="Line plot.",
+        )
+        row = flatten(ga)
+        parsed = json.loads(row["trends_json"])
+        assert parsed[0]["magnitude"] == "~20%"
+        assert parsed[0]["statistical_significance"] == "p<0.05"
+        assert parsed[0]["confidence_band"] == "95% CI"
+        assert parsed[0]["start_value"] == 0.002
+        assert parsed[0]["end_value"] == 0.001
 
 
 # ---------------------------------------------------------------------------
