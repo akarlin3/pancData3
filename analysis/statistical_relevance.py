@@ -92,6 +92,32 @@ def main():
             else:
                 nonsig_findings.append(entry)
 
+        # Also extract structured statistical tests (more reliable than regex).
+        try:
+            stat_tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
+        except Exception:
+            stat_tests = []
+        for st in stat_tests:
+            if not isinstance(st, dict):
+                continue
+            pval = st.get("p_value")
+            if pval is None or not isinstance(pval, (int, float)):
+                continue
+            test_name = st.get("test_name", "unknown")
+            cmp_groups = st.get("comparison_groups", "")
+            context = f"{test_name}: p={pval}" + (f" ({cmp_groups})" if cmp_groups else "")
+            entry = {
+                "dwi": dwi_type,
+                "graph": base_name,
+                "p": pval,
+                "context": context,
+                "source": "structured",
+            }
+            if pval < p_threshold:
+                sig_findings.append(entry)
+            else:
+                nonsig_findings.append(entry)
+
     # Print significant findings sorted by ascending p-value.
     if sig_findings:
         sig_findings.sort(key=lambda x: x["p"])

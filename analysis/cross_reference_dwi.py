@@ -76,9 +76,30 @@ def main():
             print(f"\n  [{dwi_type}]")
             print(f"    Type: {r.get('graph_type', 'unknown')}")
             if r.get("x_axis_label"):
-                print(f"    X-axis: {r['x_axis_label']} ({r.get('x_axis_units') or 'no units'})")
+                scale = f", {r['x_axis_scale_type']}" if r.get("x_axis_scale_type") else ""
+                print(f"    X-axis: {r['x_axis_label']} ({r.get('x_axis_units') or 'no units'}{scale})")
             if r.get("y_axis_label"):
-                print(f"    Y-axis: {r['y_axis_label']} ({r.get('y_axis_units') or 'no units'})")
+                scale = f", {r['y_axis_scale_type']}" if r.get("y_axis_scale_type") else ""
+                print(f"    Y-axis: {r['y_axis_label']} ({r.get('y_axis_units') or 'no units'}{scale})")
+
+            # Metadata line: sample size, series count, error bars, density, quality.
+            meta_parts = []
+            if r.get("sample_size"):
+                meta_parts.append(f"n={r['sample_size']}")
+            if r.get("data_series_count"):
+                meta_parts.append(f"{r['data_series_count']} series")
+            if r.get("error_bars"):
+                meta_parts.append(f"error bars: {r['error_bars']}")
+            if r.get("data_density"):
+                meta_parts.append(f"density: {r['data_density']}")
+            if r.get("comparison_type"):
+                meta_parts.append(f"comparison: {r['comparison_type']}")
+            if r.get("figure_quality"):
+                meta_parts.append(f"quality: {r['figure_quality']}")
+            if r.get("subpanel_count"):
+                meta_parts.append(f"{r['subpanel_count']} subpanels")
+            if meta_parts:
+                print(f"    Metadata: {', '.join(meta_parts)}")
 
             # Parse and display trend list from JSON string.
             try:
@@ -92,7 +113,12 @@ def main():
                         continue
                     series = t.get("series") or ""
                     pfx = f"[{series}] " if series else ""
-                    print(f"      - {pfx}{t.get('direction', '')}: {t.get('description', '')}")
+                    mag = f" ({t['magnitude']})" if t.get("magnitude") else ""
+                    sig = f" [{t['statistical_significance']}]" if t.get("statistical_significance") else ""
+                    vals = ""
+                    if t.get("start_value") is not None and t.get("end_value") is not None:
+                        vals = f" [{t['start_value']:.4f} -> {t['end_value']:.4f}]"
+                    print(f"      - {pfx}{t.get('direction', '')}: {t.get('description', '')}{mag}{sig}{vals}")
 
             # Parse and display inflection points from JSON string.
             try:
@@ -106,7 +132,71 @@ def main():
                         continue
                     x = ip.get("approximate_x", "?")
                     y = ip.get("approximate_y", "?")
-                    print(f"      - ({x}, {y}): {ip.get('description', '')}")
+                    mag = f" (magnitude: {ip['magnitude']})" if ip.get("magnitude") is not None else ""
+                    print(f"      - ({x}, {y}): {ip.get('description', '')}{mag}")
+
+            # Parse and display statistical tests.
+            try:
+                stat_tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
+            except Exception:
+                stat_tests = []
+            if stat_tests:
+                print(f"    Statistical tests ({len(stat_tests)}):")
+                for st in stat_tests:
+                    if not isinstance(st, dict):
+                        continue
+                    name = st.get("test_name", "unknown")
+                    pval = f"p={st['p_value']:.4f}" if st.get("p_value") is not None else ""
+                    cmp_groups = f" ({st['comparison_groups']})" if st.get("comparison_groups") else ""
+                    stat_val = f", stat={st['statistic_value']:.3f}" if st.get("statistic_value") is not None else ""
+                    print(f"      - {name}: {pval}{stat_val}{cmp_groups}")
+
+            # Parse and display outliers.
+            try:
+                outliers = json.loads(r.get("outliers_json", "[]") or "[]")
+            except Exception:
+                outliers = []
+            if outliers:
+                print(f"    Outliers ({len(outliers)}):")
+                for o in outliers:
+                    if not isinstance(o, dict):
+                        continue
+                    series = f"[{o['series']}] " if o.get("series") else ""
+                    print(f"      - {series}{o.get('description', '')}")
+
+            # Parse and display reference lines.
+            try:
+                ref_lines = json.loads(r.get("reference_lines_json", "[]") or "[]")
+            except Exception:
+                ref_lines = []
+            if ref_lines:
+                print(f"    Reference lines ({len(ref_lines)}):")
+                for rl in ref_lines:
+                    if not isinstance(rl, dict):
+                        continue
+                    lbl = f" '{rl['label']}'" if rl.get("label") else ""
+                    val = f" at {rl['value']}" if rl.get("value") is not None else ""
+                    style = f" ({rl['style']})" if rl.get("style") else ""
+                    print(f"      - {rl.get('orientation', 'unknown')}{val}{lbl}{style}")
+
+            # Legend items
+            try:
+                legend = json.loads(r.get("legend_items_json", "[]") or "[]")
+            except Exception:
+                legend = []
+            if legend:
+                print(f"    Legend: {', '.join(legend)}")
+
+            # Spatial pattern (for parameter maps)
+            if r.get("spatial_pattern"):
+                print(f"    Spatial pattern: {r['spatial_pattern']}")
+
+            # Clinical relevance
+            if r.get("clinical_relevance"):
+                clin = r["clinical_relevance"]
+                if len(clin) > 200:
+                    clin = clin[:200] + "..."
+                print(f"    Clinical relevance: {clin}")
 
             # Truncate long summaries for readability.
             summary = r.get("summary", "") or ""

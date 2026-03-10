@@ -111,6 +111,45 @@ def main():
                     compact = ", ".join(f"{k}={v}" for k, v in directions.items())
                     print(f"  {tag} [{series}]: {compact}  ({match})")
 
+        # ── Statistical tests comparison ──
+        stat_tests_by_dwi: dict[str, list] = {}
+        for dwi_type in DWI_TYPES:
+            if dwi_type not in dwi_dict:
+                continue
+            try:
+                tests = json.loads(dwi_dict[dwi_type].get("statistical_tests_json", "[]") or "[]")
+            except Exception:
+                tests = []
+            if tests:
+                stat_tests_by_dwi[dwi_type] = tests
+
+        if stat_tests_by_dwi:
+            print()
+            for dwi_type, tests in stat_tests_by_dwi.items():
+                for st in tests:
+                    if not isinstance(st, dict):
+                        continue
+                    name = st.get("test_name", "?")
+                    pval = f"p={st['p_value']:.4f}" if st.get("p_value") is not None else ""
+                    cmp_groups = f" ({st['comparison_groups']})" if st.get("comparison_groups") else ""
+                    print(f"    {dwi_type}: {name} {pval}{cmp_groups}")
+
+        # ── Clinical relevance comparison ──
+        clin_by_dwi = {}
+        for dwi_type in DWI_TYPES:
+            if dwi_type not in dwi_dict:
+                continue
+            clin = dwi_dict[dwi_type].get("clinical_relevance", "") or ""
+            if clin:
+                clin_by_dwi[dwi_type] = clin
+
+        if clin_by_dwi:
+            print()
+            for dwi_type, clin in clin_by_dwi.items():
+                if len(clin) > 150:
+                    clin = clin[:150] + "..."
+                print(f"    {dwi_type} clinical: {clin}")
+
         # ── Print truncated summaries side by side ──
         print()
         for dwi_type in DWI_TYPES:
