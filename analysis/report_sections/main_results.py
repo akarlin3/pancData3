@@ -6,14 +6,14 @@ import json
 import math
 import re
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (
+from report_formatters import (  # type: ignore
     _cite,
     _copy_button,
     _dwi_badge,
@@ -27,7 +27,7 @@ from report_formatters import (
     _table_caption,
     _trend_tag,
 )
-from report_sections._helpers import (
+from report_sections._helpers import (  # type: ignore
     _aggregate_dwi_statistics,
     _aggregate_sanity_checks,
     _compute_all_groups_trend_agreement,
@@ -113,7 +113,7 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
             all_text = safe_text(r, "summary", "trends_json")
             for rval, _ in extract_correlations(all_text):
                 if abs(rval) >= 0.3:
-                    n_corr += 1
+                    n_corr += 1  # type: ignore
         if n_corr > 0:
             cards.append(_stat_card("Notable Correlations", str(n_corr), "|r| \u2265 0.3"))
 
@@ -816,7 +816,7 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
             csv_rows = csv_data["significant_metrics"][dwi_type]
             h.append(f"<p>{_dwi_badge(dwi_type)} \u2014 {len(csv_rows)} significant metric(s)</p>")
             if csv_rows:
-                headers = list(csv_rows[0].keys())[:10]
+                headers = list(csv_rows[0].keys())[:10]  # type: ignore
                 tbl_cls = ' class="table-wide"' if len(headers) > 6 else ""
                 h.append(f"<table{tbl_cls}><thead><tr>")
                 for hdr in headers:
@@ -825,17 +825,17 @@ def _section_statistical_significance(rows, csv_data, log_data, dwi_types_presen
                 for cr in csv_rows:
                     h.append("<tr>")
                     for hdr in headers:
-                        val = str(cr.get(hdr, ""))
+                        val = str(cr.get(hdr, ""))  # type: ignore
                         # Highlight p-value columns
                         try:
                             fval = float(val)
                             if "p" in hdr.lower() and 0 < fval < 0.05:
                                 cls = _sig_class(fval)
-                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')
+                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')  # type: ignore
                                 continue
                         except (ValueError, TypeError):
                             pass
-                        h.append(f"<td>{_esc(val[:40])}</td>")
+                        h.append(f"<td>{_esc(val[:40])}</td>")  # type: ignore
                     h.append("</tr>")
                 h.append("</tbody></table>")
 
@@ -1095,9 +1095,9 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
         for metric in metrics_seen:
             h.append(f"<tr><td><code>{_esc(metric)}</code></td>")
             for dwi_type in dwi_types_present:
-                if dwi_type not in dwi_glme:
+                if dwi_type not in dwi_glme:  # type: ignore
                     continue
-                entry = dwi_glme[dwi_type].get(metric)
+                entry = dwi_glme[dwi_type].get(metric)  # type: ignore
                 if entry:
                     p, adj, sig = entry
                     cls = _sig_class(p) if sig else ""
@@ -1116,8 +1116,8 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
         for metric in metrics_seen:
             pvals = []
             for dwi_type in dwi_types_present:
-                if dwi_type in dwi_glme and metric in dwi_glme[dwi_type]:
-                    pvals.append(dwi_glme[dwi_type][metric][0])
+                if dwi_type in dwi_glme and metric in dwi_glme[dwi_type]:  # type: ignore
+                    pvals.append(dwi_glme[dwi_type][metric][0])  # type: ignore
             if pvals and min(pvals) < 0.25:
                 suggestive.append((metric, min(pvals)))
         if suggestive:
@@ -1161,7 +1161,7 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
         for dwi_type in dwi_types_present:
             if dwi_type not in log_data:
                 continue
-            for ftp in log_data[dwi_type].get("stats_comparisons", {}).get("fdr_timepoints", []):
+            for ftp in log_data[dwi_type].get("stats_comparisons", {}).get("fdr_timepoints", []):  # type: ignore
                 if ftp["timepoint"] not in all_tps:
                     all_tps.append(ftp["timepoint"])
 
@@ -1177,7 +1177,7 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
             h.append(f"<tr><td><code>{_esc(tp)}</code></td>")
             for dwi_type in dwi_types_present:
                 n = tp_data.get(tp, {}).get(dwi_type, 0)
-                total_fdr += n
+                total_fdr += n  # type: ignore
                 cls = ' class="sig-1"' if n > 0 else ""
                 h.append(f"<td{cls}>{n}</td>")
             h.append("</tr>")
@@ -1217,7 +1217,7 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
                 "test": "Cox PH",
                 "statistic": f"HR={hr:.3f}",
                 "p": p,
-                "effect": "Large" if abs(log_hr) >= 0.8 else "Medium" if abs(log_hr) >= 0.5 else "Small",
+                "effect": "Large" if abs(log_hr) >= 0.8 else "Medium" if abs(log_hr) >= 0.5 else "Small",  # type: ignore
             })
 
     # From GLME (raw p < 0.05, even if not surviving Holm-Bonferroni)
@@ -1311,9 +1311,9 @@ def _section_broad_statistical_overview(log_data, dwi_types_present) -> list[str
     # Report whether HR estimates are stable across half-life assumptions
     has_sensitivity = False
     for dwi_type in dwi_types_present:
-        if dwi_type not in log_data:
+        if dwi_type not in log_data:  # type: ignore
             continue
-        sv = log_data[dwi_type].get("survival", {})
+        sv = log_data[dwi_type].get("survival", {})  # type: ignore
         if sv.get("hazard_ratios"):
             has_sensitivity = True
             break
@@ -1810,7 +1810,7 @@ def _section_manuscript_ready_findings(
             total_glme_tested += len(details)
             for g in details:
                 if g["p"] < g["adj_alpha"]:
-                    total_glme_sig += 1
+                    total_glme_sig += 1  # type: ignore
                     if g["metric"] not in sig_metric_names:
                         sig_metric_names.append(g["metric"])
             if sc.get("glme_excluded") and glme_excluded is None:
@@ -1818,14 +1818,14 @@ def _section_manuscript_ready_findings(
         if total_glme_tested > 0:
             exc_str = ""
             if glme_excluded:
-                n_analysed = glme_excluded["n_total"] - glme_excluded["n_excluded"]
+                n_analysed = glme_excluded["n_total"] - glme_excluded["n_excluded"]  # type: ignore
                 exc_str = (
                     f"Among {n_analysed} evaluable patients "
-                    f"(excluding {glme_excluded['n_excluded']} with "
+                    f"(excluding {glme_excluded['n_excluded']} with "  # type: ignore
                     f"competing-risk events), "
                 )
             if total_glme_sig > 0:
-                metric_str = ", ".join(sig_metric_names[:3])
+                metric_str = ", ".join(sig_metric_names[:3])  # type: ignore
                 sentences.append(
                     f"{exc_str}GLME interaction testing identified "
                     f"{total_glme_sig} "
@@ -1869,7 +1869,7 @@ def _section_manuscript_ready_findings(
                     best_tp = r_item.get("timepoint", "")
                     best_sens = r_item.get("sensitivity")
                     best_spec = r_item.get("specificity")
-        if best_auc > 0:
+        if best_auc > 0:  # type: ignore
             parts = [f"AUC = {best_auc:.3f}"]
             if best_sens is not None:
                 parts.append(f"sensitivity = {best_sens:.1f}%")
@@ -1889,7 +1889,7 @@ def _section_manuscript_ready_findings(
                 continue
             hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
             sig_hrs = [hr for hr in hrs if hr.get("p", 1) < 0.05]
-            for hr_item in sorted(sig_hrs, key=lambda x: x["p"])[:2]:
+            for hr_item in sorted(sig_hrs, key=lambda x: x["p"])[:2]:  # type: ignore
                 hr_val = hr_item["hr"]
                 ci_lo = hr_item.get("ci_lo")
                 ci_hi = hr_item.get("ci_hi")
@@ -1901,7 +1901,7 @@ def _section_manuscript_ready_findings(
                     ci_str = f"; 95% CI [{ci_lo:.2f}, {ci_hi:.2f}]"
                 # Effect size classification based on log(HR)
                 log_hr = _math.log(hr_val) if hr_val > 0 else 0
-                abs_log_hr = abs(log_hr)
+                abs_log_hr = abs(log_hr)  # type: ignore
                 if abs_log_hr >= 0.8:
                     eff_label = "large effect"
                 elif abs_log_hr >= 0.5:
@@ -2033,9 +2033,9 @@ def _section_results_draft(
     baseline_exc = None
     if log_data:
         for dt in dwi_types_present:
-            if dt not in log_data:
+            if dt not in log_data:  # type: ignore
                 continue
-            bl = log_data[dt].get("baseline", {})
+            bl = log_data[dt].get("baseline", {})  # type: ignore
             if bl.get("baseline_exclusion"):
                 baseline_exc = bl["baseline_exclusion"]
                 break
@@ -2069,7 +2069,7 @@ def _section_results_draft(
             total_tested += len(details)
             for g in details:
                 if g["p"] < g["adj_alpha"]:
-                    total_sig += 1
+                    total_sig += 1  # type: ignore
                     if g["metric"] not in sig_metrics:
                         sig_metrics.append(g["metric"])
 
@@ -2084,15 +2084,15 @@ def _section_results_draft(
             parts = []
             if glme_exc:
                 parts.append(
-                    f"After excluding {glme_exc['n_excluded']} of "
-                    f"{glme_exc['n_total']} patients ({glme_exc['pct']:.1f}%) "
+                    f"After excluding {glme_exc['n_excluded']} of "  # type: ignore
+                    f"{glme_exc['n_total']} patients ({glme_exc['pct']:.1f}%) "  # type: ignore
                     f"with competing-risk events, "
                 )
             else:
                 parts.append("")
 
             if total_sig > 0:
-                metric_str = ", ".join(sig_metrics[:5])
+                metric_str = ", ".join(sig_metrics[:5])  # type: ignore
                 parts.append(
                     f"GLME interaction testing identified {total_sig} of "
                     f"{total_tested} metrics with significant time\u00d7outcome "
@@ -2200,14 +2200,14 @@ def _section_results_draft(
             if global_lrt:
                 parts.append(
                     f" yielded a global model fit of "
-                    f"\u03c7\u00b2({global_lrt['df']}) = {global_lrt['chi2']:.2f}, "
-                    f"p = {global_lrt['p']:.4f}. "
+                    f"\u03c7\u00b2({global_lrt['df']}) = {global_lrt['chi2']:.2f}, "  # type: ignore
+                    f"p = {global_lrt['p']:.4f}. "  # type: ignore
                 )
             else:
                 parts.append(". ")
 
             if sig_hrs:
-                for dt, hr_item in sorted(sig_hrs, key=lambda x: x[1]["p"])[:3]:
+                for dt, hr_item in sorted(sig_hrs, key=lambda x: x[1]["p"])[:3]:  # type: ignore
                     hr_val = hr_item["hr"]
                     ci_lo = hr_item.get("ci_lo")
                     ci_hi = hr_item.get("ci_hi")

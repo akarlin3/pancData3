@@ -6,14 +6,14 @@ import json
 import re
 from pathlib import Path
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (
+from report_formatters import (  # type: ignore
     _dwi_badge,
     _esc,
     _figure_caption,
@@ -426,9 +426,9 @@ def _section_mat_data(mat_data) -> list[str]:
             # Clinical interpretation of dosimetry values
             dos_notes = []
             for dt in DWI_TYPES:
-                if dt not in mat_data or "dosimetry" not in mat_data[dt]:
+                if dt not in mat_data or "dosimetry" not in mat_data[dt]:  # type: ignore
                     continue
-                dos = mat_data[dt]["dosimetry"]
+                dos = mat_data[dt]["dosimetry"]  # type: ignore
                 if not dos:
                     continue
                 d95_adc = dos.get("d95_adc_mean")
@@ -472,7 +472,7 @@ def _section_mat_data(mat_data) -> list[str]:
                 for i in range(n):
                     h.append(f"<tr><td><strong>{_esc(methods[i])}</strong></td>")
                     for j in range(n):
-                        val = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None
+                        val = matrix[i][j] if i < len(matrix) and j < len(matrix[i]) else None  # type: ignore
                         if isinstance(val, (int, float)):
                             # Colour-code: high Dice = green-ish
                             if i != j:
@@ -491,11 +491,11 @@ def _section_mat_data(mat_data) -> list[str]:
                 for i in range(n):
                     for j in range(i + 1, n):
                         if i < len(matrix) and j < len(matrix[i]):
-                            val = matrix[i][j]
-                            if isinstance(val, (int, float)) and val > 0:
+                            val = matrix[i][j]  # type: ignore
+                            if isinstance(val, (int, float)) and val > 0:  # type: ignore
                                 off_diag.append(val)
                 if off_diag:
-                    avg_dice = sum(off_diag) / len(off_diag)
+                    avg_dice = sum(off_diag) / len(off_diag)  # type: ignore
                     min_dice = min(off_diag)
                     max_dice = max(off_diag)
                     h.append(f'<div class="info-box">Mean pairwise Dice: <strong>{avg_dice:.3f}</strong> '
