@@ -677,7 +677,7 @@ def _build_graph_analysis_html(r: dict) -> list[str]:
         h.append('<dt class="graph-card-full">Summary</dt>')
         if len(summary) > 200:
             h.append(
-                f'<dd class="graph-card-full"><details>'
+                f'<dd class="graph-card-full"><details open>'
                 f'<summary>{_esc(summary[:150])}\u2026</summary>'
                 f'<p>{_esc(summary)}</p></details></dd>'
             )

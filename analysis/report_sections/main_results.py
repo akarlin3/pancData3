@@ -1466,7 +1466,7 @@ def _section_treatment_response(groups) -> list[str]:
                     # Full summary in collapsible
                     if summary:
                         if len(summary) > 200:
-                            h.append(f"<details><summary>Full summary</summary>"
+                            h.append(f"<details open><summary>Full summary</summary>"
                                      f'<p class="full-summary">{_esc(summary)}</p></details>')
                         else:
                             h.append(f'<p class="full-summary" style="margin-left:1rem">{_esc(summary)}</p>')
