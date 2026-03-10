@@ -3,12 +3,42 @@
 from __future__ import annotations
 
 from report_formatters import (
+    NAV_GROUPS,
     _esc,
     _figure_caption,
     _h2,
     _table_caption,
     get_numbering,
 )
+
+
+def _section_print_toc() -> list[str]:
+    """Build a Table of Contents section visible on screen and in PDF output.
+
+    Renders all report sections grouped by category, matching the sticky
+    navigation bar.  On screen it appears as a two-column box; in print/PDF
+    it occupies its own page (``page-break-after: always``).
+
+    Returns
+    -------
+    list[str]
+        HTML chunks for the table of contents section.
+    """
+    h: list[str] = []
+    h.append('<div class="print-toc" id="toc">')
+    h.append("<h2>Table of Contents</h2>")
+    for group_label, sections in NAV_GROUPS:
+        h.append('<div class="print-toc-group">')
+        h.append(
+            f'<span class="print-toc-group-label">{_esc(group_label)}</span>'
+        )
+        h.append('<ul class="print-toc-list">')
+        for anchor, label in sections:
+            h.append(f'<li><a href="#{anchor}">{_esc(label)}</a></li>')
+        h.append("</ul>")
+        h.append("</div>")
+    h.append("</div>")
+    return h
 
 
 def _section_publication_header() -> list[str]:

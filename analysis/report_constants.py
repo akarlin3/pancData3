@@ -146,6 +146,14 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .toc-list li { break-inside: avoid; margin-bottom: 0.2rem; }
 .toc-list a { color: var(--accent); text-decoration: none; }
 .toc-list a:hover { text-decoration: underline; }
+.print-toc { background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 1.5rem 0; column-count: 2; column-gap: 2rem; }
+.print-toc h2 { column-span: all; margin-top: 0; border: none; padding: 0; }
+.print-toc-group { break-inside: avoid; margin-bottom: 1rem; }
+.print-toc-group-label { display: block; color: var(--accent); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.3rem; }
+.print-toc-list { list-style: none; padding: 0; margin: 0; }
+.print-toc-list li { margin-bottom: 0.15rem; font-size: 0.9rem; }
+.print-toc-list a { color: var(--fg); text-decoration: none; }
+.print-toc-list a:hover { color: var(--accent); text-decoration: underline; }
 .word-count { display: inline-block; font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
 @page { size: A4; margin: 1.5cm 1.2cm; }
 @media print {
@@ -175,6 +183,7 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
     details > summary::before { content: ""; }
     .copy-btn { display: none; }
     .word-count { display: none; }
+    .print-toc { column-count: 2; page-break-after: always; break-after: page; border: 1px solid #ccc; }
     img { max-width: 100%; height: auto; }
     .table-wide { font-size: 8pt; }
     .table-wide td, .table-wide th { padding: 0.2rem 0.35rem; }

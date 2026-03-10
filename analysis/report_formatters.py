@@ -304,7 +304,6 @@ def _trend_tag(direction: str) -> str:
 
 NAV_SECTIONS = [
     ("exec-summary", "Abstract"),
-    ("manuscript-findings", "Manuscript"),
     ("methods", "Methods"),
     ("cohort", "Cohort"),
     ("patient-flow", "Flow"),
@@ -348,7 +347,6 @@ NAV_SECTIONS = [
 NAV_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("Overview", [
         ("exec-summary", "Abstract"),
-        ("manuscript-findings", "Manuscript"),
         ("methods", "Methods"),
         ("cohort", "Cohort"),
         ("patient-flow", "Flow"),

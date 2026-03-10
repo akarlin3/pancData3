@@ -5,6 +5,7 @@ compatibility with existing ``from report_sections import …`` usage.
 """
 
 from .metadata import (  # noqa: F401
+    _section_print_toc,
     _section_publication_header,
     _section_data_availability,
     _section_table_index,

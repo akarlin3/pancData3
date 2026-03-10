@@ -74,6 +74,7 @@ from report_formatters import (  # noqa: F401  # type: ignore
 
 # Re-export section builders for backward compatibility.
 from report_sections import (  # noqa: F401  # type: ignore
+    _section_print_toc,
     _section_appendix,
     _section_broad_statistical_overview,
     _section_cohort_overview,
@@ -204,13 +205,12 @@ def generate_report(folder: Path) -> str:
         h.append(f"<span><strong>Graphs analysed:</strong> {len(rows)}</span>")
     h.append("</div>")
 
-    # ── Publication metadata (author/institution placeholders) ──
-    h.extend(_section_publication_header())
+    # ── Table of contents (screen + PDF) ──
+    h.extend(_section_print_toc())
 
     # Build a list of (section_name, builder_fn, args) for progress tracking.
     section_steps = [
         ("Executive summary", _section_executive_summary, (log_data, dwi_types_present, rows, csv_data, timestamp, mat_data)),
-        ("Manuscript findings", _section_manuscript_ready_findings, (log_data, dwi_types_present, csv_data, mat_data, groups)),
         ("Methods", _section_methods, (dwi_types_present, mat_data, log_data)),
         ("Cohort overview", _section_cohort_overview, (mat_data, log_data, dwi_types_present)),
         ("Patient flow", _section_patient_flow, (log_data, dwi_types_present, mat_data)),
