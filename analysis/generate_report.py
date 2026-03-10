@@ -401,7 +401,7 @@ def generate_report(folder: Path) -> str:
         ("Table index", _section_table_index, ()),
         ("Figure index", _section_figure_index, ()),
         ("Results draft", _section_results_draft, (log_data, dwi_types_present, csv_data, mat_data, groups)),
-        ("Figure gallery", _section_figure_gallery, (folder,)),
+        ("Figure gallery", _section_figure_gallery, (folder, rows)),
         ("Journal guide", _section_journal_guide, (log_data, dwi_types_present, mat_data)),
         ("Data availability", _section_data_availability, ()),
         ("References", _references_section, ()),
