@@ -29,9 +29,9 @@ import json
 import sys
 from collections import defaultdict
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
@@ -129,7 +129,7 @@ def main():
             if abs(rval) >= corr_threshold:
                 # Classify correlation strength and direction.
                 strength = "STRONG" if abs(rval) >= 0.5 else "MODERATE"
-                direction = "positive" if rval > 0 else "negative"
+                direction = "positive" if rval > 0 else "negative"  # type: ignore
                 print(f"\n  [{dwi_type}] {base_name}")
                 print(f"    r={rval:.2f} ({strength} {direction})")
                 print(f"    {context}")

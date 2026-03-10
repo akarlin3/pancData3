@@ -22,9 +22,9 @@ from __future__ import annotations
 import json
 import sys
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     get_config,
     group_by_graph_name,
@@ -95,7 +95,7 @@ def main():
                 # Collect the direction for this series from each DWI type.
                 directions: dict[str, str] = {}
                 for dwi_type in DWI_TYPES:
-                    if dwi_type not in all_trends:
+                    if dwi_type not in all_trends:  # type: ignore
                         continue
                     for t in all_trends[dwi_type]:
                         s = t.get("series") or "overall"

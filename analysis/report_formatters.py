@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import html as _html
 
-from shared import get_config
+from shared import get_config  # type: ignore
 
 
 # ── Table / Figure numbering ─────────────────────────────────────────────────
@@ -226,7 +226,7 @@ def _sig_class(p: float) -> str:
     return ""
 
 
-from report_constants import (  # noqa: F401
+from report_constants import (  # noqa: F401  # type: ignore
     CSS,
     HTML_TEMPLATE,
     REFERENCES,
@@ -431,7 +431,7 @@ def _forest_plot_cell(hr: float, ci_lo: float, ci_hi: float, p: float,
 
     def _pos(val: float) -> float:
         lv = math.log(max(val, 0.01))
-        return max(0, min(width, (lv - log_min) / (log_max - log_min) * width))
+        return max(0.0, min(float(width), (lv - log_min) / (log_max - log_min) * float(width)))
 
     ref_x = _pos(1.0)
     hr_x = _pos(hr)

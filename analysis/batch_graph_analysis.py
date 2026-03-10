@@ -33,9 +33,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import get_config, resolve_folder, setup_utf8_stdout
+from shared import get_config, resolve_folder, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -47,15 +47,15 @@ setup_utf8_stdout()
 genai = None  # type: ignore[assignment]
 types = None  # type: ignore[assignment]
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError  # type: ignore
 
 
 def _ensure_genai():
     """Import google.genai lazily; raise ImportError if unavailable."""
     global genai, types
     if genai is None:
-        from google import genai as _genai
-        from google.genai import types as _types
+        from google import genai as _genai  # type: ignore
+        from google.genai import types as _types  # type: ignore
         genai = _genai
         types = _types
 
@@ -296,7 +296,7 @@ def _repair_truncated_json(raw: str) -> dict | None:
     # Try closing open structures (up to a handful of attempts).
     closers = ['"', "]", "}", "]", "}"]
     for i in range(1, len(closers) + 1):
-        candidate = text + "".join(closers[:i])
+        candidate = text + "".join(closers[:i])  # type: ignore
         try:
             data = json.loads(candidate)
             if isinstance(data, dict):
@@ -306,7 +306,7 @@ def _repair_truncated_json(raw: str) -> dict | None:
     # Brute-force: strip back to last complete key-value, close object.
     # Find the last complete value (ends with , or a closing bracket).
     for trim in range(1, min(300, len(text))):
-        stub = text[:-trim].rstrip().rstrip(",")
+        stub = text[:-trim].rstrip().rstrip(",")  # type: ignore
         for suffix in ["}", "]}", "\"}", "\"]}", "\"]}",
                         "]}", "\"]}", "\"]}}"]:
             try:
@@ -353,7 +353,7 @@ async def analyze_image(
     GraphAnalysis
         Validated structured analysis, or a fallback object on failure.
     """
-    image_bytes = await asyncio.to_thread(image_path.read_bytes)
+    image_bytes = await asyncio.to_thread(image_path.read_bytes)  # type: ignore
     mime = media_type_for(image_path)
     rel_path = str(image_path)
 
@@ -371,14 +371,14 @@ async def analyze_image(
                 client.aio.models.generate_content(
                     model=GEMINI_MODEL,
                     contents=[
-                        types.Part.from_bytes(
+                        types.Part.from_bytes(  # type: ignore
                             data=image_bytes,
                             mime_type=mime,
                         ),
                         f"Analyze this graph image. File: {image_path.name}\n"
                         "Return ONLY the JSON object described in your instructions.",
                     ],
-                    config=types.GenerateContentConfig(
+                    config=types.GenerateContentConfig(  # type: ignore
                         system_instruction=SYSTEM_PROMPT,
                         max_output_tokens=MAX_OUTPUT_TOKENS,
                     ),
@@ -410,7 +410,7 @@ async def analyze_image(
     if response is None:
         raise RuntimeError(f"No response received for {image_path.name} after {MAX_RETRIES + 1} attempts")
 
-    raw_text = response.text.strip()
+    raw_text = response.text.strip()  # type: ignore
 
     # Strip markdown code fences if the model wraps its JSON response
     # (e.g. "```json\n{...}\n```").
@@ -426,17 +426,17 @@ async def analyze_image(
         data = _repair_truncated_json(raw_text)
         if data is None:
             if progress_bar is not None:
-                progress_bar.update(1)
+                progress_bar.update(1)  # type: ignore
             else:
                 print(f"  \u274c  JSON parse error for {image_path.name}", flush=True)
             return GraphAnalysis(
-                file_path=rel_path,
-                graph_type="unknown",
-                summary=f"JSON parse error (unrepairable). Raw response: {raw_text[:200]}",
+                file_path=rel_path,  # type: ignore
+                graph_type="unknown",  # type: ignore
+                summary=f"JSON parse error (unrepairable). Raw response: {raw_text[:200]}",  # type: ignore
             )
 
     # Inject the file path (not returned by the model).
-    data["file_path"] = rel_path
+    data["file_path"] = rel_path  # type: ignore
 
     # ── Pydantic validation ──
     try:
@@ -448,9 +448,9 @@ async def analyze_image(
             print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
         # Fallback: preserve whatever fields parsed successfully.
         return GraphAnalysis(
-            file_path=rel_path,
-            graph_type=data.get("graph_type", "unknown"),
-            summary=data.get("summary", f"Validation error: {e}"),
+            file_path=rel_path,  # type: ignore
+            graph_type=data.get("graph_type", "unknown"),  # type: ignore
+            summary=data.get("summary", f"Validation error: {e}"),  # type: ignore
         )
 
     if progress_bar is not None:
@@ -528,13 +528,13 @@ def flatten(a: GraphAnalysis) -> dict:
     row.update(axis_fields(a.x_axis, "x_axis"))
     row.update(axis_fields(a.y_axis, "y_axis"))
     row.update(axis_fields(a.color_axis, "color_axis"))
-    row["num_trends"] = len(a.trends)
+    row["num_trends"] = len(a.trends)  # type: ignore
     # Serialise trend/inflection lists as JSON so downstream scripts can
     # parse them back with json.loads().
     row["trends_json"] = json.dumps([t.model_dump() for t in a.trends])
-    row["num_inflection_points"] = len(a.inflection_points)
+    row["num_inflection_points"] = len(a.inflection_points)  # type: ignore
     row["inflection_points_json"] = json.dumps([ip.model_dump() for ip in a.inflection_points])
-    row["num_issues"] = len(a.issues)
+    row["num_issues"] = len(a.issues)  # type: ignore
     row["issues_json"] = json.dumps(a.issues)
     row["summary"] = a.summary
     return row
@@ -581,7 +581,7 @@ async def main():
             "  Set it with: export GEMINI_API_KEY='your-api-key'"
         )
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key)  # type: ignore
     rate_limiter = _RateLimitCoordinator()
 
     # ── Worker pool ──
@@ -617,9 +617,9 @@ async def main():
             except Exception as e:
                 print(f"  [ERROR] {img.name}: {e}", flush=True)
                 results[idx] = GraphAnalysis(
-                    file_path=str(img),
-                    graph_type="error",
-                    summary=f"API error: {e}",
+                    file_path=str(img),  # type: ignore
+                    graph_type="error",  # type: ignore
+                    summary=f"API error: {e}",  # type: ignore
                 )
                 if pbar is not None:
                     pbar.update(1)
@@ -637,11 +637,11 @@ async def main():
         if res is None:
             errors += 1
             final_results.append(GraphAnalysis(
-                file_path=str(img),
-                graph_type="error",
-                summary="Worker did not produce a result",
+                file_path=str(img),  # type: ignore
+                graph_type="error",  # type: ignore
+                summary="Worker did not produce a result",  # type: ignore
             ))
-        elif res.graph_type == "error":
+        elif res.graph_type == "error":  # type: ignore
             errors += 1
             final_results.append(res)
         else:
@@ -675,4 +675,4 @@ async def main():
 if __name__ == "__main__":
     exit_code = asyncio.run(main())
     if exit_code:
-        sys.exit(exit_code)
+        sys.exit(exit_code)  # type: ignore

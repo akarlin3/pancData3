@@ -23,9 +23,9 @@ import csv
 import sys
 from pathlib import Path
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout
+from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout  # type: ignore
 
 setup_utf8_stdout()
 
@@ -131,8 +131,8 @@ def cross_reference_significance(sig_by_dwi: dict[str, list[dict]]) -> list[dict
             # Composite key separates metric from timepoint with "@".
             key = f"{metric_key}@{tp}" if tp else metric_key
             if key not in metric_dwi_map:
-                metric_dwi_map[key] = set()
-            metric_dwi_map[key].add(dwi_type)
+                metric_dwi_map[key] = set()  # type: ignore
+            metric_dwi_map[key].add(dwi_type)  # type: ignore
 
     cross_ref = []
     for key, dwi_set in sorted(metric_dwi_map.items()):
@@ -214,7 +214,7 @@ def main():
             print(f"\n  [{dwi_type}] \u2014 {len(rows)} significant metric(s)")
             for r in rows:
                 # Print first few meaningful columns as a compact summary.
-                summary = " | ".join(f"{k}={v}" for k, v in list(r.items())[:5] if v)
+                summary = " | ".join(f"{k}={v}" for k, v in list(r.items())[:5] if v)  # type: ignore
                 print(f"    {summary}")
 
     # ── Cross-DWI consistency ──

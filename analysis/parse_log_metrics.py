@@ -29,9 +29,9 @@ import re
 import sys
 from pathlib import Path
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout
+from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout  # type: ignore
 
 setup_utf8_stdout()
 
@@ -245,11 +245,11 @@ def parse_stats_comparisons(text: str) -> dict:
 
     # Collect raw interaction p-values (one per GLME model).
     for m in RE_GLME_INTERACTION.finditer(text):
-        result["glme_interactions"].append(float(m.group(1)))
+        result["glme_interactions"].append(float(m.group(1)))  # type: ignore
 
     # Collect per-metric detail rows with raw p and adjusted alpha.
     for m in RE_GLME_DETAIL.finditer(text):
-        result["glme_details"].append({
+        result["glme_details"].append({  # type: ignore
             "metric": m.group(1).strip(),
             "p": float(m.group(2)),
             "adj_alpha": float(m.group(3)),
@@ -257,7 +257,7 @@ def parse_stats_comparisons(text: str) -> dict:
 
     # Collect per-timepoint FDR significance counts.
     for m in RE_FDR_TIMEPOINT.finditer(text):
-        result["fdr_timepoints"].append({
+        result["fdr_timepoints"].append({  # type: ignore
             "timepoint": m.group(1),
             "n_significant": int(m.group(2)),
         })
@@ -265,7 +265,7 @@ def parse_stats_comparisons(text: str) -> dict:
     # Competing-risk exclusion line (appears at most once).
     m = RE_GLME_EXCLUDED.search(text)
     if m:
-        result["glme_excluded"] = {
+        result["glme_excluded"] = {  # type: ignore
             "n_excluded": int(m.group(1)),
             "n_total": int(m.group(2)),
             "pct": float(m.group(3)),
@@ -314,7 +314,7 @@ def parse_stats_predictive(text: str) -> dict:
         start = hdr.start()
         # The block ends at the start of the next ROC header, or EOF.
         end = roc_headers[i + 1].start() if i + 1 < len(roc_headers) else len(text)
-        block = text[start:end]
+        block = text[start:end]  # type: ignore
 
         entry = {"timepoint": hdr.group(1)}
         m = RE_AUC.search(block)
@@ -352,7 +352,7 @@ def parse_survival(text: str) -> dict:
 
     # Parse whitespace-delimited Cox PH table rows.
     for m in RE_HR_ROW.finditer(text):
-        result["hazard_ratios"].append({
+        result["hazard_ratios"].append({  # type: ignore
             "covariate": m.group(1),
             "hr": float(m.group(2)),
             "ci_lo": float(m.group(3)),
@@ -363,7 +363,7 @@ def parse_survival(text: str) -> dict:
     # Global likelihood-ratio test (single occurrence).
     m = RE_GLOBAL_LRT.search(text)
     if m:
-        result["global_lrt"] = {
+        result["global_lrt"] = {  # type: ignore
             "df": int(m.group(1)),
             "chi2": float(m.group(2)),
             "p": float(m.group(3)),
@@ -372,7 +372,7 @@ def parse_survival(text: str) -> dict:
     # IPCW (Inverse Probability of Censoring Weighting) range.
     m = RE_IPCW_WEIGHTS.search(text)
     if m:
-        result["ipcw"] = {
+        result["ipcw"] = {  # type: ignore
             "min_weight": float(m.group(1)),
             "max_weight": float(m.group(2)),
         }
@@ -401,7 +401,7 @@ def parse_baseline(text: str) -> dict:
 
     # Per-metric outlier flags with LF/LC/CR breakdown.
     for m in RE_OUTLIER_FLAG.finditer(text):
-        result["outlier_flags"].append({
+        result["outlier_flags"].append({  # type: ignore
             "metric": m.group(1),
             "n_flagged": int(m.group(2)),
             "n_lf": int(m.group(3)),
@@ -412,7 +412,7 @@ def parse_baseline(text: str) -> dict:
     # Aggregate outlier removal line.
     m = RE_TOTAL_OUTLIERS.search(text)
     if m:
-        result["total_outliers"] = {
+        result["total_outliers"] = {  # type: ignore
             "n_removed": int(m.group(1)),
             "n_total": int(m.group(2)),
             "pct": float(m.group(3)),
@@ -421,15 +421,15 @@ def parse_baseline(text: str) -> dict:
     # Baseline exclusion count and optional LF-rate comparison.
     m = RE_BASELINE_EXCLUDED.search(text)
     if m:
-        result["baseline_exclusion"] = {
+        result["baseline_exclusion"] = {  # type: ignore
             "n_excluded": int(m.group(1)),
             "n_total": int(m.group(2)),
         }
         # Look for the LF-rate comparison line that follows exclusion info.
         m2 = RE_LF_RATE.search(text)
         if m2:
-            result["baseline_exclusion"]["lf_rate_included"] = float(m2.group(1))
-            result["baseline_exclusion"]["lf_rate_excluded"] = float(m2.group(2))
+            result["baseline_exclusion"]["lf_rate_included"] = float(m2.group(1))  # type: ignore
+            result["baseline_exclusion"]["lf_rate_excluded"] = float(m2.group(2))  # type: ignore
 
     return result
 

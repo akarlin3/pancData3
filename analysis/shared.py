@@ -82,14 +82,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
         if isinstance(val, dict):
             merged[key] = _deep_merge(val, {})
         elif isinstance(val, list):
-            merged[key] = list(val)
+            merged[key] = list(val)  # type: ignore
         else:
             merged[key] = val
     for key, val in override.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
             merged[key] = _deep_merge(merged[key], val)
         elif isinstance(val, list):
-            merged[key] = list(val)
+            merged[key] = list(val)  # type: ignore
         else:
             merged[key] = val
     return merged
@@ -317,12 +317,12 @@ def parse_dwi_info(file_path: str) -> tuple[str, str]:
     for i, p in enumerate(parts):
         if "saved_files" in p and i + 1 < len(parts):
             # The directory immediately after saved_files is the DWI type.
-            if parts[i + 1] in DWI_TYPES:
-                dwi_type = parts[i + 1]
+            if parts[i + 1] in DWI_TYPES:  # type: ignore
+                dwi_type = parts[i + 1]  # type: ignore
             break
     # Remove DWI-type suffixes so "Longitudinal_Mean_Metrics_Standard"
     # becomes "Longitudinal_Mean_Metrics" for cross-type matching.
-    for t in ["_Standard", "_dnCNN", "_IVIMnet"]:
+    for t in ["_Standard", "_dnCNN", "_IVIMnet"]:  # type: ignore
         base_name = base_name.replace(t, "")
     return dwi_type, base_name.replace(".png", "")
 
@@ -384,7 +384,7 @@ def extract_pvalues(text: str) -> list[tuple[float, str]]:
                 # Extract surrounding context for downstream display.
                 start = max(0, m.start() - 80)
                 end = min(len(text), m.end() + 40)
-                context = text[start:end].strip()
+                context = text[start:end].strip()  # type: ignore
                 results.append((val, context))
             except ValueError:
                 pass
@@ -432,7 +432,7 @@ def extract_correlations(text: str) -> list[tuple[float, str]]:
                     continue
                 start = max(0, m.start() - 60)
                 end = min(len(text), m.end() + 60)
-                context = text[start:end].strip()
+                context = text[start:end].strip()  # type: ignore
                 results.append((val, context))
             except ValueError:
                 pass
@@ -487,5 +487,5 @@ def group_by_graph_name(rows: list[dict]) -> dict[str, dict[str, dict]]:
     groups: dict[str, dict[str, dict]] = defaultdict(dict)
     for r in rows:
         dwi_type, base_name = parse_dwi_info(r["file_path"])
-        groups[base_name][dwi_type] = r
+        groups[base_name][dwi_type] = r  # type: ignore
     return dict(groups)

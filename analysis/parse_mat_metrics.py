@@ -33,7 +33,7 @@ from pathlib import Path
 
 import typing
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 # Attempt to import scipy and numpy.  These are optional dependencies --
 # if not installed, the script degrades gracefully (returns empty data).
@@ -83,7 +83,7 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     core_mat = folder / f"{dwi}" / f"compare_core_results_{dwi}.mat"
     if core_mat.exists():
         try:
-            mat: typing.Any = scipy_io.loadmat(str(core_mat), squeeze_me=True, struct_as_record=False)
+            mat: typing.Any = scipy_io.loadmat(str(core_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
             results = mat.get("compare_results")
             if results:
                 # Extract method names; squeeze_me may collapse single-element
@@ -95,7 +95,7 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                 # Replace NaN with 0 for JSON serialisation.
                 out_data["core_method"] = {
                     "methods": [str(m) for m in methods],
-                    "mean_dice_matrix": numpy_np.nan_to_num(mean_dice).tolist() if hasattr(mean_dice, "tolist") else [],
+                    "mean_dice_matrix": numpy_np.nan_to_num(mean_dice).tolist() if hasattr(mean_dice, "tolist") else [],  # type: ignore
                 }
         except Exception as e:
             print(f"Error parsing {core_mat.name}: {e}")
@@ -106,23 +106,23 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     dosimetry_mat = folder / f"{dwi}" / f"metrics_dosimetry_results_{dwi}.mat"
     if dosimetry_mat.exists():
         try:
-            mat: typing.Any = scipy_io.loadmat(str(dosimetry_mat), squeeze_me=True)
+            mat: typing.Any = scipy_io.loadmat(str(dosimetry_mat), squeeze_me=True)  # type: ignore
             # d95_adc_sub: D95 (minimum dose to 95% of sub-volume) for ADC
             # v50_adc_sub: V50 (fraction of sub-volume receiving >=50 Gy) for ADC
             def _safe_nanmean(arr):
                 """Compute nanmean and convert to plain Python float for JSON."""
-                val = numpy_np.nanmean(arr)
+                val = numpy_np.nanmean(arr)  # type: ignore
                 # Convert numpy scalar to Python float; NaN becomes None
                 # so JSON serialisation does not produce invalid output.
-                if numpy_np.isnan(val):
+                if numpy_np.isnan(val):  # type: ignore
                     return None
                 return float(val)
 
-            out_data["dosimetry"] = {
-                "d95_adc_mean": _safe_nanmean(mat.get("d95_adc_sub", numpy_np.nan)),
-                "v50_adc_mean": _safe_nanmean(mat.get("v50_adc_sub", numpy_np.nan)),
-                "d95_d_mean": _safe_nanmean(mat.get("d95_d_sub", numpy_np.nan)),
-                "v50_d_mean": _safe_nanmean(mat.get("v50_d_sub", numpy_np.nan)),
+            out_data["dosimetry"] = {  # type: ignore
+                "d95_adc_mean": _safe_nanmean(mat.get("d95_adc_sub", numpy_np.nan)),  # type: ignore
+                "v50_adc_mean": _safe_nanmean(mat.get("v50_adc_sub", numpy_np.nan)),  # type: ignore
+                "d95_d_mean": _safe_nanmean(mat.get("d95_d_sub", numpy_np.nan)),  # type: ignore
+                "v50_d_mean": _safe_nanmean(mat.get("v50_d_sub", numpy_np.nan)),  # type: ignore
             }
         except Exception as e:
             print(f"Error parsing {dosimetry_mat.name}: {e}")
@@ -133,7 +133,7 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     summary_mat = folder / f"{dwi}" / f"summary_metrics_{dwi}.mat"
     if summary_mat.exists():
         try:
-            mat: typing.Any = scipy_io.loadmat(str(summary_mat), squeeze_me=True, struct_as_record=False)
+            mat: typing.Any = scipy_io.loadmat(str(summary_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
             summary = mat.get("summary_metrics")
             if summary and hasattr(summary, "ADC_abs"):
                 adc = summary.ADC_abs

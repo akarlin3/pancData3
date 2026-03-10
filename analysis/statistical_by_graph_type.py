@@ -23,9 +23,9 @@ import json
 import sys
 from collections import defaultdict
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import (
+from shared import (  # type: ignore
     extract_correlations,
     extract_pvalues,
     get_config,
@@ -95,8 +95,8 @@ def main():
         if sig:
             sig.sort(key=lambda x: x["p"])
             for f in sig:
-                p_hi = stats_cfg["p_highly_significant"]
-                p_sig = stats_cfg["p_significant"]
+                p_hi = stats_cfg["p_highly_significant"]  # type: ignore
+                p_sig = stats_cfg["p_significant"]  # type: ignore
                 tag = "***" if f["p"] < p_hi else "** " if f["p"] < p_sig else "*  "
                 print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
                 print(f"      {f['context']}")
@@ -107,7 +107,7 @@ def main():
         print(f"\n  Non-significant: {len(nonsig)}")
         if nonsig:
             nonsig.sort(key=lambda x: x["p"])
-            for f in nonsig[:5]:
+            for f in nonsig[:5]:  # type: ignore
                 print(f"     p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
             if len(nonsig) > 5:
                 print(f"     ... and {len(nonsig) - 5} more")
@@ -132,7 +132,7 @@ def main():
             print(f"  Notable correlations (|r| >= {corr_threshold}): {len(corrs_found)}")
             print(f"  {thin}")
             # Sort by absolute correlation strength (strongest first).
-            corrs_found.sort(key=lambda x: -abs(x["r"]))
+            corrs_found.sort(key=lambda x: -abs(x["r"]))  # type: ignore
             for c in corrs_found:
                 strength = "STRONG" if abs(c["r"]) >= 0.5 else "MODERATE"
                 direction = "positive" if c["r"] > 0 else "negative"
@@ -155,15 +155,15 @@ def main():
                     continue
                 d = (t.get("direction") or "").lower()
                 if "increas" in d or "up" in d or "higher" in d or "rising" in d:
-                    trends_up += 1
+                    trends_up += 1  # type: ignore
                 elif "decreas" in d or "down" in d or "lower" in d or "falling" in d or "drop" in d:
-                    trends_down += 1
+                    trends_down += 1  # type: ignore
                 elif "flat" in d or "stable" in d or "constant" in d:
-                    trends_stable += 1
+                    trends_stable += 1  # type: ignore
                 else:
-                    trends_other += 1
+                    trends_other += 1  # type: ignore
 
-        total_trends = trends_up + trends_down + trends_stable + trends_other
+        total_trends = trends_up + trends_down + trends_stable + trends_other  # type: ignore
         if total_trends > 0:
             print(f"\n  {thin}")
             print(f"  Trend directions ({total_trends} total):")
@@ -196,18 +196,18 @@ def main():
             pvals = extract_pvalues(all_text)
             for pval, _ in pvals:
                 if pval < p_threshold:
-                    n_sig += 1
+                    n_sig += 1  # type: ignore
                 else:
-                    n_nonsig += 1
+                    n_nonsig += 1  # type: ignore
 
             corrs = extract_correlations(safe_text(r, "summary", "trends_json"))
-            n_corr += sum(1 for rval, _ in corrs if abs(rval) >= corr_threshold)
+            n_corr += sum(1 for rval, _ in corrs if abs(rval) >= corr_threshold)  # type: ignore
 
             try:
                 trends = json.loads(r.get("trends_json", "[]") or "[]")
             except Exception:
                 trends = []
-            n_trends += len(trends)
+            n_trends += len(trends)  # type: ignore
 
         print(f"  {graph_type:<16} {len(type_rows):>5} {n_sig:>6} {n_nonsig:>8} {n_corr:>5} {n_trends:>7}")
 

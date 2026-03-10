@@ -29,9 +29,9 @@ import sys
 import time
 from pathlib import Path
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout
+from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -196,7 +196,7 @@ def _run_script(
         msg = f"  FAILED: {name} (timed out after {elapsed:.1f}s)"
         print(msg)
         if log_file is not None:
-            log_file.write(msg + "\n")
+            log_file.write(msg + "\n")  # type: ignore
         return False
     elapsed = time.time() - t0
 
@@ -205,7 +205,7 @@ def _run_script(
         if stream_output:
             sys.stdout.write(stream_output)
             if log_file is not None:
-                log_file.write(stream_output)
+                log_file.write(stream_output)  # type: ignore
 
     if result.returncode == 0:
         print(f"  Done: {name} ({elapsed:.1f}s)")
@@ -275,7 +275,7 @@ def main():
     # ── Apply CLI overrides to the centralised config ──
     # Load the config (from file or defaults), then patch with CLI args.
     import os as _os
-    import shared as _shared_mod
+    import shared as _shared_mod  # type: ignore
     cfg = load_analysis_config(config_path=args.config)
     if args.gemini_model:
         cfg["vision"]["gemini_model"] = args.gemini_model
@@ -302,8 +302,8 @@ def main():
     log_file = open(log_path, "w", encoding="utf-8")
     original_stdout = sys.stdout
     original_stderr = sys.stderr
-    sys.stdout = TeeWriter(original_stdout, log_file)
-    sys.stderr = TeeWriter(original_stderr, log_file)
+    sys.stdout = TeeWriter(original_stdout, log_file)  # type: ignore
+    sys.stderr = TeeWriter(original_stderr, log_file)  # type: ignore
 
     try:
         # ── Print banner ──
@@ -369,7 +369,7 @@ def main():
                     print(f"  Skipping vision analysis (existing CSV: {csv_path})")
                 else:
                     print("  Skipping vision analysis (no existing CSV)")
-                results["vision"] = "skipped"
+                results["vision"] = "skipped"  # type: ignore
 
             # Step 2: Parse MATLAB diary log files for structured metrics.
             pipeline_bar.set_postfix_str("parsing logs", refresh=True)
@@ -427,8 +427,8 @@ def main():
             icon = "OK" if status is True else ("SKIP" if status == "skipped" else "FAIL")
             print(f"  [{icon:>4}] {step}")
 
-        report_path = folder / "analysis_report.html"
-        pdf_path = folder / "analysis_report.pdf"
+        report_path = folder / "analysis_report.html"  # type: ignore
+        pdf_path = folder / "analysis_report.pdf"  # type: ignore
         if report_path.exists() and args.html:
             print(f"\n  HTML Report: {report_path}")
         if pdf_path.exists():

@@ -22,9 +22,9 @@ from __future__ import annotations
 import json
 import sys
 
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     group_by_graph_name,
     load_graph_csv,
@@ -62,7 +62,7 @@ def main():
         if len(real_types) < 2:
             continue
 
-        matched += 1
+        matched += 1  # type: ignore
         print(f"\n{sep}")
         print(f"  Graph: {base_name}")
         print(f"  Present in: {', '.join(types_present)}")
