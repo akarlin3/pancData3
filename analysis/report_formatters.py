@@ -341,19 +341,85 @@ NAV_SECTIONS = [
 ]
 
 
+# ── Navigation groups ─────────────────────────────────────────────────────────
+# Logical groupings for the sticky nav bar.  NAV_SECTIONS (the flat list above)
+# is kept for backward compatibility; NAV_GROUPS drives the rendered output.
+
+NAV_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
+    ("Overview", [
+        ("exec-summary", "Abstract"),
+        ("manuscript-findings", "Manuscript"),
+        ("methods", "Methods"),
+        ("cohort", "Cohort"),
+        ("patient-flow", "Flow"),
+    ]),
+    ("Data", [
+        ("data-quality", "Data Quality"),
+        ("data-completeness", "Completeness"),
+        ("hypothesis", "Hypothesis"),
+        ("graph-overview", "Graphs"),
+        ("graph-issues", "Issues"),
+    ]),
+    ("Statistics", [
+        ("stats-by-type", "By Type"),
+        ("significance", "Statistics"),
+        ("effect-sizes", "Effect Sizes"),
+        ("mult-comp", "Corrections"),
+        ("cross-dwi", "Cross-DWI"),
+        ("fdr-global", "FDR Global"),
+    ]),
+    ("Outcomes", [
+        ("correlations", "Correlations"),
+        ("treatment", "Treatment"),
+        ("predictive", "Predictive"),
+        ("feature-overlap", "Features"),
+        ("model-diag", "Diagnostics"),
+    ]),
+    ("Discussion", [
+        ("power", "Power"),
+        ("sensitivity", "Sensitivity"),
+        ("supplemental", "Supplemental"),
+        ("limitations", "Limitations"),
+        ("conclusions", "Conclusions"),
+    ]),
+    ("Appendix", [
+        ("reporting-checklist", "Checklist"),
+        ("table-index", "Tables"),
+        ("figure-index", "Figures"),
+        ("results-draft", "Results Draft"),
+        ("figure-gallery", "Gallery"),
+        ("journal-guide", "Journal"),
+        ("data-availability", "Data"),
+        ("references", "References"),
+        ("appendix", "All Graphs"),
+    ]),
+]
+
+
 def _nav_bar() -> str:
-    """Build the sticky navigation bar HTML from :data:`NAV_SECTIONS`.
+    """Build the sticky navigation bar HTML from :data:`NAV_GROUPS`.
+
+    Renders one row per group with a small group label on the left,
+    making the 35 sections scannable at a glance.  All anchors from
+    :data:`NAV_SECTIONS` remain present so existing anchor links work.
 
     Returns
     -------
     str
-        HTML ``<nav class="toc">`` element with anchor links.
+        HTML ``<nav class="toc">`` element with grouped anchor links.
     """
-    links = "".join(
-        f'<a href="#{anchor}">{_esc(label)}</a>'
-        for anchor, label in NAV_SECTIONS
-    )
-    return f'<nav class="toc">{links}</nav>'
+    rows = []
+    for group_label, sections in NAV_GROUPS:
+        links = "".join(
+            f'<a href="#{anchor}">{_esc(label)}</a>'
+            for anchor, label in sections
+        )
+        rows.append(
+            f'<div class="toc-row">'
+            f'<span class="toc-group-label">{_esc(group_label)}</span>'
+            f'{links}</div>'
+        )
+    return f'<nav class="toc">{"".join(rows)}</nav>'
 
 
 def _h2(text: str, anchor: str) -> str:
