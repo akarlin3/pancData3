@@ -28,22 +28,22 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import markdown
-from tqdm import tqdm
+import markdown  # type: ignore
+from tqdm import tqdm  # type: ignore
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     group_by_graph_name,
     load_graph_csv,
     resolve_folder,
     setup_utf8_stdout,
 )
-from parse_csv_results import parse_all_csvs
-from parse_log_metrics import parse_all_logs
+from parse_csv_results import parse_all_csvs  # type: ignore
+from parse_log_metrics import parse_all_logs  # type: ignore
 
 # Re-export formatting helpers for backward compatibility (tests import these
 # from generate_report).
-from report_formatters import (  # noqa: F401
+from report_formatters import (  # noqa: F401  # type: ignore
     CSS,
     HTML_TEMPLATE,
     NAV_SECTIONS,
@@ -73,7 +73,7 @@ from report_formatters import (  # noqa: F401
 )
 
 # Re-export section builders for backward compatibility.
-from report_sections import (  # noqa: F401
+from report_sections import (  # noqa: F401  # type: ignore
     _section_appendix,
     _section_broad_statistical_overview,
     _section_cohort_overview,
@@ -167,7 +167,7 @@ def generate_report(folder: Path) -> str:
     dwi_types_present = []
     if log_data is not None:
         for d in DWI_TYPES:
-            if d in log_data:
+            if d in log_data:  # type: ignore
                 dwi_types_present.append(d)
     # Fallback: check for DWI-type subdirectories on disk.
     if not dwi_types_present:
@@ -225,7 +225,7 @@ def generate_report(folder: Path) -> str:
 
     for name, fn, fn_args in section_steps:
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))
+        h.extend(fn(*fn_args))  # type: ignore
         report_bar.update(1)
 
     # ── 2. Data Quality ──
@@ -359,7 +359,7 @@ def generate_report(folder: Path) -> str:
                 if not fdr_rows:
                     continue
                 h.append(f"<h3>{_dwi_badge(dwi_type)} \u2014 {len(fdr_rows)} tests</h3>")
-                headers = list(fdr_rows[0].keys())[:10]
+                headers = list(fdr_rows[0].keys())[:10]  # type: ignore
                 tbl_cls = ' class="table-wide"' if len(headers) > 6 else ""
                 h.append(f"<table{tbl_cls}><thead><tr>")
                 for hdr in headers:
@@ -368,17 +368,17 @@ def generate_report(folder: Path) -> str:
                 for fr in fdr_rows:
                     h.append("<tr>")
                     for hdr in headers:
-                        val = str(fr.get(hdr, ""))
+                        val = str(fr.get(hdr, ""))  # type: ignore
                         # Highlight p-value columns
                         try:
                             fval = float(val)
                             if "p" in hdr.lower() and 0 < fval < 0.05:
                                 cls = _sig_class(fval)
-                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')
+                                h.append(f'<td class="{cls}">{_esc(val[:40])}</td>')  # type: ignore
                                 continue
                         except (ValueError, TypeError):
                             pass
-                        h.append(f"<td>{_esc(val[:40])}</td>")
+                        h.append(f"<td>{_esc(val[:40])}</td>")  # type: ignore
                     h.append("</tr>")
                 h.append("</tbody></table>")
     else:
