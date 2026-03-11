@@ -157,10 +157,9 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .word-count { display: inline-block; font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
 .cover-page { display: none; }
 .part-break { display: none; }
-@page { size: A4; margin: 1.5cm 1.2cm 2cm; }
+@page { size: A4; margin: 1.5cm 1.2cm 1.8cm; }
 @page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #888; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } }
-@page { @bottom-left { content: "pancData3 Analysis Report"; font-size: 8pt; color: #aaa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } }
-@page :first { @bottom-center { content: none; } @bottom-left { content: none; } }
+@page :first { @bottom-center { content: none; } }
 @media print {
     body { max-width: none; padding: 0; font-size: 10.5pt; line-height: 1.55; }
     nav.toc { display: none; }
