@@ -336,15 +336,45 @@ end
 % [PERFORMANCE OPTIMIZATION]:
 % Pre-compute normalized strings outside the loop to avoid redundant strrep calls.
 % Uses shared normalize_patient_ids utility for Octave-compatible ID matching.
-if isfield(T, 'Pat')
-    [T_Pat_normalized, id_list_normalized] = normalize_patient_ids(T.Pat, id_list);
+% Always normalize folder IDs (independent of spreadsheet column names)
+[~, id_list_normalized] = normalize_patient_ids({}, id_list);
+% Find the spreadsheet column containing patient IDs.  The column may be
+% named 'Pat', 'Patient', 'PatientID', etc. depending on the spreadsheet
+% version.  Try common names in priority order.
+T_Pat_normalized = {};
+pat_col_candidates = {'Pat', 'Patient', 'PatientID', 'Patient_ID'};
+pat_col_found = '';
+for pci = 1:numel(pat_col_candidates)
+    if isfield(T, pat_col_candidates{pci})
+        pat_col_found = pat_col_candidates{pci};
+        break;
+    end
+end
+if ~isempty(pat_col_found)
+    [T_Pat_normalized, ~] = normalize_patient_ids(T.(pat_col_found), id_list);
 else
-    T_Pat_normalized = {};
-    id_list_normalized = {};
+    % Last resort: try the first column of the table
+    col_names = fieldnames(T);
+    if ~isempty(col_names)
+        first_col = T.(col_names{1});
+        if iscell(first_col) || iscategorical(first_col) || ischar(first_col)
+            [T_Pat_normalized, ~] = normalize_patient_ids(first_col, id_list);
+            fprintf('  ⚠️ No ''Pat'' column found; using first column ''%s'' for patient matching.\n', col_names{1});
+        end
+    end
+    if isempty(T_Pat_normalized)
+        warning('load_dwi_data:noPatColumn', ...
+            'Clinical spreadsheet has no recognizable patient ID column. Available columns: %s', ...
+            strjoin(fieldnames(T), ', '));
+    end
 end
 
 % --- DEBUG: print spreadsheet vs folder patient IDs for matching diagnosis ---
-fprintf('\n--- DEBUG: Clinical spreadsheet Pat column (first 5) ---\n');
+fprintf('\n--- DEBUG: Spreadsheet columns: %s ---\n', strjoin(fieldnames(T), ', '));
+if ~isempty(pat_col_found)
+    fprintf('--- DEBUG: Using column ''%s'' for patient matching ---\n', pat_col_found);
+end
+fprintf('--- DEBUG: Clinical spreadsheet Pat column (first 5) ---\n');
 for dbg_i = 1:min(5, numel(T_Pat_normalized))
     fprintf('  Spreadsheet[%d]: "%s"\n', dbg_i, T_Pat_normalized{dbg_i});
 end
@@ -420,8 +450,20 @@ parfor j = 1:length(mrn_list)
     if numel(i_pat) > 1
         warning('load_dwi_data:duplicatePatient', 'Patient ID ''%s'' has %d matches in clinical spreadsheet. Using first.', id_list{j}, numel(i_pat));
     end
-    pat_immuno = T.Immuno(i_pat(1));
-    pat_lf = T.LF(i_pat(1));
+    if isfield(T, 'Immuno')
+        pat_immuno = T.Immuno(i_pat(1));
+    elseif isfield(T, 'IO')
+        pat_immuno = T.IO(i_pat(1));
+    else
+        pat_immuno = 0;
+    end
+    if isfield(T, 'LF')
+        pat_lf = T.LF(i_pat(1));
+    elseif isfield(T, 'LocalFailure')
+        pat_lf = T.LocalFailure(i_pat(1));
+    else
+        pat_lf = 0;
+    end
 
     basefolder = fullfile(dataloc, id_list{j});
     basefolder_contents = clean_dir_command(basefolder);

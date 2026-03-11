@@ -272,7 +272,27 @@ else
     rtenddate = repmat(datetime(NaT), length(id_list), 1);
 
     % Normalize patient IDs for spreadsheet/folder matching using shared utility.
-    [pat_normalized, id_list_normalized] = normalize_patient_ids(T.Pat, id_list);
+    % Find the patient ID column (may be 'Pat', 'Patient', etc.)
+    pat_col_bl = '';
+    for cand = {'Pat', 'Patient', 'PatientID', 'Patient_ID'}
+        if ismember(cand{1}, T.Properties.VariableNames)
+            pat_col_bl = cand{1};
+            break;
+        end
+    end
+    if isempty(pat_col_bl)
+        % Fall back to first column if it contains text
+        vnames = T.Properties.VariableNames;
+        if ~isempty(vnames) && (iscell(T.(vnames{1})) || iscategorical(T.(vnames{1})))
+            pat_col_bl = vnames{1};
+            fprintf('  ⚠️ No ''Pat'' column found in spreadsheet; using ''%s'' for patient matching.\n', pat_col_bl);
+        else
+            error('metrics_baseline:noPatColumn', ...
+                'Clinical spreadsheet has no recognizable patient ID column. Available: %s', ...
+                strjoin(T.Properties.VariableNames, ', '));
+        end
+    end
+    [pat_normalized, id_list_normalized] = normalize_patient_ids(T.(pat_col_bl), id_list);
 
     n_ids_clinical = length(id_list);
     for j = 1:n_ids_clinical

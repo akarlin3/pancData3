@@ -213,10 +213,25 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             tline = fgetl(fid);
             fclose(fid);
             bvalues = sscanf(tline, '%f');
-            [~,i_sort] = sort(bvalues,'ascend');
-            bvalues = bvalues(i_sort);
-            dwi = double(dwi(:,:,:,i_sort));
-            fprintf('loaded bvalues\n');
+            % Validate volume count BEFORE sorting to prevent indexing
+            % errors when the bval file has more entries than the NIfTI
+            % has volumes (e.g., truncated acquisition, protocol mismatch).
+            if size(dwi, 4) ~= numel(bvalues)
+                warning('process_single_scan:bvalVolumeMismatch', ...
+                    'DWI has %d volumes but bval file has %d entries for %s. Skipping.', ...
+                    size(dwi, 4), numel(bvalues), scanID);
+                havedwi = 0;
+                bvalues = [];
+                if bad_dwi_found==0
+                    bad_list{end+1} = ctx.dicomloc; %#ok<AGROW>
+                    bad_dwi_found = 1;
+                end
+            else
+                [~,i_sort] = sort(bvalues,'ascend');
+                bvalues = bvalues(i_sort);
+                dwi = double(dwi(:,:,:,i_sort));
+                fprintf('loaded bvalues\n');
+            end
         else
             fprintf('bvalue file not found!\n');
             havedwi = 0;
@@ -226,16 +241,8 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             end
         end
 
-        % Validate that the number of DWI volumes matches the b-value count.
-        % Previously this was hardcoded to 4; now it adapts to the protocol.
-        if ~isempty(bvalues) && size(dwi, 4) ~= numel(bvalues)
-            fprintf('DWI volume count (%d) does not match b-value count (%d). Found: %s — skipping\n', ...
-                size(dwi, 4), numel(bvalues), mat2str(size(dwi)));
-            havedwi = 0;
-            if bad_dwi_found==0
-                bad_list{end+1} = ctx.dicomloc; %#ok<AGROW>
-            end
-        elseif isempty(bvalues) && size(dwi, 4) < 2
+        % Validate minimum volume count for DWI processing.
+        if isempty(bvalues) && size(dwi, 4) < 2
             fprintf('DWI does not have enough volumes: %s — skipping\n', mat2str(size(dwi)));
             havedwi = 0;
             if bad_dwi_found==0
@@ -260,12 +267,23 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         if exist(dncnn_file,'file')
             dncnn_info = niftiinfo(dncnn_file);
             dwi_dncnn = rot90(niftiread(dncnn_info));
-            % Normalise denoised signal to [0,1] for IVIM fitting.
-            % mat2gray maps the volume's [min,max] to [0,1], which is
-            % required because the cached DnCNN output may have different
-            % intensity scaling than the raw DWI.
-            dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
-            havedenoised=1;
+            % Validate that the DnCNN cache has the same number of b-value
+            % volumes as the raw DWI.  A mismatch (e.g., cache generated
+            % from a different protocol or truncated file) would cause
+            % i_sort indexing to exceed the 4th dimension.
+            if size(dwi_dncnn, 4) ~= numel(i_sort)
+                warning('process_single_scan:dncnnSizeMismatch', ...
+                    'DnCNN cache has %d volumes but DWI has %d b-values. Skipping cached DnCNN for %s.', ...
+                    size(dwi_dncnn, 4), numel(i_sort), scanID);
+                dwi_dncnn = [];
+            else
+                % Normalise denoised signal to [0,1] for IVIM fitting.
+                % mat2gray maps the volume's [min,max] to [0,1], which is
+                % required because the cached DnCNN output may have different
+                % intensity scaling than the raw DWI.
+                dwi_dncnn = double(mat2gray(dwi_dncnn(:,:,:,i_sort)));
+                havedenoised=1;
+            end
         else
             % Load GTVp/GTVn masks for the fallback (may already exist on disk)
             gtv_mask_for_dncnn = [];
