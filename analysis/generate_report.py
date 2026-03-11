@@ -408,17 +408,22 @@ def generate_report(folder: Path) -> str:
         h.append('<p class="meta">No FDR_Sig_Global.csv files found.</p>')
     report_bar.update(1)
 
-    final_sections = [
+    # Sections tagged with None as the callable are part-break markers.
+    # Tagged entries: (display_name, callable_or_None, args_or_label_str)
+    final_sections: list[tuple] = [
+        ("__break__", None, "Part 4 — Outcomes"),
         ("Correlations", _section_correlations, (rows,)),
         ("Treatment response", _section_treatment_response, (groups,)),
         ("Predictive performance", _section_predictive_performance, (log_data, dwi_types_present)),
         ("Feature overlap", _section_feature_overlap, (log_data, dwi_types_present)),
         ("Model diagnostics", _section_model_diagnostics, (log_data, dwi_types_present, mat_data)),
+        ("__break__", None, "Part 5 — Discussion"),
         ("Power analysis", _section_power_analysis, (log_data, dwi_types_present, mat_data)),
         ("Sensitivity analysis", _section_sensitivity_analysis, (log_data, dwi_types_present, mat_data)),
         ("MAT data", _section_mat_data, (mat_data,)),
         ("Limitations", _section_limitations, (log_data, dwi_types_present, mat_data)),
         ("Conclusions", _section_conclusions, (log_data, dwi_types_present, csv_data, mat_data, groups)),
+        ("__break__", None, "Part 6 — Appendix"),
         ("Reporting checklist", _section_reporting_checklist, (log_data, dwi_types_present, mat_data, csv_data, rows)),
         ("Table index", _section_table_index, ()),
         ("Figure index", _section_figure_index, ()),
@@ -430,13 +435,16 @@ def generate_report(folder: Path) -> str:
         ("Appendix", _section_appendix, (rows,)),
     ]
 
-    # Update total to reflect actual section count.
-    report_bar.total = report_bar.n + len(final_sections)
+    # Update total to reflect callable sections only (not break markers).
+    report_bar.total = report_bar.n + sum(1 for e in final_sections if e[1] is not None)
     report_bar.refresh()
 
     for name, fn, fn_args in final_sections:
+        if fn is None:
+            h.append(_part_break(fn_args))  # type: ignore[arg-type]
+            continue
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))
+        h.extend(fn(*fn_args))  # type: ignore
         report_bar.update(1)
 
     report_bar.set_postfix_str("complete", refresh=True)
