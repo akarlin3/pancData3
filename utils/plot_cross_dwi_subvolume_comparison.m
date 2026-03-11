@@ -259,6 +259,7 @@ function plot_cross_dwi_boxes(fx1_data, avail_idx, dwi_type_names, std_ivimnet_i
         end
     end
 
+    xlabel('DWI Processing Type');
     ylabel('Restricted Subvolume (% of GTV)');
     title('Across DWI Types');
     if std_ivimnet_identical
@@ -342,6 +343,7 @@ function plot_repeat_variability(rpt_data, type_label)
              'VerticalAlignment', 'top', 'FontSize', 9, 'FontWeight', 'bold');
     end
 
+    xlabel('Repeat Scan');
     ylabel('Restricted Subvolume (% of GTV)');
     title(sprintf('Fx1 Repeat Scans (%s)', type_label));
     hold off;

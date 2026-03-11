@@ -110,17 +110,24 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                 end
             end
             colormap([0 0.4470 0.7410; 0.8500 0.3250 0.0980]);
-            legend('Local Control', 'Local Failure', 'Location', 'best');
+            legend(sprintf('LC (n=%d)', numel(vals_lc)), sprintf('LF (n=%d)', numel(vals_lf)), ...
+                'Location', 'best');
         else
             histogram(vals_lc, edges, 'FaceColor', [0 0.4470 0.7410], 'FaceAlpha', 0.6, ...
-                'EdgeColor', 'none', 'DisplayName', 'Local Control'); hold on;
+                'EdgeColor', 'none', 'DisplayName', sprintf('LC (n=%d)', numel(vals_lc))); hold on;
             histogram(vals_lf, edges, 'FaceColor', [0.8500 0.3250 0.0980], 'FaceAlpha', 0.6, ...
-                'EdgeColor', 'none', 'DisplayName', 'Local Failure');
+                'EdgeColor', 'none', 'DisplayName', sprintf('LF (n=%d)', numel(vals_lf)));
             hold off;
-            legend('Location', 'best', 'FontSize', 8);
+            legend('Location', 'best', 'FontSize', 9);
         end
 
-        xlabel(metric_unit); ylabel('Count');
+        % Show metric name + unit together so the axis is self-describing.
+        if isempty(metric_unit)
+            xlabel(metric_name);
+        else
+            xlabel([metric_name ' (' metric_unit ')']);
+        end
+        ylabel('Count');
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
 
@@ -143,9 +150,12 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                     set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
                 end
             else
+                n_lc_bp = sum(lf_clean == 0);
+                n_lf_bp = sum(lf_clean == 1);
                 n_groups = numel(unique(lf_clean));
                 if n_groups == 2
-                    boxplot(vals_clean, lf_clean, 'Labels', {'LC (0)', 'LF (1)'});
+                    boxplot(vals_clean, lf_clean, 'Labels', ...
+                        {sprintf('LC (n=%d)', n_lc_bp), sprintf('LF (n=%d)', n_lf_bp)});
                 else
                     % Single group present: omit Labels to avoid MATLAB error
                     boxplot(vals_clean, lf_clean);
@@ -156,10 +166,14 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
             plot(lf_clean + 1, vals_clean, 'ko', 'MarkerSize', 8, 'MarkerFaceColor', [0 0.4470 0.7410]);
             xlim([0.5, 2.5]);
             set(gca, 'XTick', [1, 2]);
-            set(gca, 'XTickLabel', {'LC (0)', 'LF (1)'});
+            set(gca, 'XTickLabel', {'LC', 'LF'});
         end
-        
-        ylabel(metric_unit);
+
+        if isempty(metric_unit)
+            ylabel(metric_name);
+        else
+            ylabel([metric_name ' (' metric_unit ')']);
+        end
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
         
