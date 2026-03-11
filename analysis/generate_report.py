@@ -336,12 +336,23 @@ def generate_report(folder: Path) -> str:
         h.append('<p class="meta">No baseline quality data found in logs.</p>')
     report_bar.update(1)
 
-    # Remaining sections with progress tracking.
-    remaining_sections = [
+    # Remaining Data sections.
+    data_sections = [
         ("Data completeness", _section_data_completeness, (log_data, dwi_types_present)),
         ("Hypothesis", _section_hypothesis, (groups, log_data, mat_data)),
         ("Graph overview", _section_graph_overview, (rows,)),
         ("Graph issues", _section_graph_issues, (rows,)),
+    ]
+
+    for name, fn, fn_args in data_sections:
+        report_bar.set_postfix_str(name, refresh=True)
+        h.extend(fn(*fn_args))
+        report_bar.update(1)
+
+    # ── Part 3: Statistics ──
+    h.append(_part_break("Part 3 — Statistics"))
+
+    statistics_sections = [
         ("Stats by graph type", _section_stats_by_graph_type, (rows,)),
         ("Statistical significance", _section_statistical_significance, (rows, csv_data, log_data, dwi_types_present)),
         ("Broad statistical overview", _section_broad_statistical_overview, (log_data, dwi_types_present)),
@@ -350,7 +361,7 @@ def generate_report(folder: Path) -> str:
         ("Cross-DWI comparison", _section_cross_dwi_comparison, (groups, csv_data)),
     ]
 
-    for name, fn, fn_args in remaining_sections:
+    for name, fn, fn_args in statistics_sections:
         report_bar.set_postfix_str(name, refresh=True)
         h.extend(fn(*fn_args))
         report_bar.update(1)
