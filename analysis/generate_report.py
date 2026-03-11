@@ -195,6 +195,9 @@ def generate_report(folder: Path) -> str:
     h.append("</head>")
     h.append("<body>")
 
+    # ── Cover page (print-only; hidden on screen) ──
+    h.extend(_section_cover_page(timestamp, dwi_types_present, len(rows) if rows else 0))
+
     # ── Sticky navigation bar (anchors to each report section) ──
     h.append(_nav_bar())
 
@@ -209,6 +212,9 @@ def generate_report(folder: Path) -> str:
 
     # ── Table of contents (screen + PDF) ──
     h.extend(_section_print_toc())
+
+    # ── Part 1: Overview ──
+    h.append(_part_break("Part 1 — Overview"))
 
     # Build a list of (section_name, builder_fn, args) for progress tracking.
     section_steps = [
@@ -230,7 +236,10 @@ def generate_report(folder: Path) -> str:
         h.extend(fn(*fn_args))  # type: ignore
         report_bar.update(1)
 
-    # ── 2. Data Quality ──
+    # ── Part 2: Data ──
+    h.append(_part_break("Part 2 — Data"))
+
+    # ── Data Quality ──
     report_bar.set_postfix_str("Data quality", refresh=True)
     h.append(_h2("Data Quality", "data-quality"))
     has_quality_data = False
