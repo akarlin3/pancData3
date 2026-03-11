@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 
-from shared import DWI_TYPES
+from shared import DWI_TYPES  # type: ignore
 
 
 def _safe_json_load(json_str: str, default=None):
@@ -41,7 +41,7 @@ def _get_cohort_size(mat_data: dict | None) -> tuple[int, int, str]:
             n_pat = lon.get("num_patients", 0)
             n_tp = lon.get("num_timepoints", 0)
             if n_pat > 0:
-                return n_pat, n_tp, dt
+                return n_pat, n_tp, dt  # type: ignore
     return 0, 0, ""
 
 
@@ -60,9 +60,9 @@ def _find_best_auc(log_data: dict | None, dwi_types_present: list[str]
         if not dt_data:
             continue
         pred = dt_data.get("stats_predictive") or {}
-        for roc in pred.get("roc_analyses", []):
-            auc = roc.get("auc", 0.0)
-            if best_roc is None or auc > best_roc.get("auc", 0.0):
+        for roc in pred.get("roc_analyses", []):  # type: ignore
+            auc = roc.get("auc", 0.0)  # type: ignore
+            if best_roc is None or auc > best_roc.get("auc", 0.0):  # type: ignore
                 best_roc = roc
                 best_dt = dt
     return best_roc, best_dt
@@ -81,18 +81,20 @@ def _aggregate_dwi_statistics(
     total_sig = 0
     total_hrs = 0
     sig_hrs = 0
-    auc_cards: list[tuple[str, float]] = []
+    auc_cards: list[tuple[str, float, str]] = []
 
     if log_data:
         for dt in dwi_types_present:
             dt_data = log_data.get(dt)
             if not dt_data:
                 continue
-            # Best AUC
+            # Best AUC (track timepoint too)
             roc = dt_data.get("stats_predictive", {}).get("roc_analyses", [])
-            best_auc = max((r.get("auc", 0) for r in roc), default=0)
+            best_roc_item = max(roc, key=lambda r: r.get("auc", 0), default=None) if roc else None
+            best_auc = best_roc_item.get("auc", 0) if best_roc_item else 0
+            best_tp = best_roc_item.get("timepoint", "") if best_roc_item else ""
             if best_auc > 0:
-                auc_cards.append((dt, best_auc))
+                auc_cards.append((dt, best_auc, best_tp))
             # GLME sig count
             sc = dt_data.get("stats_comparisons", {})
             total_sig += len([g for g in sc.get("glme_details", [])
@@ -124,7 +126,7 @@ def _compute_feature_overlap(
 
     tp_features: dict[str, dict[str, list[str]]] = {}
     for dt in dwi_types_present:
-        dt_data = log_data.get(dt)
+        dt_data = log_data.get(dt)  # type: ignore
         if not dt_data:
             continue
         fs_list = dt_data.get("stats_predictive", {}).get("feature_selections", [])
@@ -132,8 +134,8 @@ def _compute_feature_overlap(
             tp = fs.get("timepoint", "?")
             tp_features.setdefault(tp, {})[dt] = fs.get("features", [])
 
-    total_shared = 0
-    total_all = 0
+    total_shared: int = 0
+    total_all: int = 0
     for tp, dts_dict in tp_features.items():
         if len(dts_dict) < 2:
             continue
@@ -143,7 +145,7 @@ def _compute_feature_overlap(
         total_all += len(all_feats)
         for feat in all_feats:
             if sum(1 for feats in dts_dict.values() if feat in feats) >= 2:
-                total_shared += 1
+                total_shared = int(total_shared + 1)  # type: ignore
 
     return total_shared, total_all
 
@@ -157,10 +159,10 @@ def _aggregate_sanity_checks(
     Returns dict with: all_converged_count, total_conv_flags,
     total_dim_issues, sanity_types_checked.
     """
-    all_converged_count = 0
-    total_conv_flags = 0
-    total_dim_issues = 0
-    sanity_types_checked = 0
+    all_converged_count: int = 0
+    total_conv_flags: int = 0
+    total_dim_issues: int = 0
+    sanity_types_checked: int = 0
 
     if not log_data:
         return {
@@ -177,11 +179,11 @@ def _aggregate_sanity_checks(
         san = dt_data.get("sanity_checks", {})
         if not san:
             continue
-        sanity_types_checked += 1
+        sanity_types_checked = int(sanity_types_checked + 1)  # type: ignore
         if san.get("all_converged"):
-            all_converged_count += 1
-        total_conv_flags += san.get("total_convergence", 0)
-        total_dim_issues += san.get("dim_mismatches", 0) + san.get("nan_dose_warnings", 0)
+            all_converged_count = int(all_converged_count + 1)  # type: ignore
+        total_conv_flags = int(total_conv_flags + san.get("total_convergence", 0))  # type: ignore
+        total_dim_issues = int(total_dim_issues + san.get("dim_mismatches", 0) + san.get("nan_dose_warnings", 0))  # type: ignore
 
     return {
         "all_converged_count": all_converged_count,
@@ -212,30 +214,30 @@ def _extract_significant_metrics(log_data: dict | None) -> dict:
                 continue
             # GLME interaction p-values
             stats_cmp = dt_data.get("stats_comparisons") or {}
-            for p_val in stats_cmp.get("glme_interactions", []):
+            for p_val in stats_cmp.get("glme_interactions", []):  # type: ignore
                 if p_val < 0.05:
                     sig_glme.append({"p": p_val, "dwi_type": dt})
-            for detail in stats_cmp.get("glme_details", []):
+            for detail in stats_cmp.get("glme_details", []):  # type: ignore
                 if detail.get("p", 1.0) < detail.get("adj_alpha", 0.05):
                     sig_glme_details.append({**detail, "dwi_type": dt})
-            for fdr_tp in stats_cmp.get("fdr_timepoints", []):
+            for fdr_tp in stats_cmp.get("fdr_timepoints", []):  # type: ignore
                 if fdr_tp.get("n_significant", 0) > 0:
                     sig_fdr_timepoints.append({**fdr_tp, "dwi_type": dt})
             # Survival hazard ratios
             surv = dt_data.get("survival") or {}
-            for hr_entry in surv.get("hazard_ratios", []):
+            for hr_entry in surv.get("hazard_ratios", []):  # type: ignore
                 if hr_entry.get("p", 1.0) < 0.05:
                     sig_hr.append({**hr_entry, "dwi_type": dt})
             # Predictive model ROC/AUC
             pred = dt_data.get("stats_predictive") or {}
-            for roc in pred.get("roc_analyses", []):
-                auc = roc.get("auc", 0.0)
-                if best_roc is None or auc > best_roc.get("auc", 0.0):
+            for roc in pred.get("roc_analyses", []):  # type: ignore
+                auc = roc.get("auc", 0.0)  # type: ignore
+                if best_roc is None or auc > best_roc.get("auc", 0.0):  # type: ignore
                     best_roc = roc
                     best_roc_dt = dt
-            for fs in pred.get("feature_selections", []):
-                if fs.get("features"):
-                    all_feature_selections.append({**fs, "dwi_type": dt})
+            for fs in pred.get("feature_selections", []):  # type: ignore
+                if fs.get("features"):  # type: ignore
+                    all_feature_selections.append({**fs, "dwi_type": dt})  # type: ignore
 
     return {
         "sig_glme": sig_glme,
@@ -275,7 +277,7 @@ def _compute_cross_dwi_trend_agreement(
     if len(dwi_types_present) < 2:
         return 0, 0, 0.0
 
-    lmm = groups["Longitudinal_Mean_Metrics"]
+    lmm = groups["Longitudinal_Mean_Metrics"]  # type: ignore
     series_trends: dict[str, dict[str, str]] = {}
 
     for dt, r in lmm.items():
@@ -290,17 +292,17 @@ def _compute_cross_dwi_trend_agreement(
             if series and direction:
                 series_trends.setdefault(series, {})[dt] = direction
 
-    n_agree = 0
-    n_total = 0
+    n_agree: int = 0
+    n_total: int = 0
     for series, dt_dirs in series_trends.items():
         if len(dt_dirs) < 2:
             continue
         n_total += 1
         directions = list(dt_dirs.values())
         if len(set(directions)) == 1:
-            n_agree += 1
+            n_agree = int(n_agree + 1)  # type: ignore
 
-    pct = (100 * n_agree / n_total) if n_total > 0 else 0.0
+    pct = (100 * float(n_agree) / float(n_total)) if n_total > 0 else 0.0  # type: ignore
     return n_agree, n_total, pct
 
 
@@ -319,19 +321,19 @@ def _compute_all_groups_trend_agreement(
     if not groups or len(dwi_types_present) < 2:
         return 0, 0, 0.0
 
-    n_agree = 0
-    n_total_series = 0
+    n_agree: int = 0
+    n_total_series: int = 0
 
-    for base_name, dwi_dict in groups.items():
+    for base_name, dwi_dict in groups.items():  # type: ignore
         real = [t for t in dwi_dict if t != "Root"]
         if len(real) < 2:
             continue
         all_trends_dict: dict[str, list] = {}
         for dt_key in DWI_TYPES:
-            if dt_key in dwi_dict:
-                trends = _safe_json_load(dwi_dict[dt_key].get("trends_json", "[]"))
+            if dt_key in dwi_dict:  # type: ignore
+                trends = _safe_json_load(dwi_dict[dt_key].get("trends_json", "[]"))  # type: ignore
                 if trends:
-                    all_trends_dict[dt_key] = trends
+                    all_trends_dict[dt_key] = trends  # type: ignore
         if len(all_trends_dict) < 2:
             continue
         all_series: set[str] = set()
@@ -346,11 +348,11 @@ def _compute_all_groups_trend_agreement(
                     if isinstance(t, dict) and (t.get("series") or "overall") == series:
                         dirs[dt_key] = str(t.get("direction", ""))
             if len(dirs) >= 2:
-                n_total_series += 1
+                n_total_series = int(n_total_series + 1)  # type: ignore
                 if len(set(dirs.values())) == 1:
-                    n_agree += 1
+                    n_agree = int(n_agree + 1)  # type: ignore
 
-    pct = (100 * n_agree / n_total_series) if n_total_series > 0 else 0.0
+    pct = (100 * float(n_agree) / float(n_total_series)) if n_total_series > 0 else 0.0  # type: ignore
     return n_agree, n_total_series, pct
 
 
@@ -372,7 +374,7 @@ def _extract_longitudinal_trend_consensus(
     if not groups or "Longitudinal_Mean_Metrics" not in groups:
         return "unknown", "unknown", d_trends, f_trends
 
-    for dt, r in groups["Longitudinal_Mean_Metrics"].items():
+    for dt, r in groups["Longitudinal_Mean_Metrics"].items():  # type: ignore
         if dt == "Root":
             continue
         trends = _safe_json_load(r.get("trends_json", "[]"))
@@ -387,5 +389,5 @@ def _extract_longitudinal_trend_consensus(
                 f_trends.append(direction)
 
     # Use the same consensus logic as report_formatters._get_consensus
-    from report_formatters import _get_consensus
+    from report_formatters import _get_consensus  # type: ignore
     return _get_consensus(d_trends), _get_consensus(f_trends), d_trends, f_trends

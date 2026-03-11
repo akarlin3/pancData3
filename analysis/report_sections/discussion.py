@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import re
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
 )
-from report_formatters import (
+from report_formatters import (  # type: ignore
     _cite,
     _esc,
     _get_consensus,
@@ -64,12 +64,25 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
     h.append(
         "<p>Tumour core sub-volumes were identified using configurable delineation "
         "methods (default: ADC thresholding). Eleven methods were compared pairwise "
-        f"using Dice similarity coefficient{_cite('dice')} and Hausdorff distance, "
-        "including threshold-based "
-        "(ADC, D, D\u00b7f intersection), clustering-based (Otsu, GMM, k-means, spectral), "
-        "region-based (region growing, active contours), percentile-based, and functional "
-        "diffusion map (fDM) approaches.</p>"
+        f"using Dice similarity coefficient{_cite('dice')} and Hausdorff distance:</p>"
     )
+    h.append("<ul>")
+    core_method_descriptions = [
+        ("<code>adc_threshold</code>", "ADC voxel-level threshold (default &lt; 1.0\u00d710\u207b\u00b3 mm\u00b2/s); selects voxels with restricted diffusion."),
+        ("<code>d_threshold</code>", "Diffusion coefficient D threshold; isolates regions of genuinely low true diffusivity."),
+        ("<code>df_intersection</code>", "Voxels where both D is low AND f is high (hypercellular-perfused intersection); targets densely packed, well-perfused tumour regions."),
+        ("<code>otsu</code>", "Otsu\u2019s automatic bi-level thresholding applied to the ADC map; data-driven threshold selection without a fixed cutoff."),
+        ("<code>gmm</code>", "2-component Gaussian mixture model fitted to the ADC distribution; probabilistically assigns voxels to tumour core vs periphery."),
+        ("<code>kmeans</code>", "K-means clustering (k = 2) on ADC voxel values; partitions the tumour into two subregions."),
+        ("<code>region_growing</code>", "Seed-based region growing from the minimum ADC voxel; expands iteratively to include spatially adjacent restricted-diffusion voxels."),
+        ("<code>active_contours</code>", "Active contour (\u201csnake\u201d) segmentation; energy-minimising deformable boundary fitted to the ADC gradient."),
+        ("<code>percentile</code>", "Bottom-N-percentile of the ADC distribution within the GTV; defines a fixed proportion of the most restricted voxels as the core."),
+        ("<code>spectral</code>", "Spectral graph clustering on the voxel-level ADC similarity matrix; captures spatially coherent subregions based on diffusion texture."),
+        ("<code>fdm</code>", "Functional Diffusion Map (fDM); threshold on voxel-level ADC change between timepoints to identify progressively restricted subvolumes."),
+    ]
+    for method_code, method_desc in core_method_descriptions:
+        h.append(f"<li>{method_code}: {method_desc}</li>")
+    h.append("</ul>")
 
     # ── Group Comparisons ──
     h.append("<h3>Group Comparisons</h3>")
@@ -89,6 +102,14 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
         "for repeated measures. This approach tests whether the trajectory of each DWI metric "
         "differs significantly between outcome groups over time, while accounting for "
         "within-patient correlation.</p>"
+        "<p><strong>Full model specification:</strong></p>"
+        "<pre>log(parameter) ~ timepoint + outcome + timepoint\u00d7outcome + (1 | patient_id)</pre>"
+        "<p>where <em>timepoint</em> is a fixed-effect factor, "
+        "<em>outcome</em> \u2208 {local failure, local control} is the group variable, "
+        "and <em>patient_id</em> is the random intercept. "
+        "The interaction term tests whether the parameter trajectory over treatment differs "
+        "between outcome groups. "
+        "Estimation by maximum likelihood (ML); inference by likelihood ratio test.</p>"
     )
 
     # ── Multiple Comparisons ──
@@ -109,8 +130,8 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
         f"<p><strong>Elastic-net regularised logistic regression</strong>{_cite('elastic_net')} "
         "(mixing parameter "
         "\u03b1 = 0.5) was used for binary outcome prediction at each timepoint. "
-        "The optimal regularisation parameter (\u03bb) was selected via 5-fold "
-        "cross-validation with patient-stratified folds to prevent data leakage.",
+        "Hyperparameter \u03bb was selected by inner 5-fold cross-validation (CV) "
+        "minimizing binomial deviance, using patient-stratified folds to prevent data leakage.",
     ]
     # Check if LOOCV was used
     if log_data:
@@ -119,10 +140,11 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
                 roc = log_data[dt].get("stats_predictive", {}).get("roc_analyses", [])
                 if roc:
                     pred_text_parts.append(
-                        " Discriminative performance was evaluated using leave-one-out "
-                        "cross-validation (LOOCV) to generate unbiased out-of-fold risk "
-                        "scores, reported as area under the receiver operating "
-                        "characteristic curve (AUC)."
+                        " Outer leave-one-out cross-validation (LOOCV) was then applied to "
+                        "generate unbiased out-of-fold risk scores, avoiding optimistic bias "
+                        "from using the same data for model selection and performance estimation. "
+                        "Discriminative performance is reported as area under the receiver "
+                        "operating characteristic curve (AUC)."
                     )
                     break
     pred_text_parts.append(
@@ -131,6 +153,15 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
         "higher univariate AUC.</p>"
     )
     h.append("".join(pred_text_parts))
+
+    # ── Missing data ──
+    h.append("<h3>Missing Data Handling</h3>")
+    h.append(
+        "<p>Baseline missing values were imputed using k-nearest-neighbor (KNN) imputation "
+        "(k = 3 neighbours). To prevent data leakage, imputation was performed separately "
+        "for training and test folds, and future timepoint data were excluded from the "
+        "imputation reference set for each patient.</p>"
+    )
 
     # ── Survival Analysis ──
     h.append("<h3>Survival Analysis</h3>")
@@ -161,6 +192,15 @@ def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
         f"method was used as a bias-reduction technique{_cite('firth')}.</p>"
     )
     h.append(surv_text)
+
+    # ── Deep Learning Disclosure ──
+    h.append("<h3>Deep Learning Model Training Disclosure</h3>")
+    h.append(
+        "<p>DnCNN was pre-trained on a large corpus of natural images (ImageNet) and applied "
+        "to DWI without additional fine-tuning on pancreatic data. IVIMnet was trained on "
+        "synthetic IVIM data generated from biologically plausible parameter distributions. "
+        "Neither model was trained on data from this cohort, minimizing the risk of data leakage.</p>"
+    )
 
     # ── Data Quality Assurance ──
     h.append("<h3>Data Quality Assurance</h3>")
@@ -238,8 +278,8 @@ def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
     n_patients = 0
     if mat_data:
         for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+            if dt in mat_data and "longitudinal" in mat_data[dt]:  # type: ignore
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)  # type: ignore
                 if n > n_patients:
                     n_patients = n
 
@@ -313,6 +353,35 @@ def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
         "than confirmatory."
     )
 
+    limitations.append(
+        "<strong>Proportional hazards assumption:</strong> Proportional hazards assumption "
+        "was not formally tested; time-varying hazard ratios cannot be excluded."
+    )
+
+    limitations.append(
+        "<strong>KNN imputation quality:</strong> KNN imputation quality was not formally "
+        "validated; imputed values may not accurately represent missing observations for "
+        "patients with unusual trajectories."
+    )
+
+    limitations.append(
+        "<strong>Competing-risk model choice:</strong> Competing-risk analysis used "
+        "cause-specific Cox models with IPCW weighting; sub-distribution hazard ratios "
+        "(Fine\u2013Gray model) were not computed."
+    )
+
+    limitations.append(
+        "<strong>Core delineation validation:</strong> Core delineation methods were compared "
+        "on agreement (Dice/Hausdorff) rather than on ground-truth segmentation accuracy; "
+        "expert contour validation was not performed."
+    )
+
+    limitations.append(
+        "<strong>Vision-based graph analysis:</strong> Vision-based graph analysis via AI "
+        "introduces potential misclassification of figure content; all auto-extracted trends "
+        "and p-values should be verified against primary MATLAB log outputs."
+    )
+
     h.append('<ul class="limitation-list">')
     for lim in limitations:
         h.append(f"<li>{lim}</li>")
@@ -361,7 +430,7 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
         for dt in dwi_types_present:
             if dt in log_data:
                 sc = log_data[dt].get("stats_comparisons", {})
-                total_glme_sig += len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]])
+                total_glme_sig = int(total_glme_sig + len([g for g in sc.get("glme_details", []) if g["p"] < g["adj_alpha"]]))  # type: ignore
 
     if total_glme_sig > 0 or n_fdr > 0:
         parts = []
@@ -436,7 +505,7 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                         sig_covs.append((dt, hr_item.get("covariate", "?"),
                                          hr_item.get("hr", 1), hr_item.get("p", 1)))
     if sig_covs:
-        cov_list = ", ".join(f"{c[1]} (HR={c[2]:.2f}, p={c[3]:.3f})" for c in sig_covs[:3])
+        cov_list = ", ".join(f"{c[1]} (HR={c[2]:.2f}, p={c[3]:.3f})" for c in sig_covs[:3])  # type: ignore
         findings.append(
             f"Cause-specific Cox regression identified significant prognostic "
             f"covariates: {cov_list}."
@@ -470,11 +539,11 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                             if isinstance(t, dict) and (t.get("series") or "overall") == series:
                                 directions[dt_key] = str(t.get("direction", ""))
                     if len(directions) >= 2:
-                        n_total += 1
+                        n_total = int(n_total + 1)  # type: ignore
                         if len(set(directions.values())) == 1:
-                            n_agree += 1
+                            n_agree = int(n_agree + 1)  # type: ignore
         if n_total > 0:
-            pct = 100 * n_agree / n_total
+            pct = 100 * float(n_agree) / float(n_total)  # type: ignore
             findings.append(
                 f"Cross-DWI-type trend agreement is {pct:.0f}% ({n_agree}/{n_total} "
                 f"series), {'supporting' if pct >= 70 else 'suggesting limited'} "
@@ -512,12 +581,12 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                 off_diag = []
                 for i in range(n):
                     for j in range(i + 1, n):
-                        if i < len(matrix) and j < len(matrix[i]):
-                            val = matrix[i][j]
+                        if i < len(matrix) and j < len(matrix[i]):  # type: ignore
+                            val = matrix[i][j]  # type: ignore
                             if isinstance(val, (int, float)) and val > 0:
                                 off_diag.append(val)
                 if off_diag:
-                    avg_dice = sum(off_diag) / len(off_diag)
+                    avg_dice = sum(off_diag) / len(off_diag)  # type: ignore
                     findings.append(
                         f"Tumour core delineation across {n} methods shows "
                         f"{'moderate' if avg_dice < 0.7 else 'good'} spatial "
@@ -802,8 +871,8 @@ def _section_journal_guide(log_data, dwi_types_present, mat_data) -> list[str]:
     n_patients = 0
     if mat_data:
         for dt in DWI_TYPES:
-            if dt in mat_data and "longitudinal" in mat_data[dt]:
-                n = mat_data[dt]["longitudinal"].get("num_patients", 0)
+            if dt in mat_data and "longitudinal" in mat_data[dt]:  # type: ignore
+                n = mat_data[dt]["longitudinal"].get("num_patients", 0)  # type: ignore
                 if n > n_patients:
                     n_patients = n
 

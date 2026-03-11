@@ -88,11 +88,19 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     total_sig = stats["total_sig"]
     total_hrs = stats["total_hrs"]
     sig_hrs = stats["sig_hrs"]
-    for dt_label, auc_val in stats["auc_cards"]:
-        cards.append(_stat_card(f"Best AUC ({dt_label})", f"{auc_val:.3f}"))
+    for dt_label, auc_val, auc_tp in stats["auc_cards"]:
+        if auc_val >= 0.80:
+            disc_label = "excellent discrimination"
+        elif auc_val >= 0.70:
+            disc_label = "acceptable discrimination"
+        else:
+            disc_label = "limited discrimination"
+        tp_str = f"{dt_label} / {auc_tp} \u2014 {disc_label}" if auc_tp else f"{dt_label} \u2014 {disc_label}"
+        cards.append(_stat_card(f"Best AUC ({dt_label})", f"{auc_val:.3f}", tp_str))
 
     if total_sig > 0:
-        cards.append(_stat_card("GLME Sig. Interactions", str(total_sig), "across all DWI types"))
+        cards.append(_stat_card("GLME Sig. Interactions", str(total_sig),
+                                "significant interactions (direction not parsed from logs; see Effect Sizes section)"))
 
     if csv_data and csv_data.get("significant_metrics"):
         n_csv_sig = sum(len(v) for v in csv_data["significant_metrics"].values())
@@ -101,7 +109,14 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     if csv_data and csv_data.get("fdr_global"):
         n_fdr = sum(len(v) for v in csv_data["fdr_global"].values())
         if n_fdr > 0:
-            cards.append(_stat_card("FDR-Surviving", str(n_fdr), "metrics after BH correction"))
+            # Build per-DWI breakdown for subtitle
+            per_dwi_parts = []
+            for dt in dwi_types_present:
+                dt_fdr = csv_data["fdr_global"].get(dt, [])
+                if dt_fdr:
+                    per_dwi_parts.append(f"{dt}: {len(dt_fdr)}")
+            fdr_subtitle = " | ".join(per_dwi_parts) if per_dwi_parts else "metrics after BH correction"
+            cards.append(_stat_card("FDR-Surviving", str(n_fdr), fdr_subtitle))
 
     if total_hrs > 0:
         cards.append(_stat_card("Hazard Ratios", f"{sig_hrs}/{total_hrs}", "significant covariates"))
@@ -716,11 +731,31 @@ def _section_hypothesis(groups, log_data=None, mat_data=None) -> list[str]:
                  "<em>These suggestions are hypothesis-generating and should "
                  "be reviewed by the treating physician in the context of the "
                  "individual patient's clinical picture.</em></p>")
+        h.append(
+            '<div class="info-box"><strong>Recommendation confidence framework:</strong> '
+            "Recommendations below are ordered by confidence level: "
+            "(1) <strong>High confidence</strong> \u2014 supported by statistically significant "
+            "findings in \u22652 DWI types; "
+            "(2) <strong>Moderate</strong> \u2014 significant in 1 DWI type only or borderline FDR; "
+            "(3) <strong>Exploratory</strong> \u2014 based on trends only, not statistically significant.</div>"
+        )
         h.append("<ul>")
         for pt in plan_points:
             h.append(f"<li>{pt}</li>")
         h.append("</ul>")
         h.append("</div>")
+        h.append(
+            '<div class="warn-box">'
+            "<strong>\u26a0 Research Use Only:</strong> This treatment plan is exploratory, "
+            "generated automatically from a single-centre retrospective cohort. It has not been "
+            "validated in prospective trials. Clinical implementation requires: "
+            "(1) independent prospective validation, "
+            "(2) multidisciplinary review including radiation oncology and medical physics, "
+            "(3) assessment of normal tissue dose limits and toxicity, and "
+            "(4) institutional ethics approval. "
+            "Do not apply these recommendations to patient care without formal clinical validation."
+            "</div>"
+        )
 
     h.append("</div>")
     return h

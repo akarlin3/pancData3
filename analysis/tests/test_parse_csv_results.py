@@ -13,9 +13,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore
 
-from parse_csv_results import (
+from parse_csv_results import (  # type: ignore
     _read_csv,
     cross_reference_significance,
     parse_all_csvs,
@@ -145,10 +145,11 @@ class TestCrossReferenceSignificance:
             ],
         }
         result = cross_reference_significance(sig)
+        # Timepoints are normalised to lowercase, so "BL" → "bl", "W2" → "w2".
         by_key = {f"{r['metric']}@{r['timepoint']}": r for r in result}
 
-        assert by_key["mean_adc@BL"]["consistent"] is True
-        assert by_key["mean_d@W2"]["consistent"] is False
+        assert by_key["mean_adc@bl"]["consistent"] is True
+        assert by_key["mean_d@w2"]["consistent"] is False
 
     def test_empty_input(self):
         """No DWI types at all yields an empty cross-reference list."""

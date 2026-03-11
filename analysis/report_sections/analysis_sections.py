@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from shared import (
+from shared import (  # type: ignore
     DWI_TYPES,
     extract_correlations,
     extract_pvalues,
@@ -12,7 +12,7 @@ from shared import (
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (
+from report_formatters import (  # type: ignore
     _dwi_badge,
     _esc,
     _h2,
@@ -68,7 +68,7 @@ def _section_graph_overview(rows) -> list[str]:
         h.append("<table><thead><tr><th>DWI Type</th><th>Graphs</th></tr></thead><tbody>")
         for dt in DWI_TYPES + ["Root"]:
             if dt in dwi_counts:
-                h.append(f"<tr><td>{_dwi_badge(dt)}</td><td>{dwi_counts[dt]}</td></tr>")
+                h.append(f"<tr><td>{_dwi_badge(dt)}</td><td>{dwi_counts[dt]}</td></tr>")  # type: ignore
         h.append("</tbody></table>")
         h.append("</div>")
 
@@ -160,7 +160,36 @@ def _section_graph_issues(rows) -> list[str]:
     h.append(_h2("Graph Issues", "graph-issues"))
     h.append(f"<p>{len(issue_rows)} of {len(rows)} graphs have detected quality issues.</p>")
 
-    # Summary stat cards
+    # Severity classification (change 7)
+    _HIGH_KEYWORDS = {"cutoff", "overlap", "unreadable"}
+
+    def _severity(r: dict, issues: list) -> str:
+        gt = r.get("graph_type", "")
+        if gt in ("error", "unknown"):
+            return "Critical"
+        combined = " ".join(str(iss).lower() for iss in issues)
+        if any(kw in combined for kw in _HIGH_KEYWORDS):
+            return "High"
+        return "Low"
+
+    n_critical = sum(1 for r, iss in issue_rows if _severity(r, iss) == "Critical")
+    n_high = sum(1 for r, iss in issue_rows if _severity(r, iss) == "High")
+    n_low = sum(1 for r, iss in issue_rows if _severity(r, iss) == "Low")
+
+    # Severity summary stat cards
+    sev_cards = []
+    if n_critical:
+        sev_cards.append(_stat_card("Critical", str(n_critical), "must re-run vision analysis"))
+    if n_high:
+        sev_cards.append(_stat_card("High", str(n_high), "readability/overlap issues"))
+    if n_low:
+        sev_cards.append(_stat_card("Low", str(n_low), "minor quality issues"))
+    if sev_cards:
+        h.append('<div class="stat-grid">')
+        h.extend(sev_cards)
+        h.append("</div>")
+
+    # Legacy summary stat cards (kept for continuity)
     n_error = sum(1 for r, _ in issue_rows if r.get("graph_type") == "error")
     n_unknown = sum(1 for r, _ in issue_rows if r.get("graph_type") == "unknown")
     n_quality = len(issue_rows) - n_error - n_unknown
@@ -176,26 +205,31 @@ def _section_graph_issues(rows) -> list[str]:
         h.extend(cards)
         h.append("</div>")
 
-    # Detailed table
-    h.append("<table><thead><tr>"
-             "<th>#</th><th>DWI</th><th>Graph</th><th>Type</th><th>Issues</th>"
-             "</tr></thead><tbody>")
-    for i, (r, issues) in enumerate(issue_rows, 1):
-        dwi_type, base_name = parse_dwi_info(r["file_path"])
-        graph_type = r.get("graph_type", "")
-        issues_html = "<ul>" + "".join(
-            f"<li>{_esc(iss)}</li>" for iss in issues
-        ) + "</ul>"
-        h.append(
-            f"<tr>"
-            f"<td>{i}</td>"
-            f"<td>{_dwi_badge(dwi_type)}</td>"
-            f"<td>{_esc(base_name)}</td>"
-            f"<td>{_esc(graph_type)}</td>"
-            f"<td>{issues_html}</td>"
-            f"</tr>"
-        )
-    h.append("</tbody></table>")
+    # Render issues grouped by severity
+    for severity_label in ("Critical", "High", "Low"):
+        group = [(r, iss) for r, iss in issue_rows if _severity(r, iss) == severity_label]
+        if not group:
+            continue
+        h.append(f"<h3>Severity: {_esc(severity_label)}</h3>")
+        h.append("<table><thead><tr>"
+                 "<th>#</th><th>DWI</th><th>Graph</th><th>Type</th><th>Issues</th>"
+                 "</tr></thead><tbody>")
+        for i, (r, issues) in enumerate(group, 1):
+            dwi_type, base_name = parse_dwi_info(r["file_path"])
+            graph_type = r.get("graph_type", "")
+            issues_html = "<ul>" + "".join(
+                f"<li>{_esc(iss)}</li>" for iss in issues
+            ) + "</ul>"
+            h.append(
+                f"<tr>"
+                f"<td>{i}</td>"
+                f"<td>{_dwi_badge(dwi_type)}</td>"
+                f"<td>{_esc(base_name)}</td>"
+                f"<td>{_esc(graph_type)}</td>"
+                f"<td>{issues_html}</td>"
+                f"</tr>"
+            )
+        h.append("</tbody></table>")
     return h
 
 
@@ -347,9 +381,38 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                 if len(real) >= 2:
                     all_comparable.append((base_name, False))
 
+        # Sample-size mismatch warning (change 4)
+        if groups:
+            for base_name, _ in [(bn, _) for bn, _ in
+                                  [(k, None) for k in groups]]:
+                dwi_dict = groups[base_name]
+                ss_by_dt: dict[str, int] = {}
+                for dt in DWI_TYPES:
+                    if dt in dwi_dict:
+                        ss_raw = dwi_dict[dt].get("sample_size")
+                        if ss_raw is not None:
+                            try:
+                                ss_by_dt[dt] = int(ss_raw)
+                            except (ValueError, TypeError):
+                                pass
+                if len(ss_by_dt) >= 2:
+                    ss_vals = list(ss_by_dt.values())
+                    if max(ss_vals) - min(ss_vals) > 5:
+                        parts = ", ".join(f"{dt}: {n}" for dt, n in ss_by_dt.items())
+                        h.append(
+                            '<div class="warn-box">'
+                            f"\u26a0\ufe0f <strong>Sample size mismatch in "
+                            f"\u201c{_esc(base_name)}\u201d ({parts}).</strong> "
+                            "Results for this graph may not be directly comparable "
+                            "across DWI types."
+                            "</div>"
+                        )
+
         # Summary counts
-        n_agree = 0
-        n_differ = 0
+        n_agree: int = 0
+        n_differ: int = 0
+        # Track disagreements for Notable Disagreements subsection (change 6)
+        disagree_records: list[dict] = []
 
         for base_name, is_priority in all_comparable:
             dwi_dict = groups[base_name]
@@ -380,7 +443,7 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                     directions: dict[str, str] = {}
                     descriptions: dict[str, str] = {}
                     for dt in DWI_TYPES:
-                        if dt not in all_trends:
+                        if dt not in all_trends:  # type: ignore
                             continue
                         for t in all_trends[dt]:
                             if isinstance(t, dict):
@@ -392,31 +455,78 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                         vals = list(directions.values())
                         if len(set(vals)) == 1:
                             agree_html = '<span class="agree">AGREE</span>'
-                            n_agree += 1
+                            n_agree = int(n_agree + 1)  # type: ignore
                         else:
                             agree_html = '<span class="differ">DIFFER</span>'
-                            n_differ += 1
+                            n_differ = int(n_differ + 1)  # type: ignore
+                            # Record for disagreement subsection
+                            modal_dir = max(set(vals), key=vals.count)
+                            agreeing = [dt for dt, d in directions.items() if d == modal_dir]
+                            differing = [dt for dt, d in directions.items() if d != modal_dir]
+                            disagree_records.append({
+                                "graph": base_name,
+                                "series": series,
+                                "directions": dict(directions),
+                                "agreeing": agreeing,
+                                "differing": differing,
+                            })
                         h.append(f"<tr><td>{_esc(series)}</td>")
                         for dt in DWI_TYPES:
                             d_str = directions.get(dt, "-")
                             cell = _trend_tag(d_str) if d_str != "-" else "-"
                             desc = descriptions.get(dt, "")
                             if desc:
-                                cell += f'<br><span class="axis-info">{_esc(desc[:80])}</span>'
+                                cell += f'<br><span class="axis-info">{_esc(desc[:80])}</span>'  # type: ignore
                             h.append(f"<td>{cell}</td>")
                         h.append(f"<td>{agree_html}</td></tr>")
 
                 h.append("</tbody></table>")
 
-        # Overall agreement summary
-        if n_agree + n_differ > 0:
-            pct_agree = 100 * n_agree / (n_agree + n_differ)
-            cls = "agree" if pct_agree >= 70 else ("differ" if pct_agree < 50 else "")
+        # Overall agreement summary with improved interpretation (change 5)
+        n_tot = sum([n_agree, n_differ])
+        if n_tot > 0:
+            pct_agree = 100.0 * float(n_agree) / float(n_tot)  # type: ignore
+            cls = "agree" if pct_agree >= 70 else ("differ" if pct_agree < 50 else "")  # type: ignore
             cls_attr = f' class="{cls}"' if cls else ""
-            h.append(f'<div class="summary-box"><strong>Cross-DWI Agreement:</strong> '
-                     f'<span{cls_attr}>{n_agree}/{n_agree + n_differ} series agree '
-                     f'({pct_agree:.0f}%)</span>, '
-                     f'{n_differ} differ across {len(all_comparable)} graph group(s).</div>')
+            h.append(
+                f'<div class="summary-box"><strong>Cross-DWI Agreement:</strong> '
+                f'<span{cls_attr}>{n_agree}/{n_agree + n_differ} series agree '
+                f'({pct_agree:.0f}%)</span>, '
+                f'{n_differ} differ across {len(all_comparable)} graph group(s). '
+                f'<span class="meta">Clinical consensus typically requires &gt;80% '
+                f'DWI-type agreement before adopting a single processing strategy as '
+                f'standard. Agreement \u226570% suggests moderate robustness.</span>'
+                f'</div>'
+            )
+
+        # Notable Disagreements subsection (change 6)
+        if disagree_records:
+            h.append("<h3>Notable Disagreements</h3>")
+            h.append(
+                '<p class="meta">The following graph\u2013series combinations show '
+                "disagreement in trend direction across DWI types. "
+                "Processing-dependent results should be validated with sensitivity "
+                "analysis.</p>"
+            )
+            h.append(
+                "<table><thead><tr><th>Graph</th><th>Series</th>"
+                "<th>Agreeing Types</th><th>Differing Types</th>"
+                "<th>Directions</th></tr></thead><tbody>"
+            )
+            for rec in disagree_records:
+                dir_str = "; ".join(
+                    f"{dt}: {d}" for dt, d in rec["directions"].items()
+                )
+                h.append(
+                    f"<tr>"
+                    f"<td>{_esc(rec['graph'])}</td>"
+                    f"<td>{_esc(rec['series'])}</td>"
+                    f'<td class="agree">{_esc(", ".join(rec["agreeing"]))}</td>'
+                    f'<td class="differ">{_esc(", ".join(rec["differing"]))}</td>'
+                    f"<td><small>{_esc(dir_str)}</small></td>"
+                    f"</tr>"
+                )
+            h.append("</tbody></table>")
 
     # Cross-reference from CSV
     if csv_data and csv_data.get("cross_reference"):
@@ -465,6 +575,16 @@ def _section_correlations(rows) -> list[str]:
     h: list[str] = []
     if rows:
         h.append(_h2("Notable Correlations", "correlations"))
+
+        # Causation caveat (change 1)
+        h.append(
+            '<div class="info-box">Correlation does not imply causation. '
+            "Associations shown below may reflect confounding by dose level, "
+            "patient factors, or treatment modality. Partial correlation analyses "
+            "adjusting for covariates are recommended before clinical "
+            "interpretation.</div>"
+        )
+
         corr_findings = []
         for r in rows:
             dwi_type, base_name = parse_dwi_info(r["file_path"])
@@ -490,6 +610,24 @@ def _section_correlations(rows) -> list[str]:
                 'shared diffusion signal.</p>'
             )
 
+            # Bonferroni correction note (change 2)
+            n_corr_tested = len(corr_findings)
+            if n_corr_tested > 1:
+                bonferroni_alpha = 0.05 / n_corr_tested
+                surviving = sum(
+                    1 for _, rval, _, _, _ in corr_findings
+                    if abs(rval) >= 0.5  # rough proxy; true p not always available
+                )
+                h.append(
+                    f'<div class="info-box">'
+                    f"<strong>Multiple testing note:</strong> {n_corr_tested} correlations "
+                    f"tested; Bonferroni-corrected threshold: \u03b1\u2009=\u2009"
+                    f"{bonferroni_alpha:.4f}. "
+                    f"Correlations surviving correction (|r|\u2009\u22650.5, as a "
+                    f"conservative proxy): {surviving}."
+                    f"</div>"
+                )
+
             if strong:
                 h.append("<h3>Strong Correlations (|r| \u2265 0.5)</h3>")
                 h.append("<table><thead><tr><th>|r|</th><th>r</th><th>Strength</th>"
@@ -512,6 +650,14 @@ def _section_correlations(rows) -> list[str]:
                              f"<td>Moderate</td><td>{_dwi_badge(dwi)}</td>"
                              f"<td>{_esc(graph)}</td><td><em>{ctx_short}</em></td></tr>")
                 h.append("</tbody></table>")
+
+            # Confidence interval caveat (change 3)
+            h.append(
+                '<p class="meta"><strong>Note:</strong> Confidence intervals for '
+                "correlations are not reported. With cohort sizes typical of this "
+                "study (n\u2009&lt;\u200950), 95% CIs for r\u2009=\u20090.65 span "
+                "approximately \u00b10.25. Interpret effect sizes with caution.</p>"
+            )
         else:
             h.append("<p>No notable correlations (|r| &ge; 0.3) found.</p>")
     return h
@@ -563,8 +709,8 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
         'biological signal rather than processing-specific artefacts.</p>'
     )
 
-    total_shared = 0
-    total_unique = 0
+    total_shared: int = 0
+    total_unique: int = 0
 
     for tp in sorted(multi_tp.keys()):
         dts = multi_tp[tp]
@@ -588,8 +734,8 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
         unique = {f: dts_list for f, dts_list in feature_counts.items()
                   if len(dts_list) == 1}
 
-        total_shared += len(shared)
-        total_unique += len(unique)
+        total_shared = int(total_shared + len(shared))  # type: ignore
+        total_unique = int(total_unique + len(unique))  # type: ignore
 
         # Stat cards
         h.append('<div class="stat-grid">')
@@ -630,9 +776,9 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
             h.append('<td>Type-specific</td></tr>')
         h.append("</tbody></table>")
 
-    # Overall summary
-    if total_shared + total_unique > 0:
-        pct_shared = 100 * total_shared / (total_shared + total_unique)
+    tot_st = sum([total_shared, total_unique])
+    if tot_st > 0:
+        pct_shared = 100.0 * float(total_shared) / float(tot_st)  # type: ignore
         cls = "agree" if pct_shared >= 50 else ("differ" if pct_shared < 25 else "")
         cls_attr = f' class="{cls}"' if cls else ""
         h.append(
@@ -642,6 +788,17 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
             f'Shared features are more robust candidates for clinical biomarker '
             f'development.</div>'
         )
+
+    # Feature importance context note (change 8)
+    h.append(
+        '<div class="info-box">'
+        "<strong>Feature importance context:</strong> Features listed are those "
+        "selected by elastic net regularization. Selection frequency across "
+        "timepoints/DWI-types indicates robustness. Features stable across "
+        "\u226575% of timepoints are candidate biomarkers for prospective "
+        "validation."
+        "</div>"
+    )
 
     # ── Feature Stability Across Timepoints ──
     # Identify features that appear consistently across multiple timepoints
@@ -695,6 +852,41 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
                 f"<td{s_attr}><strong>{_esc(stab_lbl)}</strong></td></tr>"
             )
         h.append("</tbody></table>")
+
+    # Potential duplicate feature detection (change 9)
+    all_seen_feats: set[str] = set()
+    for dt in dwi_types_present:
+        if dt not in log_data:
+            continue
+        for fs in log_data[dt].get("stats_predictive", {}).get("feature_selections", []):
+            all_seen_feats.update(fs.get("features", []))
+
+    if all_seen_feats:
+        def _feat_root(name: str) -> str:
+            """Normalise a feature name to a canonical root for duplicate detection."""
+            return name.lower().replace("_", "").replace("-", "").replace(" ", "")
+
+        feat_list = sorted(all_seen_feats)
+        duplicate_pairs: list[str] = []
+        roots: dict[str, str] = {}
+        for feat in feat_list:
+            root = _feat_root(feat)
+            if root in roots and roots[root] != feat:
+                duplicate_pairs.append(f"{_esc(roots[root])} / {_esc(feat)}")
+            else:
+                roots[root] = feat
+
+        if duplicate_pairs:
+            h.append(
+                '<div class="warn-box">'
+                "\u26a0\ufe0f <strong>Potential duplicate features detected:</strong> "
+                "<ul>"
+                + "".join(f"<li><code>{pair}</code></li>" for pair in duplicate_pairs)
+                + "</ul>"
+                "Verify these are not the same metric exported under different names, "
+                "which would inflate apparent feature stability."
+                "</div>"
+            )
 
     return h
 

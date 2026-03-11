@@ -43,10 +43,11 @@ setup_utf8_stdout()
 
 # ----- metrics_stats_comparisons -----
 
-# Matches: "Interaction P-Value (LF vs LC): 0.0234"
-# Captures the numeric p-value (group 1), supporting scientific notation.
+# Matches: "Interaction P-Value (LF vs LC): 0.0234" or "... Inf" / "... NaN"
+# Captures the numeric p-value or special float word (group 1).
 RE_GLME_INTERACTION = re.compile(
-    r"Interaction P-Value.*?:\s*([0-9.]+(?:e[+-]?\d+)?)", re.IGNORECASE
+    r"Interaction P-Value.*?:\s*([0-9.]+(?:e[+-]?\d+)?|Inf|NaN|inf|nan)",
+    re.IGNORECASE,
 )
 
 # Matches: "Mean_ADC: p=0.0012, adj_alpha=0.0250"
@@ -71,10 +72,12 @@ RE_GLME_EXCLUDED = re.compile(
 # ----- metrics_stats_predictive -----
 
 # Matches: "Elastic Net Selected Features for Fx10 (Opt Lambda=0.0523): feat1, feat2"
+# Lambda also accepts Inf/NaN for degenerate cases.
 # Captures timepoint (group 1), optimal lambda (group 2), and comma-separated
 # feature names (group 3).
 RE_ELASTIC_NET = re.compile(
-    r"Elastic Net Selected Features for (\S+)\s+\(Opt Lambda=([0-9.]+)\):\s+(.*)"
+    r"Elastic Net Selected Features for (\S+)\s+\(Opt Lambda=([0-9.]+(?:e[+-]?\d+)?|Inf|NaN)\):\s+(.*)",
+    re.IGNORECASE,
 )
 
 # Matches: "Firth refit successful for Fx5 (3 features)"
@@ -85,8 +88,8 @@ RE_FIRTH = re.compile(r"Firth refit successful for (\S+)\s+\((\d+) features\)")
 # Captures the timepoint label (group 1); used to delimit ROC blocks.
 RE_ROC_HEADER = re.compile(r"PRIMARY ROC ANALYSIS.*for (\S+)")
 
-# Matches: "AUC = 0.843"
-RE_AUC = re.compile(r"AUC\s*=\s*([0-9.]+)")
+# Matches: "AUC = 0.843" (also Inf/NaN for edge cases)
+RE_AUC = re.compile(r"AUC\s*=\s*([0-9.]+(?:e[+-]?\d+)?|Inf|NaN)", re.IGNORECASE)
 
 # Matches: "Youden Optimal Score Cutoff = 0.512"
 RE_YOUDEN = re.compile(r"Youden Optimal Score Cutoff\s*=\s*([0-9.]+)")
@@ -215,10 +218,34 @@ def _read_log(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def _parse_float(s: str) -> float:
+    """Convert a string to float, handling ``Inf`` and ``NaN`` spellings.
+
+    Parameters
+    ----------
+    s : str
+        Numeric string, optionally ``"Inf"``, ``"inf"``, ``"NaN"``, or
+        ``"nan"`` (case-insensitive).
+
+    Returns
+    -------
+    float
+        Parsed value including ``float('inf')`` or ``float('nan')``.
+    """
+    lower = s.lower()
+    if lower in ("inf", "+inf"):
+        return float("inf")
+    if lower in ("-inf",):
+        return float("-inf")
+    if lower == "nan":
+        return float("nan")
+    return float(s)
+
+
 # ── Per-module parsers ───────────────────────────────────────────────────────
 
 
-def parse_stats_comparisons(text: str) -> dict:
+def parse_stats_comparisons(text: str, log_path: str = "") -> dict:
     """Parse ``metrics_stats_comparisons`` log output.
 
     Extracts GLME interaction p-values, per-metric detail rows (with
@@ -229,30 +256,42 @@ def parse_stats_comparisons(text: str) -> dict:
     ----------
     text : str
         Full text of the ``metrics_stats_comparisons_output_*.txt`` log.
+    log_path : str, optional
+        Path of the log file being parsed, used in parse-failure warning
+        messages so callers can identify which file had no matches.
 
     Returns
     -------
     dict
         Keys: ``glme_interactions``, ``glme_details``, ``fdr_timepoints``,
-        ``glme_excluded``.
+        ``glme_excluded``, ``parse_warnings``.
     """
-    result = {
+    result: dict = {
         "glme_interactions": [],
         "glme_details": [],
         "fdr_timepoints": [],
         "glme_excluded": None,
+        "parse_warnings": [],
     }
 
     # Collect raw interaction p-values (one per GLME model).
     for m in RE_GLME_INTERACTION.finditer(text):
-        result["glme_interactions"].append(float(m.group(1)))  # type: ignore
+        result["glme_interactions"].append(_parse_float(m.group(1)))  # type: ignore
+
+    # Warn when a log file exists but yields no GLME interaction matches —
+    # this typically indicates the log format has changed.
+    if text and not result["glme_interactions"]:
+        label = log_path or "metrics_stats_comparisons log"
+        result["parse_warnings"].append(
+            f"GLME interaction p-values not found in {label} (format may have changed)"
+        )
 
     # Collect per-metric detail rows with raw p and adjusted alpha.
     for m in RE_GLME_DETAIL.finditer(text):
         result["glme_details"].append({  # type: ignore
             "metric": m.group(1).strip(),
-            "p": float(m.group(2)),
-            "adj_alpha": float(m.group(3)),
+            "p": _parse_float(m.group(2)),
+            "adj_alpha": _parse_float(m.group(3)),
         })
 
     # Collect per-timepoint FDR significance counts.
@@ -262,13 +301,28 @@ def parse_stats_comparisons(text: str) -> dict:
             "n_significant": int(m.group(2)),
         })
 
+    if text and not result["fdr_timepoints"]:
+        label = log_path or "metrics_stats_comparisons log"
+        result["parse_warnings"].append(
+            f"FDR timepoint counts not found in {label} (format may have changed)"
+        )
+
     # Competing-risk exclusion line (appears at most once).
     m = RE_GLME_EXCLUDED.search(text)
     if m:
+        n_excluded = int(m.group(1))
+        n_total = int(m.group(2))
+        pct = float(m.group(3))
+        # Validate that exclusion count does not exceed total.
+        if n_excluded > n_total:
+            label = log_path or "metrics_stats_comparisons log"
+            result["parse_warnings"].append(
+                f"Competing-risk exclusion count {n_excluded} > total {n_total} in {label}"
+            )
         result["glme_excluded"] = {  # type: ignore
-            "n_excluded": int(m.group(1)),
-            "n_total": int(m.group(2)),
-            "pct": float(m.group(3)),
+            "n_excluded": n_excluded,
+            "n_total": n_total,
+            "pct": pct,
         }
 
     return result
@@ -319,10 +373,10 @@ def parse_stats_predictive(text: str) -> dict:
         entry = {"timepoint": hdr.group(1)}
         m = RE_AUC.search(block)
         if m:
-            entry["auc"] = float(m.group(1))
+            entry["auc"] = _parse_float(m.group(1))
         m = RE_YOUDEN.search(block)
         if m:
-            entry["youden_cutoff"] = float(m.group(1))
+            entry["youden_cutoff"] = _parse_float(m.group(1))
         m = RE_SENS_SPEC.search(block)
         if m:
             entry["sensitivity"] = float(m.group(1))
@@ -332,7 +386,7 @@ def parse_stats_predictive(text: str) -> dict:
     return result
 
 
-def parse_survival(text: str) -> dict:
+def parse_survival(text: str, log_path: str = "") -> dict:
     """Parse ``metrics_survival`` log output.
 
     Extracts Cox proportional-hazards table rows (covariate, HR, 95% CI,
@@ -342,13 +396,20 @@ def parse_survival(text: str) -> dict:
     ----------
     text : str
         Full text of the ``metrics_survival_output_*.txt`` log.
+    log_path : str, optional
+        Path of the log file, used in parse-failure warning messages.
 
     Returns
     -------
     dict
-        Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``.
+        Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``, ``parse_warnings``.
     """
-    result = {"hazard_ratios": [], "global_lrt": None, "ipcw": None}
+    result: dict = {
+        "hazard_ratios": [],
+        "global_lrt": None,
+        "ipcw": None,
+        "parse_warnings": [],
+    }
 
     # Parse whitespace-delimited Cox PH table rows.
     for m in RE_HR_ROW.finditer(text):
@@ -372,15 +433,29 @@ def parse_survival(text: str) -> dict:
     # IPCW (Inverse Probability of Censoring Weighting) range.
     m = RE_IPCW_WEIGHTS.search(text)
     if m:
+        w_min = float(m.group(1))
+        w_max = float(m.group(2))
+        # Compute range ratio: how much weights vary.  A ratio > 5 suggests
+        # extreme censoring imbalance and warrants a warning.
+        range_ratio: float | None = None
+        if w_min > 0:
+            range_ratio = float(f"{w_max / w_min:.4f}")  # type: ignore
+            if range_ratio > 5:
+                label = log_path or "metrics_survival log"
+                result["parse_warnings"].append(
+                    f"IPCW weight range ratio {range_ratio:.2f} > 5 in {label}; "
+                    "extreme censoring imbalance suspected"
+                )
         result["ipcw"] = {  # type: ignore
-            "min_weight": float(m.group(1)),
-            "max_weight": float(m.group(2)),
+            "min_weight": w_min,
+            "max_weight": w_max,
+            "weight_range_ratio": range_ratio,
         }
 
     return result
 
 
-def parse_baseline(text: str) -> dict:
+def parse_baseline(text: str, log_path: str = "") -> dict:
     """Parse ``metrics_baseline`` log output.
 
     Extracts per-metric outlier flags with outcome breakdown (LF/LC/CR),
@@ -391,23 +466,44 @@ def parse_baseline(text: str) -> dict:
     ----------
     text : str
         Full text of the ``metrics_baseline_output_*.txt`` log.
+    log_path : str, optional
+        Path of the log file, used in parse-failure warning messages.
 
     Returns
     -------
     dict
-        Keys: ``outlier_flags``, ``total_outliers``, ``baseline_exclusion``.
+        Keys: ``outlier_flags``, ``total_outliers``, ``baseline_exclusion``,
+        ``parse_warnings``.
     """
-    result = {"outlier_flags": [], "total_outliers": None, "baseline_exclusion": None}
+    result: dict = {
+        "outlier_flags": [],
+        "total_outliers": None,
+        "baseline_exclusion": None,
+        "parse_warnings": [],
+    }
 
     # Per-metric outlier flags with LF/LC/CR breakdown.
     for m in RE_OUTLIER_FLAG.finditer(text):
-        result["outlier_flags"].append({  # type: ignore
+        n_flagged = int(m.group(2))
+        n_lf = int(m.group(3))
+        n_lc = int(m.group(4))
+        n_cr = int(m.group(5))
+        flag_entry: dict = {
             "metric": m.group(1),
-            "n_flagged": int(m.group(2)),
-            "n_lf": int(m.group(3)),
-            "n_lc": int(m.group(4)),
-            "n_cr": int(m.group(5)),
-        })
+            "n_flagged": n_flagged,
+            "n_lf": n_lf,
+            "n_lc": n_lc,
+            "n_cr": n_cr,
+        }
+        # Validate that per-group breakdown doesn't exceed the reported total.
+        group_sum = n_lf + n_lc + n_cr
+        if group_sum > n_flagged:
+            label = log_path or "metrics_baseline log"
+            result["parse_warnings"].append(
+                f"Outlier group sum ({n_lf}+{n_lc}+{n_cr}={group_sum}) "
+                f"> n_flagged ({n_flagged}) for metric '{m.group(1)}' in {label}"
+            )
+        result["outlier_flags"].append(flag_entry)  # type: ignore
 
     # Aggregate outlier removal line.
     m = RE_TOTAL_OUTLIERS.search(text)
@@ -556,18 +652,25 @@ def parse_all_logs(folder: Path) -> dict:
 
         # Each log file follows the naming convention:
         #   <module_name>_output_<DWI_type>.txt
+        # Pass the file path string to parsers so parse-failure warnings
+        # include a useful location for debugging.
+        sc_path = dwi_dir / f"metrics_stats_comparisons_output_{dwi_type}.txt"
+        sp_path = dwi_dir / f"metrics_stats_predictive_output_{dwi_type}.txt"
+        sv_path = dwi_dir / f"metrics_survival_output_{dwi_type}.txt"
+        bl_path = dwi_dir / f"metrics_baseline_output_{dwi_type}.txt"
+
         results[dwi_type] = {
             "stats_comparisons": parse_stats_comparisons(
-                _read_log(dwi_dir / f"metrics_stats_comparisons_output_{dwi_type}.txt")
+                _read_log(sc_path), log_path=str(sc_path)
             ),
             "stats_predictive": parse_stats_predictive(
-                _read_log(dwi_dir / f"metrics_stats_predictive_output_{dwi_type}.txt")
+                _read_log(sp_path)
             ),
             "survival": parse_survival(
-                _read_log(dwi_dir / f"metrics_survival_output_{dwi_type}.txt")
+                _read_log(sv_path), log_path=str(sv_path)
             ),
             "baseline": parse_baseline(
-                _read_log(dwi_dir / f"metrics_baseline_output_{dwi_type}.txt")
+                _read_log(bl_path), log_path=str(bl_path)
             ),
             "sanity_checks": parse_sanity_checks(
                 _read_log(dwi_dir / "sanity_checks_output.txt")

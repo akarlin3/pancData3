@@ -118,14 +118,25 @@ def main():
             else:
                 nonsig_findings.append(entry)
 
+    # Compute Bonferroni-corrected threshold across all extracted tests.
+    n_tests_total = len(sig_findings) + len(nonsig_findings)
+    alpha_bonferroni = 0.05 / n_tests_total if n_tests_total > 0 else 0.05
+    n_bonferroni = sum(1 for f in sig_findings if float(f["p"]) < alpha_bonferroni)
+
     # Print significant findings sorted by ascending p-value.
     if sig_findings:
         sig_findings.sort(key=lambda x: x["p"])
+        print(
+            f"\n  Note: {n_tests_total} tests extracted. "
+            f"Bonferroni threshold = {alpha_bonferroni:.4g}. "
+            f"{n_bonferroni}/{len(sig_findings)} significant findings survive Bonferroni."
+        )
         for f in sig_findings:
             p_hi = stats_cfg["p_highly_significant"]
             p_sig = stats_cfg["p_significant"]
             tag = "***" if f["p"] < p_hi else "** " if f["p"] < p_sig else "*  "
-            print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
+            bonf_flag = " [Bonferroni]" if float(f["p"]) < alpha_bonferroni else ""
+            print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}{bonf_flag}")
             print(f"      {f['context']}")
     else:
         print("\n  No p-values < 0.05 found in extracted data.")

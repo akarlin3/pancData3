@@ -14,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore
 
 # Ensure the analysis/ directory is on sys.path so `import shared` works.
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent

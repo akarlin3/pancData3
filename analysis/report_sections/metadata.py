@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from report_formatters import (
+from report_formatters import (  # type: ignore
     NAV_GROUPS,
     _esc,
     _figure_caption,
