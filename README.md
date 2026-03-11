@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.0--alpha.1-blue)](#citation)
+[![Version](https://img.shields.io/badge/version-2.0.0--beta.1-blue)](#citation)
 [![Tests](https://img.shields.io/badge/tests-83%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.0.0-alpha.1 — see [CHANGELOG.md](CHANGELOG.md) for details. Both v2.0.0-alpha.1 and v1.1.0 (stable) are supported.
+**Current version:** 2.0.0-beta.1 — see [CHANGELOG.md](CHANGELOG.md) for details. Both v2.0.0-beta.1 and v1.1.0 (stable) are supported.
 
 ---
 
@@ -313,6 +313,17 @@ python analysis/statistical_relevance.py [saved_files_path]
 | `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
 | `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON |
 
+### Report Features (v2.0.0-beta.1)
+
+The generated HTML/PDF report includes:
+
+- **Cover page** — print-only title page with run timestamp, DWI types, and graph count
+- **Table of Contents** — grouped two-column TOC visible on screen; occupies its own page in the PDF
+- **Part breaks** — 6 logical divisions (Overview / Data / Statistics / Outcomes / Discussion / Appendix) force page breaks in the PDF
+- **PDF page numbers** — WeasyPrint-native footer: `Page N of M`, suppressed on the cover page
+- **Clinical context** — RTOG D95/V50 benchmarks, evidence hierarchy (High/Moderate/Exploratory), Research Use Only disclaimer
+- **Improved parsers** — NaN/Inf → JSON `null`, timepoint normalization, parse-failure warnings, IPCW range validation
+
 ### Analysis Test Suite
 
 The analysis scripts have a Python test suite (388 tests across 10 files) using pytest:
@@ -387,7 +398,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.0.0-alpha.1},
+  version   = {2.0.0-beta.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {MIT}
 }

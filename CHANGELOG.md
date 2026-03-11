@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0-beta.1] - 2026-03-10
+
+### Added
+
+#### Report — PDF Layout
+- **Cover page** (`_section_cover_page`): Print-only title page with run timestamp, DWI types, and graph count; hidden on screen via `display:none`
+- **Table of Contents** (`_section_print_toc`): Grouped two-column TOC (screen + PDF); driven by `NAV_GROUPS` so it automatically stays in sync with the navigation bar; occupies its own page in print (`page-break-after: always`)
+- **Part-break dividers** (`_part_break`): 6 dividers separating Overview / Data / Statistics / Outcomes / Discussion / Appendix; hidden on screen, force a page break in PDF with styled chapter heading
+- **PDF page numbers**: WeasyPrint-native `@page { @bottom-center { content: "Page " counter(page) " of " counter(pages) } }`; suppressed on cover page via `@page :first`; bottom-left footer shows report title
+
+#### Report — Section Content
+- **Cohort overview**: LF/LC outcome balance stat cards, imbalance warning when ratio > 3:1, attrition note, cross-DWI patient count consistency check
+- **Patient flow**: Parse-failure badge sourced from new `parse_warnings` list; CR exclusion label with explanatory text
+- **MAT data**: Hausdorff distance table alongside Dice; dosimetry displayed as `mean ± std`; RTOG clinical context box with D95/V50 pass/fail benchmarks; core method recommendation box
+- **Correlations**: Causation caveat info-box; Bonferroni correction note; CI width caveat
+- **Cross-DWI comparison**: Sample size mismatch warning; 80% agreement context note; "Notable Disagreements" subsection
+- **Graph issues**: Critical / High / Low severity stratification with stat cards
+- **Feature overlap**: Stability interpretation note; duplicate feature detection
+- **Multiple comparisons**: BH formula disclosed; expected vs. observed rejections displayed; collapsible comparison against Bonferroni correction
+- **Effect sizes**: Competing-risk HR interpretation; CI width guidance; AUC literature benchmark (0.68–0.82 for pancreatic RT)
+- **Model diagnostics**: KNN imputation note; elastic net 1SE caveat; PH assumption untested warning
+- **Methods section**: All 11 core delineation methods described with `<code>` tags; full GLME model specification; nested CV/LOOCV clarified; KNN imputation paragraph; DnCNN/IVIMnet training disclosure
+- **Limitations section**: 5 new limitations — PH assumption untested, imputation unvalidated in this cohort, Fine–Gray model not computed, tumor core not expert-validated, AI graph analysis may misclassify
+- **Executive summary**: AUC card shows DWI type + timepoint; GLME card notes direction not parsed; FDR card shows per-DWI breakdown (Standard / dnCNN / IVIMnet)
+- **Hypothesis section**: Evidence hierarchy (High / Moderate / Exploratory confidence levels); prominent "Research Use Only" warning at end of treatment plan
+
+#### Parsers
+- **`parse_log_metrics.py`**: `parse_warnings` list when expected patterns find zero matches; `_parse_float()` handles `"Inf"` / `"NaN"` strings; IPCW weight-range ratio computed with warning if > 5×; competing-risk and outlier group validation checks
+- **`parse_csv_results.py`**: Case-insensitive column lookup (`_find_column`); timepoint normalization (`Fx5` / `FX5` → `fx5`); p-value and effect size extraction per row; temporal pattern analysis (`_temporal_pattern`)
+- **`statistical_relevance.py`**: Tighter p-value regex requiring `p =`/`p <` context; Bonferroni alpha computed as `0.05 / n_tests`; findings that survive Bonferroni tagged `[Bonferroni]`
+
+### Changed
+- **Gemini model**: `analysis_config.json` corrected from invalid `"gemini-3.1-pro-preview"` to `"gemini-2.5-flash"` — this was the cause of all vision API failures
+- **Manuscript Information section removed**: The fill-in-the-blank publication metadata block (`_section_publication_header`) is no longer rendered in the report
+- **Manuscript Findings section removed**: `_section_manuscript_ready_findings` removed from report output and navigation bar
+- **`report_sections` package split into 7 submodules**: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (previously a single `report_sections.py` file); all names re-exported from `__init__.py` for backward compatibility
+- **Python test suite**: 388 tests across 10 files (up from 126 / 6 files in alpha.1); updated assertions for new dosimetry dict format, timepoint normalization, and NaN→null serialization
+
+### Fixed
+- **`parse_mat_metrics.py`**: NaN/Inf serialized as `None` (JSON `null`) instead of `0`; shape inference corrected (`num_patients = shape[0]`, `num_timepoints = shape[-1]`); Hausdorff matrix extracted alongside Dice; dosimetry metrics returned as `{"mean": X, "std": Y}` dicts; method descriptions pulled from MAT field or built-in fallback dict; NxN matrix dimensions validated against method count before access
+
+---
+
 ## [2.0.0-alpha.1] - 2026-03-09
 
 ### Added
