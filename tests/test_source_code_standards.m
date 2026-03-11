@@ -436,10 +436,23 @@ function code = metrics_code()
     % dosimetry, stats (comparisons + predictive), and survival.
     files = {'metrics_baseline.m', 'metrics_longitudinal.m', 'metrics_dosimetry.m', ...
              'metrics_stats_comparisons.m', 'metrics_stats_predictive.m', 'metrics_survival.m'};
+    % Include extracted utility files that contain predictive pipeline logic
+    utils_files = {'assemble_predictive_features.m', 'run_elastic_net_cv.m', ...
+                   'run_loocv_risk_scores.m', 'plot_predictive_diagnostics.m'};
 
     code = '';
+    test_dir = fileparts(mfilename('fullpath'));
     for i = 1:numel(files)
-        filepath = fullfile(fileparts(mfilename('fullpath')), '..', 'core', files{i});
+        filepath = fullfile(test_dir, '..', 'core', files{i});
+        fid = fopen(filepath, 'r');
+        if fid ~= -1
+            file_code = fread(fid, '*char')';
+            fclose(fid);
+            code = [code newline file_code]; %#ok<AGROW>
+        end
+    end
+    for i = 1:numel(utils_files)
+        filepath = fullfile(test_dir, '..', 'utils', utils_files{i});
         fid = fopen(filepath, 'r');
         if fid ~= -1
             file_code = fread(fid, '*char')';

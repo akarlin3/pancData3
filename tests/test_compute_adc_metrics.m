@@ -77,8 +77,8 @@ classdef test_compute_adc_metrics < matlab.unittest.TestCase
             result = compute_adc_metrics(testCase.Config, adc, [], [], [], ...
                 [], vox_vol, 1, testCase.BinEdges, 1.15e-3, 3e-3, ...
                 false, [], core_opts, 1, 1, [], 1);
-            % Voxels > 1.15e-3: [0.002, 0.003] = 2 voxels
-            testCase.verifyEqual(result.high_adc_sub_vol_val, 2 * 0.1, 'AbsTol', 1e-10);
+            % Voxels > 1.15e-3: [0.0012, 0.002, 0.003] = 3 voxels
+            testCase.verifyEqual(result.high_adc_sub_vol_val, 3 * 0.1, 'AbsTol', 1e-10);
         end
 
         function test_motion_corruption_flag(testCase)

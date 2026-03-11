@@ -37,6 +37,13 @@ function [X_clean, keep] = remove_constant_columns(X)
 % Removing these columns before model fitting is a standard preprocessing
 % step in survival analysis pipelines.
 
+    % --- Early exit for empty input ---
+    if size(X, 1) == 0
+        keep = false(1, size(X, 2));
+        X_clean = X(:, keep);
+        return;
+    end
+
     % --- Variance Detection via Range ---
     % Using range (max - min) rather than var() is computationally cheaper
     % and avoids numerical precision issues: var() on nearly-constant columns
