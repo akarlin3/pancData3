@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections import defaultdict
 
@@ -103,6 +104,8 @@ def main():
             pval = st.get("p_value")
             if pval is None or not isinstance(pval, (int, float)):
                 continue
+            if math.isnan(pval) or math.isinf(pval):
+                continue
             test_name = st.get("test_name", "unknown")
             cmp_groups = st.get("comparison_groups", "")
             context = f"{test_name}: p={pval}" + (f" ({cmp_groups})" if cmp_groups else "")
@@ -165,7 +168,7 @@ def main():
         for rval, context in corrs:
             if abs(rval) >= corr_threshold:
                 # Classify correlation strength and direction.
-                strength = "STRONG" if abs(rval) >= 0.5 else "MODERATE"
+                strength = "STRONG" if abs(rval) >= stats_cfg["effect_size_medium"] else "MODERATE"  # type: ignore[literal-required]
                 direction = "positive" if rval > 0 else "negative"  # type: ignore
                 print(f"\n  [{dwi_type}] {base_name}")
                 print(f"    r={rval:.2f} ({strength} {direction})")

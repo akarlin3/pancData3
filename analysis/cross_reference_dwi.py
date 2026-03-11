@@ -116,8 +116,12 @@ def main():
                     mag = f" ({t['magnitude']})" if t.get("magnitude") else ""
                     sig = f" [{t['statistical_significance']}]" if t.get("statistical_significance") else ""
                     vals = ""
-                    if t.get("start_value") is not None and t.get("end_value") is not None:
-                        vals = f" [{t['start_value']:.4f} -> {t['end_value']:.4f}]"
+                    sv, ev = t.get("start_value"), t.get("end_value")
+                    if sv is not None and ev is not None:
+                        try:
+                            vals = f" [{float(sv):.4f} -> {float(ev):.4f}]"
+                        except (TypeError, ValueError):
+                            vals = f" [{sv} -> {ev}]"
                     print(f"      - {pfx}{t.get('direction', '')}: {t.get('description', '')}{mag}{sig}{vals}")
 
             # Parse and display inflection points from JSON string.
@@ -146,9 +150,17 @@ def main():
                     if not isinstance(st, dict):
                         continue
                     name = st.get("test_name", "unknown")
-                    pval = f"p={st['p_value']:.4f}" if st.get("p_value") is not None else ""
+                    _pv = st.get("p_value")
+                    try:
+                        pval = f"p={float(_pv):.4f}" if _pv is not None else ""
+                    except (TypeError, ValueError):
+                        pval = f"p={_pv}" if _pv is not None else ""
                     cmp_groups = f" ({st['comparison_groups']})" if st.get("comparison_groups") else ""
-                    stat_val = f", stat={st['statistic_value']:.3f}" if st.get("statistic_value") is not None else ""
+                    _sv = st.get("statistic_value")
+                    try:
+                        stat_val = f", stat={float(_sv):.3f}" if _sv is not None else ""
+                    except (TypeError, ValueError):
+                        stat_val = f", stat={_sv}" if _sv is not None else ""
                     print(f"      - {name}: {pval}{stat_val}{cmp_groups}")
 
             # Parse and display outliers.

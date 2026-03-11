@@ -461,7 +461,7 @@ def load_graph_csv(folder: Path) -> list[dict]:
     if not csv_path.exists():
         return []
     rows: list[dict] = []
-    with open(csv_path, encoding="utf-8") as f:
+    with open(csv_path, encoding="utf-8", errors="replace") as f:
         for r in csv.DictReader(f):
             rows.append(r)
     return rows

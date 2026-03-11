@@ -100,7 +100,7 @@ def main():
                     for t in all_trends[dwi_type]:
                         s = t.get("series") or "overall"
                         if s == series:
-                            directions[dwi_type] = t["direction"]
+                            directions[dwi_type] = t.get("direction", "")
 
                 if len(directions) >= 2:
                     vals = list(directions.values())
@@ -130,7 +130,8 @@ def main():
                     if not isinstance(st, dict):
                         continue
                     name = st.get("test_name", "?")
-                    pval = f"p={st['p_value']:.4f}" if st.get("p_value") is not None else ""
+                    _pv = st.get("p_value")
+                    pval = f"p={_pv:.4f}" if isinstance(_pv, (int, float)) else (f"p={_pv}" if _pv is not None else "")
                     cmp_groups = f" ({st['comparison_groups']})" if st.get("comparison_groups") else ""
                     print(f"    {dwi_type}: {name} {pval}{cmp_groups}")
 
@@ -155,7 +156,7 @@ def main():
         for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
                 continue
-            summary = dwi_dict[dwi_type]["summary"]
+            summary = dwi_dict[dwi_type].get("summary", "") or ""
             if len(summary) > 180:
                 summary = summary[:180] + "..."
             print(f"    {dwi_type}: {summary}")
@@ -184,14 +185,19 @@ def main():
         for dwi_type in DWI_TYPES:
             if dwi_type not in dwi_dict:
                 continue
-            ips = json.loads(dwi_dict[dwi_type]["inflection_points_json"])
+            try:
+                ips = json.loads(dwi_dict[dwi_type].get("inflection_points_json", "[]") or "[]")
+            except Exception:
+                ips = []
             if ips:
                 if not has_ip:
                     print(f"\n  {base_name}:")
                     has_ip = True
                 for ip in ips:
+                    if not isinstance(ip, dict):
+                        continue
                     x = ip.get("approximate_x", "?")
-                    print(f"    {dwi_type}: x={x} - {ip['description']}")
+                    print(f"    {dwi_type}: x={x} - {ip.get('description', '')}")
 
     print()
 
