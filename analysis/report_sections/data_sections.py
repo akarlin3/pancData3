@@ -23,6 +23,7 @@ from report_formatters import (  # type: ignore
     _table_caption,
     _trend_tag,
 )
+from report_sections._helpers import _scalar_gy  # type: ignore
 
 
 def _section_cohort_overview(mat_data, log_data, dwi_types_present) -> list[str]:
@@ -545,15 +546,6 @@ def _section_mat_data(mat_data) -> list[str]:
                 pct = val * 100 if val <= 1.0 else val
                 return f"{pct:.1f}%"
             return "\u2014"
-
-        def _scalar_gy(val):
-            """Return numeric Gy scalar from dict {mean,...} or plain float; None on failure."""
-            if val is None:
-                return None
-            if isinstance(val, dict):
-                m = val.get("mean")
-                return m if (isinstance(m, (int, float)) and m == m) else None
-            return val if (isinstance(val, (int, float)) and val == val) else None
 
         has_dos = any("dosimetry" in d for d in mat_data.values())
         if has_dos:

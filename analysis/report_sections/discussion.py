@@ -16,6 +16,7 @@ from report_formatters import (  # type: ignore
     _stat_card,
     _table_caption,
 )
+from report_sections._helpers import _scalar_gy  # type: ignore
 
 
 def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:
@@ -555,8 +556,8 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
         for dt in DWI_TYPES:
             dosi = (mat_data.get(dt) or {}).get("dosimetry")
             if dosi:
-                d95_adc = dosi.get("d95_adc_mean")
-                v50_adc = dosi.get("v50_adc_mean")
+                d95_adc = _scalar_gy(dosi.get("d95_adc_mean"))
+                v50_adc = _scalar_gy(dosi.get("v50_adc_mean"))
                 if d95_adc is not None:
                     v50_pct = (v50_adc * 100 if v50_adc is not None and v50_adc <= 1.0
                                else v50_adc) if v50_adc is not None else None

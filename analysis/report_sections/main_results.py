@@ -38,6 +38,7 @@ from report_sections._helpers import (  # type: ignore
     _find_best_auc,
     _get_cohort_size,
     _safe_json_load,
+    _scalar_gy,
 )
 
 
@@ -620,10 +621,10 @@ def _section_hypothesis(groups, log_data=None, mat_data=None) -> list[str]:
 
     # -- Dosimetry coverage (D95, V50) --
     if dosimetry:
-        d95_adc = dosimetry.get("d95_adc_mean")
-        v50_adc = dosimetry.get("v50_adc_mean")
-        d95_d = dosimetry.get("d95_d_mean")
-        v50_d = dosimetry.get("v50_d_mean")
+        d95_adc = _scalar_gy(dosimetry.get("d95_adc_mean"))
+        v50_adc = _scalar_gy(dosimetry.get("v50_adc_mean"))
+        d95_d = _scalar_gy(dosimetry.get("d95_d_mean"))
+        v50_d = _scalar_gy(dosimetry.get("v50_d_mean"))
         dosi_parts: list[str] = []
         dose_concerns: list[str] = []
 
@@ -1953,8 +1954,8 @@ def _section_manuscript_ready_findings(
     # ── Dosimetry sentence ──
     dosi, _ = _extract_dosimetry(mat_data)
     if dosi:
-        d95 = dosi.get("d95_adc_mean")
-        v50 = dosi.get("v50_adc_mean")
+        d95 = _scalar_gy(dosi.get("d95_adc_mean"))
+        v50 = _scalar_gy(dosi.get("v50_adc_mean"))
         if d95 is not None:
             v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
                        else v50) if v50 is not None else None
@@ -2281,8 +2282,8 @@ def _section_results_draft(
     # ── 6. Dosimetry paragraph ──
     dosi, _ = _extract_dosimetry(mat_data)
     if dosi:
-        d95 = dosi.get("d95_adc_mean")
-        v50 = dosi.get("v50_adc_mean")
+        d95 = _scalar_gy(dosi.get("d95_adc_mean"))
+        v50 = _scalar_gy(dosi.get("v50_adc_mean"))
         if d95 is not None:
             v50_pct = (v50 * 100 if v50 is not None and v50 <= 1.0
                        else v50) if v50 is not None else None

@@ -264,6 +264,16 @@ def _extract_dosimetry(mat_data: dict | None) -> tuple[dict, str]:
     return {}, ""
 
 
+def _scalar_gy(val):
+    """Return numeric Gy scalar from dict {mean,...} or plain float; None on failure."""
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        m = val.get("mean")
+        return m if (isinstance(m, (int, float)) and m == m) else None
+    return val if (isinstance(val, (int, float)) and val == val) else None
+
+
 def _compute_cross_dwi_trend_agreement(
     groups: dict | None,
     dwi_types_present: list[str],
