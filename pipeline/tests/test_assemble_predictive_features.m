@@ -83,6 +83,7 @@ classdef test_assemble_predictive_features < matlab.unittest.TestCase
                 testCase.makeData();
             % Make D_abs all-NaN for all patients at Fx1 and target
             D_abs(:,:) = NaN;
+            D_pct(:,:) = NaN;
             valid = true(testCase.nPat, 1);
 
             [X, names, orig_idx, ~] = assemble_predictive_features( ...
