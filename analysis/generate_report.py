@@ -134,8 +134,13 @@ def generate_report(folder: Path) -> str:
     str
         Complete HTML document as a string (ready to write to disk).
     """
-    # Extract the timestamp suffix from the folder name for display.
-    timestamp = folder.name.replace("saved_files_", "")
+    # Extract the timestamp suffix from the folder name and format it.
+    raw_ts = folder.name.replace("saved_files_", "")
+    try:
+        _dt = datetime.strptime(raw_ts, "%Y%m%d_%H%M%S")
+        timestamp = _dt.strftime(f"%B {_dt.day}, %Y at %H:%M:%S")
+    except ValueError:
+        timestamp = raw_ts  # Fall back to raw string if format doesn't match.
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # ── Load pipeline CSV exports (significance tables) ──

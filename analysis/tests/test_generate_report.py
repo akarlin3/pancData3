@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+import pytest  # type: ignore
 
-from generate_report import (
+from generate_report import (  # type: ignore
     _copy_button,
     _effect_size_class,
     _effect_size_label,
@@ -116,10 +116,11 @@ class TestGenerateReport:
     """Integration tests for the full Markdown report generation."""
 
     def test_report_contains_header(self, saved_files_with_graph_csv: Path):
-        """Report should contain the folder timestamp in the title."""
+        """Report should contain the formatted run timestamp in the title."""
         report = generate_report(saved_files_with_graph_csv)
         assert "Analysis Report" in report
-        assert "20260301_120000" in report
+        # Timestamp is now formatted: "March 1, 2026 at 12:00:00"
+        assert "March 1, 2026" in report
 
     def test_report_contains_dwi_types(self, saved_files_with_graph_csv: Path):
         """All three DWI types should be mentioned somewhere in the report."""
@@ -778,7 +779,7 @@ class TestSectionAppendix:
 
     def test_groups_by_graph_type(self):
         """Graphs are grouped by type with sub-headers."""
-        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        from conftest import SAMPLE_GRAPH_CSV_ROWS  # type: ignore
         result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
         html = "\n".join(result)
         assert "Appendix" in html
@@ -789,7 +790,7 @@ class TestSectionAppendix:
 
     def test_statistics_column_present(self):
         """The Statistics column shows extracted p-values."""
-        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        from conftest import SAMPLE_GRAPH_CSV_ROWS  # type: ignore
         result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
         html = "\n".join(result)
         # The fixture has p = 0.003 in the Standard box plot summary
@@ -798,7 +799,7 @@ class TestSectionAppendix:
 
     def test_inflection_points_in_details(self):
         """Inflection points appear in the Details column."""
-        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        from conftest import SAMPLE_GRAPH_CSV_ROWS  # type: ignore
         result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
         html = "\n".join(result)
         # The IVIMnet line plot has an inflection point at day 60
@@ -807,7 +808,7 @@ class TestSectionAppendix:
 
     def test_trend_descriptions_shown(self):
         """Trend descriptions are included beyond just direction tags."""
-        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        from conftest import SAMPLE_GRAPH_CSV_ROWS  # type: ignore
         result = _section_appendix(SAMPLE_GRAPH_CSV_ROWS)
         html = "\n".join(result)
         assert "ADC rises over time" in html or "ADC" in html
@@ -882,7 +883,7 @@ class TestManuscriptReadyFindings:
 
     def test_generates_sentences_with_log_data(self, saved_files_with_logs: Path):
         """Section generates copyable sentences from log data."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -895,7 +896,7 @@ class TestManuscriptReadyFindings:
 
     def test_includes_auc_sentence(self, saved_files_with_logs: Path):
         """Section includes AUC performance sentence when ROC data exists."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -905,7 +906,7 @@ class TestManuscriptReadyFindings:
 
     def test_includes_hazard_ratio_sentence(self, saved_files_with_logs: Path):
         """Section includes HR sentence when survival data exists."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -915,7 +916,7 @@ class TestManuscriptReadyFindings:
 
     def test_copy_all_button_present(self, saved_files_with_logs: Path):
         """Section has a copy-all button for the full paragraph."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -941,7 +942,7 @@ class TestReportingChecklist:
 
     def test_checklist_counts_addressed_items(self, saved_files_with_logs: Path):
         """Checklist correctly counts addressed vs partial items."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_reporting_checklist(
             log_data, ["Standard"], {}, None, []
@@ -952,7 +953,7 @@ class TestReportingChecklist:
 
     def test_checklist_has_dynamic_status(self, saved_files_with_logs: Path):
         """Checklist status changes based on available data."""
-        from parse_log_metrics import parse_all_logs
+        from parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result_with = _section_reporting_checklist(
             log_data, ["Standard"], {}, None, []
@@ -982,7 +983,7 @@ class TestTableIndex:
     def test_lists_numbered_tables(self):
         """Lists all tables that were numbered during report generation."""
         reset_numbering()
-        from report_formatters import _table_caption
+        from report_formatters import _table_caption  # type: ignore
         _table_caption("Test Table One", "description")
         _table_caption("Test Table Two")
         result = _section_table_index()
