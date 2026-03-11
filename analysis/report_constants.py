@@ -155,10 +155,20 @@ caption { caption-side: top; text-align: left; font-size: 0.9rem; color: #374151
 .print-toc-list a { color: var(--fg); text-decoration: none; }
 .print-toc-list a:hover { color: var(--accent); text-decoration: underline; }
 .word-count { display: inline-block; font-size: 0.75rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
-@page { size: A4; margin: 1.5cm 1.2cm; }
+.cover-page { display: none; }
+.part-break { display: none; }
+@page { size: A4; margin: 1.5cm 1.2cm 2cm; }
+@page { @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #888; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } }
+@page { @bottom-left { content: "pancData3 Analysis Report"; font-size: 8pt; color: #aaa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; } }
+@page :first { @bottom-center { content: none; } @bottom-left { content: none; } }
 @media print {
     body { max-width: none; padding: 0; font-size: 10.5pt; line-height: 1.55; }
     nav.toc { display: none; }
+    .cover-page { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; page-break-after: always; break-after: page; text-align: center; }
+    .cover-page h1 { font-size: 22pt; border: none; margin-bottom: 1.5cm; color: var(--accent); }
+    .cover-page .cover-meta { font-size: 10pt; color: #555; line-height: 2; margin-top: 1cm; }
+    .cover-page .cover-rule { width: 8cm; border-top: 2pt solid var(--accent); margin: 1cm auto; }
+    .part-break { display: block; page-break-before: always; break-before: page; page-break-after: avoid; break-after: avoid; margin: 0 0 1.5em; padding: 0.6em 0; border-bottom: 2pt solid var(--accent); color: var(--accent); font-family: Georgia, 'Times New Roman', serif; font-size: 14pt; font-weight: 700; letter-spacing: 0.04em; }
     h1 { font-size: 15pt; }
     h2 { font-size: 12.5pt; page-break-after: avoid; margin-top: 1.5em; }
     h3 { font-size: 11pt; page-break-after: avoid; }

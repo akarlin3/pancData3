@@ -74,6 +74,8 @@ from report_formatters import (  # noqa: F401  # type: ignore
 
 # Re-export section builders for backward compatibility.
 from report_sections import (  # noqa: F401  # type: ignore
+    _part_break,
+    _section_cover_page,
     _section_print_toc,
     _section_appendix,
     _section_broad_statistical_overview,
