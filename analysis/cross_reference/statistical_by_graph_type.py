@@ -22,8 +22,12 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 from tqdm import tqdm  # type: ignore
+
+# Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import (  # type: ignore
     extract_correlations,

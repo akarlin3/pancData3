@@ -41,7 +41,7 @@ class TestCrossReferenceDwi:
         DWI types appear in the output.
         """
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from cross_reference_dwi import main
+            from cross_reference.cross_reference_dwi import main
             main()
         out = capsys.readouterr().out
         assert "Feature_BoxPlots" in out
@@ -51,7 +51,7 @@ class TestCrossReferenceDwi:
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
         """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
-            from cross_reference_dwi import main
+            from cross_reference.cross_reference_dwi import main
             with pytest.raises(SystemExit):
                 main()
 
@@ -71,7 +71,7 @@ class TestCrossReferenceSummary:
     def test_outputs_priority_graphs(self, saved_files_with_graph_csv: Path, capsys):
         """Feature_BoxPlots is a priority graph; its trend agreement/disagreement is reported."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from cross_reference_summary import main
+            from cross_reference.cross_reference_summary import main
             main()
         out = capsys.readouterr().out
         # Feature_BoxPlots is a priority graph and has 2 DWI types
@@ -81,7 +81,7 @@ class TestCrossReferenceSummary:
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
         """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
-            from cross_reference_summary import main
+            from cross_reference.cross_reference_summary import main
             with pytest.raises(SystemExit):
                 main()
 
@@ -101,7 +101,7 @@ class TestStatisticalRelevance:
     def test_finds_significant_pvalues(self, saved_files_with_graph_csv: Path, capsys):
         """The fixture has p = 0.003 in Standard's summary, which should be flagged."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from statistical_relevance import main
+            from cross_reference.statistical_relevance import main
             main()
         out = capsys.readouterr().out
         # p = 0.003 from the Standard Feature_BoxPlots summary
@@ -110,7 +110,7 @@ class TestStatisticalRelevance:
     def test_finds_correlations(self, saved_files_with_graph_csv: Path, capsys):
         """The fixture has r = 0.65 in Standard's summary, which should be reported."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from statistical_relevance import main
+            from cross_reference.statistical_relevance import main
             main()
         out = capsys.readouterr().out
         assert "CORRELATION" in out.upper() or "r=" in out
@@ -118,7 +118,7 @@ class TestStatisticalRelevance:
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
         """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
-            from statistical_relevance import main
+            from cross_reference.statistical_relevance import main
             with pytest.raises(SystemExit):
                 main()
 
@@ -138,7 +138,7 @@ class TestStatisticalByGraphType:
     def test_groups_by_graph_type(self, saved_files_with_graph_csv: Path, capsys):
         """Output should contain sections for the 'box' and 'line' types from the fixture."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from statistical_by_graph_type import main
+            from cross_reference.statistical_by_graph_type import main
             main()
         out = capsys.readouterr().out
         # The fixture has 'box' and 'line' graph types
@@ -148,7 +148,7 @@ class TestStatisticalByGraphType:
     def test_summary_table(self, saved_files_with_graph_csv: Path, capsys):
         """The overall summary table should appear at the end."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from statistical_by_graph_type import main
+            from cross_reference.statistical_by_graph_type import main
             main()
         out = capsys.readouterr().out
         assert "SUMMARY TABLE" in out.upper()
@@ -156,7 +156,7 @@ class TestStatisticalByGraphType:
     def test_trend_directions_counted(self, saved_files_with_graph_csv: Path, capsys):
         """Trend direction counts (Increasing/Decreasing) from the fixture appear in output."""
         with patch.object(sys, "argv", ["script", str(saved_files_with_graph_csv)]):
-            from statistical_by_graph_type import main
+            from cross_reference.statistical_by_graph_type import main
             main()
         out = capsys.readouterr().out
         # The fixture has increasing and decreasing trends
@@ -165,7 +165,7 @@ class TestStatisticalByGraphType:
     def test_exits_on_missing_csv(self, saved_files_dir: Path):
         """Should sys.exit when graph_analysis_results.csv is absent."""
         with patch.object(sys, "argv", ["script", str(saved_files_dir)]):
-            from statistical_by_graph_type import main
+            from cross_reference.statistical_by_graph_type import main
             with pytest.raises(SystemExit):
                 main()
 

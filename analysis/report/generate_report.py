@@ -31,6 +31,9 @@ from pathlib import Path
 import markdown  # type: ignore
 from tqdm import tqdm  # type: ignore
 
+# Ensure analysis/ root is on sys.path so sibling packages are importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from shared import (  # type: ignore
     DWI_TYPES,
     group_by_graph_name,
@@ -38,12 +41,12 @@ from shared import (  # type: ignore
     resolve_folder,
     setup_utf8_stdout,
 )
-from parse_csv_results import parse_all_csvs  # type: ignore
-from parse_log_metrics import parse_all_logs  # type: ignore
+from parsers.parse_csv_results import parse_all_csvs  # type: ignore
+from parsers.parse_log_metrics import parse_all_logs  # type: ignore
 
 # Re-export formatting helpers for backward compatibility (tests import these
 # from generate_report).
-from report_formatters import (  # noqa: F401  # type: ignore
+from report.report_formatters import (  # noqa: F401  # type: ignore
     CSS,
     HTML_TEMPLATE,
     NAV_SECTIONS,
@@ -73,7 +76,7 @@ from report_formatters import (  # noqa: F401  # type: ignore
 )
 
 # Re-export section builders for backward compatibility.
-from report_sections import (  # noqa: F401  # type: ignore
+from report.sections import (  # noqa: F401  # type: ignore
     _part_break,
     _section_cover_page,
     _section_print_toc,

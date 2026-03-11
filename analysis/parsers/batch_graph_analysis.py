@@ -35,6 +35,9 @@ from typing import Optional
 
 from tqdm import tqdm  # type: ignore
 
+# Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from shared import get_config, resolve_folder, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.

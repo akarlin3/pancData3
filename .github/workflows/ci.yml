@@ -35,28 +35,28 @@ jobs:
 
       - name: Hide Octave shims from MATLAB test runner (Unix)
         if: runner.os != 'Windows'
-        run: mv utils/octave_compat .octave_compat
+        run: mv pipeline/.octave_compat .octave_compat_hidden
 
       - name: Hide Octave shims from MATLAB test runner (Windows)
         if: runner.os == 'Windows'
-        run: Move-Item utils\octave_compat .octave_compat
+        run: Move-Item pipeline\.octave_compat .octave_compat_hidden
         shell: pwsh
 
       - name: Run test suite
         uses: matlab-actions/run-tests@v2
         with:
-          source-folder: core;utils
+          source-folder: pipeline/core;pipeline/utils
           test-results-junit: results/test-results.xml
           code-coverage-cobertura: results/coverage.xml
-          select-by-folder: tests
+          select-by-folder: pipeline/tests
 
       - name: Restore Octave shims (Unix)
         if: always() && runner.os != 'Windows'
-        run: mv .octave_compat utils/octave_compat
+        run: mv .octave_compat_hidden pipeline/.octave_compat
 
       - name: Restore Octave shims (Windows)
         if: always() && runner.os == 'Windows'
-        run: Move-Item .octave_compat utils\octave_compat
+        run: Move-Item .octave_compat_hidden pipeline\.octave_compat
         shell: pwsh
 
       - name: Publish test results
@@ -114,4 +114,4 @@ jobs:
 
       - name: Run Octave compatibility test
         run: |
-          octave --eval "addpath('core','utils','.octave_compat','dependencies','tests'); test_octave;"
+          octave --eval "addpath('pipeline/core','pipeline/utils','pipeline/.octave_compat','pipeline/dependencies','pipeline/tests'); test_octave;"

@@ -17,7 +17,7 @@ ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_DIR))
 
-from report_formatters import (
+from report.report_formatters import (
     CSS,
     HTML_TEMPLATE,
     NAV_SECTIONS,

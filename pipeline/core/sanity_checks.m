@@ -81,7 +81,7 @@ if nargin > 3 && isfield(config_struct, 'output_folder')
     output_folder = config_struct.output_folder;
 else
     timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', sprintf('saved_files_%s', timestamp_str));
+    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', sprintf('saved_files_%s', timestamp_str));
 end
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 

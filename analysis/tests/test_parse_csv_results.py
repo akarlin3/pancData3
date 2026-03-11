@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest  # type: ignore
 
-from parse_csv_results import (  # type: ignore
+from parsers.parse_csv_results import (  # type: ignore
     _read_csv,
     cross_reference_significance,
     parse_all_csvs,

@@ -31,6 +31,9 @@ from pathlib import Path
 
 from tqdm import tqdm  # type: ignore
 
+# Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout  # type: ignore
 
 setup_utf8_stdout()

@@ -131,6 +131,22 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
 
+        % Annotate when one outcome group is empty (e.g., LF n=0),
+        % so the figure explicitly communicates the comparison limitation.
+        if isempty(vals_lf) && ~isempty(vals_lc)
+            yl = ylim;
+            text(mean(xlim), yl(1) + 0.5*(yl(2) - yl(1)), ...
+                'No LF events — comparison not possible', ...
+                'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                'Color', [0.6 0.2 0.2], 'FontAngle', 'italic');
+        elseif isempty(vals_lc) && ~isempty(vals_lf)
+            yl = ylim;
+            text(mean(xlim), yl(1) + 0.5*(yl(2) - yl(1)), ...
+                'No LC events — comparison not possible', ...
+                'HorizontalAlignment', 'center', 'FontSize', 8, ...
+                'Color', [0.6 0.2 0.2], 'FontAngle', 'italic');
+        end
+
     elseif strcmpi(plot_type, 'boxplot')
         % --- Boxplot: Compact Group Comparison with Statistical Annotation ---
         % Boxplots show median, IQR, and outliers for each outcome group,
@@ -157,8 +173,14 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
                     boxplot(vals_clean, lf_clean, 'Labels', ...
                         {sprintf('LC (n=%d)', n_lc_bp), sprintf('LF (n=%d)', n_lf_bp)});
                 else
-                    % Single group present: omit Labels to avoid MATLAB error
-                    boxplot(vals_clean, lf_clean);
+                    % Single group present: use descriptive label with sample size
+                    if all(lf_clean == 0)
+                        boxplot(vals_clean, lf_clean, 'Labels', ...
+                            {sprintf('LC (n=%d)', n_lc_bp)});
+                    else
+                        boxplot(vals_clean, lf_clean, 'Labels', ...
+                            {sprintf('LF (n=%d)', n_lf_bp)});
+                    end
                 end
             end
         else
@@ -174,9 +196,10 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
         else
             ylabel([metric_name ' (' metric_unit ')']);
         end
+        xlabel('Outcome');
         title(metric_name, 'FontSize', 11, 'FontWeight', 'bold');
         grid on;
-        
+
         % --- Statistical Annotation ---
         % Annotate with Wilcoxon rank-sum p-value (non-parametric) for
         % consistency with the formal analysis in metrics_stats_comparisons.

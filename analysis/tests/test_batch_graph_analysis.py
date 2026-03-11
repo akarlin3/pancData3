@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 
 
-from batch_graph_analysis import (
+from parsers.batch_graph_analysis import (
     Axis,
     CSV_COLUMNS,
     GraphAnalysis,

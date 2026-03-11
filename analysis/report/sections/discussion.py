@@ -8,7 +8,7 @@ import re
 from shared import (  # type: ignore
     DWI_TYPES,
 )
-from report_formatters import (  # type: ignore
+from report.report_formatters import (  # type: ignore
     _cite,
     _esc,
     _get_consensus,
@@ -16,7 +16,7 @@ from report_formatters import (  # type: ignore
     _stat_card,
     _table_caption,
 )
-from report_sections._helpers import _scalar_gy  # type: ignore
+from report.sections._helpers import _scalar_gy  # type: ignore
 
 
 def _section_methods(dwi_types_present, mat_data, log_data) -> list[str]:

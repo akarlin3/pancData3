@@ -359,7 +359,7 @@ def main():
                 pipeline_bar.set_postfix_str("vision analysis", refresh=True)
                 vision_timeout = cfg["vision"].get("script_timeout_seconds")
                 results["vision"] = _run_script(
-                    "batch_graph_analysis.py", folder, log_file,
+                    "parsers/batch_graph_analysis.py", folder, log_file,
                     timeout=vision_timeout,
                 )
                 pipeline_bar.update(1)
@@ -373,21 +373,21 @@ def main():
 
             # Step 2: Parse MATLAB diary log files for structured metrics.
             pipeline_bar.set_postfix_str("parsing logs", refresh=True)
-            results["logs"] = _run_script("parse_log_metrics.py", folder, log_file)
+            results["logs"] = _run_script("parsers/parse_log_metrics.py", folder, log_file)
             pipeline_bar.update(1)
 
             # Step 3: Parse pipeline-exported CSV files (significance tables).
             pipeline_bar.set_postfix_str("parsing CSVs", refresh=True)
-            results["csvs"] = _run_script("parse_csv_results.py", folder, log_file)
+            results["csvs"] = _run_script("parsers/parse_csv_results.py", folder, log_file)
             pipeline_bar.update(1)
 
             # Step 3.5: Parse MATLAB .mat files (core comparison, dosimetry).
             pipeline_bar.set_postfix_str("parsing MAT files", refresh=True)
-            results["mat"] = _run_script("parse_mat_metrics.py", folder, log_file)
+            results["mat"] = _run_script("parsers/parse_mat_metrics.py", folder, log_file)
             pipeline_bar.update(1)
 
         # Step 4: Assemble the final HTML (+PDF) report from all collected data.
-        report_script = ANALYSIS_DIR / "generate_report.py"
+        report_script = ANALYSIS_DIR / "report" / "generate_report.py"
         if report_script.exists():
             report_args = [sys.executable, str(report_script), str(folder)]
             if args.no_pdf:

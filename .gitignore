@@ -48,7 +48,16 @@ Thumbs.db
 venv/
 node_modules/
 __pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
 *.log
+*.jsonl
+
+# Generated Reports
+*.pdf
+*.html
 
 # Build Artifacts
 results/

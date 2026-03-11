@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 
-from report_sections import _section_hypothesis
+from report.sections import _section_hypothesis
 
 
 # ---------------------------------------------------------------------------

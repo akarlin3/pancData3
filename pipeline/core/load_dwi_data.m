@@ -298,6 +298,10 @@ bad_dwi_locations_per_patient = cell(length(mrn_list), 1);
 checkpoint_dir = fullfile(dataloc, 'processed_patients');
 if ~isfolder(checkpoint_dir)
     mkdir(checkpoint_dir);
+    % Write provenance sentinel so cache-clearing knows this directory was
+    % created by the pipeline and is safe to delete.
+    sent_fid = fopen(fullfile(checkpoint_dir, '.pipeline_created'), 'w');
+    if sent_fid > 0, fprintf(sent_fid, 'Created by load_dwi_data\n'); fclose(sent_fid); end
 end
 
 % Scan for existing checkpoints to identify completed patients.

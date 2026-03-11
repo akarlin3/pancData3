@@ -65,7 +65,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     pipeline_dir = fileparts(mfilename('fullpath'));
 
     if nargin < 1
-        config_path = fullfile(pipeline_dir, 'config.json');
+        config_path = fullfile(pipeline_dir, '..', 'config.json');
     end
 
     if nargin < 2
@@ -158,8 +158,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         else
             % Standalone run — always create a fresh folder
             timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-            master_output_folder = fullfile(pipeline_dir, sprintf('saved_files_%s', timestamp_str));
+            master_output_folder = fullfile(pipeline_dir, '..', sprintf('saved_files_%s', timestamp_str));
             if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
+            % Write provenance sentinel so cleanup tools know this directory
+            % was created by the pipeline and is safe to delete.
+            sent_fid = fopen(fullfile(master_output_folder, '.pipeline_created'), 'w');
+            if sent_fid > 0, fprintf(sent_fid, 'Created by run_dwi_pipeline at %s\n', timestamp_str); fclose(sent_fid); end
             MASTER_OUTPUT_FOLDER = master_output_folder;
             fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
         end
@@ -168,7 +172,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     catch ME
         fprintf('❌ FAILED.\n');
         fprintf('❌ Error parsing configuration: %s\n', ME.message);
-        fb_fid = fopen(fullfile(pipeline_dir, 'error.log'), 'a');
+        fb_fid = fopen(fullfile(pipeline_dir, '..', 'error.log'), 'a');
         if fb_fid > 0
             fprintf(fb_fid, '[%s] [ERROR] Error parsing configuration: %s\n', ...
                 datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
@@ -297,11 +301,14 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
                     n_deleted = n_deleted + 1;
                 end
             end
-            % Remove per-patient checkpoint directory
+            % Remove per-patient checkpoint directory — only if it was
+            % created by the pipeline (contains .pipeline_created sentinel).
             checkpoint_dir = fullfile(dataloc, 'processed_patients');
-            if isfolder(checkpoint_dir)
+            if isfolder(checkpoint_dir) && exist(fullfile(checkpoint_dir, '.pipeline_created'), 'file')
                 rmdir(checkpoint_dir, 's');
                 fprintf('  🗑️ Removed per-patient checkpoint directory.\n');
+            elseif isfolder(checkpoint_dir)
+                fprintf('  🛡️ Skipping checkpoint directory (no pipeline sentinel): %s\n', checkpoint_dir);
             end
             if n_deleted > 0
                 fprintf('  🗑️ Cleared %d cached .mat file(s) from %s\n', n_deleted, dataloc);

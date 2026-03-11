@@ -7,7 +7,7 @@ import re
 from shared import (  # type: ignore
     DWI_TYPES,
 )
-from report_formatters import (  # type: ignore
+from report.report_formatters import (  # type: ignore
     _cite,
     _dwi_badge,
     _effect_size_class,

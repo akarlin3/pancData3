@@ -52,12 +52,14 @@ function report = patient_data_check(config_path)
 %       post_date/              (post-treatment follow-up scan)
 
     if nargin < 1
-        config_path = 'config.json';
+        script_dir = fileparts(mfilename('fullpath'));
+        config_path = fullfile(script_dir, '..', 'config.json');
     end
 
     % Add pipeline modules to MATLAB path so that parse_config, escape_shell_arg,
     % and clean_dir_command are accessible from any working directory.
-    addpath('core', 'utils', 'dependencies');
+    script_dir = fileparts(mfilename('fullpath'));
+    addpath(fullfile(script_dir, 'core'), fullfile(script_dir, 'utils'), fullfile(script_dir, 'dependencies'));
 
     %% --- Load and validate configuration ---
     fprintf('📋 Patient Data Check\n');

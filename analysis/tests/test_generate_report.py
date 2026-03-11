@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest  # type: ignore
 
-from generate_report import (  # type: ignore
+from report.generate_report import (  # type: ignore
     _copy_button,
     _effect_size_class,
     _effect_size_label,
@@ -47,6 +47,83 @@ from generate_report import (  # type: ignore
     reset_numbering,
     REPORT_JS,
 )
+from report.sections._helpers import (  # type: ignore
+    _normalize_series_name,
+    _build_normalised_series_map,
+    _best_display_name,
+)
+
+
+# ---------------------------------------------------------------------------
+# _normalize_series_name / _build_normalised_series_map
+# ---------------------------------------------------------------------------
+
+
+class TestNormaliseSeriesName:
+    """Verify that free-form vision-API series names are normalised."""
+
+    def test_identical_names_match(self):
+        assert _normalize_series_name("Mean ADC") == _normalize_series_name("Mean ADC")
+
+    def test_delimiter_variants_match(self):
+        """Comma, dash, and parenthetical separators should all normalise."""
+        a = _normalize_series_name("Mean D - Local Control")
+        b = _normalize_series_name("Mean D (Local Control)")
+        c = _normalize_series_name("Mean D, Local Control")
+        assert a == b == c
+
+    def test_vs_delimiter_matches(self):
+        """'vs' separator should be treated as a delimiter."""
+        a = _normalize_series_name("LC vs D95")
+        b = _normalize_series_name("LC - D95")
+        assert a == b
+
+    def test_case_insensitive(self):
+        assert _normalize_series_name("mean adc") == _normalize_series_name("Mean ADC")
+
+    def test_delta_unicode_normalised(self):
+        a = _normalize_series_name("\u0394 D (%)")
+        b = _normalize_series_name("delta D (%)")
+        assert a == b
+
+
+class TestBuildNormalisedSeriesMap:
+    """Verify cross-DWI series matching with normalised names."""
+
+    def test_mismatched_names_merged(self):
+        """Series with different delimiters should be merged."""
+        all_trends = {
+            "Standard": [{"series": "Mean D - Local Control", "direction": "increasing", "description": ""}],
+            "dnCNN":    [{"series": "Mean D (Local Control)", "direction": "increasing", "description": ""}],
+            "IVIMnet":  [{"series": "Mean D, Local Control",  "direction": "decreasing", "description": ""}],
+        }
+        norm_map = _build_normalised_series_map(all_trends)
+        # All three should be in one group
+        assert len(norm_map) == 1
+        key = list(norm_map.keys())[0]
+        assert len(norm_map[key]) == 3
+
+    def test_distinct_series_not_merged(self):
+        """Genuinely different series should remain separate."""
+        all_trends = {
+            "Standard": [
+                {"series": "Mean ADC", "direction": "increasing", "description": ""},
+                {"series": "Mean D",   "direction": "decreasing", "description": ""},
+            ],
+        }
+        norm_map = _build_normalised_series_map(all_trends)
+        assert len(norm_map) == 2
+
+    def test_best_display_name_picks_longest(self):
+        all_trends = {
+            "Standard": [{"series": "Mean D - Local Control", "direction": "up", "description": ""}],
+            "IVIMnet":  [{"series": "Mean D (Local Control)", "direction": "up", "description": ""}],
+        }
+        norm_map = _build_normalised_series_map(all_trends)
+        key = list(norm_map.keys())[0]
+        display = _best_display_name(all_trends, key)
+        # Should pick the longest raw name
+        assert len(display) >= len("Mean D - Local Control")
 
 
 # ---------------------------------------------------------------------------
@@ -883,7 +960,7 @@ class TestManuscriptReadyFindings:
 
     def test_generates_sentences_with_log_data(self, saved_files_with_logs: Path):
         """Section generates copyable sentences from log data."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -896,7 +973,7 @@ class TestManuscriptReadyFindings:
 
     def test_includes_auc_sentence(self, saved_files_with_logs: Path):
         """Section includes AUC performance sentence when ROC data exists."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -906,7 +983,7 @@ class TestManuscriptReadyFindings:
 
     def test_includes_hazard_ratio_sentence(self, saved_files_with_logs: Path):
         """Section includes HR sentence when survival data exists."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -916,7 +993,7 @@ class TestManuscriptReadyFindings:
 
     def test_copy_all_button_present(self, saved_files_with_logs: Path):
         """Section has a copy-all button for the full paragraph."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_manuscript_ready_findings(
             log_data, ["Standard"], None, {}, {}
@@ -942,7 +1019,7 @@ class TestReportingChecklist:
 
     def test_checklist_counts_addressed_items(self, saved_files_with_logs: Path):
         """Checklist correctly counts addressed vs partial items."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result = _section_reporting_checklist(
             log_data, ["Standard"], {}, None, []
@@ -953,7 +1030,7 @@ class TestReportingChecklist:
 
     def test_checklist_has_dynamic_status(self, saved_files_with_logs: Path):
         """Checklist status changes based on available data."""
-        from parse_log_metrics import parse_all_logs  # type: ignore
+        from parsers.parse_log_metrics import parse_all_logs  # type: ignore
         log_data = parse_all_logs(saved_files_with_logs)
         result_with = _section_reporting_checklist(
             log_data, ["Standard"], {}, None, []
@@ -983,7 +1060,7 @@ class TestTableIndex:
     def test_lists_numbered_tables(self):
         """Lists all tables that were numbered during report generation."""
         reset_numbering()
-        from report_formatters import _table_caption  # type: ignore
+        from report.report_formatters import _table_caption  # type: ignore
         _table_caption("Test Table One", "description")
         _table_caption("Test Table Two")
         result = _section_table_index()

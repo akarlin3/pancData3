@@ -13,7 +13,7 @@ from shared import (  # type: ignore
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (  # type: ignore
+from report.report_formatters import (  # type: ignore
     _dwi_badge,
     _esc,
     _figure_caption,
@@ -23,7 +23,7 @@ from report_formatters import (  # type: ignore
     _table_caption,
     _trend_tag,
 )
-from report_sections._helpers import _scalar_gy  # type: ignore
+from report.sections._helpers import _scalar_gy  # type: ignore
 
 
 def _section_cohort_overview(mat_data, log_data, dwi_types_present) -> list[str]:

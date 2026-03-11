@@ -42,7 +42,9 @@
 % Resolve the repository root from this script's location on disk, not from
 % pwd(), so the script works correctly regardless of the user's current
 % working directory (important for cluster/batch job submission).
-repo_root = fileparts(mfilename('fullpath'));
+% This script lives in pipeline/, so go up one level to reach repo root.
+pipeline_root = fileparts(mfilename('fullpath'));
+repo_root = fileparts(pipeline_root);
 config_file = fullfile(repo_root, 'config.json');
 
 % --- 1. SET UP ENVIRONMENT AND POOL (max 2 workers) ---
@@ -95,13 +97,13 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     p = parpool('Processes', 2, 'IdleTimeout', Inf);
     % Attach the main data-loading function so workers can access it without
     % relying on path resolution, which can differ across workers.
-    addAttachedFiles(p, {fullfile(repo_root, 'core', 'load_dwi_data.m')});
+    addAttachedFiles(p, {fullfile(pipeline_root, 'core', 'load_dwi_data.m')});
     % Replicate the path setup on all workers so that utility functions
     % (parse_config, safe_load_mask, escape_shell_arg, etc.) and third-party
     % dependencies (IVIM fitting, DVH tools) are available inside parfor.
-    pctRunOnAll addpath(fullfile(repo_root, 'core'));
-    pctRunOnAll addpath(fullfile(repo_root, 'utils'));
-    pctRunOnAll addpath(fullfile(repo_root, 'dependencies'));
+    pctRunOnAll addpath(fullfile(pipeline_root, 'core'));
+    pctRunOnAll addpath(fullfile(pipeline_root, 'utils'));
+    pctRunOnAll addpath(fullfile(pipeline_root, 'dependencies'));
     % Suppress noisy warnings on workers but keep critical ones.
     % Specifically, NIFTI file-not-found warnings are expected when a patient
     % has not yet been converted from DICOM, and DELETE:FileNotFound is
@@ -132,6 +134,11 @@ clear run_dwi_pipeline;
 timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
 eaw_output_folder = fullfile(repo_root, sprintf('saved_files_%s', timestamp_str));
 if ~exist(eaw_output_folder, 'dir'), mkdir(eaw_output_folder); end
+% Write provenance sentinel so cleanup tools know this directory was
+% created by the pipeline and is safe to delete.
+sentinel = fullfile(eaw_output_folder, '.pipeline_created');
+fid = fopen(sentinel, 'w');
+if fid > 0, fprintf(fid, 'Created by execute_all_workflows at %s\n', timestamp_str); fclose(fid); end
 
 % --- Workflow Progress GUI (GUI environments only) ---
 % Show a top-level progress bar tracking the 3 DWI types (Standard, dnCNN,
@@ -188,7 +195,7 @@ else
     test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
     diary(test_diary_file);
     try
-        run(fullfile(repo_root, 'tests', 'run_all_tests.m'));
+        run(fullfile(pipeline_root, 'tests', 'run_all_tests.m'));
         disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
         diary(eaw_diary_file);  % switch back to master diary
     catch ME

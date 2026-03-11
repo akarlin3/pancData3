@@ -9,6 +9,12 @@ from __future__ import annotations
 import json
 import re
 
+import sys
+from pathlib import Path
+
+# Ensure analysis/ root is on sys.path so sibling packages are importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from shared import DWI_TYPES  # type: ignore
 
 
@@ -26,6 +32,85 @@ def _safe_json_load(json_str: str, default=None):
     except (json.JSONDecodeError, TypeError, ValueError):
         pass
     return default
+
+
+def _normalize_series_name(name: str) -> str:
+    """Reduce a free-form vision-API series name to a canonical key.
+
+    The Gemini vision API returns inconsistent series names across DWI
+    types (e.g. ``"Mean D - Local Control"`` vs ``"Mean D (Local Control)"``
+    vs ``"Mean D, Local Control"``).  This function strips separators,
+    parenthetical qualifiers, and whitespace differences so that
+    semantically identical series can be matched across types.
+
+    Canonical form: lower-case tokens joined by single spaces.
+    Known parameter aliases (``adc``, ``d*``/``dstar``, ``d``, ``f``,
+    ``gtvvol``) are kept as-is; everything between common delimiters
+    (``,``, ``-``, ``(``, ``)``  , ``vs``) is treated as separate tokens
+    and reassembled in sorted order so that ``"LC vs D95 (Mean ADC)"``
+    and ``"Mean ADC, LC, D95"`` yield the same key.
+    """
+    s = name.strip()
+    # Normalise unicode delta/times symbols before lowering
+    s = s.replace("\u0394", "delta").replace("\u00d7", "x")
+    s = s.lower()
+    # Also handle lowercase delta (from pre-lowered input)
+    s = s.replace("\u03b4", "delta")
+    # Replace common delimiters with a pipe for uniform splitting
+    s = re.sub(r"\s*[,\-\(\)]\s*", " | ", s)
+    s = re.sub(r"\s+vs\.?\s+", " | ", s)
+    # Split into tokens, drop empties, sort for order-independence
+    tokens = sorted(t.strip() for t in s.split("|") if t.strip())
+    return " ".join(tokens)
+
+
+def _build_normalised_series_map(
+    all_trends: dict[str, list],
+) -> dict[str, dict[str, tuple[str, str]]]:
+    """Group trend entries by normalised series name.
+
+    Parameters
+    ----------
+    all_trends : dict[str, list]
+        ``{dwi_type: [trend_dict, ...]}`` as returned by JSON-parsing
+        ``trends_json`` for each DWI type.
+
+    Returns
+    -------
+    dict[str, dict[str, tuple[str, str]]]
+        ``{norm_key: {dwi_type: (direction, description)}}``
+        The ``norm_key`` is the canonical series name.  Each DWI type
+        maps to its first matching direction and description.
+    """
+    merged: dict[str, dict[str, tuple[str, str]]] = {}
+    # Also keep the best raw name per norm_key for display
+    for dt, trends in all_trends.items():
+        for t in trends:
+            if not isinstance(t, dict):
+                continue
+            raw = t.get("series") or "overall"
+            nk = _normalize_series_name(raw)
+            direction = str(t.get("direction", ""))
+            description = str(t.get("description", ""))
+            merged.setdefault(nk, {})[dt] = (direction, description)
+    return merged
+
+
+# Keep a companion that returns display-friendly labels
+def _best_display_name(
+    all_trends: dict[str, list],
+    norm_key: str,
+) -> str:
+    """Return the longest raw series name that normalises to *norm_key*."""
+    best = norm_key
+    for trends in all_trends.values():
+        for t in trends:
+            if not isinstance(t, dict):
+                continue
+            raw = t.get("series") or "overall"
+            if _normalize_series_name(raw) == norm_key and len(raw) > len(best):
+                best = raw
+    return best
 
 
 def _get_cohort_size(mat_data: dict | None) -> tuple[int, int, str]:
@@ -288,28 +373,25 @@ def _compute_cross_dwi_trend_agreement(
         return 0, 0, 0.0
 
     lmm = groups["Longitudinal_Mean_Metrics"]  # type: ignore
-    series_trends: dict[str, dict[str, str]] = {}
+    all_trends: dict[str, list] = {}
 
     for dt, r in lmm.items():
         if dt == "Root":
             continue
         trends = _safe_json_load(r.get("trends_json", "[]"))
-        for t in trends:
-            if not isinstance(t, dict):
-                continue
-            series = t.get("series", "")
-            direction = t.get("direction", "").lower()
-            if series and direction:
-                series_trends.setdefault(series, {})[dt] = direction
+        if trends:
+            all_trends[dt] = trends
+
+    norm_map = _build_normalised_series_map(all_trends)
 
     n_agree: int = 0
     n_total: int = 0
-    for series, dt_dirs in series_trends.items():
-        if len(dt_dirs) < 2:
+    for norm_key, dt_entries in norm_map.items():
+        dirs = {dt: d.lower() for dt, (d, _) in dt_entries.items() if d}
+        if len(dirs) < 2:
             continue
         n_total += 1
-        directions = list(dt_dirs.values())
-        if len(set(directions)) == 1:
+        if len(set(dirs.values())) == 1:
             n_agree = int(n_agree + 1)  # type: ignore
 
     pct = (100 * float(n_agree) / float(n_total)) if n_total > 0 else 0.0  # type: ignore
@@ -346,17 +428,9 @@ def _compute_all_groups_trend_agreement(
                     all_trends_dict[dt_key] = trends  # type: ignore
         if len(all_trends_dict) < 2:
             continue
-        all_series: set[str] = set()
-        for trends in all_trends_dict.values():
-            for t in trends:
-                if isinstance(t, dict):
-                    all_series.add(t.get("series") or "overall")
-        for series in all_series:
-            dirs: dict[str, str] = {}
-            for dt_key, trends in all_trends_dict.items():
-                for t in trends:
-                    if isinstance(t, dict) and (t.get("series") or "overall") == series:
-                        dirs[dt_key] = str(t.get("direction", ""))
+        norm_map = _build_normalised_series_map(all_trends_dict)
+        for norm_key, dt_entries in norm_map.items():
+            dirs = {dt: d for dt, (d, _) in dt_entries.items()}
             if len(dirs) >= 2:
                 n_total_series = int(n_total_series + 1)  # type: ignore
                 if len(set(dirs.values())) == 1:
@@ -399,5 +473,5 @@ def _extract_longitudinal_trend_consensus(
                 f_trends.append(direction)
 
     # Use the same consensus logic as report_formatters._get_consensus
-    from report_formatters import _get_consensus  # type: ignore
+    from report.report_formatters import _get_consensus  # type: ignore
     return _get_consensus(d_trends), _get_consensus(f_trends), d_trends, f_trends

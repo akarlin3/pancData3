@@ -216,7 +216,7 @@ for j = 1:nPat
         if patients_plotted > 1
             sgtitle('Parameter Maps Overlaid on Anatomy (Fx1)', 'FontSize', 14, 'FontWeight', 'bold');
             cb = colorbar('Position', [0.93 0.11 0.015 0.8]);
-            ylabel(cb, 'ADC (mm^2/s)', 'FontSize', 9);
+            ylabel(cb, 'ADC (\times10^{-3} mm^2/s)', 'FontSize', 9);
             set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
             saveas(gcf, fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_num - 1)));
             close(gcf);
@@ -247,11 +247,12 @@ for j = 1:nPat
     title(sprintf('%s — b0 (GTV contour)', id_list{j}), 'Interpreter', 'none', 'FontSize', 9);
 
     % --- Column 2: ADC map with GTV contour (white) ---
-    % Full-slice ADC map (fixed colour scale [0, 3e-3] mm^2/s) shows
+    % Full-slice ADC map (fixed colour scale [0, 3] in ×10^-3 mm^2/s) shows
     % diffusion properties across all tissues.  White GTV contour used
     % because red would be invisible against warm-coloured high-ADC regions.
+    % Scale to ×10^-3 so the colorbar label is self-contained (no separate exponent).
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 2);
-    imagesc(adc_slice, [0 3e-3]); axis image; axis off;
+    imagesc(adc_slice * 1e3, [0 3]); axis image; axis off;
     hold on;
     contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
     hold off;
@@ -272,9 +273,9 @@ for j = 1:nPat
     b0_rgb = cat(3, b0_norm, b0_norm, b0_norm);
     imagesc(b0_rgb); axis image; axis off; hold on;
     % Mask ADC outside the GTV to NaN so only tumour voxels are coloured
-    adc_overlay = adc_slice;
+    adc_overlay = adc_slice * 1e3;
     adc_overlay(gtv_slice < 0.5) = NaN;
-    h_ov = imagesc(adc_overlay, [0 3e-3]);
+    h_ov = imagesc(adc_overlay, [0 3]);
     % Use 60 % opacity for the colour overlay
     set(h_ov, 'AlphaData', ~isnan(adc_overlay) * 0.6);
     contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
@@ -286,7 +287,7 @@ end
 if patients_plotted > 0
     sgtitle('Parameter Maps Overlaid on Anatomy (Fx1)', 'FontSize', 14, 'FontWeight', 'bold');
     cb = colorbar('Position', [0.93 0.11 0.015 0.8]);
-    ylabel(cb, 'ADC (mm^2/s)');
+    ylabel(cb, 'ADC (\times10^{-3} mm^2/s)');
     set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
     saveas(gcf, fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_num)));
     close(gcf);

@@ -339,14 +339,16 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
     % --- Figure 1: Mean Dice Heatmap ---
     % Dice range is [0, 1], so caxis is fixed. Parula colormap is
     % perceptually uniform and accessible to colour-blind readers.
-    fig1 = figure('Visible', 'off', 'Position', [100 100 800 700]);
+    fig1 = figure('Visible', 'off', 'Position', [100 100 850 750]);
     imagesc(results.mean_dice_matrix);
     colorbar;
     colormap(parula);
     caxis([0 1]);
     set(gca, 'XTick', 1:n_methods, 'XTickLabel', method_labels, ...
         'YTick', 1:n_methods, 'YTickLabel', method_labels, ...
-        'XTickLabelRotation', 45, 'FontSize', 8);
+        'XTickLabelRotation', 60, 'FontSize', 7, 'TickLabelInterpreter', 'none');
+    % Add bottom margin so rotated x-axis labels are not clipped
+    set(gca, 'Position', [0.18 0.22 0.62 0.68]);
     title(sprintf('Mean Pairwise Dice Coefficient (%s)', dwi_type_name));
 
     % Overlay numeric values on each cell for precise reading.
@@ -372,21 +374,32 @@ function generate_comparison_figures(results, output_folder, dwi_type_name)
 
     % --- Figure 2: Mean HD95 Heatmap (if data available) ---
     if any(results.hd95_count(:) > 0)
-        fig2 = figure('Visible', 'off', 'Position', [100 100 800 700]);
+        fig2 = figure('Visible', 'off', 'Position', [100 100 850 750]);
         imagesc(results.mean_hd95_matrix);
         colorbar;
         colormap(hot);
         set(gca, 'XTick', 1:n_methods, 'XTickLabel', method_labels, ...
             'YTick', 1:n_methods, 'YTickLabel', method_labels, ...
-            'XTickLabelRotation', 45, 'FontSize', 8);
+            'XTickLabelRotation', 60, 'FontSize', 7, 'TickLabelInterpreter', 'none');
+        % Add bottom margin so rotated x-axis labels are not clipped
+        set(gca, 'Position', [0.18 0.22 0.62 0.68]);
         title(sprintf('Mean Pairwise HD95 in mm (%s)', dwi_type_name));
 
+        % Use white text on dark (high HD95) cells, black on light (low HD95)
+        % for legibility against the hot colormap background.
+        hd95_max = max(results.mean_hd95_matrix(~isnan(results.mean_hd95_matrix)));
+        if isempty(hd95_max), hd95_max = 1; end
         for i = 1:n_methods
             for j = 1:n_methods
                 val = results.mean_hd95_matrix(i, j);
                 if ~isnan(val)
+                    if val > 0.5 * hd95_max
+                        txt_color = [1 1 1];  % white text on dark background
+                    else
+                        txt_color = [0 0 0];  % black text on light background
+                    end
                     text(j, i, sprintf('%.1f', val), 'HorizontalAlignment', 'center', ...
-                        'FontSize', 7);
+                        'FontSize', 7, 'Color', txt_color);
                 end
             end
         end

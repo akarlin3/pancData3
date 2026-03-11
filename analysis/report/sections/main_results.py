@@ -13,7 +13,7 @@ from shared import (  # type: ignore
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (  # type: ignore
+from report.report_formatters import (  # type: ignore
     _cite,
     _copy_button,
     _dwi_badge,
@@ -27,7 +27,7 @@ from report_formatters import (  # type: ignore
     _table_caption,
     _trend_tag,
 )
-from report_sections._helpers import (  # type: ignore
+from report.sections._helpers import (  # type: ignore
     _aggregate_dwi_statistics,
     _aggregate_sanity_checks,
     _compute_all_groups_trend_agreement,

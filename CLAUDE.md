@@ -34,7 +34,7 @@ This repository uses a three-agent architecture:
 > **NEVER send patient data, sensitive CSVs, or PHI to any cloud agent or external service.**
 > Only code logic and structure may be shared with cloud-based AI.
 
-- Do **not** modify files in the `dependencies/` folder under any circumstances.
+- Do **not** modify files in the `pipeline/dependencies/` folder under any circumstances.
 
 ---
 
@@ -42,27 +42,37 @@ This repository uses a three-agent architecture:
 
 ```
 pancData3/
-├── run_dwi_pipeline.m          # Master orchestrator — main entry point
-├── execute_all_workflows.m     # Runs all 3 DWI types sequentially
-├── patient_data_check.m        # Pre-pipeline data integrity scanner
-├── config.json                 # Active configuration (not committed)
-├── config.example.json         # Configuration template (committed)
-├── core/                       # Primary pipeline modules (18 files)
-├── utils/                      # Helper utilities (44 files)
-├── .octave_compat/             # Octave compatibility shims (21 files)
-├── tests/                      # Full test suite (83 test files)
-│   ├── run_all_tests.m         # MATLAB unittest test runner
-│   ├── benchmarks/             # Performance benchmarks (7 files)
-│   └── diagnostics/            # Diagnostic spot-check scripts (5 files)
-├── analysis/                    # Python post-hoc analysis scripts (20 files)
-│   ├── report_sections/        # Report section builders (8 files)
-│   └── tests/                  # Python test suite — 10 test files, 388 tests (pytest)
-├── dependencies/               # Third-party scripts — DO NOT MODIFY
+├── config.json                          # Active configuration (not committed)
+├── config.example.json                  # Configuration template (committed)
+├── pipeline/                            # MATLAB pipeline
+│   ├── run_dwi_pipeline.m              # Master orchestrator — main entry point
+│   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
+│   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
+│   ├── core/                           # Primary pipeline modules (18 files)
+│   ├── utils/                          # Helper utilities (44 files)
+│   ├── .octave_compat/                 # Octave compatibility shims (21 files)
+│   ├── tests/                          # Full test suite (88 test files)
+│   │   ├── run_all_tests.m             # MATLAB unittest test runner
+│   │   ├── benchmarks/                 # Performance benchmarks (7 files)
+│   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
+│   └── dependencies/                   # Third-party scripts — DO NOT MODIFY
+├── analysis/                            # Python post-hoc analysis scripts
+│   ├── run_analysis.py                 # Orchestrator entry point
+│   ├── shared.py                       # Shared utilities and config loading
+│   ├── analysis_config.json            # Centralised configuration
+│   ├── parsers/                        # Log/CSV/MAT/vision parsing (4 files)
+│   ├── cross_reference/                # Cross-DWI comparison scripts (4 files)
+│   ├── report/                         # HTML+PDF report generation
+│   │   ├── generate_report.py          # Report orchestrator
+│   │   ├── report_formatters.py        # Formatting utilities
+│   │   ├── report_constants.py         # CSS, JS, references, templates
+│   │   └── sections/                   # Section builders (8 files)
+│   └── tests/                          # Python test suite — 18 test files, 569 tests (pytest)
 ├── .agents/
-│   ├── rules/physics_rules.md  # Agent safety and delegation rules
-│   └── workflows/run_data.md   # Structured /run_data workflow definition
-├── README.md                   # Human-facing documentation
-└── CLAUDE.md                   # This file
+│   ├── rules/physics_rules.md          # Agent safety and delegation rules
+│   └── workflows/run_data.md           # Structured /run_data workflow definition
+├── README.md                            # Human-facing documentation
+└── CLAUDE.md                            # This file
 ```
 
 ---
@@ -114,9 +124,9 @@ Key fields:
 
 ### Config Backwards Compatibility (mandatory)
 
-When adding a new config field, you **must** add a corresponding default in `parse_config.m` using the existing `isfield` + fallback pattern so that config files without the new field continue to work unchanged. Do **not** modify `config.json` to add a new field without this default in place.
+When adding a new config field, you **must** add a corresponding default in `pipeline/utils/parse_config.m` using the existing `isfield` + fallback pattern so that config files without the new field continue to work unchanged. Do **not** modify `config.json` to add a new field without this default in place.
 
-When removing a config field, you **must** ensure that all code referencing the field is updated so that existing config files still containing the removed field do not cause errors (e.g., the field is simply ignored). Do **not** remove a field from `config.example.json` or `parse_config.m` without verifying that every consumer of that field has been cleaned up.
+When removing a config field, you **must** ensure that all code referencing the field is updated so that existing config files still containing the removed field do not cause errors (e.g., the field is simply ignored). Do **not** remove a field from `config.example.json` or `pipeline/utils/parse_config.m` without verifying that every consumer of that field has been cleaned up.
 
 If a change (addition or removal) truly cannot be made backwards-compatible, you **must** ask the user for explicit permission before proceeding.
 
@@ -127,6 +137,7 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 ### Full multi-type run (all 3 DWI types)
 
 ```matlab
+cd pipeline
 execute_all_workflows
 ```
 
@@ -135,7 +146,7 @@ This creates a timestamped output folder (`saved_files_YYYYMMDD_HHMMSS/`), clean
 ### Single step / targeted run
 
 ```matlab
-addpath('core', 'utils', 'dependencies');
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 
 % Run only the 'load' step
 run_dwi_pipeline('config.json', {'load'});
@@ -161,8 +172,8 @@ The optional 3rd argument specifies a parent output folder. If omitted, `run_dwi
 
 The structured `/run_data` workflow in `.agents/workflows/run_data.md` does:
 1. Verifies `config.json` exists
-2. Runs `tests/test_dwi_pipeline.m` for stability check
-3. Executes `matlab -batch "execute_all_workflows"` as a background command
+2. Runs `pipeline/tests/test_dwi_pipeline.m` for stability check
+3. Executes `matlab -batch "cd pipeline; execute_all_workflows"` as a background command
 4. Waits for completion and verifies output MAT files and figures
 
 ---
@@ -170,12 +181,12 @@ The structured `/run_data` workflow in `.agents/workflows/run_data.md` does:
 ## Running Tests
 
 ```matlab
-run('tests/run_all_tests.m')
+run('pipeline/tests/run_all_tests.m')
 ```
 
 - Uses MATLAB's built-in `unittest` framework
-- Auto-discovers all test files in `tests/` (including subfolders)
-- Generates code coverage report for `core/` and `utils/`
+- Auto-discovers all test files in `pipeline/tests/` (including subfolders)
+- Generates code coverage report for `pipeline/core/` and `pipeline/utils/`
 - Compatible with MATLAB R2017b+
 - Returns non-zero exit code on failure (CI-safe)
 
@@ -183,9 +194,9 @@ run('tests/run_all_tests.m')
 
 | Location | Description | Run by CI? |
 |---|---|---|
-| `tests/` | Full functional and integration tests | Yes |
-| `tests/benchmarks/` | Performance benchmarks | Yes |
-| `tests/diagnostics/` | Diagnostic spot-check tests | Yes |
+| `pipeline/tests/` | Full functional and integration tests | Yes |
+| `pipeline/tests/benchmarks/` | Performance benchmarks | Yes |
+| `pipeline/tests/diagnostics/` | Diagnostic spot-check tests | Yes |
 
 ### Key test files
 
@@ -236,10 +247,15 @@ run('tests/run_all_tests.m')
 | `test_load_data_from_disk.m` | DWI vector loading with legacy fallback |
 | `test_compute_adc_metrics.m` | ADC metric computation (volume, sub-volume, histogram, KS) |
 | `test_compute_ivim_metrics.m` | IVIM metric computation (failed-fit filtering, unified methods) |
+| `test_benjamini_hochberg_fdr.m` | BH FDR correction: step-up procedure, q-value capping, monotonicity, order preservation |
+| `test_compute_ipcw_weights.m` | IPCW weights: censoring model, mean normalization, competing event exclusion, floor truncation |
+| `test_assemble_predictive_features.m` | Feature matrix assembly: 22-column layout, post-treatment dose exclusion, NaN column removal |
+| `test_compute_multi_core_metrics.m` | Multi-method core metrics: all 11 methods, unified mask sharing, fDM volume fractions |
+| `test_compute_spatial_repeatability.m` | Spatial repeatability: Dice/Hausdorff across Fx1 repeats, 12-output validation |
 
 ---
 
-## Core Modules (`core/`)
+## Core Modules (`pipeline/core/`)
 
 | File | Purpose |
 |---|---|
@@ -264,7 +280,7 @@ run('tests/run_all_tests.m')
 
 ---
 
-## Utility Modules (`utils/`)
+## Utility Modules (`pipeline/utils/`)
 
 | File | Purpose |
 |---|---|
@@ -313,7 +329,7 @@ run('tests/run_all_tests.m')
 | `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
 | `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
 
-### Octave Compatibility (`.octave_compat/`)
+### Octave Compatibility (`pipeline/.octave_compat/`)
 
 Contains 21 shim files for GNU Octave compatibility, including:
 
@@ -325,7 +341,7 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 ### Analysis Scripts (`analysis/`)
 
-Python scripts for post-hoc analysis of pipeline outputs. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated Markdown report generation.
+Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
 
 **Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
@@ -336,20 +352,20 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks` flags; verifies requirements and runs tests before starting |
 | `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
-| `batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
-| `parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
-| `parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
-| `generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
-| `report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
-| `report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
-| `report_sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
-| `cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
-| `cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
-| `statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
-| `statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
-| `parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
+| `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
+| `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
+| `parsers/parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
+| `parsers/parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
+| `report/generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
+| `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
+| `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
+| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
+| `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
+| `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
+| `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 10 test files with 388 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 18 test files with 569 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -364,6 +380,13 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 | `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus, figure captions, nav sections |
 | `test_parse_mat_metrics.py` | MAT file parsing, dosimetry/core/longitudinal extraction, scipy graceful degradation |
 | `test_analysis_config.py` | Config loading, deep merge, layered overrides, MATLAB config integration, caching |
+| `test_report_sections_helpers.py` | Report helper functions: JSON loading, series normalization, cohort size, AUC finding, trend agreement |
+| `test_report_sections_metadata.py` | Report metadata sections: cover page, part breaks, TOC, publication header, data availability |
+| `test_report_sections_main_results.py` | Main results sections: executive summary, hypothesis, statistical significance, treatment response |
+| `test_report_sections_data_sections.py` | Data sections: cohort overview, patient flow, data completeness, MAT data, appendix, figure gallery |
+| `test_report_sections_analysis.py` | Analysis sections: graph overview/issues, stats by type, cross-DWI comparison, correlations, feature overlap |
+| `test_report_sections_statistics.py` | Statistics sections: effect sizes, multiple comparisons, model diagnostics, sensitivity, power analysis |
+| `test_report_sections_discussion.py` | Discussion sections: methods, limitations, conclusions, reporting checklist, journal guide |
 
 ---
 
@@ -371,7 +394,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 
 ### Architecture
 
-- **Orchestrator pattern**: `run_dwi_pipeline.m` sequences all steps; modules are independently callable.
+- **Orchestrator pattern**: `pipeline/run_dwi_pipeline.m` sequences all steps; modules are independently callable.
 - Explicit parameter passing between modules — no shared global workspace state.
 - Outputs written to a timestamped folder; path passed as argument, not hardcoded.
 
@@ -380,7 +403,7 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 - `parfor` loops process patient cohorts in parallel.
 - `parsave_dir_cache.m` enables safe `save` inside `parfor`.
 - Checkpointing allows recovery from interruptions mid-cohort.
-- Parallel pool capped at 2 workers (`execute_all_workflows.m`).
+- Parallel pool capped at 2 workers (`pipeline/execute_all_workflows.m`).
 
 ### Cross-Platform Compatibility
 
@@ -396,6 +419,17 @@ Python scripts for post-hoc analysis of pipeline outputs. The suite includes vis
 - `safe_load_mask.m` inspects variable type before loading; rejects non-numeric classes to prevent arbitrary code execution from `.mat` files.
 - `escape_shell_arg.m` must be used for all paths passed to `system()`.
 - Never pass unsanitized user strings to shell commands.
+
+### File Deletion Safety
+
+The pipeline must **never delete a file or directory it did not create**. All deletion sites use provenance verification:
+
+- **Sentinel files**: Pipeline-created directories (`saved_files_*`, `processed_patients/`) contain a `.pipeline_created` sentinel file. Before `rmdir`, code must verify this sentinel exists.
+- **Cache clearing** (`pipeline/run_dwi_pipeline.m`): Only deletes `.mat` files matching pipeline-generated patterns (`dwi_vectors_*.mat`, `summary_metrics_*.mat`, `adc_vectors.mat`). Manually curated files are protected via the `protected_files` list.
+- **Lock files**: Only deleted when orphaned (stale from a crashed worker) or after successful checkpoint completion.
+- **Diary/log files**: Only deleted immediately before being recreated by the same module.
+- **Test cleanup**: Must only remove artifacts the test itself created — use pre/post directory snapshots or sentinel checks.
+- When writing new code that deletes files or directories, always add a provenance check: verify a `.pipeline_created` sentinel or confirm the file was created in the same function scope.
 
 ### Data Leakage Prevention
 
@@ -470,7 +504,7 @@ saved_files_YYYYMMDD_HHMMSS/
 
 - `dcm2niix` (MRIcroGL) — DICOM-to-NIFTI conversion; must be on system path or specified in `config.json` as `dcm2nii_call`.
 
-### `dependencies/` folder (DO NOT MODIFY)
+### `pipeline/dependencies/` folder (DO NOT MODIFY)
 
 Contains third-party scripts. Treat as read-only:
 
@@ -484,7 +518,7 @@ Contains third-party scripts. Treat as read-only:
 | `halfSampleMode.m` | Half-sample mode statistical estimator |
 | `im2Y.m` | Image-to-luminance conversion |
 
-See `dependencies/README_DEPENDENCIES.md` for licenses and attribution.
+See `pipeline/dependencies/README_DEPENDENCIES.md` for licenses and attribution.
 
 ---
 
@@ -502,11 +536,11 @@ After **every feature implementation** (adding a new file, adding a config field
 
 ### Checklist (run mentally after each feature)
 
-1. **New `.m` file in `core/` or `utils/`?** → Add to the corresponding CLAUDE.md module table with a one-line purpose. Update the file count in Repository Structure (both CLAUDE.md and README.md).
+1. **New `.m` file in `pipeline/core/` or `pipeline/utils/`?** → Add to the corresponding CLAUDE.md module table with a one-line purpose. Update the file count in Repository Structure (both CLAUDE.md and README.md).
 2. **New test file?** → Update test file count in Repository Structure (both CLAUDE.md and README.md) and the README test badge number. If it covers a notable area, add to CLAUDE.md Key test files table.
-3. **New config field?** → Add to the CLAUDE.md config JSON block. If user-facing, add to README.md config field table. Ensure `parse_config.m` default exists (per Config Backwards Compatibility rules).
-4. **New `.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
-5. **New top-level `.m` file?** → Add to CLAUDE.md Repository Structure tree.
+3. **New config field?** → Add to the CLAUDE.md config JSON block. If user-facing, add to README.md config field table. Ensure `pipeline/utils/parse_config.m` default exists (per Config Backwards Compatibility rules).
+4. **New `pipeline/.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
+5. **New top-level `.m` file in `pipeline/`?** → Add to CLAUDE.md Repository Structure tree.
 6. **Changed module signature?** → Update MEMORY.md File Signatures section.
 7. **New Python script in `analysis/`?** → Add to CLAUDE.md Analysis Scripts table. Update the file count in Repository Structure (both CLAUDE.md and README.md).
 
@@ -533,11 +567,12 @@ After **every feature implementation** (adding a new file, adding a config field
 - **Update documentation after every feature implementation** — see [Documentation Maintenance](#documentation-maintenance-mandatory) below.
 
 ### Do Not
-- Modify anything in `dependencies/`.
+- Modify anything in `pipeline/dependencies/`.
 - Send patient data, clinical CSVs, or any PHI to cloud services.
+- Delete files or directories the pipeline did not create — always verify a `.pipeline_created` sentinel or known pipeline-generated naming pattern before deletion.
 - Introduce global variables or persistent workspace state between pipeline steps.
 - Bypass the temporal leakage safeguards in imputation or cross-validation.
 - Use unsanitized strings in `system()` calls.
 - Hard-code file paths — all paths must flow through `config.json`.
-- Run the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) without explicit researcher approval. Pipeline runs are initiated by the researcher, not by AI assistants. Running the test suite (`run_all_tests.m`) for verification is encouraged.
-- Add, remove, or rename fields in `config.json` / `config.example.json` without ensuring **backwards compatibility**: new fields must have a default in `parse_config.m` (via `isfield` + fallback), and removed fields must be cleaned up from all consumers so that configs still containing them do not cause errors. If a change truly cannot be made backwards-compatible, you **must** ask the user for explicit permission before proceeding.
+- Run the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) without explicit researcher approval. Pipeline runs are initiated by the researcher, not by AI assistants. Running the test suite (`pipeline/tests/run_all_tests.m`) for verification is encouraged.
+- Add, remove, or rename fields in `config.json` / `config.example.json` without ensuring **backwards compatibility**: new fields must have a default in `pipeline/utils/parse_config.m` (via `isfield` + fallback), and removed fields must be cleaned up from all consumers so that configs still containing them do not cause errors. If a change truly cannot be made backwards-compatible, you **must** ask the user for explicit permission before proceeding.

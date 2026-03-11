@@ -12,12 +12,16 @@ from shared import (  # type: ignore
     parse_dwi_info,
     safe_text,
 )
-from report_formatters import (  # type: ignore
+from report.report_formatters import (  # type: ignore
     _dwi_badge,
     _esc,
     _h2,
     _stat_card,
     _trend_tag,
+)
+from report.sections._helpers import (  # type: ignore
+    _build_normalised_series_map,
+    _best_display_name,
 )
 
 
@@ -429,29 +433,29 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                         pass
 
             if all_trends:
-                all_series: set[str] = set()
-                for trends in all_trends.values():
-                    for t in trends:
-                        all_series.add(t.get("series") or "overall")
+                # Use normalised series names so free-form vision-API labels
+                # like "Mean D - Local Control" and "Mean D (Local Control)"
+                # are matched correctly across DWI types.
+                norm_map = _build_normalised_series_map(all_trends)
 
                 h.append("<table><thead><tr><th>Series</th>")
                 for dt in DWI_TYPES:
                     h.append(f"<th>{_esc(dt)}</th>")
                 h.append("<th>Agreement</th></tr></thead><tbody>")
 
-                for series in sorted(all_series):
+                has_rows = False
+                for norm_key in sorted(norm_map.keys()):
+                    dt_entries = norm_map[norm_key]
                     directions: dict[str, str] = {}
                     descriptions: dict[str, str] = {}
-                    for dt in DWI_TYPES:
-                        if dt not in all_trends:  # type: ignore
-                            continue
-                        for t in all_trends[dt]:
-                            if isinstance(t, dict):
-                                if (t.get("series") or "overall") == series:
-                                    directions[dt] = str(t.get("direction", ""))
-                                    descriptions[dt] = str(t.get("description", ""))
+                    for dt, (d, desc) in dt_entries.items():
+                        directions[dt] = d
+                        descriptions[dt] = desc
+
+                    display_name = _best_display_name(all_trends, norm_key)
 
                     if len(directions) >= 2:
+                        has_rows = True
                         vals = list(directions.values())
                         if len(set(vals)) == 1:
                             agree_html = '<span class="agree">AGREE</span>'
@@ -465,12 +469,12 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                             differing = [dt for dt, d in directions.items() if d != modal_dir]
                             disagree_records.append({
                                 "graph": base_name,
-                                "series": series,
+                                "series": display_name,
                                 "directions": dict(directions),
                                 "agreeing": agreeing,
                                 "differing": differing,
                             })
-                        h.append(f"<tr><td>{_esc(series)}</td>")
+                        h.append(f"<tr><td>{_esc(display_name)}</td>")
                         for dt in DWI_TYPES:
                             d_str = directions.get(dt, "-")
                             cell = _trend_tag(d_str) if d_str != "-" else "-"
@@ -479,6 +483,21 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                                 cell += f'<br><span class="axis-info">{_esc(desc[:80])}</span>'  # type: ignore
                             h.append(f"<td>{cell}</td>")
                         h.append(f"<td>{agree_html}</td></tr>")
+                    elif len(directions) == 1:
+                        # Show single-type series for completeness (no agreement verdict)
+                        has_rows = True
+                        h.append(f"<tr><td>{_esc(display_name)}</td>")
+                        for dt in DWI_TYPES:
+                            d_str = directions.get(dt, "-")
+                            cell = _trend_tag(d_str) if d_str != "-" else "-"
+                            desc = descriptions.get(dt, "")
+                            if desc:
+                                cell += f'<br><span class="axis-info">{_esc(desc[:80])}</span>'  # type: ignore
+                            h.append(f"<td>{cell}</td>")
+                        h.append("<td>-</td></tr>")
+
+                if not has_rows:
+                    h.append('<tr><td colspan="5"><em>No trend data available</em></td></tr>')
 
                 h.append("</tbody></table>")
 

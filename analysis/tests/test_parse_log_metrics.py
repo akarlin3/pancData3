@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from parse_log_metrics import (
+from parsers.parse_log_metrics import (
     _read_log,
     parse_all_logs,
     parse_baseline,

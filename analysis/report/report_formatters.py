@@ -27,6 +27,11 @@ Contents:
 from __future__ import annotations
 
 import html as _html
+import sys
+from pathlib import Path
+
+# Ensure analysis/ root is on sys.path so 'shared' is importable.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import get_config  # type: ignore
 
@@ -226,7 +231,7 @@ def _sig_class(p: float) -> str:
     return ""
 
 
-from report_constants import (  # noqa: F401  # type: ignore
+from report.report_constants import (  # noqa: F401  # type: ignore
     CSS,
     HTML_TEMPLATE,
     REFERENCES,

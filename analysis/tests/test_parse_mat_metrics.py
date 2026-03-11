@@ -20,7 +20,7 @@ ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_DIR))
 
-import parse_mat_metrics  # type: ignore
+from parsers import parse_mat_metrics  # type: ignore
 
 
 # Uses saved_files_dir fixture from conftest.py
