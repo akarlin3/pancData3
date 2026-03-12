@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0-rc.1] - 2026-03-11
+
+### Changed
+- **Repository reorganization**: All MATLAB pipeline code moved under `pipeline/` directory — `core/`, `utils/`, `tests/`, `.octave_compat/`, `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m` now live at `pipeline/core/`, `pipeline/utils/`, etc. This establishes `pipeline/` and `analysis/` as equal top-level peers
+- **Analysis subpackage restructuring**: Flat analysis scripts reorganized into `parsers/`, `cross_reference/`, and `report/` subpackages with `__init__.py` modules for clean imports
+- **CI workflow** (`.github/workflows/ci.yml`): Updated paths to reflect new `pipeline/` layout
+
+### Added
+- **`assemble_predictive_features.m`** (`pipeline/utils/`): Extracted 22-column feature matrix assembly from `metrics_stats_predictive.m` for independent testing
+- **`test_assemble_predictive_features.m`**: Unit tests covering column counts, NaN removal, and index mapping for the predictive feature builder
+- **`test_compute_adc_metrics.m`**: Unit tests for ADC metric computation (volume, sub-volume, histogram, KS)
+- **`test_source_code_standards.m`**: Source code standards enforcement tests
+- **`remove_constant_columns.m`** (`pipeline/utils/`): Zero-variance and all-NaN column removal utility
+- **`plot_feature_distribution.m`** enhancements: Updated histogram/boxplot rendering with ANOVA p-value annotation
+- New plotting functions for dose-diffusion analysis and DWI data visualization
+- Report section generation modules with shared helper utilities
+
+---
+
 ## [2.0.0-beta.1] - 2026-03-10
 
 ### Added
