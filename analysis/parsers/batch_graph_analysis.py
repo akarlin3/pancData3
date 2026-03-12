@@ -683,7 +683,7 @@ def flatten(a: GraphAnalysis) -> dict:
     row["issues_json"] = json.dumps(a.issues)
     row["summary"] = a.summary
     row["sample_size"] = a.sample_size or ""
-    row["data_series_count"] = a.data_series_count if a.data_series_count is not None else ""
+    row["data_series_count"] = a.data_series_count if a.data_series_count is not None else ""  # type: ignore
     row["error_bars"] = a.error_bars or ""
     row["num_annotations"] = len(a.annotations)  # type: ignore
     row["annotations_json"] = json.dumps(a.annotations)
@@ -692,7 +692,7 @@ def flatten(a: GraphAnalysis) -> dict:
     row["spatial_pattern"] = a.spatial_pattern or ""
     row["num_legend_items"] = len(a.legend_items)  # type: ignore
     row["legend_items_json"] = json.dumps(a.legend_items)
-    row["subpanel_count"] = a.subpanel_count if a.subpanel_count is not None else ""
+    row["subpanel_count"] = a.subpanel_count if a.subpanel_count is not None else ""  # type: ignore
     row["comparison_type"] = a.comparison_type or ""
     row["figure_quality"] = a.figure_quality or ""
     return row
@@ -736,7 +736,10 @@ async def main():
     if not api_key:
         sys.exit(
             "ERROR: GEMINI_API_KEY environment variable not set.\n"
-            "  Set it with: export GEMINI_API_KEY='your-api-key'"
+            "  You can set it by:\n"
+            "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
+            "  2. Creating an 'analysis/.env' file with GEMINI_API_KEY=your-api-key\n"
+            "  3. Exporting it in your shell: export GEMINI_API_KEY='your-api-key'"
         )
 
     client = genai.Client(api_key=api_key)  # type: ignore

@@ -215,6 +215,61 @@ def _run_script(
         return False
 
 
+def _ensure_api_key() -> None:
+    """Ensure GEMINI_API_KEY is available in the environment.
+
+    Checks the environment and a local .env file. If still missing,
+    prompts the user interactively and saves the entered key to .env.
+    """
+    import os
+    env_file = ANALYSIS_DIR / ".env"
+    key_name = "GEMINI_API_KEY"
+
+    # Step 1: Check environment first
+    if os.environ.get(key_name):
+        return
+
+    # Step 2: Check .env file
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(f"{key_name}="):
+                        key = line.split("=", 1)[1].strip(" '\"")
+                        if key:
+                            os.environ[key_name] = key
+                            return
+        except Exception as e:
+            print(f"  [WARN] Failed to read .env file: {e}")
+
+    # Step 3: Prompt user
+    print("\n" + "!" * 70)
+    print("  WARNING: GEMINI_API_KEY is not set.")
+    print("  This key is required for the vision-based graph analysis.")
+    print("  You can get an API key from: https://aistudio.google.com/")
+    print("!" * 70)
+    
+    import getpass
+    key = getpass.getpass("\n  Enter your Gemini API key (hidden): ").strip()
+    
+    if not key:
+        print("  [WARN] No API key provided. Vision analysis will fail if not skipped.\n")
+        return
+
+    # Update environment
+    os.environ[key_name] = key
+
+    # Save to .env for future runs
+    try:
+        # Append just in case there are other things in .env
+        with open(env_file, "a", encoding="utf-8") as f:
+            f.write(f"\n{key_name}={key}\n")
+        print(f"  [INFO] Saved API key to {env_file}\n")
+    except Exception as e:
+        print(f"  [WARN] Failed to save key to .env: {e}\n")
+
+
 def main():
     """Entry point: parse CLI arguments and execute the analysis pipeline."""
     # ── Argument parsing ──
@@ -318,6 +373,10 @@ def main():
         print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()
+
+        # ── Setup Environment ──
+        if not args.skip_vision:
+            _ensure_api_key()
 
         # ── Pre-flight checks ──
         if not args.skip_checks:
