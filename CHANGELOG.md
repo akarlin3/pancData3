@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.0] - 2026-03-14
+
+### Changed
+- **License**: Changed from MIT to GNU Affero General Public License v3.0 (AGPL-3.0)
+
+### Fixed
+- **HD95 heatmap readability**: Replaced `hot` colormap with `parula` to fix yellow-on-yellow and dark-red-on-dark-red text contrast issues; added axis labels and colorbar label
+- **Dice heatmap readability**: Added missing axis labels (`Core Method`), colorbar label (`Dice Coefficient`), and increased font sizes
+- **Parameter maps resolution**: Increased figure size, font sizes, and switched to 150 DPI output (`print -dpng -r150`) to fix small/blurry labels
+- **Feature histogram empty-group annotation**: Made LF n=0 warning more prominent with bold text, background box, and border
+- **Feature boxplot single-group annotation**: Added visible warning when only one outcome group is present (e.g., no LF events)
+- **Dose vs Diffusion scatter small-group warning**: Added on-plot annotation when LF group has n<3, warning that inference is unreliable
+- **Metric_Set figure improvements**: Added per-group sample sizes (LC/LF counts) to subplot titles and boxplot labels; improved "Insufficient Data" display with visible in-axes message
+
+---
+
 ## [2.0.0-rc.1] - 2026-03-11
 
 ### Changed
