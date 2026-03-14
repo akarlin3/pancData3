@@ -1,7 +1,7 @@
 # pancData3
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.0--rc.1-blue)](#citation)
 [![Tests](https://img.shields.io/badge/tests-88%20MATLAB%20%2B%2018%20Python%20files-brightgreen)](#running-tests)
 
@@ -418,7 +418,7 @@ If you use this software in your research, please cite it:
   year      = {2026},
   version   = {2.0.0-rc.1},
   url       = {https://github.com/akarlin3/pancData3},
-  license   = {MIT}
+  license   = {AGPL-3.0}
 }
 ```
 
@@ -428,6 +428,6 @@ See [CITATION.cff](CITATION.cff) for a machine-readable citation file.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for details.
 
 Copyright (c) 2026 Avery Karlin

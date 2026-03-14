@@ -14,7 +14,7 @@ This file provides essential context for AI assistants (Claude, Antigravity, etc
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**License:** MIT (Copyright 2026 Avery Karlin)
+**License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
 
