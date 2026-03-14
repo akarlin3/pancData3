@@ -1,0 +1,283 @@
+function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te, target_cols)
+% knn_impute_train_test Imputes missing data safely for cross-validation
+%
+% Integrates robust K-Nearest Neighbors (KNN) imputation ensuring that the
+% imputation model is fitted strictly on the training fold (X_tr) and then
+% applied to the test fold (X_te) to prevent data leakage.
+%
+% Also prevents temporal data leakage by excluding rows from the same patient
+% during distance calculation if pat_id_tr/pat_id_te are provided.
+%
+%   Inputs:
+%       X_tr        - [n_train x p] Feature matrix for the training fold.
+%       X_te        - [n_test  x p] Feature matrix for the testing fold.
+%       k           - (Optional) Number of nearest neighbors. Default is 5.
+%       pat_id_tr   - (Optional) Array of patient IDs for training instances.
+%       pat_id_te   - (Optional) Array of patient IDs for testing instances.
+%       target_cols - (Optional) Indices of columns to exclude from distance metric.
+%
+%   Outputs:
+%       X_tr_imp    - [n_train x p] Imputed training feature matrix.
+%       X_te_imp    - [n_test  x p] Imputed testing feature matrix.
+%
+%   Analytical Rationale — Why Same-Patient Exclusion is Critical:
+%   ---------------------------------------------------------------
+%   In the time-dependent panel, each patient has multiple rows (one per
+%   treatment fraction).  If we allow KNN to use another row from the SAME
+%   patient as a neighbor, the imputed value effectively comes from that
+%   patient's own measurements at a different timepoint.  This creates
+%   temporal data leakage: a missing ADC at fraction 3 would be imputed
+%   from the patient's own fraction 5 value, using future information to
+%   fill a past measurement gap.
+%
+%   By setting the distance to same-patient rows to infinity, KNN is forced
+%   to borrow information only from OTHER patients at similar treatment
+%   stages — which is the clinically appropriate imputation strategy (using
+%   population-level patterns, not patient-specific future data).
+%
+%   Train-Test Separation:
+%   ----------------------
+%   Training-set imputation uses only training-set neighbors.  Test-set
+%   imputation also uses only training-set neighbors (never other test
+%   rows).  This mirrors the clinical deployment scenario where the model
+%   has access to historical patients (training) but not to other
+%   concurrent patients (test) when imputing a new patient's missing data.
+%
+    if nargin < 2, X_te = []; end
+    if nargin < 3, k = 5; end
+    if nargin < 4, pat_id_tr = []; end
+    if isempty(pat_id_tr)
+        warning('knn_impute_train_test:noPatientIDs', ...
+            'No patient IDs provided. Only self-exclusion applied; same-patient rows may leak information.');
+    end
+    if nargin < 5, pat_id_te = []; end
+    if nargin < 6, target_cols = []; end
+    
+    [n_tr, p] = size(X_tr);
+    X_tr_imp = X_tr;
+
+    % Z-score standardize features based on training fold to compute
+    % distances.  Without standardization, features with large absolute
+    % values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the Euclidean
+    % distance over features with small absolute values (e.g., f ~ 0.05-
+    % 0.20), making KNN effectively ignore the latter.  Z-scoring puts
+    % all DWI parameters on a common scale so each contributes equally
+    % to neighbor selection.
+    %
+    % Statistics are computed from training data only — using test-set
+    % statistics would leak test-set distributional information into the
+    % distance metric.
+    mu_tr = mean(X_tr, 1, 'omitnan');
+    sd_tr = std(X_tr, 0, 1, 'omitnan');
+    sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero for constant features
+    Z_tr = (X_tr - mu_tr) ./ sd_tr;
+    
+    % --- 1. Impute Training Set (X_tr) ---
+    % Create a boolean mask of valid search space coordinates.
+    % Target columns (e.g., the outcome variable or derived response
+    % features) are masked out of the distance metric to prevent
+    % circular reasoning: we should not use the outcome to find
+    % neighbors for imputing predictor features that will later predict
+    % that same outcome.
+    search_space = Z_tr;
+    if ~isempty(target_cols)
+        search_space(:, target_cols) = nan; % mask out target columns from distance metric
+    end
+    
+    % Pre-compute validity mask for vectorized operations
+    valid_mask = ~isnan(search_space);
+
+    for i = 1:n_tr
+        missing_idx = isnan(X_tr(i, :));
+        if any(missing_idx)
+            % Extract the precise query point, masking valid features
+            query_pt = search_space(i, :);
+            valid_feat = valid_mask(i, :);
+            
+            % We cannot search if the query has no valid features left
+            if sum(valid_feat) == 0
+                continue;
+            end
+            
+            % Vectorized finding of valid reference indices
+            % A row is valid if it doesn't have any NaNs in the valid_feat columns
+            % This means valid_mask(:, valid_feat) must be all true.
+            % sum(valid_mask(:, valid_feat), 2) == sum(valid_feat)
+            num_valid = sum(valid_feat);
+            is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
+            
+            % Apply self/patient exclusions.  When patient IDs are provided,
+            % ALL rows from the same patient are excluded — not just the
+            % current row.  This prevents both (a) trivial self-imputation
+            % and (b) temporal leakage where a patient's fraction-5 data
+            % informs imputation of their fraction-2 missing values.
+            % The exclusion is bidirectional: patient A's data cannot
+            % inform patient A's imputation at any timepoint.
+            if ~isempty(pat_id_tr)
+                if iscell(pat_id_tr)
+                    is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_tr{i});
+                else
+                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
+                end
+            else
+                is_valid_ref(i) = false; % remove self (minimal protection without IDs)
+            end
+            
+            ref_idx = find(is_valid_ref);
+
+            if isempty(ref_idx)
+                continue;
+            end
+            
+            % Extract pure coordinates
+            Y_coords = search_space(ref_idx, valid_feat);
+            X_coord = query_pt(valid_feat);
+            
+            % Calculate squared Euclidean distances.  Squared distances
+            % preserve the rank ordering needed for KNN selection while
+            % avoiding the sqrt() computation.  The distance is computed
+            % only over mutually valid (non-NaN) features between the
+            % query row and each reference row, which is the "available-
+            % case" approach — appropriate when missingness is random
+            % (MCAR/MAR), as is typical for missed MRI scans.
+            dists = sum((Y_coords - X_coord).^2, 2);
+            [~, sort_idx] = sort(dists);
+
+            % For each missing column, filter to refs with valid data
+            % in that column BEFORE selecting top k neighbors.  This is
+            % the "column-adaptive" KNN strategy: the k nearest neighbors
+            % may differ per missing feature because not all neighbors
+            % have valid data for all features.  The mean of the k nearest
+            % valid neighbors is the imputed value — a locally-weighted
+            % estimate that reflects the DWI parameter values of patients
+            % with similar tumor characteristics at similar treatment stages.
+            for m = find(missing_idx)
+                has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
+                valid_sorted = sort_idx(has_target);
+                num_neighbors = min(k, length(valid_sorted));
+                if num_neighbors == 0
+                    continue;
+                end
+                neighbors = ref_idx(valid_sorted(1:num_neighbors));
+                % Impute as the unweighted mean of k nearest valid neighbors.
+                % Unweighted (vs. distance-weighted) is more robust when k
+                % is small (k=5), preventing a single very-close neighbor
+                % from dominating the imputed value.
+                X_tr_imp(i, m) = mean(X_tr(neighbors, m));
+            end
+        end
+    end
+    
+    % --- 2. Impute Test/Validation Set (X_te) using Training Data ---
+    % Test-set imputation uses ONLY training-set rows as neighbors.
+    % The test-set features are Z-scored using training-set statistics
+    % (mu_tr, sd_tr) so that distances are computed in the same coordinate
+    % system as the training imputation.  This ensures consistency and
+    % prevents test-set distributional information from influencing the
+    % imputation.
+    if ~isempty(X_te)
+        X_te_imp = X_te;
+        Z_te = (X_te - mu_tr) ./ sd_tr;  % Standardize using TRAINING statistics
+        n_te = size(X_te, 1);
+        
+        search_space_te = Z_te;
+        if ~isempty(target_cols)
+            search_space_te(:, target_cols) = nan;
+        end
+        
+        for i = 1:n_te
+            missing_idx = isnan(X_te(i, :));
+            if any(missing_idx)
+                query_pt = search_space_te(i, :);
+                valid_feat = ~isnan(query_pt);
+                
+                if sum(valid_feat) == 0
+                    continue;
+                end
+                
+                num_valid = sum(valid_feat);
+                is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
+                
+                % Exclude training rows from the same patient as this test
+                % row.  Although patient-grouped CV (make_grouped_folds)
+                % should already prevent the same patient from appearing
+                % in both train and test, this guard handles edge cases
+                % (e.g., manual fold assignments, or when this function is
+                % called outside the standard CV pipeline).  It also
+                % prevents temporal leakage if a patient's data somehow
+                % spans both folds due to data entry errors.
+                if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
+                    if iscell(pat_id_tr)
+                        is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_te{i});
+                    else
+                        is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
+                    end
+                end
+                
+                ref_idx = find(is_valid_ref);
+
+                if isempty(ref_idx)
+                    continue;
+                end
+                
+                % Use training search_space for reference coordinates
+                % (neighbors are always training rows), but compute
+                % distances in the shared Z-score space.
+                Y_coords = search_space(ref_idx, valid_feat);
+                X_coord = search_space_te(i, valid_feat);
+
+                dists = sum((Y_coords - X_coord).^2, 2);
+                [~, sort_idx] = sort(dists);
+
+                % For each missing column, filter to refs with valid data
+                % in that column BEFORE selecting top k neighbors.
+                % Note: imputed values come from X_tr (training data), not
+                % X_te — this is the key leakage prevention mechanism.
+                % The test patient's missing ADC is filled with the mean
+                % ADC of the k most similar training patients, ensuring the
+                % imputed value reflects only previously-seen population data.
+                for m = find(missing_idx)
+                    has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
+                    valid_sorted = sort_idx(has_target);
+                    num_neighbors = min(k, length(valid_sorted));
+                    if num_neighbors == 0
+                        continue;
+                    end
+                    neighbors = ref_idx(valid_sorted(1:num_neighbors));
+                    X_te_imp(i, m) = mean(X_tr(neighbors, m));
+                end
+            end
+        end
+    else
+        X_te_imp = [];
+    end
+    
+    % --- 3. Final Fallback ---
+    % When all K nearest neighbors have NaN for a feature, impute with the
+    % pre-imputation training-set column mean.  This is a standard fallback
+    % (sklearn KNNImputer uses the same approach).  For test rows, this
+    % introduces marginal information leakage (a training-set statistic),
+    % but is strictly less leakage than using a global or test-set mean,
+    % and only activates when KNN fails entirely (rare in practice).
+    tr_mean = mean(X_tr, 1, 'omitnan');
+    all_nan_cols = isnan(tr_mean);
+    if any(all_nan_cols)
+        warning('knn_impute_train_test:allNaNColumn', ...
+            '%d column(s) are entirely NaN in training data; imputing to 0.', sum(all_nan_cols));
+    end
+    tr_mean(all_nan_cols) = 0;
+    
+    for m = 1:p
+        nan_tr = isnan(X_tr_imp(:, m));
+        if any(nan_tr)
+            X_tr_imp(nan_tr, m) = tr_mean(m);
+        end
+        
+        if ~isempty(X_te)
+            nan_te = isnan(X_te_imp(:, m));
+            if any(nan_te)
+                X_te_imp(nan_te, m) = tr_mean(m);
+            end
+        end
+    end
+end

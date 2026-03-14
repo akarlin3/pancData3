@@ -4,7 +4,105 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.0.0] - 2026-03-14
+
+### Changed
+- **License**: Changed from MIT to GNU Affero General Public License v3.0 (AGPL-3.0)
+
+### Fixed
+- **HD95 heatmap readability**: Replaced `hot` colormap with `parula` to fix yellow-on-yellow and dark-red-on-dark-red text contrast issues; added axis labels and colorbar label
+- **Dice heatmap readability**: Added missing axis labels (`Core Method`), colorbar label (`Dice Coefficient`), and increased font sizes
+- **Parameter maps resolution**: Increased figure size, font sizes, and switched to 150 DPI output (`print -dpng -r150`) to fix small/blurry labels
+- **Feature histogram empty-group annotation**: Made LF n=0 warning more prominent with bold text, background box, and border
+- **Feature boxplot single-group annotation**: Added visible warning when only one outcome group is present (e.g., no LF events)
+- **Dose vs Diffusion scatter small-group warning**: Added on-plot annotation when LF group has n<3, warning that inference is unreliable
+- **Metric_Set figure improvements**: Added per-group sample sizes (LC/LF counts) to subplot titles and boxplot labels; improved "Insufficient Data" display with visible in-axes message
+
+---
+
+## [2.0.0-rc.1] - 2026-03-11
+
+### Changed
+- **Repository reorganization**: All MATLAB pipeline code moved under `pipeline/` directory — `core/`, `utils/`, `tests/`, `.octave_compat/`, `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m` now live at `pipeline/core/`, `pipeline/utils/`, etc. This establishes `pipeline/` and `analysis/` as equal top-level peers
+- **Analysis subpackage restructuring**: Flat analysis scripts reorganized into `parsers/`, `cross_reference/`, and `report/` subpackages with `__init__.py` modules for clean imports
+- **CI workflow** (`.github/workflows/ci.yml`): Updated paths to reflect new `pipeline/` layout
+
+### Added
+- **`assemble_predictive_features.m`** (`pipeline/utils/`): Extracted 22-column feature matrix assembly from `metrics_stats_predictive.m` for independent testing
+- **`test_assemble_predictive_features.m`**: Unit tests covering column counts, NaN removal, and index mapping for the predictive feature builder
+- **`test_compute_adc_metrics.m`**: Unit tests for ADC metric computation (volume, sub-volume, histogram, KS)
+- **`test_source_code_standards.m`**: Source code standards enforcement tests
+- **`remove_constant_columns.m`** (`pipeline/utils/`): Zero-variance and all-NaN column removal utility
+- **`plot_feature_distribution.m`** enhancements: Updated histogram/boxplot rendering with ANOVA p-value annotation
+- New plotting functions for dose-diffusion analysis and DWI data visualization
+- Report section generation modules with shared helper utilities
+
+---
+
+## [2.0.0-beta.1] - 2026-03-10
+
+### Added
+
+#### Report — PDF Layout
+- **Cover page** (`_section_cover_page`): Print-only title page with run timestamp, DWI types, and graph count; hidden on screen via `display:none`
+- **Table of Contents** (`_section_print_toc`): Grouped two-column TOC (screen + PDF); driven by `NAV_GROUPS` so it automatically stays in sync with the navigation bar; occupies its own page in print (`page-break-after: always`)
+- **Part-break dividers** (`_part_break`): 6 dividers separating Overview / Data / Statistics / Outcomes / Discussion / Appendix; hidden on screen, force a page break in PDF with styled chapter heading
+- **PDF page numbers**: WeasyPrint-native `@page { @bottom-center { content: "Page " counter(page) " of " counter(pages) } }`; suppressed on cover page via `@page :first`; bottom-left footer shows report title
+
+#### Report — Section Content
+- **Cohort overview**: LF/LC outcome balance stat cards, imbalance warning when ratio > 3:1, attrition note, cross-DWI patient count consistency check
+- **Patient flow**: Parse-failure badge sourced from new `parse_warnings` list; CR exclusion label with explanatory text
+- **MAT data**: Hausdorff distance table alongside Dice; dosimetry displayed as `mean ± std`; RTOG clinical context box with D95/V50 pass/fail benchmarks; core method recommendation box
+- **Correlations**: Causation caveat info-box; Bonferroni correction note; CI width caveat
+- **Cross-DWI comparison**: Sample size mismatch warning; 80% agreement context note; "Notable Disagreements" subsection
+- **Graph issues**: Critical / High / Low severity stratification with stat cards
+- **Feature overlap**: Stability interpretation note; duplicate feature detection
+- **Multiple comparisons**: BH formula disclosed; expected vs. observed rejections displayed; collapsible comparison against Bonferroni correction
+- **Effect sizes**: Competing-risk HR interpretation; CI width guidance; AUC literature benchmark (0.68–0.82 for pancreatic RT)
+- **Model diagnostics**: KNN imputation note; elastic net 1SE caveat; PH assumption untested warning
+- **Methods section**: All 11 core delineation methods described with `<code>` tags; full GLME model specification; nested CV/LOOCV clarified; KNN imputation paragraph; DnCNN/IVIMnet training disclosure
+- **Limitations section**: 5 new limitations — PH assumption untested, imputation unvalidated in this cohort, Fine–Gray model not computed, tumor core not expert-validated, AI graph analysis may misclassify
+- **Executive summary**: AUC card shows DWI type + timepoint; GLME card notes direction not parsed; FDR card shows per-DWI breakdown (Standard / dnCNN / IVIMnet)
+- **Hypothesis section**: Evidence hierarchy (High / Moderate / Exploratory confidence levels); prominent "Research Use Only" warning at end of treatment plan
+
+#### Parsers
+- **`parse_log_metrics.py`**: `parse_warnings` list when expected patterns find zero matches; `_parse_float()` handles `"Inf"` / `"NaN"` strings; IPCW weight-range ratio computed with warning if > 5×; competing-risk and outlier group validation checks
+- **`parse_csv_results.py`**: Case-insensitive column lookup (`_find_column`); timepoint normalization (`Fx5` / `FX5` → `fx5`); p-value and effect size extraction per row; temporal pattern analysis (`_temporal_pattern`)
+- **`statistical_relevance.py`**: Tighter p-value regex requiring `p =`/`p <` context; Bonferroni alpha computed as `0.05 / n_tests`; findings that survive Bonferroni tagged `[Bonferroni]`
+
+### Changed
+- **Gemini model**: `analysis_config.json` corrected from invalid `"gemini-3.1-pro-preview"` to `"gemini-2.5-flash"` — this was the cause of all vision API failures
+- **Manuscript Information section removed**: The fill-in-the-blank publication metadata block (`_section_publication_header`) is no longer rendered in the report
+- **Manuscript Findings section removed**: `_section_manuscript_ready_findings` removed from report output and navigation bar
+- **`report_sections` package split into 7 submodules**: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (previously a single `report_sections.py` file); all names re-exported from `__init__.py` for backward compatibility
+- **Python test suite**: 388 tests across 10 files (up from 126 / 6 files in alpha.1); updated assertions for new dosimetry dict format, timepoint normalization, and NaN→null serialization
+
+### Fixed
+- **`parse_mat_metrics.py`**: NaN/Inf serialized as `None` (JSON `null`) instead of `0`; shape inference corrected (`num_patients = shape[0]`, `num_timepoints = shape[-1]`); Hausdorff matrix extracted alongside Dice; dosimetry metrics returned as `{"mean": X, "std": Y}` dicts; method descriptions pulled from MAT field or built-in fallback dict; NxN matrix dimensions validated against method count before access
+
+---
+
+## [2.0.0-alpha.1] - 2026-03-09
+
+### Added
+- **Python post-hoc analysis scripts** (`analysis/`): Five new scripts for automated graph extraction and cross-DWI comparison using Google Gemini vision API
+  - `batch_graph_analysis.py`: Async batch processing of pipeline graph images via Google Gemini vision API; outputs structured CSV with axes, trends, and inflection points
+  - `cross_reference_dwi.py`: Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries
+  - `cross_reference_summary.py`: Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement
+  - `statistical_relevance.py`: Extracts p-values and correlation coefficients; reports significant findings and cross-DWI significance
+  - `statistical_by_graph_type.py`: Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map)
+- **Analysis orchestrator** (`run_analysis.py`): Full analysis workflow runner with `--folder`, `--skip-vision`, `--report-only` CLI flags
+- **Shared utilities** (`shared.py`): Folder discovery, DWI type parsing, p-value/correlation regex extraction for analysis scripts
+- **Direct log parsing** (`parse_log_metrics.py`): Extracts Wilcoxon p-values, AUC, hazard ratios, and GLME interaction terms from MATLAB log files
+- **CSV export parsing** (`parse_csv_results.py`): Parses pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison
+- **HTML report generator** (`generate_report.py`): Combines all data sources into a comprehensive `analysis_report.html`
+- **Report formatting** (`report_formatters.py`): CSS, escaping, badges, nav bar, stat cards, and HTML template for the analysis report
+- **Report sections** (`report_sections.py`): Section builder functions for the HTML report (executive summary, cohort overview, hypothesis, statistics, cross-DWI, correlations, treatment response, predictive performance, supplemental MAT data, appendix)
+- **MAT file parser** (`parse_mat_metrics.py`): Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis
+- **Python test suite** (`analysis/tests/`): 6 test files with 126 tests using pytest, covering shared utilities, log/CSV parsing, batch graph analysis, report generation, and script output validation
+
+### Changed
+- Updated documentation (`CLAUDE.md`, `README.md`) with analysis script descriptions and requirements
 
 ## [1.1.1] - 2026-03-09
 

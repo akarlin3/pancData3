@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""Extract statistically significant findings from the vision analysis CSV.
+
+This script performs a comprehensive statistical survey of the
+``graph_analysis_results.csv`` produced by :mod:`batch_graph_analysis`.
+It uses regex-based extraction (:func:`shared.extract_pvalues`,
+:func:`shared.extract_correlations`) to mine p-values and correlation
+coefficients from the free-text summaries, trend descriptions, and
+inflection-point descriptions.
+
+Output sections:
+
+1. **Significant findings** (p < 0.05) -- sorted by p-value with
+   significance markers (``*``, ``**``, ``***``).
+2. **Non-significant findings** (p >= 0.05) -- for comparison.
+3. **Notable correlations** (|r| >= 0.3) -- classified as moderate or
+   strong, positive or negative.
+4. **Cross-DWI significance comparison** -- for graphs present in multiple
+   DWI types, shows whether the same analysis yields significance in
+   different DWI-type runs.
+
+Usage:
+    python statistical_relevance.py [saved_files_path]
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+from tqdm import tqdm  # type: ignore
+
+# Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from shared import (  # type: ignore
+    DWI_TYPES,
+    extract_correlations,
+    extract_pvalues,
+    get_config,
+    load_graph_csv,
+    parse_dwi_info,
+    resolve_folder,
+    safe_text,
+    setup_utf8_stdout,
+)
+
+setup_utf8_stdout()
+
+
+def main():
+    """CLI entry point: extract and print all statistical findings."""
+    folder = resolve_folder(sys.argv)
+    rows = load_graph_csv(folder)
+    if not rows:
+        sys.exit(f"ERROR: No graph_analysis_results.csv found in {folder}")
+
+    # Group rows by normalised graph name for cross-DWI comparison (section 4).
+    groups = defaultdict(dict)
+    for r in rows:
+        dwi_type, base_name = parse_dwi_info(r["file_path"])
+        groups[base_name][dwi_type] = r
+
+    stats_cfg = get_config()["statistics"]
+    p_threshold = stats_cfg["p_noteworthy"]
+    corr_threshold = stats_cfg["correlation_threshold"]
+
+    sep = "=" * 80
+
+    # ── 1. Significant p-values ──────────────────────────────────────────────
+    print(sep)
+    print(f"  STATISTICALLY SIGNIFICANT FINDINGS (p < {p_threshold})")
+    print(sep)
+
+    sig_findings = []
+    nonsig_findings = []
+
+    for r in tqdm(rows, desc="Extracting p-values", unit="graph",
+                  bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]"):
+        dwi_type, base_name = parse_dwi_info(r["file_path"])
+        # Concatenate all text fields to search for p-value patterns.
+        all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
+        pvals = extract_pvalues(all_text)
+
+        for pval, context in pvals:
+            entry = {
+                "dwi": dwi_type,
+                "graph": base_name,
+                "p": pval,
+                "context": context,
+            }
+            if pval < p_threshold:
+                sig_findings.append(entry)
+            else:
+                nonsig_findings.append(entry)
+
+        # Also extract structured statistical tests (more reliable than regex).
+        try:
+            stat_tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
+        except Exception:
+            stat_tests = []
+        for st in stat_tests:
+            if not isinstance(st, dict):
+                continue
+            pval = st.get("p_value")
+            if pval is None or not isinstance(pval, (int, float)):
+                continue
+            if math.isnan(pval) or math.isinf(pval):
+                continue
+            test_name = st.get("test_name", "unknown")
+            cmp_groups = st.get("comparison_groups", "")
+            context = f"{test_name}: p={pval}" + (f" ({cmp_groups})" if cmp_groups else "")
+            entry = {
+                "dwi": dwi_type,
+                "graph": base_name,
+                "p": pval,
+                "context": context,
+                "source": "structured",
+            }
+            if pval < p_threshold:
+                sig_findings.append(entry)
+            else:
+                nonsig_findings.append(entry)
+
+    # Compute Bonferroni-corrected threshold across all extracted tests.
+    n_tests_total = len(sig_findings) + len(nonsig_findings)
+    alpha_bonferroni = 0.05 / n_tests_total if n_tests_total > 0 else 0.05
+    n_bonferroni = sum(1 for f in sig_findings if float(f["p"]) < alpha_bonferroni)
+
+    # Print significant findings sorted by ascending p-value.
+    if sig_findings:
+        sig_findings.sort(key=lambda x: x["p"])
+        print(
+            f"\n  Note: {n_tests_total} tests extracted. "
+            f"Bonferroni threshold = {alpha_bonferroni:.4g}. "
+            f"{n_bonferroni}/{len(sig_findings)} significant findings survive Bonferroni."
+        )
+        for f in sig_findings:
+            p_hi = stats_cfg["p_highly_significant"]
+            p_sig = stats_cfg["p_significant"]
+            tag = "***" if f["p"] < p_hi else "** " if f["p"] < p_sig else "*  "
+            bonf_flag = " [Bonferroni]" if float(f["p"]) < alpha_bonferroni else ""
+            print(f"\n  {tag} p={f['p']:.4f}  [{f['dwi']}] {f['graph']}{bonf_flag}")
+            print(f"      {f['context']}")
+    else:
+        print("\n  No p-values < 0.05 found in extracted data.")
+
+    # ── 2. Non-significant findings (for comparison) ─────────────────────────
+    print(f"\n{sep}")
+    print(f"  NON-SIGNIFICANT FINDINGS (p >= {p_threshold})")
+    print(sep)
+
+    if nonsig_findings:
+        nonsig_findings.sort(key=lambda x: x["p"])
+        for f in nonsig_findings:
+            print(f"\n     p={f['p']:.4f}  [{f['dwi']}] {f['graph']}")
+            print(f"      {f['context']}")
+
+    # ── 3. Strong correlations ───────────────────────────────────────────────
+    print(f"\n{sep}")
+    print(f"  NOTABLE CORRELATIONS (|r| >= {corr_threshold})")
+    print(sep)
+
+    for r in rows:
+        dwi_type, base_name = parse_dwi_info(r["file_path"])
+        all_text = safe_text(r, "summary", "trends_json")
+        corrs = extract_correlations(all_text)
+
+        for rval, context in corrs:
+            if abs(rval) >= corr_threshold:
+                # Classify correlation strength and direction.
+                strength = "STRONG" if abs(rval) >= stats_cfg["effect_size_medium"] else "MODERATE"  # type: ignore[literal-required]
+                direction = "positive" if rval > 0 else "negative"  # type: ignore
+                print(f"\n  [{dwi_type}] {base_name}")
+                print(f"    r={rval:.2f} ({strength} {direction})")
+                print(f"    {context}")
+
+    # ── 4. Cross-DWI significance comparison ─────────────────────────────────
+    # For graphs present in multiple DWI types, compare how many p-values
+    # reach significance in each type -- highlights processing-method effects.
+    print(f"\n{sep}")
+    print("  CROSS-DWI: Same Analysis, Different Significance?")
+    print(sep)
+
+    for base_name in sorted(groups.keys()):
+        dwi_dict = groups[base_name]
+        real = [t for t in dwi_dict if t != "Root"]
+        if len(real) < 2:
+            continue
+
+        # Collect p-values per DWI type for this graph.
+        pvals_by_dwi: dict[str, list] = {}
+        for dwi_type in DWI_TYPES:
+            if dwi_type not in dwi_dict:
+                continue
+            r = dwi_dict[dwi_type]
+            all_text = safe_text(r, "summary", "trends_json", "inflection_points_json")
+            pvals = extract_pvalues(all_text)
+            if pvals:
+                pvals_by_dwi[dwi_type] = pvals
+
+        # Only print if we have p-values from at least 2 DWI types.
+        if len(pvals_by_dwi) >= 2:
+            print(f"\n  {base_name}:")
+            for dwi_type in DWI_TYPES:
+                if dwi_type not in pvals_by_dwi:
+                    continue
+                pvals = pvals_by_dwi[dwi_type]
+                sig_count = sum(1 for p, _ in pvals if p < p_threshold)
+                total = len(pvals)
+                pval_strs = [f"p={p:.3f}{'*' if p < p_threshold else ''}" for p, _ in pvals]
+                print(f"    {dwi_type}: {sig_count}/{total} significant  [{', '.join(pval_strs)}]")
+
+    print()
+
+
+if __name__ == "__main__":
+    main()

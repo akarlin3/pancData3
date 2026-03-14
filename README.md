@@ -1,20 +1,21 @@
 # pancData3
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-78%20files-brightgreen)](#running-tests)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-88%20MATLAB%20%2B%2018%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 1.1.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.0.0 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
 ## Table of Contents
 
+- [Supported Platforms](#supported-platforms)
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
@@ -22,6 +23,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - [Usage](#usage)
 - [Pipeline Steps](#pipeline-steps)
 - [Running Tests](#running-tests)
+- [Post-Hoc Analysis Scripts](#post-hoc-analysis-scripts)
 - [Repository Structure](#repository-structure)
 - [Contributing](#contributing)
 - [Citation](#citation)
@@ -41,6 +43,23 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ---
 
+## Supported Platforms
+
+| Platform | MATLAB Pipeline | Python Analysis | CI Tested |
+|---|---|---|---|
+| **Linux** (Ubuntu 22.04+) | Yes | Yes | Yes |
+| **macOS** (13 Ventura+) | Yes | Yes | Yes |
+| **Windows** (10/11) | Yes | Yes | Yes |
+
+The codebase uses platform-aware code paths throughout:
+
+- **Shell escaping** -- `escape_shell_arg.m` detects `ispc()` and applies Windows (double-quote) or Unix (single-quote) escaping for all `system()` calls
+- **Path handling** -- All paths use `fullfile()`, `filesep`, and `pathsep` (MATLAB) or `pathlib.Path` (Python) instead of hardcoded separators
+- **Console encoding** -- Python analysis scripts reconfigure `stdout` to UTF-8 on Windows to handle emoji log prefixes
+- **Mock test scripts** -- Tests generate `.bat` files on Windows and shell scripts on Unix
+
+---
+
 ## Requirements
 
 ### MATLAB Toolboxes
@@ -53,9 +72,9 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 
 ### External Tools
 
-| Tool | Purpose |
-|---|---|
-| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion |
+| Tool | Purpose | Installation |
+|---|---|---|
+| [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion | [Download](https://github.com/rordenlab/dcm2niix/releases) for Windows, macOS, or Linux. Must be on your system PATH or specified in `config.json` as `dcm2nii_call`. |
 
 ---
 
@@ -69,7 +88,7 @@ cd pancData3
 Then in MATLAB:
 
 ```matlab
-addpath('core', 'utils', 'dependencies');
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 ```
 
 ---
@@ -126,13 +145,13 @@ See [`config.example.json`](config.example.json) for all available fields and th
 Runs Standard, dnCNN, and IVIMnet sequentially with a parallel pool (max 2 workers). Creates a timestamped output folder (`saved_files_YYYYMMDD_HHMMSS/`) containing all logs, figures, and results:
 
 ```matlab
-execute_all_workflows
+run('pipeline/execute_all_workflows.m')
 ```
 
 ### Single Pipeline Run
 
 ```matlab
-addpath('core', 'utils', 'dependencies');
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 
 % Run all steps
 run_dwi_pipeline('config.json');
@@ -152,6 +171,7 @@ All pipeline output is organized into a single timestamped folder:
 
 ```
 saved_files_YYYYMMDD_HHMMSS/
+├── .pipeline_created                # Provenance sentinel (safe to delete)
 ├── execute_all_workflows.log        # Master workflow log
 ├── test_suite_output.log            # Test suite output
 ├── Standard/                        # Per-DWI-type results
@@ -162,11 +182,14 @@ saved_files_YYYYMMDD_HHMMSS/
 └── IVIMnet/
 ```
 
+> **File deletion safety:** The pipeline never deletes files or directories it did not create. Pipeline-created directories contain a `.pipeline_created` sentinel file; all cleanup code verifies this sentinel before removing a directory. Manually curated files (e.g., `dwi_vectors_ea.mat`) are explicitly protected from cache clearing.
+
 ### Pre-Pipeline Data Check
 
 Before running the pipeline, you can verify that your patient data directory is properly structured:
 
 ```matlab
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 report = patient_data_check('config.json');
 ```
 
@@ -204,6 +227,8 @@ The pipeline executes the following steps in order:
 The `compare_cores` step runs all 11 tumor core delineation methods on every patient and timepoint, then computes pairwise spatial agreement metrics. This is not part of the default pipeline — invoke it explicitly:
 
 ```matlab
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
+
 % Run after data has been loaded (requires dwi_vectors and summary_metrics on disk)
 run_dwi_pipeline('config.json', {'compare_cores'});
 ```
@@ -226,20 +251,98 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 ## Running Tests
 
 ```matlab
-run('tests/run_all_tests.m')
+run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 78 test files covering:
+The test suite includes 88 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
 - **Leakage tests** -- Data leakage prevention in CV and imputation
-- **Security tests** -- Safe file loading, shell argument escaping
+- **Security tests** -- Safe file loading, shell argument escaping, file deletion provenance
 - **Smoke tests** -- Visualization output verification
 - **Benchmarks** -- Performance comparisons for optimized algorithms
 - **Static analysis** -- Source code standards and naming conventions
 
-Tests generate a code coverage report for `core/` and `utils/`.
+Tests generate a code coverage report for `pipeline/core/` and `pipeline/utils/`.
+
+---
+
+## Post-Hoc Analysis Scripts
+
+The `analysis/` folder contains a comprehensive Python analysis suite for automated extraction, cross-referencing, and reporting of pipeline results.
+
+### Requirements
+
+- Python 3.12+
+- `pip install -r analysis/requirements.txt`
+- `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
+
+### Usage
+
+```bash
+# Full analysis workflow (auto-detects latest output folder)
+python analysis/run_analysis.py
+
+# Skip vision API calls (use existing CSV or only direct parsing)
+python analysis/run_analysis.py --skip-vision
+
+# Only generate the HTML report from existing data
+python analysis/run_analysis.py --report-only
+
+# Also keep the HTML report on disk (default: PDF only)
+python analysis/run_analysis.py --html
+
+# Specify a particular output folder
+python analysis/run_analysis.py --folder saved_files_20260308_010713
+
+# Skip pre-flight checks (requirements verification and test suite)
+python analysis/run_analysis.py --skip-checks
+
+# Individual scripts can still be run standalone
+python analysis/parsers/batch_graph_analysis.py
+python analysis/parsers/parse_log_metrics.py [saved_files_path]
+python analysis/parsers/statistical_relevance.py [saved_files_path]
+```
+
+| Script | Description |
+|---|---|
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with CLI flags |
+| `shared.py` | Shared utilities: folder discovery, DWI type parsing, regex extractors |
+| **`parsers/`** | **Data extraction subpackage** |
+| `parsers/batch_graph_analysis.py` | Sends all pipeline graph images to Google Gemini vision API; extracts axes, trends, inflection points into a structured CSV |
+| `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
+| `parsers/parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
+| `parsers/parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON |
+| `parsers/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
+| `parsers/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
+| **`cross_reference/`** | **Cross-DWI comparison subpackage** |
+| `cross_reference/cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
+| `cross_reference/cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
+| **`report/`** | **Report generation subpackage** |
+| `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
+| `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
+| `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
+| `report/sections/` | Section builder modules for the HTML report (metadata, main results, data, analysis, statistics, discussion, helpers) |
+
+### Report Features (v2.0.0)
+
+The generated HTML/PDF report includes:
+
+- **Cover page** — print-only title page with run timestamp, DWI types, and graph count
+- **Table of Contents** — grouped two-column TOC visible on screen; occupies its own page in the PDF
+- **Part breaks** — 6 logical divisions (Overview / Data / Statistics / Outcomes / Discussion / Appendix) force page breaks in the PDF
+- **PDF page numbers** — WeasyPrint-native footer: `Page N of M`, suppressed on the cover page
+- **Clinical context** — RTOG D95/V50 benchmarks, evidence hierarchy (High/Moderate/Exploratory), Research Use Only disclaimer
+- **Improved parsers** — NaN/Inf → JSON `null`, timepoint normalization, parse-failure warnings, IPCW range validation
+
+### Analysis Test Suite
+
+The analysis scripts have a comprehensive Python test suite (569 tests across 18 files) using pytest:
+
+```bash
+cd analysis/tests && python -m pytest -v
+```
 
 ---
 
@@ -247,34 +350,53 @@ Tests generate a code coverage report for `core/` and `utils/`.
 
 ```
 pancData3/
-├── run_dwi_pipeline.m          # Main orchestrator entry point
-├── execute_all_workflows.m     # Sequential multi-type runner
-├── patient_data_check.m       # Pre-pipeline data validation
-├── config.example.json         # Configuration template
-├── core/                       # Pipeline modules (18 files)
-│   ├── load_dwi_data.m         #   Data loading & model fitting
-│   ├── sanity_checks.m         #   Data validation
-│   ├── visualize_results.m     #   Visualization generation
-│   ├── process_single_scan.m   #   Per-scan DICOM/model processing
-│   ├── metrics_baseline.m      #   Baseline metric computation
-│   ├── metrics_survival.m      #   Survival analysis
-│   └── ...
-├── utils/                      # Helper utilities (28 files)
-│   ├── parse_config.m          #   Configuration parser
-│   ├── safe_load_mask.m        #   Secure .mat loading
-│   ├── escape_shell_arg.m      #   Shell argument escaping
-│   ├── init_scan_structs.m     #   Scan data structure initialization
-│   ├── compute_scan_days_from_dates.m  #   DICOM-derived scan day computation
-│   ├── text_progress_bar.m     #   Text-based progress bar display
-│   └── ...
-├── tests/                      # Test suite (78 test files)
-│   ├── run_all_tests.m         #   Master test runner
-│   ├── benchmarks/             #   Performance benchmarks (7 files)
-│   └── diagnostics/            #   Diagnostic spot-checks (5 files)
-├── dependencies/               # Third-party scripts (read-only)
-└── .agents/                    # AI agent configuration
-    ├── rules/                  #   Agent safety rules
-    └── workflows/              #   Structured workflows
+├── config.example.json             # Configuration template
+├── pipeline/                       # MATLAB pipeline
+│   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
+│   ├── execute_all_workflows.m     #   Sequential multi-type runner
+│   ├── patient_data_check.m        #   Pre-pipeline data validation
+│   ├── core/                       #   Pipeline modules (18 files)
+│   │   ├── load_dwi_data.m         #     Data loading & model fitting
+│   │   ├── sanity_checks.m         #     Data validation
+│   │   ├── visualize_results.m     #     Visualization generation
+│   │   ├── process_single_scan.m   #     Per-scan DICOM/model processing
+│   │   ├── metrics_baseline.m      #     Baseline metric computation
+│   │   ├── metrics_survival.m      #     Survival analysis
+│   │   └── ...
+│   ├── utils/                      #   Helper utilities (44 files)
+│   │   ├── parse_config.m          #     Configuration parser
+│   │   ├── safe_load_mask.m        #     Secure .mat loading
+│   │   ├── escape_shell_arg.m      #     Shell argument escaping
+│   │   ├── init_scan_structs.m     #     Scan data structure initialization
+│   │   └── ...
+│   ├── tests/                      #   Test suite (88 test files)
+│   │   ├── run_all_tests.m         #     Master test runner
+│   │   ├── benchmarks/             #     Performance benchmarks (7 files)
+│   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
+│   ├── dependencies/               #   Third-party scripts (read-only)
+│   └── .octave_compat/             #   GNU Octave compatibility shims (21 files)
+├── analysis/                       # Python post-hoc analysis suite
+│   ├── run_analysis.py             #   Orchestrator (full workflow runner)
+│   ├── shared.py                   #   Shared utilities
+│   ├── parsers/                    #   Data extraction subpackage
+│   │   ├── batch_graph_analysis.py #     Vision API batch graph extraction
+│   │   ├── parse_log_metrics.py    #     Direct MATLAB log parsing
+│   │   ├── parse_csv_results.py    #     Direct CSV export parsing
+│   │   ├── parse_mat_metrics.py    #     MATLAB .mat file parser → JSON
+│   │   ├── statistical_relevance.py #    Statistical significance extraction
+│   │   └── statistical_by_graph_type.py # Stats filtered by graph type
+│   ├── cross_reference/            #   Cross-DWI comparison subpackage
+│   │   ├── cross_reference_dwi.py  #     Full cross-DWI type comparison
+│   │   └── cross_reference_summary.py #  Concise cross-DWI summary
+│   ├── report/                     #   Report generation subpackage
+│   │   ├── generate_report.py      #     HTML+PDF report generator
+│   │   ├── report_formatters.py    #     Formatting utilities
+│   │   ├── report_constants.py     #     CSS, JS, references, HTML template
+│   │   └── sections/              #     Section builder modules
+│   └── tests/                      #   Python test suite (18 test files, 569 tests)
+└── .agents/                        # AI agent configuration
+    ├── rules/                      #   Agent safety rules
+    └── workflows/                  #   Structured workflows
 ```
 
 ---
@@ -294,9 +416,9 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {1.1.1},
+  version   = {2.0.0},
   url       = {https://github.com/akarlin3/pancData3},
-  license   = {MIT}
+  license   = {AGPL-3.0}
 }
 ```
 
@@ -306,6 +428,6 @@ See [CITATION.cff](CITATION.cff) for a machine-readable citation file.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for details.
 
 Copyright (c) 2026 Avery Karlin
