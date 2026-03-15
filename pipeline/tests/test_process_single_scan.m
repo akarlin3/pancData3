@@ -157,6 +157,171 @@ classdef test_process_single_scan < matlab.unittest.TestCase
             testCase.verifyTrue(isnan(result.adc_kurtosis));
             testCase.verifyTrue(isnan(result.d_kurtosis));
         end
+
+        function test_dvh_metrics_default_nan(testCase)
+            % DVH-related metrics (dmean, d95, v50gy) for both GTVp and
+            % GTVn should default to NaN when no dose data is available.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isnan(result.dmean_gtvp), 'dmean_gtvp should be NaN without dose data.');
+            testCase.verifyTrue(isnan(result.d95_gtvp), 'd95_gtvp should be NaN without dose data.');
+            testCase.verifyTrue(isnan(result.v50gy_gtvp), 'v50gy_gtvp should be NaN without dose data.');
+            testCase.verifyTrue(isnan(result.dmean_gtvn), 'dmean_gtvn should be NaN without dose data.');
+            testCase.verifyTrue(isnan(result.d95_gtvn), 'd95_gtvn should be NaN without dose data.');
+            testCase.verifyTrue(isnan(result.v50gy_gtvn), 'v50gy_gtvn should be NaN without dose data.');
+        end
+
+        function test_dncnn_field_defaults_nan(testCase)
+            % DnCNN-specific fields should default to NaN when no
+            % denoised data is available.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isnan(result.d_mean_dncnn), 'd_mean_dncnn should default to NaN.');
+        end
+
+        function test_ivimnet_field_defaults_nan(testCase)
+            % IVIMnet-specific fields should default to NaN when no
+            % neural network fitted data is available.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isnan(result.d_mean_ivimnet), 'd_mean_ivimnet should default to NaN.');
+        end
+
+        function test_scan_naming_fx_range(testCase)
+            % Verify scan naming for mid-treatment fractions (fi=3).
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 3;
+            ctx.rpi = 1;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyEmpty(result.bad_dwi_list, ...
+                'No bad DWI list entries for fi=3 with no data.');
+        end
+
+        function test_repeat_index_2(testCase)
+            % Verify that repeat index > 1 does not cause errors.
+            ctx = testCase.makeMinimalCtx();
+            ctx.rpi = 2;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isnan(result.adc_mean), ...
+                'adc_mean should be NaN for repeat index 2 with no data.');
+        end
+
+        function test_gtvp_struct_all_vector_fields(testCase)
+            % Verify that GTVp data struct has all expected DWI vector fields
+            % including DnCNN and IVIMnet variants.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            expected_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector', ...
+                'adc_vector_dncnn', 'd_vector_dncnn', 'f_vector_dncnn', 'dstar_vector_dncnn', ...
+                'd_vector_ivimnet', 'f_vector_ivimnet', 'dstar_vector_ivimnet'};
+            for i = 1:numel(expected_fields)
+                testCase.verifyTrue(isfield(result.data_gtvp, expected_fields{i}), ...
+                    sprintf('data_gtvp should have field %s.', expected_fields{i}));
+            end
+        end
+
+        function test_gtvn_struct_all_vector_fields(testCase)
+            % Verify that GTVn data struct has all DWI vector fields.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            expected_fields = {'adc_vector', 'd_vector', 'f_vector', 'dstar_vector'};
+            for i = 1:numel(expected_fields)
+                testCase.verifyTrue(isfield(result.data_gtvn, expected_fields{i}), ...
+                    sprintf('data_gtvn should have field %s.', expected_fields{i}));
+            end
+        end
+
+        function test_gtvp_ref_empty_without_data(testCase)
+            % GTVp reference output should be empty when no mask file exists.
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 1;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [~, ~, gtvp_ref, ~] = process_single_scan(ctx);
+            testCase.verifyEmpty(gtvp_ref, ...
+                'GTVp reference should be empty without mask data.');
+        end
+
+        function test_gtvn_ref_empty_without_data(testCase)
+            % GTVn reference output should be empty when no mask file exists.
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 1;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [~, ~, ~, gtvn_ref] = process_single_scan(ctx);
+            testCase.verifyEmpty(gtvn_ref, ...
+                'GTVn reference should be empty without mask data.');
+        end
+
+        function test_nii_dir_created_for_non_fx1(testCase)
+            % The nii output directory should be created even for non-Fx1 fractions.
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 3;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            process_single_scan(ctx);
+            testCase.verifyTrue(isfolder(fullfile(ctx.basefolder, 'nii')), ...
+                'nii directory should be created for all fractions.');
+        end
+
+        function test_result_struct_has_bad_dwi_list_field(testCase)
+            % Result struct should always contain bad_dwi_list field.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isfield(result, 'bad_dwi_list'), ...
+                'Result should always contain bad_dwi_list field.');
+            testCase.verifyTrue(iscell(result.bad_dwi_list), ...
+                'bad_dwi_list should be a cell array.');
+        end
     end
 
     methods(Access = private)

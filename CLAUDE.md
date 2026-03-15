@@ -365,7 +365,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 18 test files with 569 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 22 test files with 653 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -387,6 +387,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_report_sections_analysis.py` | Analysis sections: graph overview/issues, stats by type, cross-DWI comparison, correlations, feature overlap |
 | `test_report_sections_statistics.py` | Statistics sections: effect sizes, multiple comparisons, model diagnostics, sensitivity, power analysis |
 | `test_report_sections_discussion.py` | Discussion sections: methods, limitations, conclusions, reporting checklist, journal guide |
+| `test_cross_reference_dwi.py` | Cross-DWI comparison output: graph matching, trend display, stat test formatting, truncation, JSON robustness |
+| `test_cross_reference_summary.py` | Cross-DWI summary: trend agreement/disagreement, priority ordering, parameter maps, inflection points |
+| `test_statistical_relevance.py` | Statistical findings: p-value extraction, Bonferroni correction, significance markers, correlations, cross-DWI comparison |
+| `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
 
 ---
 

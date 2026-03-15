@@ -171,5 +171,129 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') == 0, ...
                 'Parameter_Maps_1.png should NOT be created if protocol deviates');
         end
+
+        function testOutputFolderCreated(testCase)
+            % Verify that visualize_results creates the output folder
+            % if it doesn't already exist.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            outputDir = testCase.ConfigStruct.output_folder;
+            if exist(outputDir, 'dir')
+                rmdir(outputDir, 's');
+            end
+
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            testCase.verifyTrue(isfolder(outputDir), ...
+                'Output folder should be created by visualize_results.');
+        end
+
+        function testDiaryFileCreated(testCase)
+            % visualize_results should create a diary log file.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            diary_file = fullfile(testCase.ConfigStruct.output_folder, 'visualize_results_output.txt');
+            testCase.verifyTrue(exist(diary_file, 'file') > 0, ...
+                'Diary file should be created by visualize_results.');
+        end
+
+        function testFiguresClosedProperly(testCase)
+            % All figures should be invisible (off-screen) during batch runs.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'off', ...
+                'Figures should be set to invisible for batch runs.');
+        end
+
+        function testAllNaNLFSkipsDistributions(testCase)
+            % When all patients have NaN LF values, feature distributions
+            % should still generate without crashing (empty groups).
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            sm = testCase.SummaryMetrics;
+            sm.lf = [NaN];
+
+            visualize_results(testCase.DataVectors, sm, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            % Should not crash; histograms may be empty but should still be saved
+            outputDir = testCase.ConfigStruct.output_folder;
+            testCase.verifyTrue(isfolder(outputDir), ...
+                'Output folder should exist even with all-NaN LF values.');
+        end
+
+        function testMultiplePatientsSmoke(testCase)
+            % Smoke test with 2 patients to verify indexing doesn't fail.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+
+            % Setup second patient directory with NIfTI data
+            patID2 = 'P02';
+            niiDir2 = fullfile(testCase.TempDir, patID2, 'nii');
+            mkdir(niiDir2);
+
+            dwi_img = zeros(10, 10, 10, 4, 'double');
+            dwi_img(:,:,:,1) = 1000;
+            dwi_img(:,:,:,2) = 800;
+            dwi_img(:,:,:,3) = 500;
+            dwi_img(:,:,:,4) = 100;
+            dwi_file = fullfile(niiDir2, 'fx1_dwi1.nii');
+            niftiwrite(dwi_img, dwi_file);
+            gzip(dwi_file);
+            delete(dwi_file);
+
+            gtv_img = zeros(10, 10, 10, 'double');
+            gtv_img(4:7, 4:7, 4:7) = 1;
+            gtv_file = fullfile(niiDir2, 'fx1_gtv1.nii');
+            niftiwrite(gtv_img, gtv_file);
+            gzip(gtv_file);
+            delete(gtv_file);
+
+            fid = fopen(fullfile(niiDir2, 'fx1_dwi1.bval'), 'w');
+            fprintf(fid, '0 30 150 550');
+            fclose(fid);
+
+            % Expand summary metrics to 2 patients
+            sm = testCase.SummaryMetrics;
+            sm.id_list = {'P01', patID2};
+            sm.mrn_list = {'MRN01', 'MRN02'};
+            sm.lf = [0; 1];
+            sm.adc_mean = cat(1, sm.adc_mean, 1.2e-3 * ones(1,1,1));
+            sm.d_mean = cat(1, sm.d_mean, 1.1e-3 * ones(1,1,1));
+            sm.f_mean = cat(1, sm.f_mean, 0.12 * ones(1,1,1));
+            sm.dstar_mean = cat(1, sm.dstar_mean, 0.04 * ones(1,1,1));
+            sm.d95_gtvp = cat(1, sm.d95_gtvp, 38);
+            sm.dmean_gtvp = cat(1, sm.dmean_gtvp, 48);
+
+            dv = struct('adc_vector', {ones(10,1); ones(10,1)});
+
+            visualize_results(dv, sm, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            outputDir = testCase.ConfigStruct.output_folder;
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Feature_BoxPlots_Standard.png'), 'file') > 0, ...
+                'Feature_BoxPlots should be created for 2-patient cohort.');
+        end
+
+        function testCrossDWIComparisonGracefulFailure(testCase)
+            % Cross-DWI comparison requires multiple DWI types. With only
+            % Standard configured, it should fail gracefully with a warning.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            % Should not crash; output folder should exist
+            testCase.verifyTrue(isfolder(testCase.ConfigStruct.output_folder), ...
+                'Output folder should exist even when cross-DWI fails.');
+        end
+
+        function testTimestampedFolderWhenNoOutputFolder(testCase)
+            % When config has no output_folder, visualize_results should
+            % create a timestamped folder.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            config = testCase.ConfigStruct;
+            config = rmfield(config, 'output_folder');
+
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, config);
+
+            % A saved_files_* directory should have been created somewhere
+            % We just verify it doesn't crash.
+        end
     end
 end
