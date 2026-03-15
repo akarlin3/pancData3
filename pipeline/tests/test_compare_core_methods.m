@@ -332,5 +332,122 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
                 'Active contours should fall back when both masks mismatch.');
         end
 
+        function testHD95MatrixProperties(testCase)
+            % HD95 matrix should be symmetric with zero diagonal (self-
+            % distance is always 0) and non-negative off-diagonal values.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            H = results.mean_hd95_matrix;
+            % Check symmetry for non-NaN entries
+            for i = 1:11
+                for j2 = (i+1):11
+                    if ~isnan(H(i,j2)) && ~isnan(H(j2,i))
+                        testCase.verifyEqual(H(i,j2), H(j2,i), 'AbsTol', 1e-10, ...
+                            'HD95 matrix should be symmetric.');
+                    end
+                end
+            end
+            % Diagonal should be 0 (self-comparison) for valid entries
+            for i = 1:11
+                if ~isnan(H(i,i))
+                    testCase.verifyEqual(H(i,i), 0, 'AbsTol', 1e-10, ...
+                        sprintf('HD95 self-distance for method %d should be 0.', i));
+                end
+            end
+            % Non-negative
+            valid_hd = H(~isnan(H));
+            testCase.verifyTrue(all(valid_hd >= 0), ...
+                'All HD95 values should be non-negative.');
+        end
+
+        function testDiceCountTracked(testCase)
+            % dice_count should track how many valid observations were
+            % used for each pairwise comparison.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            % Patient 1 Fx1 has valid data, so dice_count should be >= 1
+            testCase.verifyTrue(all(results.dice_count(:) >= 0), ...
+                'Dice count should be non-negative.');
+            % At least one observation (Patient 1 Fx1)
+            testCase.verifyTrue(any(results.dice_count(:) > 0), ...
+                'At least one Dice observation should exist.');
+        end
+
+        function testResultsStructFields(testCase)
+            % Verify all expected fields are present in output struct.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            expected = {'method_names', 'mean_dice_matrix', 'mean_hd95_matrix', ...
+                'dice_count', 'hd95_count', 'volume_fractions', ...
+                'fallback_flags', 'all_dice', 'all_hd95', ...
+                'n_patients', 'nTp', 'dwi_type_name'};
+            for i = 1:numel(expected)
+                testCase.verifyTrue(isfield(results, expected{i}), ...
+                    sprintf('Output should contain field %s.', expected{i}));
+            end
+        end
+
+        function testDiceMatrixDimensions(testCase)
+            % Mean Dice matrix should be 11x11 (one per method).
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            testCase.verifyEqual(size(results.mean_dice_matrix), [11 11], ...
+                'Mean Dice matrix should be 11x11.');
+        end
+
+        function testVolumeFractionsDimensions(testCase)
+            % Volume fractions should be nPatients x nTp x 11.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            expected_size = [2, 2, 11];  % 2 patients, 2 timepoints, 11 methods
+            testCase.verifyEqual(size(results.volume_fractions), expected_size, ...
+                'Volume fractions should be nPatients x nTp x nMethods.');
+        end
+
+        function testFDMatFx2NotFallback(testCase)
+            % fDM at Fx2 (k=2) should NOT be flagged as fallback because
+            % baseline data is available for comparison.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            fdm_idx = find(strcmp(results.method_names, 'fdm'));
+            testCase.verifyFalse(results.fallback_flags(1, 2, fdm_idx), ...
+                'fDM at Fx2 should NOT be a fallback (baseline exists).');
+        end
+
+        function testAllDiceCellArraySize(testCase)
+            % all_dice cell array should match nPatients x nTp.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            testCase.verifyEqual(size(results.all_dice), [2, 2], ...
+                'all_dice should be 2x2 cell array.');
+        end
+
+        function testEmptyPatientDiceIsEmpty(testCase)
+            % Patient 2 has empty Fx2 data; its dice matrix should be empty.
+            results = compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+
+            testCase.verifyTrue(isempty(results.all_dice{2, 2}), ...
+                'Empty patient Fx2 should have empty Dice matrix.');
+        end
+
+        function testDiaryFileCreated(testCase)
+            % compare_core_methods should create a diary log file.
+            compare_core_methods(testCase.DataVectors, ...
+                testCase.SummaryMetrics, testCase.ConfigStruct);
+            diary off;
+
+            diary_file = fullfile(testCase.TempDir, 'compare_core_methods_output_Standard.txt');
+            testCase.verifyTrue(exist(diary_file, 'file') > 0, ...
+                'Diary log file should be created.');
+        end
+
     end
 end
