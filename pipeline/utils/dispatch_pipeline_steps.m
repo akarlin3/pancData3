@@ -133,6 +133,11 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             d95_d_sub = tmp_dosimetry.d95_d_sub; v50_d_sub = tmp_dosimetry.v50_d_sub;
             d95_f_sub = tmp_dosimetry.d95_f_sub; v50_f_sub = tmp_dosimetry.v50_f_sub;
             d95_dstar_sub = tmp_dosimetry.d95_dstar_sub; v50_dstar_sub = tmp_dosimetry.v50_dstar_sub;
+            if isfield(tmp_dosimetry, 'per_method_dosimetry')
+                per_method_dosimetry = tmp_dosimetry.per_method_dosimetry;
+            else
+                per_method_dosimetry = struct();
+            end
         end
     else
         if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_dosimetry', 'skipped'); end
@@ -141,6 +146,11 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             if exist(dosimetry_results_file, 'file')
                 tmp_dosimetry = load(dosimetry_results_file);
                 d95_adc_sub = tmp_dosimetry.d95_adc_sub; v50_adc_sub = tmp_dosimetry.v50_adc_sub; d95_d_sub = tmp_dosimetry.d95_d_sub; v50_d_sub = tmp_dosimetry.v50_d_sub; d95_f_sub = tmp_dosimetry.d95_f_sub; v50_f_sub = tmp_dosimetry.v50_f_sub; d95_dstar_sub = tmp_dosimetry.d95_dstar_sub; v50_dstar_sub = tmp_dosimetry.v50_dstar_sub;
+                if isfield(tmp_dosimetry, 'per_method_dosimetry')
+                    per_method_dosimetry = tmp_dosimetry.per_method_dosimetry;
+                else
+                    per_method_dosimetry = struct();
+                end
             else
                 fprintf('      \xe2\x9a\xa0\xef\xb8\x8f Warning: metrics_dosimetry results not found. metrics_stats may fail.\n');
                 if log_fid > 0
@@ -152,6 +162,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
                 d95_d_sub = nan(length(m_id_list), nTp_val); v50_d_sub = nan(length(m_id_list), nTp_val);
                 d95_f_sub = nan(length(m_id_list), nTp_val); v50_f_sub = nan(length(m_id_list), nTp_val);
                 d95_dstar_sub = nan(length(m_id_list), nTp_val); v50_dstar_sub = nan(length(m_id_list), nTp_val);
+                per_method_dosimetry = struct();
             end
         else
             fprintf('\xe2\x8f\xad\xef\xb8\x8f [5.3/5] [%s] Skipping metrics_dosimetry.\n', current_name);
