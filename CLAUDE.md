@@ -51,7 +51,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (92 test files)
+│   ├── tests/                          # Full test suite (102 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -260,6 +260,15 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_run_elastic_net_cv.m` | Elastic net CV: output shapes, convergence failure, lambda grid, keep-fold counts, reproducibility |
+| `test_run_loocv_risk_scores.m` | LOOCV risk scores: output shape, stratification, DL provenance leakage checks, NaN handling |
+| `test_plot_predictive_diagnostics.m` | Predictive diagnostics: ROC plot, sanity check panels, 2D scatter, filename sanitization |
+| `test_progress_gui.m` | ProgressGUI: construction, update, close lifecycle, display availability, color status |
+| `test_initialize_pipeline.m` | Pipeline init: config resolution, path setup, toolbox checks, pre-flight skip flags |
+| `test_normalize_patient_ids.m` | Patient ID normalization: categorical conversion, quote stripping, underscore-to-hyphen |
+| `test_select_dwi_vectors.m` | DWI vector extraction: Standard/dnCNN/IVIMnet type selection, multi-index access |
+| `test_parfor_progress.m` | Parallel progress: callback factory, counter independence, default label |
+| `test_write_sentinel_file.m` | Sentinel files: creation, content, DWI type naming, invalid folder warning |
 
 ---
 
