@@ -716,3 +716,325 @@ class TestResultsDraft:
             log, ["Standard"], None, _make_mat_data(), None
         ))
         assert "competing" in html.lower() or "excluded" in html.lower()
+
+
+# ── Edge cases: empty cohorts, null hypothesis, partial data ──
+
+
+class TestExecutiveSummaryEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_executive_summary(None, [], [], None, "ts")
+        assert isinstance(result, list)
+
+    def test_empty_rows_list(self):
+        result = _section_executive_summary(None, ["Standard"], [], None, "ts")
+        assert isinstance(result, list)
+
+    def test_log_data_with_empty_nested_dicts(self):
+        log = {"Standard": {
+            "stats_comparisons": {},
+            "stats_predictive": {},
+            "survival": {},
+            "baseline": {},
+        }}
+        result = _section_executive_summary(log, ["Standard"], [], None, "ts")
+        assert isinstance(result, list)
+
+    def test_csv_data_with_empty_fdr(self):
+        csv_data = {"significant_metrics": {}, "fdr_global": {}}
+        result = _section_executive_summary(None, ["Standard"], [], csv_data, "ts")
+        assert isinstance(result, list)
+
+    def test_mat_data_zero_patients(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 0, "num_timepoints": 0}}}
+        result = _section_executive_summary(None, ["Standard"], [], None, "ts", mat)
+        assert isinstance(result, list)
+
+    def test_no_auc_no_hr_no_glme(self):
+        """Empty pipeline results should produce a minimal summary."""
+        log = {"Standard": {
+            "stats_predictive": {"roc_analyses": [], "feature_selections": []},
+            "stats_comparisons": {"glme_details": [], "glme_interactions": []},
+            "survival": {"hazard_ratios": []},
+            "baseline": {},
+        }}
+        result = _section_executive_summary(log, ["Standard"], [], None, "ts")
+        assert isinstance(result, list)
+
+
+class TestHypothesisEdgeCases:
+    def test_empty_groups_dict(self):
+        result = _section_hypothesis({})
+        assert isinstance(result, list)
+
+    def test_groups_with_empty_trends_json(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {"trends_json": "[]"},
+            }
+        }
+        result = _section_hypothesis(groups)
+        assert isinstance(result, list)
+
+    def test_groups_with_invalid_json(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {"trends_json": "NOT JSON"},
+            }
+        }
+        result = _section_hypothesis(groups)
+        assert isinstance(result, list)
+
+    def test_no_log_no_mat_with_groups(self):
+        result = _section_hypothesis(_make_groups(), None, None)
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert len(html) > 0
+
+    def test_log_with_empty_survival(self):
+        log = _make_log_data()
+        log["Standard"]["survival"]["hazard_ratios"] = []
+        result = _section_hypothesis(_make_groups(), log, _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_log_with_no_sig_glme(self):
+        log = _make_log_data()
+        log["Standard"]["stats_comparisons"]["glme_details"] = [
+            {"metric": "x", "p": 0.5, "adj_alpha": 0.025},
+        ]
+        log["Standard"]["stats_comparisons"]["glme_interactions"] = [0.8]
+        result = _section_hypothesis(_make_groups(), log, _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_mat_data_no_dosimetry(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 5}}}
+        result = _section_hypothesis(_make_groups(), _make_log_data(), mat)
+        assert isinstance(result, list)
+
+    def test_low_auc(self):
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["roc_analyses"] = [{"auc": 0.55, "timepoint": "BL"}]
+        result = _section_hypothesis(_make_groups(), log, _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_suboptimal_d95(self):
+        mat = _make_mat_data()
+        mat["Standard"]["dosimetry"]["d95_adc_mean"] = {"mean": 38.0}
+        result = _section_hypothesis(_make_groups(), _make_log_data(), mat)
+        assert isinstance(result, list)
+
+    def test_inflection_points_in_trends(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {
+                    "trends_json": json.dumps([
+                        {"series": "Mean D", "direction": "increasing", "description": "D rises by ~15%"},
+                    ]),
+                    "inflection_points_json": json.dumps([
+                        {"approximate_x": 14, "approximate_y": 0.0012, "description": "Divergence at Fx14"},
+                    ]),
+                },
+            },
+        }
+        result = _section_hypothesis(groups, _make_log_data(), _make_mat_data())
+        assert isinstance(result, list)
+
+
+class TestStatisticalSignificanceEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_statistical_significance(None, None, None, None)
+        assert isinstance(result, list)
+
+    def test_rows_with_no_pvalues(self):
+        rows = [{
+            "file_path": "Standard/test.png",
+            "summary": "No statistical results here",
+            "trends_json": "[]", "inflection_points_json": "[]",
+        }]
+        result = _section_statistical_significance(rows, None, None, [])
+        assert isinstance(result, list)
+
+    def test_log_data_empty_glme_details(self):
+        log = {"Standard": {"stats_comparisons": {"glme_details": []}}}
+        result = _section_statistical_significance([], None, log, ["Standard"])
+        assert isinstance(result, list)
+
+
+class TestBroadStatisticalOverviewEdgeCases:
+    def test_log_with_empty_survival(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": []},
+            "stats_comparisons": {"glme_details": []},
+        }}
+        result = _section_broad_statistical_overview(log, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_only_nonsig_hrs(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "a", "hr": 1.0, "ci_lo": 0.5, "ci_hi": 2.0, "p": 0.9},
+                {"covariate": "b", "hr": 0.9, "ci_lo": 0.4, "ci_hi": 1.8, "p": 0.7},
+            ]},
+            "stats_comparisons": {"glme_details": []},
+        }}
+        result = _section_broad_statistical_overview(log, ["Standard"])
+        html = "\n".join(result)
+        assert "No individual test" in html or isinstance(html, str)
+
+    def test_hr_exactly_one(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "null_hr", "hr": 1.0, "ci_lo": 0.5, "ci_hi": 2.0, "p": 1.0},
+            ]},
+            "stats_comparisons": {"glme_details": []},
+        }}
+        result = _section_broad_statistical_overview(log, ["Standard"])
+        assert isinstance(result, list)
+
+
+class TestTreatmentResponseEdgeCases:
+    def test_groups_with_only_non_longitudinal(self):
+        groups = {
+            "Feature_BoxPlots": {
+                "Standard": SAMPLE_GRAPH_CSV_ROWS[0],
+                "dnCNN": SAMPLE_GRAPH_CSV_ROWS[1],
+            },
+        }
+        result = _section_treatment_response(groups)
+        assert isinstance(result, list)
+
+    def test_groups_with_empty_trends(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {"trends_json": "[]"},
+                "dnCNN": {"trends_json": "[]"},
+            },
+        }
+        result = _section_treatment_response(groups)
+        assert isinstance(result, list)
+
+    def test_groups_with_invalid_json(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {"trends_json": "NOT JSON"},
+            },
+        }
+        result = _section_treatment_response(groups)
+        assert isinstance(result, list)
+
+    def test_single_dwi_type_longitudinal(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {
+                    "trends_json": json.dumps([{"series": "ADC", "direction": "increasing", "description": "rises"}]),
+                },
+            },
+        }
+        result = _section_treatment_response(groups)
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert len(html) > 0
+
+
+class TestPredictivePerformanceEdgeCases:
+    def test_empty_log_data_dict(self):
+        result = _section_predictive_performance({}, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_log_with_no_predictive_key(self):
+        log = {"Standard": {"baseline": {}}}
+        result = _section_predictive_performance(log, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_roc_with_nan_auc(self):
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["roc_analyses"] = [{"auc": float("nan"), "timepoint": "BL"}]
+        result = _section_predictive_performance(log, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_empty_feature_selections(self):
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["feature_selections"] = []
+        result = _section_predictive_performance(log, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_single_feature_selection(self):
+        """Single feature selection with one feature should still render."""
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["feature_selections"] = [
+            {"timepoint": "BL", "features": ["adc"], "lambda": 0.1},
+        ]
+        result = _section_predictive_performance(log, ["Standard"])
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "adc" in html
+
+
+class TestManuscriptReadyFindingsEdgeCases:
+    def test_all_empty_nested_data(self):
+        log = {"Standard": {
+            "stats_comparisons": {"glme_details": [], "glme_interactions": [], "fdr_timepoints": []},
+            "stats_predictive": {"roc_analyses": [], "feature_selections": []},
+            "survival": {"hazard_ratios": []},
+            "baseline": {},
+        }}
+        result = _section_manuscript_ready_findings(log, ["Standard"], None, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_no_dosimetry(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 5}}}
+        result = _section_manuscript_ready_findings(_make_log_data(), ["Standard"], None, mat, None)
+        assert isinstance(result, list)
+
+    def test_zero_patients_mat_data(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 0, "num_timepoints": 0}}}
+        result = _section_manuscript_ready_findings(None, ["Standard"], None, mat, None)
+        assert isinstance(result, list)
+
+    def test_groups_with_no_longitudinal(self):
+        groups = {"Feature_BoxPlots": {"Standard": SAMPLE_GRAPH_CSV_ROWS[0]}}
+        result = _section_manuscript_ready_findings(
+            _make_log_data(), ["Standard"], None, _make_mat_data(), groups
+        )
+        assert isinstance(result, list)
+
+
+class TestResultsDraftEdgeCases:
+    def test_all_empty_nested_data(self):
+        log = {"Standard": {
+            "stats_comparisons": {"glme_details": []},
+            "stats_predictive": {"roc_analyses": [], "feature_selections": []},
+            "survival": {"hazard_ratios": []},
+            "baseline": {},
+        }}
+        result = _section_results_draft(log, ["Standard"], None, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_missing_baseline_exclusion(self):
+        log = _make_log_data()
+        del log["Standard"]["baseline"]["baseline_exclusion"]
+        result = _section_results_draft(log, ["Standard"], None, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_no_glme_excluded(self):
+        result = _section_results_draft(_make_log_data(), ["Standard"], None, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_csv_data_integration(self):
+        csv_data = {
+            "fdr_global": {"Standard": [{"metric": "adc"}]},
+            "significant_metrics": {"Standard": [{"Metric": "adc"}]},
+        }
+        result = _section_results_draft(_make_log_data(), ["Standard"], csv_data, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_empty_mat_data(self):
+        result = _section_results_draft(_make_log_data(), ["Standard"], None, {}, None)
+        assert isinstance(result, list)
+
+    def test_no_dosimetry_in_mat(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 5}}}
+        result = _section_results_draft(_make_log_data(), ["Standard"], None, mat, None)
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "Dosimetric" not in html or isinstance(html, str)

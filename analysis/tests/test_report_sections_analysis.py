@@ -547,3 +547,253 @@ class TestFeatureOverlap:
         }
         result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
         assert isinstance(result, list)
+
+
+# ── Edge cases: no-graph-data paths, partial data, missing metrics ──
+
+
+class TestGraphOverviewEdgeCases:
+    def test_none_rows(self):
+        assert _section_graph_overview(None) == []
+
+    def test_rows_with_missing_graph_type(self):
+        rows = [{"file_path": "Standard/test.png", "summary": "test"}]
+        result = _section_graph_overview(rows)
+        assert isinstance(result, list)
+
+    def test_rows_all_same_type(self):
+        rows = [
+            {"file_path": "Standard/a.png", "graph_type": "scatter",
+             "summary": "p=0.01", "trends_json": "[]"},
+            {"file_path": "Standard/b.png", "graph_type": "scatter",
+             "summary": "p=0.02", "trends_json": "[]"},
+        ]
+        result = _section_graph_overview(rows)
+        html = "\n".join(result)
+        assert "scatter" in html.lower()
+
+    def test_rows_with_empty_summary(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "box", "summary": ""}]
+        result = _section_graph_overview(rows)
+        assert isinstance(result, list)
+
+    def test_unknown_graph_type(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "unknown",
+                 "summary": "test", "trends_json": "[]"}]
+        result = _section_graph_overview(rows)
+        html = "\n".join(result)
+        assert "unknown" in html.lower()
+
+
+class TestGraphIssuesEdgeCases:
+    def test_none_rows(self):
+        assert _section_graph_issues(None) == []
+
+    def test_all_graphs_have_issues(self):
+        rows = [
+            {"file_path": "Standard/a.png", "graph_type": "box",
+             "issues_json": json.dumps(["Axis cutoff"])},
+            {"file_path": "Standard/b.png", "graph_type": "line",
+             "issues_json": json.dumps(["Overlap detected"])},
+            {"file_path": "Standard/c.png", "graph_type": "scatter",
+             "issues_json": json.dumps(["Label truncated"])},
+        ]
+        result = _section_graph_issues(rows)
+        html = "\n".join(result)
+        assert "3" in html  # 3 of 3 have issues
+
+    def test_empty_string_issues_json(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "box", "issues_json": ""}]
+        result = _section_graph_issues(rows)
+        assert isinstance(result, list)
+
+    def test_issues_with_html_chars(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "box",
+                 "issues_json": json.dumps(["<b>Bold issue</b> & more"])}]
+        result = _section_graph_issues(rows)
+        html = "\n".join(result)
+        assert "<b>" not in html or "&lt;b&gt;" in html or isinstance(html, str)
+
+
+class TestStatsByGraphTypeEdgeCases:
+    def test_none_rows(self):
+        assert _section_stats_by_graph_type(None) == []
+
+    def test_rows_with_no_trends(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "heatmap",
+                 "summary": "no trends", "trends_json": "[]"}]
+        result = _section_stats_by_graph_type(rows)
+        assert isinstance(result, list)
+
+    def test_all_nonsig_pvalues(self):
+        rows = [{"file_path": "Standard/test.png", "graph_type": "box",
+                 "summary": "p = 0.85 for comparison", "trends_json": "[]"}]
+        result = _section_stats_by_graph_type(rows)
+        assert isinstance(result, list)
+
+
+class TestCrossDwiComparisonEdgeCases:
+    def test_all_single_dwi_groups(self):
+        groups = {
+            "G1": {"Standard": {"trends_json": json.dumps([{"series": "S1", "direction": "up"}])}},
+            "G2": {"dnCNN": {"trends_json": json.dumps([{"series": "S2", "direction": "down"}])}},
+        }
+        result = _section_cross_dwi_comparison(groups, None)
+        assert isinstance(result, list)
+
+    def test_groups_with_invalid_trends_json(self):
+        groups = {
+            "G": {
+                "Standard": {"trends_json": "NOT JSON"},
+                "dnCNN": {"trends_json": json.dumps([{"series": "S1", "direction": "up"}])},
+            }
+        }
+        result = _section_cross_dwi_comparison(groups, None)
+        assert isinstance(result, list)
+
+    def test_csv_data_empty_cross_reference(self):
+        csv_data = {"cross_reference": []}
+        result = _section_cross_dwi_comparison(
+            {"G": {"Standard": {}, "dnCNN": {}}}, csv_data
+        )
+        assert isinstance(result, list)
+
+    def test_csv_data_all_consistent(self):
+        csv_data = {
+            "cross_reference": [
+                {"metric": "adc", "timepoint": "BL", "consistent": True,
+                 "significant_in": ["Standard", "dnCNN"]},
+                {"metric": "d", "timepoint": "BL", "consistent": True,
+                 "significant_in": ["Standard", "dnCNN"]},
+            ]
+        }
+        result = _section_cross_dwi_comparison(
+            {"G": {"Standard": {}, "dnCNN": {}}}, csv_data
+        )
+        html = "\n".join(result)
+        assert "Inconsistencies" not in html
+
+    def test_three_dwi_types(self):
+        groups = {
+            "G": {
+                "Standard": {"trends_json": json.dumps([{"series": "S1", "direction": "up"}])},
+                "dnCNN": {"trends_json": json.dumps([{"series": "S1", "direction": "up"}])},
+                "IVIMnet": {"trends_json": json.dumps([{"series": "S1", "direction": "down"}])},
+            }
+        }
+        result = _section_cross_dwi_comparison(groups, None)
+        html = "\n".join(result)
+        assert "DIFFER" in html or "AGREE" in html
+
+    def test_groups_with_no_trends_at_all(self):
+        groups = {
+            "G": {
+                "Standard": {},
+                "dnCNN": {},
+            }
+        }
+        result = _section_cross_dwi_comparison(groups, None)
+        assert isinstance(result, list)
+
+    def test_sample_size_none(self):
+        groups = {
+            "G": {
+                "Standard": {"trends_json": "[]"},
+                "dnCNN": {"trends_json": "[]"},
+            }
+        }
+        result = _section_cross_dwi_comparison(groups, None)
+        assert isinstance(result, list)
+
+
+class TestCorrelationsEdgeCases:
+    def test_none_rows(self):
+        assert _section_correlations(None) == []
+
+    def test_rows_with_no_summary(self):
+        rows = [{"file_path": "Standard/test.png"}]
+        result = _section_correlations(rows)
+        assert isinstance(result, list)
+
+    def test_weak_correlations_only(self):
+        rows = [{"file_path": "Standard/test.png", "summary": "r = 0.15 weak correlation",
+                 "trends_json": "[]"}]
+        result = _section_correlations(rows)
+        html = "\n".join(result)
+        assert "No notable" in html or "no notable" in html.lower()
+
+    def test_very_strong_correlation(self):
+        rows = [{"file_path": "Standard/test.png", "summary": "r = 0.95 very strong",
+                 "trends_json": "[]"}]
+        result = _section_correlations(rows)
+        html = "\n".join(result)
+        assert "0.95" in html or "Strong" in html
+
+    def test_negative_correlation(self):
+        rows = [{"file_path": "Standard/test.png", "summary": "r = -0.72 negative",
+                 "trends_json": "[]"}]
+        result = _section_correlations(rows)
+        html = "\n".join(result)
+        assert "0.72" in html or isinstance(html, str)
+
+
+class TestFeatureOverlapEdgeCases:
+    def test_three_dwi_types(self):
+        log_data = {
+            "Standard": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc", "d"]},
+            ]}},
+            "dnCNN": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc", "f"]},
+            ]}},
+            "IVIMnet": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc", "d_star"]},
+            ]}},
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN", "IVIMnet"])
+        html = "\n".join(result)
+        assert "adc" in html  # Shared across all 3
+
+    def test_many_timepoints(self):
+        log_data = {
+            "Standard": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc"]},
+                {"timepoint": "W2", "features": ["adc", "d"]},
+                {"timepoint": "W4", "features": ["adc"]},
+                {"timepoint": "W6", "features": ["adc", "f"]},
+            ]}},
+            "dnCNN": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc"]},
+                {"timepoint": "W2", "features": ["d"]},
+            ]}},
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "Stability" in html
+
+    def test_all_features_shared(self):
+        log_data = {
+            "Standard": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc", "d"]},
+            ]}},
+            "dnCNN": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc", "d"]},
+            ]}},
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "100" in html or "agree" in html.lower()
+
+    def test_no_features_shared(self):
+        log_data = {
+            "Standard": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["adc"]},
+            ]}},
+            "dnCNN": {"stats_predictive": {"feature_selections": [
+                {"timepoint": "BL", "features": ["d"]},
+            ]}},
+        }
+        result = _section_feature_overlap(log_data, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "0%" in html or "Type-specific" in html

@@ -734,3 +734,221 @@ class TestPowerAnalysis:
     def test_cox_power_info(self):
         html = "\n".join(_section_power_analysis(_make_log_data(), ["Standard"], _make_mat_data()))
         assert "Cox" in html or "hazard ratio" in html.lower()
+
+
+# ── Edge cases: convergence failures, missing metrics, partial data ──
+
+
+class TestEffectSizesEdgeCases:
+    def test_missing_ci_fields(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "x", "hr": 1.5, "p": 0.03},
+            ]},
+            "stats_predictive": {"roc_analyses": []},
+        }}
+        result = _section_effect_sizes(log, ["Standard"], None)
+        assert isinstance(result, list)
+
+    def test_very_small_hr(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "protective", "hr": 0.1, "ci_lo": 0.05, "ci_hi": 0.2, "p": 0.001},
+            ]},
+            "stats_predictive": {"roc_analyses": []},
+        }}
+        result = _section_effect_sizes(log, ["Standard"], None)
+        html = "\n".join(result)
+        assert "0.1" in html or "protective" in html
+
+    def test_very_large_hr(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "risky", "hr": 10.0, "ci_lo": 2.0, "ci_hi": 50.0, "p": 0.001},
+            ]},
+            "stats_predictive": {"roc_analyses": []},
+        }}
+        result = _section_effect_sizes(log, ["Standard"], None)
+        html = "\n".join(result)
+        assert "10.0" in html or "risky" in html
+
+    def test_csv_data_with_fdr(self):
+        csv_data = {"fdr_global": {"Standard": [{"metric": "adc", "p": 0.001}]}}
+        result = _section_effect_sizes(_make_log_data(), ["Standard"], csv_data)
+        assert isinstance(result, list)
+
+    def test_all_auc_zero(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "x", "hr": 1.5, "ci_lo": 0.9, "ci_hi": 2.5, "p": 0.03},
+            ]},
+            "stats_predictive": {"roc_analyses": [{"auc": 0, "timepoint": "BL"}]},
+        }}
+        result = _section_effect_sizes(log, ["Standard"], None)
+        assert isinstance(result, list)
+
+    def test_single_hr_entry(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [
+                {"covariate": "only_var", "hr": 2.0, "ci_lo": 1.1, "ci_hi": 3.5, "p": 0.02},
+            ]},
+            "stats_predictive": {"roc_analyses": []},
+        }}
+        result = _section_effect_sizes(log, ["Standard"], None)
+        html = "\n".join(result)
+        assert "only_var" in html
+
+
+class TestMultipleComparisonsEdgeCases:
+    def test_single_glme_detail(self):
+        log = {"Standard": {"stats_comparisons": {"glme_details": [
+            {"metric": "m1", "p": 0.01, "adj_alpha": 0.05},
+        ]}}}
+        result = _section_multiple_comparisons(log, ["Standard"], None)
+        html = "\n".join(result)
+        assert "1" in html
+
+    def test_all_rejected_by_fdr(self):
+        log = {"Standard": {"stats_comparisons": {"glme_details": [
+            {"metric": "m1", "p": 0.04, "adj_alpha": 0.01},
+            {"metric": "m2", "p": 0.03, "adj_alpha": 0.01},
+        ]}}}
+        html = "\n".join(_section_multiple_comparisons(log, ["Standard"], None))
+        assert "Rejected by FDR" in html
+
+    def test_mixed_dwi_types(self):
+        log = {
+            "Standard": {"stats_comparisons": {"glme_details": [
+                {"metric": "m1", "p": 0.01, "adj_alpha": 0.025},
+            ]}},
+            "dnCNN": {"stats_comparisons": {"glme_details": [
+                {"metric": "m1", "p": 0.04, "adj_alpha": 0.05},
+            ]}},
+        }
+        result = _section_multiple_comparisons(log, ["Standard", "dnCNN"], None)
+        assert isinstance(result, list)
+
+
+class TestModelDiagnosticsEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_model_diagnostics(None, None, None)
+        assert isinstance(result, list)
+
+    def test_ipcw_none(self):
+        log = {"Standard": {
+            "survival": {},
+            "stats_comparisons": {},
+            "stats_predictive": {"feature_selections": []},
+            "baseline": {},
+        }}
+        result = _section_model_diagnostics(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_missing_baseline_key(self):
+        log = {"Standard": {
+            "survival": {"ipcw": {"max_weight": 1.5, "min_weight": 0.7}},
+            "stats_comparisons": {},
+            "stats_predictive": {"feature_selections": []},
+        }}
+        result = _section_model_diagnostics(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_empty_feature_selections(self):
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["feature_selections"] = []
+        result = _section_model_diagnostics(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_feature_selections_with_same_lambda(self):
+        """Feature selections with same lambda should not trigger instability."""
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["feature_selections"] = [
+            {"timepoint": "BL", "features": ["adc"], "lambda": 0.05},
+            {"timepoint": "W2", "features": ["d"], "lambda": 0.05},
+        ]
+        result = _section_model_diagnostics(log, ["Standard"], _make_mat_data())
+        html = "\n".join(result)
+        assert "varies by" not in html
+
+    def test_zero_pct_exclusion(self):
+        log = _make_log_data()
+        log["Standard"]["stats_comparisons"]["glme_excluded"]["pct"] = 0.0
+        html = "\n".join(_section_model_diagnostics(log, ["Standard"], _make_mat_data()))
+        assert "High competing-risk exclusion" not in html
+        assert "Moderate competing-risk exclusion" not in html
+
+    def test_missing_lf_rate_fields(self):
+        log = _make_log_data()
+        del log["Standard"]["baseline"]["baseline_exclusion"]["lf_rate_included"]
+        del log["Standard"]["baseline"]["baseline_exclusion"]["lf_rate_excluded"]
+        result = _section_model_diagnostics(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "LF rate differs" not in html
+
+
+class TestSensitivityAnalysisEdgeCases:
+    def test_empty_mat_data(self):
+        result = _section_sensitivity_analysis(_make_log_data(), ["Standard"], {})
+        assert isinstance(result, list)
+
+    def test_mat_data_none(self):
+        result = _section_sensitivity_analysis(_make_log_data(), ["Standard"], None)
+        assert isinstance(result, list)
+
+    def test_many_features_low_epv(self):
+        log = _make_log_data()
+        log["Standard"]["stats_predictive"]["feature_selections"] = [
+            {"timepoint": "BL", "features": [f"f{i}" for i in range(20)], "lambda": 0.01},
+        ]
+        mat = {"Standard": {"longitudinal": {"num_patients": 25, "num_timepoints": 3}}}
+        result = _section_sensitivity_analysis(log, ["Standard"], mat)
+        html = "\n".join(result)
+        assert "Low EPV" in html
+
+    def test_no_hazard_ratios(self):
+        log = _make_log_data()
+        log["Standard"]["survival"]["hazard_ratios"] = []
+        result = _section_sensitivity_analysis(log, ["Standard"], _make_mat_data())
+        html = "\n".join(result)
+        assert "Unstable" not in html
+
+    def test_hr_ci_lo_zero(self):
+        log = _make_log_data()
+        log["Standard"]["survival"]["hazard_ratios"] = [
+            {"covariate": "edge", "hr": 2.0, "ci_lo": 0.0, "ci_hi": 50.0, "p": 0.5},
+        ]
+        result = _section_sensitivity_analysis(log, ["Standard"], _make_mat_data())
+        html = "\n".join(result)
+        assert "Unstable" in html
+
+
+class TestPowerAnalysisEdgeCases:
+    def test_very_small_cohort(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 5, "num_timepoints": 2}}}
+        result = _section_power_analysis(None, [], mat)
+        html = "\n".join(result)
+        assert "underpowered" in html.lower()
+
+    def test_very_large_cohort(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 500, "num_timepoints": 5}}}
+        result = _section_power_analysis(_make_log_data(), ["Standard"], mat)
+        html = "\n".join(result)
+        assert "adequate" in html.lower()
+
+    def test_no_survival_data(self):
+        log = {"Standard": {"stats_comparisons": {"glme_details": []}, "stats_predictive": {}}}
+        result = _section_power_analysis(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_multiple_dwi_types_power(self):
+        log = _make_log_data()
+        log["dnCNN"] = {
+            "survival": {"hazard_ratios": [
+                {"covariate": "x", "hr": 1.3, "ci_lo": 0.8, "ci_hi": 2.0, "p": 0.15},
+            ]},
+            "stats_comparisons": {"glme_details": []},
+            "stats_predictive": {"roc_analyses": [{"auc": 0.72, "timepoint": "BL"}]},
+        }
+        result = _section_power_analysis(log, ["Standard", "dnCNN"], _make_mat_data())
+        assert isinstance(result, list)
