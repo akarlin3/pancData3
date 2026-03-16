@@ -1,4 +1,4 @@
-"""Tests for report_sections.analysis_sections module.
+"""Tests for report sections: graph_overview, cross_dwi, and correlations modules.
 
 Validates analysis section builders:
 - Graph overview (type/DWI counts, signal density)
@@ -23,13 +23,17 @@ if str(ANALYSIS_DIR) not in sys.path:
 
 from conftest import SAMPLE_GRAPH_CSV_ROWS
 
-from report.sections.analysis_sections import (
+from report.sections.graph_overview import (
     _section_graph_overview,
     _section_graph_issues,
     _section_stats_by_graph_type,
+)
+from report.sections.cross_dwi import (
     _section_cross_dwi_comparison,
-    _section_correlations,
     _section_feature_overlap,
+)
+from report.sections.correlations import (
+    _section_correlations,
 )
 
 

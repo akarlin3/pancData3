@@ -1,4 +1,4 @@
-"""Tests for report_sections.statistics module.
+"""Tests for report sections: effect_sizes, model_diagnostics, and power_analysis modules.
 
 Validates statistics section builders:
 - Effect size analysis (HR effect sizes, AUC interpretation)
@@ -19,11 +19,15 @@ ANALYSIS_DIR = Path(__file__).resolve().parent.parent
 if str(ANALYSIS_DIR) not in sys.path:
     sys.path.insert(0, str(ANALYSIS_DIR))
 
-from report.sections.statistics import (
+from report.sections.effect_sizes import (
     _section_effect_sizes,
     _section_multiple_comparisons,
+)
+from report.sections.model_diagnostics import (
     _section_model_diagnostics,
     _section_sensitivity_analysis,
+)
+from report.sections.power_analysis import (
     _section_power_analysis,
 )
 

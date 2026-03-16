@@ -1,18 +1,17 @@
 """Report sections: data sections group (cohort, flow, completeness, MAT data).
 
-This module re-exports all data section functions from their new submodules
-for backward compatibility.
+This module re-exports functions that have been split into:
+- ``enrollment`` (cohort overview, patient flow, data completeness)
+- ``supplemental`` (MAT file data: dosimetry, core method comparison)
+
+Import directly from the submodules for new code.
 """
 
-from __future__ import annotations
-
-from .data_overview import (  # noqa: F401
+from report.sections.enrollment import (  # noqa: F401
     _section_cohort_overview,
     _section_patient_flow,
-)
-from .data_quality import (  # noqa: F401
     _section_data_completeness,
 )
-from .data_supplemental import (  # noqa: F401
+from report.sections.supplemental import (  # noqa: F401
     _section_mat_data,
 )

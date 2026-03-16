@@ -27,29 +27,39 @@ from .manuscript import (  # noqa: F401
     _section_manuscript_ready_findings,
     _section_results_draft,
 )
-from .data_sections import (  # noqa: F401
+from .enrollment import (  # noqa: F401
     _section_cohort_overview,
     _section_patient_flow,
     _section_data_completeness,
+)
+from .supplemental import (  # noqa: F401
     _section_mat_data,
 )
 from .gallery import (  # noqa: F401
     _section_appendix,
     _section_figure_gallery,
 )
-from .analysis_sections import (  # noqa: F401
+from .graph_overview import (  # noqa: F401
     _section_graph_overview,
     _section_graph_issues,
     _section_stats_by_graph_type,
+)
+from .cross_dwi import (  # noqa: F401
     _section_cross_dwi_comparison,
-    _section_correlations,
     _section_feature_overlap,
 )
-from .statistics import (  # noqa: F401
+from .correlations import (  # noqa: F401
+    _section_correlations,
+)
+from .effect_sizes import (  # noqa: F401
     _section_effect_sizes,
     _section_multiple_comparisons,
+)
+from .model_diagnostics import (  # noqa: F401
     _section_model_diagnostics,
     _section_sensitivity_analysis,
+)
+from .power_analysis import (  # noqa: F401
     _section_power_analysis,
 )
 from .discussion import (  # noqa: F401

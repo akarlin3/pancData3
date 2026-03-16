@@ -192,7 +192,7 @@ Before running the pipeline, you can verify that your patient data directory is 
 
 ```matlab
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
-report = patient_data_check('config.json');
+report = enrollment_check('config.json');
 ```
 
 This scans the file system and reports:
@@ -354,7 +354,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (metadata, main results, statistical reporting, manuscript, data cohort/quality/supplemental, gallery, analysis, statistics, discussion, publication, helpers) |
+| `report/sections/` | Section builder modules for the HTML report (16 submodules: metadata, main_results, statistical_reporting, manuscript, enrollment, supplemental, gallery, graph_overview, cross_dwi, correlations, effect_sizes, model_diagnostics, power_analysis, discussion, publication, _helpers) |
 
 ### Report Features (v2.0.0)
 
@@ -369,7 +369,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (760 tests across 24 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (760 tests across 23 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -385,7 +385,7 @@ pancData3/
 ├── pipeline/                       # MATLAB pipeline
 │   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
 │   ├── execute_all_workflows.m     #   Sequential multi-type runner
-│   ├── patient_data_check.m        #   Pre-pipeline data validation
+│   ├── enrollment_check.m        #   Pre-pipeline data validation
 │   ├── core/                       #   Pipeline modules (18 files)
 │   │   ├── load_dwi_data.m         #     Data loading & model fitting
 │   │   ├── sanity_checks.m         #     Data validation
@@ -426,7 +426,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (24 test files, 760 tests)
+│   └── tests/                      #   Python test suite (23 test files, 760 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
