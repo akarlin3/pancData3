@@ -30,6 +30,9 @@
     "run_all_core_methods": false,
     "store_core_masks": false,
     "use_firth_refit": true,
+    "compute_fine_gray": true,
+    "exclude_motion_volumes": false,
+    "use_texture_features": false,
     "use_gpu": false,
     "gpu_device": 1
 }

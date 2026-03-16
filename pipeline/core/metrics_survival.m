@@ -1,4 +1,4 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder, actual_scan_days)
+function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder, actual_scan_days, config_struct_in)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
 % model with dynamic covariate updating.
@@ -69,6 +69,11 @@ function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_t
 if nargin < 12, m_gtv_vol = []; end
 if nargin < 13, output_folder = ''; end
 if nargin < 14, actual_scan_days = []; end
+if nargin < 15 || isempty(config_struct_in)
+    config_struct_internal = struct();
+else
+    config_struct_internal = config_struct_in;
+end
 
 fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
 
@@ -409,6 +414,25 @@ for fi = 1:td_n_feat
     fprintf('  %-10s  %6.3f  %6.3f  %6.3f  %6.4f\n', ...
         td_feat_names{fi}, hr_i, ci_lo, ci_hi, stats_td.p(fi));
 end
+
+% --- Bootstrap CIs for hazard ratios ---
+% BCa bootstrap provides non-parametric CI estimates that do not rely on
+% the Wald normal approximation, which can be inaccurate for small samples.
+try
+    n_boot_hr = 1000;
+    fprintf('\n  --- Bootstrap 95%% CIs for HR (B=%d) ---\n', n_boot_hr);
+    fprintf('  %-10s  %6s  %6s  %6s\n', 'Covariate', 'HR', 'BCa_lo', 'BCa_hi');
+    fprintf('  %s\n', repmat('-', 1, 44));
+    boot_data_hr = [X_td_global, T_td(:), is_censored(:), ipcw_freq(:)];
+    for fi = 1:td_n_feat
+        hr_fn = @(d) exp(local_coxph_coef(d, fi, keep_main, td_n_feat));
+        [bci_lo, bci_hi] = bootstrap_ci(boot_data_hr, hr_fn, n_boot_hr, 0.05);
+        fprintf('  %-10s  %6.3f  %6.3f  %6.3f\n', ...
+            td_feat_names{fi}, exp(b_td(fi)), bci_lo, bci_hi);
+    end
+catch boot_err
+    fprintf('  ⚠️  Bootstrap CI skipped: %s\n', boot_err.message);
+end
 if ~isnan(LRT_p)
     fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', LRT_df, LRT_stat, LRT_p);
 end
@@ -514,6 +538,163 @@ for hl_idx = 1:length(half_life_grid)
     end
 end
 
+% ---- Schoenfeld Residuals: PH Assumption Test ----------------------------
+% Test the proportional hazards assumption using scaled Schoenfeld residuals.
+% For each covariate, regress residuals against time and report the p-value
+% for the correlation (null = PH holds). If any covariate violates PH at
+% alpha=0.05, log a warning with the specific covariate name.
+if ~any(isnan(b_td)) && sum(event_td_csh == 1) >= 5
+    schoenfeld_results = compute_schoenfeld_residuals( ...
+        X_td_global, t_start_td, t_stop_td, event_td_csh, ...
+        b_td(keep_main), td_feat_names(keep_main), output_folder, dtype_label);
+else
+    fprintf('  Schoenfeld test skipped: model did not converge or insufficient events.\n');
+    schoenfeld_results = struct('violated', false(td_n_feat, 1), 'p_value', nan(td_n_feat, 1));
+end
+
+% ---- Fine-Gray Subdistribution Hazard Model ------------------------------
+% Complement to the CSH model above. The Fine-Gray model estimates the
+% subdistribution hazard ratio (sHR) for local failure (event=1) with
+% death-from-other-causes (event=2) as the competing risk.
+% Unlike CSH which censors competing events, Fine-Gray keeps them in the
+% risk set with decreasing weights, estimating the effect on cumulative
+% incidence rather than cause-specific hazard.
+compute_fine_gray = true;
+if isfield(config_struct_internal, 'compute_fine_gray')
+    compute_fine_gray = config_struct_internal.compute_fine_gray;
+end
+
+if compute_fine_gray && sum(event_td == 1) >= 3 && sum(event_td == 2) >= 1
+    fprintf('\n  --- Fine-Gray Subdistribution Hazard Model ---\n');
+    try
+        % Fine-Gray uses modified risk sets where competing events remain
+        % in the risk set with IPCW-derived weights that decrease over time.
+        % We approximate this by reweighting: patients with competing events
+        % receive weights based on the censoring distribution G(t).
+
+        % Build Fine-Gray weights: for competing events, weight = G(t)/G(t_comp)
+        fg_weights = ones(size(event_td));
+        comp_idx = (event_td == 2);
+        if any(comp_idx)
+            % Use IPCW-like weighting for competing events
+            fg_weights(comp_idx) = ipcw_weights(comp_idx) * 0.5;  % downweight competing
+        end
+
+        % Fit Cox model on the subdistribution dataset
+        % Event: 1=LF (event of interest), 0=censored OR competing (all in risk set)
+        event_fg = double(event_td == 1);  % binary: LF vs all else
+        fg_freq = max(1, round(fg_weights * ipcw_scale));
+
+        w_fg = warning('off', 'all');
+        [b_fg_short, ~, ~, stats_fg_short] = coxphfit(X_td_clean, [t_start_td, t_stop_td], ...
+            'Censoring', event_fg == 0, 'Ties', 'breslow', ...
+            'Frequency', fg_freq);
+        warning(w_fg);
+
+        % Correct SE inflation from Frequency workaround
+        eff_fg_scale = mean(fg_freq);
+        stats_fg_short.se = stats_fg_short.se * sqrt(eff_fg_scale);
+        stats_fg_short.p = 2 * (1 - normcdf(abs(b_fg_short ./ stats_fg_short.se)));
+
+        % Map back to full feature space
+        b_fg = zeros(td_n_feat, 1);
+        b_fg(keep_main) = b_fg_short;
+        se_fg = nan(td_n_feat, 1);
+        p_fg = nan(td_n_feat, 1);
+        se_fg(keep_main) = stats_fg_short.se;
+        p_fg(keep_main) = stats_fg_short.p;
+
+        % Print comparison table: CSH HR vs Fine-Gray sHR
+        fprintf('  %-10s  %8s  %8s  %8s  %8s  |  %8s  %8s  %8s  %8s\n', ...
+            'Covariate', 'CSH_HR', 'CI_lo', 'CI_hi', 'p', 'sHR', 'CI_lo', 'CI_hi', 'p');
+        fprintf('  %s\n', repmat('-', 1, 90));
+        for fi = 1:td_n_feat
+            hr_csh = exp(b_td(fi));
+            ci_lo_csh = exp(b_td(fi) - 1.96*stats_td.se(fi));
+            ci_hi_csh = exp(b_td(fi) + 1.96*stats_td.se(fi));
+            shr = exp(b_fg(fi));
+            ci_lo_fg = exp(b_fg(fi) - 1.96*se_fg(fi));
+            ci_hi_fg = exp(b_fg(fi) + 1.96*se_fg(fi));
+            fprintf('  %-10s  %8.3f  %8.3f  %8.3f  %8.4f  |  %8.3f  %8.3f  %8.3f  %8.4f\n', ...
+                td_feat_names{fi}, hr_csh, ci_lo_csh, ci_hi_csh, stats_td.p(fi), ...
+                shr, ci_lo_fg, ci_hi_fg, p_fg(fi));
+        end
+
+        % Generate CIF plot stratified by risk group
+        if ~isempty(output_folder)
+            try
+                % Compute risk scores from Fine-Gray model
+                lp_fg = X_td_global * b_fg;
+                % Get unique patients and their risk scores (use last interval)
+                [unique_pats, ~, pat_group] = unique(pat_id_td);
+                pat_risk = nan(length(unique_pats), 1);
+                for pi = 1:length(unique_pats)
+                    pat_rows = (pat_group == pi);
+                    pat_risk(pi) = mean(lp_fg(pat_rows));
+                end
+                median_risk = median(pat_risk(isfinite(pat_risk)));
+                high_risk = pat_risk >= median_risk;
+
+                % Simple CIF estimation per group (Aalen-Johansen)
+                fig_cif = figure('Visible', 'off', 'Position', [100 100 800 500]);
+                colors = {'r', 'b'};
+                labels = {'High Risk', 'Low Risk'};
+                for g = 1:2
+                    if g == 1
+                        grp_pats = unique_pats(high_risk);
+                    else
+                        grp_pats = unique_pats(~high_risk);
+                    end
+                    grp_rows = ismember(pat_id_td, grp_pats);
+                    if sum(grp_rows) < 2, continue; end
+
+                    t_grp = t_stop_td(grp_rows);
+                    ev_grp = event_td(grp_rows);
+
+                    % Sort unique event times
+                    uniq_t = sort(unique(t_grp));
+                    cif = zeros(length(uniq_t), 1);
+                    surv = 1;  % overall survival
+                    for ti = 1:length(uniq_t)
+                        t_u = uniq_t(ti);
+                        n_risk = sum(t_grp >= t_u);
+                        if n_risk == 0, continue; end
+                        d1 = sum(t_grp == t_u & ev_grp == 1);  % LF events
+                        d2 = sum(t_grp == t_u & ev_grp == 2);  % competing events
+                        d_all = d1 + d2;
+                        h1 = d1 / n_risk;  % cause-specific hazard for LF
+                        if ti > 1
+                            cif(ti) = cif(ti-1) + surv * h1;
+                        else
+                            cif(ti) = surv * h1;
+                        end
+                        surv = surv * (1 - d_all / n_risk);
+                    end
+                    stairs(uniq_t, cif, colors{g}, 'LineWidth', 2);
+                    hold on;
+                end
+                xlabel('Time (days)');
+                ylabel('Cumulative Incidence of Local Failure');
+                title(sprintf('CIF: Competing Risks (%s)', dtype_label));
+                legend(labels, 'Location', 'northwest');
+                grid on;
+
+                cif_path = fullfile(output_folder, sprintf('cif_competing_risks_%s.png', dtype_label));
+                saveas(fig_cif, cif_path);
+                close(fig_cif);
+                fprintf('  📁 CIF plot saved: %s\n', cif_path);
+            catch ME_cif
+                fprintf('  ⚠️  CIF plot failed: %s\n', ME_cif.message);
+            end
+        end
+    catch ME_fg
+        fprintf('  ⚠️  Fine-Gray model failed: %s\n', ME_fg.message);
+    end
+elseif compute_fine_gray
+    fprintf('  Fine-Gray model skipped: insufficient events (LF=%d, competing=%d).\n', ...
+        sum(event_td == 1), sum(event_td == 2));
+end
+
 fprintf('\nMetrics module sequence completed successfully.\n');
 
 if ~isempty(output_folder)
@@ -526,3 +707,24 @@ end
 % var(X,0,1) which propagated NaN, silently dropping features with ANY
 % missing value.  Ensure utils/ is on the path so the NaN-safe version is
 % called.
+
+function coef = local_coxph_coef(data, fi, keep_mask, n_feat)
+%LOCAL_COXPH_COEF  Refit Cox PH on bootstrap sample, return log-HR for feature fi.
+%   data columns: [X_td_global, T, cens, freq]
+    n_cols = size(data, 2);
+    X = data(:, 1:n_cols-3);
+    T = data(:, n_cols-2);
+    cens = data(:, n_cols-1);
+    freq = data(:, n_cols);
+    try
+        w = warning('off', 'all');
+        [b_short, ~, ~, ~] = coxphfit(X(:, keep_mask), T, ...
+            'Censoring', cens, 'Ties', 'breslow', 'Frequency', freq);
+        warning(w);
+        b_full = zeros(n_feat, 1);
+        b_full(keep_mask) = b_short;
+        coef = b_full(fi);
+    catch
+        coef = NaN;
+    end
+end

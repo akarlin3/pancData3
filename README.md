@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-93%20MATLAB%20%2B%2028%20Python%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-100%20MATLAB%20%2B%2030%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -133,6 +133,9 @@ Edit `config.json` with your local paths:
 | `spectral_min_voxels` | Minimum valid voxels required for the `"spectral"` core method (default: `20`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 | `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
+| `compute_fine_gray` | Compute Fine-Gray subdistribution hazard model alongside cause-specific hazard (default: `true`) |
+| `exclude_motion_volumes` | Exclude motion-corrupted DWI volumes before model fitting (default: `false`) |
+| `use_texture_features` | Compute GLCM and first-order texture features from parameter maps (default: `false`) |
 | `use_gpu` | Offload ADC WLS fitting and DnCNN inference to a CUDA GPU via `gpuArray`. Requires Parallel Computing Toolbox and a CUDA-capable GPU. Falls back to CPU when unavailable (default: `false`) |
 | `gpu_device` | 1-based index of the CUDA GPU device to use when `use_gpu` is true (default: `1`) |
 
@@ -256,7 +259,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 93 test files covering:
+The test suite includes 100 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -394,13 +397,13 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (55 files)
+│   ├── utils/                      #   Helper utilities (61 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (93 test files)
+│   ├── tests/                      #   Test suite (100 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
@@ -426,7 +429,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (28 test files, 1164 tests)
+│   └── tests/                      #   Python test suite (30 test files, 1186 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

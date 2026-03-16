@@ -351,10 +351,37 @@ def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
         "than confirmatory."
     )
 
-    limitations.append(
-        "<strong>Proportional hazards assumption:</strong> Proportional hazards assumption "
-        "was not formally tested; time-varying hazard ratios cannot be excluded."
-    )
+    # Check if PH assumption was tested via Schoenfeld residuals
+    ph_tested = False
+    ph_violated_covs: list[str] = []
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                sv = log_data[dt].get("survival", {})
+                if sv.get("schoenfeld_tested"):
+                    ph_tested = True
+                    ph_violated_covs.extend(sv.get("schoenfeld_violated", []))
+
+    if ph_tested:
+        if ph_violated_covs:
+            violated_str = ", ".join(set(ph_violated_covs))
+            limitations.append(
+                f"<strong>Proportional hazards assumption:</strong> Formal PH testing "
+                f"via Schoenfeld residuals identified violations for: {violated_str}. "
+                f"Time-varying coefficients or stratified models may be warranted for "
+                f"these covariates."
+            )
+        else:
+            limitations.append(
+                "<strong>Proportional hazards assumption:</strong> Formal PH testing "
+                "via Schoenfeld residuals showed no significant violations at \u03b1 = 0.05 "
+                "for any covariate, supporting the proportional hazards assumption."
+            )
+    else:
+        limitations.append(
+            "<strong>Proportional hazards assumption:</strong> Proportional hazards assumption "
+            "was not formally tested; time-varying hazard ratios cannot be excluded."
+        )
 
     limitations.append(
         "<strong>KNN imputation quality:</strong> KNN imputation quality was not formally "
@@ -362,11 +389,30 @@ def _section_limitations(log_data, dwi_types_present, mat_data) -> list[str]:
         "patients with unusual trajectories."
     )
 
-    limitations.append(
-        "<strong>Competing-risk model choice:</strong> Competing-risk analysis used "
-        "cause-specific Cox models with IPCW weighting; sub-distribution hazard ratios "
-        "(Fine\u2013Gray model) were not computed."
-    )
+    # Check if Fine-Gray model was computed
+    fine_gray_computed = False
+    if log_data:
+        for dt in dwi_types_present:
+            if dt in log_data:
+                sv = log_data[dt].get("survival", {})
+                if sv.get("fine_gray_computed"):
+                    fine_gray_computed = True
+                    break
+
+    if fine_gray_computed:
+        limitations.append(
+            "<strong>Competing-risk model choice:</strong> Both cause-specific Cox models "
+            "(with IPCW weighting) and Fine\u2013Gray subdistribution hazard models were "
+            "computed, providing complementary perspectives on the competing-risk structure. "
+            "CSH estimates the biological hazard rate; Fine\u2013Gray estimates the cumulative "
+            "incidence accounting for competing events."
+        )
+    else:
+        limitations.append(
+            "<strong>Competing-risk model choice:</strong> Competing-risk analysis used "
+            "cause-specific Cox models with IPCW weighting; sub-distribution hazard ratios "
+            "(Fine\u2013Gray model) were not computed."
+        )
 
     limitations.append(
         "<strong>Core delineation validation:</strong> Core delineation methods were compared "

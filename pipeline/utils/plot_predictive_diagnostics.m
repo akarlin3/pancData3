@@ -89,8 +89,18 @@ function plot_predictive_diagnostics( ...
 
         fprintf('\n--- PRIMARY ROC ANALYSIS (LOOCV Out-of-Fold Risk Score) for %s ---\n', fx_label);
         fprintf('  AUC  = %.3f\n  Youden Optimal Score Cutoff = %.4f\n', roc_AUC, roc_opt_thresh);
-        fprintf('  Sensitivity = %.1f%%  |  Specificity = %.1f%%\n\n', ...
+        fprintf('  Sensitivity = %.1f%%  |  Specificity = %.1f%%\n', ...
             roc_Y(roc_opt_idx)*100, (1-roc_X(roc_opt_idx))*100);
+
+        % Bootstrap 95% CI for AUC
+        try
+            auc_data = [labels(valid_roc), risk_scores_all_target(valid_roc)];
+            auc_fn = @(d) local_auc(d(:,1), d(:,2));
+            [auc_ci_lo, auc_ci_hi] = bootstrap_ci(auc_data, auc_fn, 1000, 0.05);
+            fprintf('  AUC 95%% BCa CI: [%.3f, %.3f]\n\n', auc_ci_lo, auc_ci_hi);
+        catch
+            fprintf('\n');
+        end
     else
         fprintf('\n--- PRIMARY ROC ANALYSIS (LOOCV OOF) for %s ---\n', fx_label);
         fprintf('Insufficient data for out-of-fold ROC analysis.\n\n');
@@ -310,5 +320,14 @@ function plot_predictive_diagnostics( ...
         end
     else
         fprintf('Skipping 2D scatter plots: requires at least 2 significant variables.\n');
+    end
+end
+
+function auc = local_auc(labels, scores)
+%LOCAL_AUC  Compute AUC from labels and scores via perfcurve.
+    try
+        [~, ~, ~, auc] = perfcurve(labels, scores, 1);
+    catch
+        auc = NaN;
     end
 end

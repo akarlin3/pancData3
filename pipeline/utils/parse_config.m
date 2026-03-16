@@ -291,6 +291,31 @@ function config_struct = parse_config(json_path)
             config_struct.use_firth_refit = true;
         end
 
+        % compute_fine_gray: When true, the survival analysis module fits a
+        % Fine-Gray subdistribution hazard model in addition to the default
+        % Cause-Specific Hazard Cox model.  The Fine-Gray model estimates
+        % cumulative incidence of local failure accounting for competing
+        % risks (death from other causes).  Default true.
+        if ~isfield(config_struct, 'compute_fine_gray')
+            config_struct.compute_fine_gray = true;
+        end
+
+        % exclude_motion_volumes: When true, DWI volumes flagged as motion-
+        % corrupted by detect_motion_artifacts are excluded from model
+        % fitting.  Default false (conservative: log warnings but include
+        % all volumes).
+        if ~isfield(config_struct, 'exclude_motion_volumes')
+            config_struct.exclude_motion_volumes = false;
+        end
+
+        % use_texture_features: When true, compute texture features (GLCM,
+        % first-order) on ADC maps and include them in the predictive model
+        % feature matrix.  Default false to preserve the existing 22-column
+        % layout for backward compatibility.
+        if ~isfield(config_struct, 'use_texture_features')
+            config_struct.use_texture_features = false;
+        end
+
         % use_gpu: When true, offloads computationally intensive operations
         % to a CUDA-capable GPU via gpuArray.  Currently accelerates:
         %   - ADC monoexponential WLS fitting (vectorized matrix ops)

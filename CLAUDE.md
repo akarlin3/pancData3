@@ -51,9 +51,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (55 files)
+│   ├── utils/                          # Helper utilities (61 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (93 test files)
+│   ├── tests/                          # Full test suite (100 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -63,13 +63,13 @@ pancData3/
 │   ├── shared.py                       # Shared utilities and config loading
 │   ├── analysis_config.json            # Centralised configuration
 │   ├── parsers/                        # Log/CSV/MAT/vision parsing (4 files)
-│   ├── cross_reference/                # Cross-DWI comparison scripts (4 files)
+│   ├── cross_reference/                # Cross-DWI comparison scripts (5 files)
 │   ├── report/                         # HTML+PDF report generation
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (16 files)
-│   └── tests/                          # Python test suite — 28 test files, 1164 tests (pytest)
+│   │   └── sections/                   # Section builders (17 files)
+│   └── tests/                          # Python test suite — 30 test files, 1186 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -118,6 +118,9 @@ Key fields:
   "run_all_core_methods": false,
   "store_core_masks": false,
   "use_firth_refit": true,
+  "compute_fine_gray": true,
+  "exclude_motion_volumes": false,
+  "use_texture_features": false,
   "use_gpu": false,
   "gpu_device": 1
 }
@@ -263,6 +266,13 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_schoenfeld_residuals.m` | Schoenfeld residuals: PH holds, time-varying effect, few events, diagnostic figure |
+| `test_fine_gray.m` | Fine-Gray model: competing events, no competing events, all censored, CIF plot |
+| `test_calibration_metrics.m` | Model calibration: perfect/miscalibrated, single class, Brier decomposition |
+| `test_bootstrap_ci.m` | Bootstrap CI: normal mean, ordering, degenerate input, NaN resilience, median |
+| `test_compute_texture_features.m` | Texture features: checkerboard, uniform, field count, 3D, empty mask |
+| `test_compute_registration_quality.m` | Registration quality: identity transform, known shift, mutual information |
+| `test_detect_motion_artifacts.m` | Motion artifacts: clean DWI, signal dropout, single slice, output structure |
 
 ---
 
@@ -350,6 +360,12 @@ run('pipeline/tests/run_all_tests.m')
 | `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
 | `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |
 | `resolve_scan_days.m` | Three-level scan day resolution for survival analysis (DICOM dates -> config -> defaults) |
+| `bootstrap_ci.m` | BCa bootstrap confidence intervals for arbitrary scalar metric functions |
+| `compute_schoenfeld_residuals.m` | Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation |
+| `compute_calibration_metrics.m` | Calibration assessment: Brier score, Hosmer-Lemeshow test, calibration slope/intercept |
+| `compute_texture_features.m` | First-order and GLCM texture feature extraction from parameter maps |
+| `compute_registration_quality.m` | Registration quality metrics: Jacobian determinant, NCC, mutual information |
+| `detect_motion_artifacts.m` | DWI volume quality assessment: CV, NMI, signal dropout detection |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -388,8 +404,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
+| `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
+| `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 28 test files with 1164 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 30 test files with 1186 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -422,7 +440,9 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
 | `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
-For the full list of 92 MATLAB test files and 28 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
+| `test_forest_plot.py` | HR data extraction and forest plot generation tests |
+For the full list of 100 MATLAB test files and 30 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 

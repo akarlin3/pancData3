@@ -298,10 +298,43 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     mean_hd95_matrix = hd95_sum ./ max(hd95_count, 1);
     mean_hd95_matrix(hd95_count == 0) = NaN;
 
+    % --- Bootstrap CIs for mean Dice ---
+    % Compute BCa bootstrap 95% CIs for each pairwise mean Dice coefficient.
+    dice_ci_lo_matrix = nan(n_methods);
+    dice_ci_hi_matrix = nan(n_methods);
+    for a = 1:n_methods
+        for b_idx = a:n_methods
+            % Collect all Dice values for this method pair across patients/timepoints
+            pair_vals = [];
+            for j = 1:n_patients
+                for k = 1:n_tp
+                    if ~isempty(all_dice{j, k})
+                        val = all_dice{j, k}(a, b_idx);
+                        if ~isnan(val)
+                            pair_vals(end+1) = val; %#ok<AGROW>
+                        end
+                    end
+                end
+            end
+            if numel(pair_vals) >= 3
+                try
+                    [ci_lo_d, ci_hi_d] = bootstrap_ci(pair_vals(:), @mean, 1000, 0.05);
+                    dice_ci_lo_matrix(a, b_idx) = ci_lo_d;
+                    dice_ci_hi_matrix(a, b_idx) = ci_hi_d;
+                    dice_ci_lo_matrix(b_idx, a) = ci_lo_d;
+                    dice_ci_hi_matrix(b_idx, a) = ci_hi_d;
+                catch
+                end
+            end
+        end
+    end
+
     % --- Package results ---
     compare_results = struct();
     compare_results.method_names = ALL_METHODS;
     compare_results.mean_dice_matrix = mean_dice_matrix;
+    compare_results.dice_ci_lo = dice_ci_lo_matrix;
+    compare_results.dice_ci_hi = dice_ci_hi_matrix;
     compare_results.mean_hd95_matrix = mean_hd95_matrix;
     compare_results.dice_count = dice_count;
     compare_results.hd95_count = hd95_count;

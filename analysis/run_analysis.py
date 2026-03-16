@@ -450,6 +450,13 @@ def main():
             results["mat"] = _run_script("parsers/parse_mat_metrics.py", folder, log_file)
             pipeline_bar.update(1)
 
+            # Step 3.75: Cross-DWI agreement analysis (Bland-Altman, CCC, ICC).
+            pipeline_bar.set_postfix_str("cross-DWI agreement", refresh=True)
+            results["agreement"] = _run_script(
+                "cross_reference/cross_dwi_agreement.py", folder, log_file
+            )
+            pipeline_bar.update(1)
+
         # Step 4: Assemble the final HTML (+PDF) report from all collected data.
         report_script = ANALYSIS_DIR / "report" / "generate_report.py"
         if report_script.exists():

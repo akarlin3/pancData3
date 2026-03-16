@@ -139,6 +139,62 @@ def _section_model_diagnostics(log_data, dwi_types_present, mat_data) -> list[st
                     box_cls = "warn-box" if is_warning else "diag-box"
                     h.append(f'<div class="{box_cls}">{_esc(issue)}</div>')
 
+    # ── Model Calibration ──
+    if log_data:
+        cal_found = False
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            sp = log_data[dwi_type].get("stats_predictive", {})
+            cal = sp.get("calibration")
+            if not cal:
+                continue
+
+            if not cal_found:
+                h.append("<h3>Model Calibration</h3>")
+                h.append(
+                    '<p class="meta">Calibration assesses whether predicted probabilities '
+                    'match observed event rates. A well-calibrated model has Brier score '
+                    '&lt; 0.25 and Hosmer\u2013Lemeshow p &gt; 0.05.</p>'
+                )
+                cal_found = True
+            diagnostics_found = True
+
+            brier = cal.get("brier_score", float("nan"))
+            hl_p = cal.get("hl_p", float("nan"))
+            cal_slope = cal.get("calibration_slope", float("nan"))
+
+            brier_cls = "agree" if isinstance(brier, (int, float)) and brier < 0.25 else "differ"
+            hl_cls = "agree" if isinstance(hl_p, (int, float)) and hl_p > 0.05 else "differ"
+
+            h.append(f"<h4>{_dwi_badge(dwi_type)}</h4>")
+            h.append("<table><thead><tr>"
+                     "<th>Metric</th><th>Value</th><th>Interpretation</th>"
+                     "</tr></thead><tbody>")
+
+            brier_interp = "Useful discrimination" if brier < 0.25 else "Poor discrimination"
+            hl_interp = "Adequate calibration" if hl_p > 0.05 else "Poor calibration"
+
+            h.append(
+                f'<tr><td>Brier Score</td><td class="{brier_cls}">'
+                f'<strong>{brier:.4f}</strong></td>'
+                f'<td>{brier_interp}</td></tr>'
+            )
+            h.append(
+                f'<tr><td>Hosmer\u2013Lemeshow p</td><td class="{hl_cls}">'
+                f'<strong>{hl_p:.4f}</strong></td>'
+                f'<td>{hl_interp}</td></tr>'
+            )
+            if isinstance(cal_slope, (int, float)) and not (cal_slope != cal_slope):
+                slope_interp = "Perfect" if abs(cal_slope - 1.0) < 0.1 else (
+                    "Overfitting" if cal_slope < 0.8 else "Acceptable")
+                h.append(
+                    f'<tr><td>Calibration Slope</td>'
+                    f'<td><strong>{cal_slope:.3f}</strong></td>'
+                    f'<td>{slope_interp}</td></tr>'
+                )
+            h.append("</tbody></table>")
+
     # General assumptions note
     h.append("<h3>Assumptions and Caveats</h3>")
     h.append('<div class="methods-box">')
