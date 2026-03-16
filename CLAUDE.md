@@ -49,9 +49,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (48 files)
+│   ├── utils/                          # Helper utilities (52 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (92 test files)
+│   ├── tests/                          # Full test suite (95 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -260,6 +260,8 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_prepare_pipeline_session.m` | Session setup: config parsing, DWI type resolution, output folders, compare_cores injection, error handling |
+| `test_dispatch_pipeline_steps.m` | Step dispatch: load/sanity abort signaling, skip behavior, session struct validation, legacy fallback blocking |
 
 ---
 
@@ -341,6 +343,9 @@ run('pipeline/tests/run_all_tests.m')
 | `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
 | `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |
 | `resolve_scan_days.m` | Three-level scan day resolution for survival analysis (DICOM dates -> config -> defaults) |
+| `prepare_pipeline_session.m` | Pipeline session setup: config parsing, DWI type resolution, output folders, diary, error log, GUI, file paths, cache clearing |
+| `dispatch_load_and_sanity.m` | Execute or skip the fatal load and sanity pipeline steps with abort signaling |
+| `dispatch_pipeline_steps.m` | Execute all analysis pipeline steps (metrics_baseline through metrics_survival and visualize) in sequence |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
