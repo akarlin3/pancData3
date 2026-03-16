@@ -338,7 +338,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (653 tests across 22 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (720 tests across 23 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -393,7 +393,7 @@ pancData3/
 │   │   ├── report_formatters.py    #     Formatting utilities
 │   │   ├── report_constants.py     #     CSS, JS, references, HTML template
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (22 test files, 653 tests)
+│   └── tests/                      #   Python test suite (23 test files, 720 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
