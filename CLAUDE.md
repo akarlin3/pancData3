@@ -128,6 +128,7 @@ Key fields:
   "compute_fine_gray": true,
   "exclude_motion_volumes": false,
   "use_texture_features": false,
+  "texture_quantization_method": "fixed_bin_number",
   "use_gpu": false,
   "gpu_device": 1,
   "run_imputation_sensitivity": false,

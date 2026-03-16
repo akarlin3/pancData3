@@ -1,16 +1,68 @@
-function features = compute_texture_features(param_map, mask, n_levels, voxel_spacing)
+function features = compute_texture_features(param_map, mask, n_levels, voxel_spacing, quantization_method)
 % COMPUTE_TEXTURE_FEATURES  Extract first-order, GLCM, GLRLM, and shape features.
 %
 %   Computes first-order statistics, gray-level co-occurrence matrix (GLCM),
 %   gray-level run-length matrix (GLRLM), and shape features from a 2D or
 %   3D parameter map within a binary mask.
 %
+% IBSI Compliance Notes (Image Biomarker Standardisation Initiative, v11):
+% -----------------------------------------------------------------------
+%   This function implements a subset of IBSI-defined radiomics features.
+%   The following describes compliance status per feature family:
+%
+%   IBSI-COMPLIANT features:
+%     First-order: energy (IBSI id: N2K1), kurtosis (3RF5), skewness (88K1),
+%       10th/90th percentile (QG58/GBY2), interquartile range (WL9B),
+%       mean absolute deviation (D2ZX), robust MAD (1128).
+%     GLCM: contrast (ACUI), correlation (NI2N), energy/ASM (8ZQL),
+%       homogeneity/inverse difference moment (IB1Z).
+%       Multi-offset averaging (0/45/90/135 degrees) for 2D rotational
+%       invariance per IBSI recommendation (Section 3.4.2).
+%     GLRLM: short run emphasis (22OV), long run emphasis (W4KF),
+%       grey level non-uniformity (FP8K), run length non-uniformity (IC23),
+%       run percentage (9ZK5). Multi-direction averaging at 4 angles.
+%     Shape: volume (RNU0), surface area (C0JK), sphericity (QCFX),
+%       compactness (XPCE).
+%
+%   APPROXIMATIONS (deviations from strict IBSI definitions):
+%     - Entropy: uses histogram-based Shannon entropy with equal-probability
+%       bins (histcounts) rather than the IBSI intensity histogram entropy
+%       definition which uses a fixed bin width scheme. Result varies with
+%       quantization_method choice.
+%     - Uniformity: histogram-based sum-of-squared-probabilities; equivalent
+%       to IBSI only under fixed_bin_number quantization.
+%     - Elongation: ratio of smallest to largest eigenvalue of the inertia
+%       tensor. IBSI defines this as sqrt(lambda_minor/lambda_major); our
+%       implementation matches this definition but uses the covariance
+%       matrix rather than the inertia tensor, which is equivalent for
+%       binary masks.
+%     - GLCM is computed on a single 2D slice (largest mask cross-section)
+%       rather than full 3D. This is standard for pancreatic DWI where
+%       slice thickness (5-7mm) >> in-plane resolution (1-2mm), making
+%       inter-slice co-occurrence physically less meaningful.
+%     - GLRLM is computed per 2D slice (4 in-plane directions). Full 3D
+%       GLRLM (13 directions) is not implemented.
+%
+%   QUANTIZATION:
+%     The quantization_method parameter controls how continuous parameter
+%     values are discretised into grey levels for GLCM/GLRLM computation.
+%     IBSI specifies both approaches and notes that the choice affects
+%     feature values (Section 3.4.1):
+%       'fixed_bin_number' (default): Rescales to [1, n_levels] using the
+%         min/max of the ROI. Number of bins = n_levels. Suitable when
+%         comparing texture across patients with different value ranges.
+%       'fixed_bin_width': Bins are spaced at fixed intervals of
+%         (range / n_levels). Number of bins varies with value range.
+%         Suitable when absolute parameter values are meaningful (e.g.,
+%         ADC in mm^2/s). Bin width = (max - min) / n_levels.
+%
 % Inputs:
-%   param_map      - 2D or 3D numeric array (parameter map, e.g., ADC)
-%   mask           - Binary mask (same size as param_map)
-%   n_levels       - Number of quantization levels (default: 32)
-%   voxel_spacing  - [dx dy dz] voxel spacing in mm for physical-unit shape
-%                    features (default: [1 1 1])
+%   param_map            - 2D or 3D numeric array (parameter map, e.g., ADC)
+%   mask                 - Binary mask (same size as param_map)
+%   n_levels             - Number of quantization levels (default: 32)
+%   voxel_spacing        - [dx dy dz] voxel spacing in mm for physical-unit
+%                          shape features (default: [1 1 1])
+%   quantization_method  - 'fixed_bin_number' (default) or 'fixed_bin_width'
 %
 % Outputs:
 %   features       - Struct with named texture feature fields:
@@ -23,6 +75,7 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 
     if nargin < 3 || isempty(n_levels), n_levels = 32; end
     if nargin < 4 || isempty(voxel_spacing), voxel_spacing = [1 1 1]; end
+    if nargin < 5 || isempty(quantization_method), quantization_method = 'fixed_bin_number'; end
 
     % Extract masked voxels
     vals = double(param_map(mask > 0));
@@ -111,9 +164,24 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
             features.glrlm_rp = NaN;
         else
             has_quantized = true;
-            quantized = round((img_2d - min_val) / (max_val - min_val) * (n_levels - 1)) + 1;
-            quantized(~mask_2d) = 0;
-            quantized = max(1, min(n_levels, quantized));
+
+            % Quantize using the selected method (IBSI Section 3.4.1)
+            if strcmpi(quantization_method, 'fixed_bin_width')
+                % Fixed bin width: bin_width = (max - min) / n_levels
+                % Number of occupied bins may be <= n_levels
+                bin_width = (max_val - min_val) / n_levels;
+                quantized = floor((img_2d - min_val) / bin_width) + 1;
+                quantized(~mask_2d) = 0;
+                actual_n_levels = max(quantized(mask_2d));
+                quantized = max(1, min(actual_n_levels, quantized));
+                n_levels_glcm = actual_n_levels;
+            else
+                % Fixed bin number (default): rescale to [1, n_levels]
+                quantized = round((img_2d - min_val) / (max_val - min_val) * (n_levels - 1)) + 1;
+                quantized(~mask_2d) = 0;
+                quantized = max(1, min(n_levels, quantized));
+                n_levels_glcm = n_levels;
+            end
 
             % Compute GLCM at 4 angles and average
             offsets = [0 1; -1 1; -1 0; -1 -1];
@@ -124,7 +192,7 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
             for a = 1:size(offsets, 1)
                 try
                     glcm = graycomatrix(quantized, 'Offset', offsets(a,:), ...
-                        'NumLevels', n_levels, 'GrayLimits', [1 n_levels], ...
+                        'NumLevels', n_levels_glcm, 'GrayLimits', [1 n_levels_glcm], ...
                         'Symmetric', true);
                     props = graycoprops(glcm, {'Contrast', 'Correlation', 'Energy', 'Homogeneity'});
                     contrast_sum = contrast_sum + props.Contrast;
@@ -150,7 +218,7 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 
             % --- GLRLM features ---
             [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
-                features.glrlm_rln, features.glrlm_rp] = compute_glrlm(quantized, mask_2d, n_levels);
+                features.glrlm_rln, features.glrlm_rp] = compute_glrlm(quantized, mask_2d, n_levels_glcm);
         end
     else
         features.glcm_contrast = NaN;

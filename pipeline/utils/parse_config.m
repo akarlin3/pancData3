@@ -316,6 +316,18 @@ function config_struct = parse_config(json_path)
             config_struct.use_texture_features = false;
         end
 
+        % texture_quantization_method: Controls how continuous parameter
+        % values are discretised into grey levels for GLCM/GLRLM texture
+        % features.  IBSI specifies both methods and notes that the choice
+        % affects feature values (Section 3.4.1):
+        %   'fixed_bin_number' (default): rescales to [1, n_levels] using
+        %     the ROI min/max.  Good for cross-patient comparison.
+        %   'fixed_bin_width': bins at fixed intervals of (range/n_levels).
+        %     Good when absolute values are meaningful (e.g., ADC mm^2/s).
+        if ~isfield(config_struct, 'texture_quantization_method')
+            config_struct.texture_quantization_method = 'fixed_bin_number';
+        end
+
         % run_imputation_sensitivity: When true, runs imputation sensitivity
         % analysis comparing KNN against LOCF, mean, and linear interpolation.
         % This is computationally expensive (4× LOOCV) so disabled by default.
