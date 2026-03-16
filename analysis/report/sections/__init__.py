@@ -59,6 +59,9 @@ from .model_diagnostics import (  # noqa: F401
     _section_model_diagnostics,
     _section_sensitivity_analysis,
 )
+from .model_robustness import (  # noqa: F401
+    _section_model_robustness,
+)
 from .power_analysis import (  # noqa: F401
     _section_power_analysis,
 )

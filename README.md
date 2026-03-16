@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-106%20MATLAB%20%2B%2030%20Python%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-106%20MATLAB%20%2B%2032%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -379,7 +379,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (16 submodules: metadata, main_results, statistical_reporting, manuscript, enrollment, supplemental, gallery, graph_overview, cross_dwi, correlations, effect_sizes, model_diagnostics, power_analysis, discussion, publication, _helpers) |
+| `report/sections/` | Section builder modules for the HTML report (17 submodules: metadata, main_results, statistical_reporting, manuscript, enrollment, supplemental, gallery, graph_overview, cross_dwi, correlations, effect_sizes, model_diagnostics, model_robustness, power_analysis, discussion, publication, _helpers) |
 
 ### Report Features (v2.0.0)
 
@@ -458,7 +458,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (30 test files, 1186 tests)
+│   └── tests/                      #   Python test suite (32 test files, 1451 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

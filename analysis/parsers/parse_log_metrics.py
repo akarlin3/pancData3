@@ -201,6 +201,52 @@ RE_EXCESSIVE_NAN = re.compile(
     r"Excessive NaN fraction in (\w[\w*]*?):\s*([0-9.]+)%"
 )
 
+# ----- imputation sensitivity (v2.1-dev) -----
+
+# Matches imputation sensitivity table rows, e.g.:
+#   "KNN                     0.843            42"
+# The table is printed by imputation_sensitivity.m inside the
+# metrics_stats_predictive log file.  Captures method name (1), AUC (2),
+# and number of imputed values (3).
+RE_IMPUTATION_AUC = re.compile(
+    r"^\s{2}(KNN|LOCF|Mean|Linear_Interp)\s+([0-9.]+(?:e[+-]?\d+)?|NaN|Inf)\s+(\d+)\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# Matches the concordance matrix header/rows printed after the AUC table:
+#   "KNN              1.000     0.923     0.890     0.912"
+# Captures method name (1) and the rest of the row as a single string (2).
+RE_IMPUTATION_CONCORDANCE = re.compile(
+    r"^\s{2}(KNN|LOCF|Mean|Linear_Interp)\s+((?:[0-9.]+\s*)+)$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# ----- time-varying Cox (v2.1-dev) -----
+
+# Matches PH violation covariate list:
+#   "PH violations detected for: mean_adc, delta_d"
+RE_TV_VIOLATED = re.compile(
+    r"PH violations detected for:\s*(.+)",
+)
+
+# Matches extended Cox base coefficient lines:
+#   "    Base mean_adc: coef=0.1234, p=0.0456"
+RE_TV_BASE_COEF = re.compile(
+    r"Base\s+(\S+):\s*coef=([0-9.eE+-]+),\s*p=([0-9.eE+-]+)"
+)
+
+# Matches extended Cox interaction coefficient lines:
+#   "    mean_adc × log(t): coef=-0.0567, p=0.0123"
+RE_TV_INTERACTION_COEF = re.compile(
+    r"(\S+)\s*\u00d7\s*log\(t\):\s*coef=([0-9.eE+-]+),\s*p=([0-9.eE+-]+)"
+)
+
+# Matches stratified Cox model header:
+#   "Stratified Cox Model (stratified by mean_adc, median=0.0012):"
+RE_TV_STRATIFIED = re.compile(
+    r"Stratified Cox Model \(stratified by (\S+),\s*median=([0-9.eE+-]+)\)"
+)
+
 
 def _read_log(path: Path) -> str:
     """Read a log file and return its contents as a string.
@@ -334,8 +380,9 @@ def parse_stats_comparisons(text: str, log_path: str = "") -> dict:
 def parse_stats_predictive(text: str) -> dict:
     """Parse ``metrics_stats_predictive`` log output.
 
-    Extracts elastic-net feature selections (with optimal lambda) and
-    ROC analysis blocks (AUC, Youden cutoff, sensitivity, specificity).
+    Extracts elastic-net feature selections (with optimal lambda),
+    ROC analysis blocks (AUC, Youden cutoff, sensitivity, specificity),
+    and imputation sensitivity results (v2.1-dev).
 
     Parameters
     ----------
@@ -345,7 +392,8 @@ def parse_stats_predictive(text: str) -> dict:
     Returns
     -------
     dict
-        Keys: ``feature_selections``, ``roc_analyses``.
+        Keys: ``feature_selections``, ``roc_analyses``, ``firth_refits``,
+        ``imputation_sensitivity``.
     """
     result = {"feature_selections": [], "roc_analyses": [], "firth_refits": []}
 
@@ -386,6 +434,21 @@ def parse_stats_predictive(text: str) -> dict:
             entry["specificity"] = float(m.group(2))
         result["roc_analyses"].append(entry)
 
+    # ── Imputation Sensitivity (v2.1-dev) ──
+    # Parses the comparison table printed by imputation_sensitivity.m.
+    imp_methods = list(RE_IMPUTATION_AUC.finditer(text))
+    if imp_methods:
+        imp_results: list[dict] = []
+        for m in imp_methods:
+            imp_results.append({
+                "method": m.group(1),
+                "auc": _parse_float(m.group(2)),
+                "n_imputed": int(m.group(3)),
+            })
+        result["imputation_sensitivity"] = imp_results
+    else:
+        result["imputation_sensitivity"] = []
+
     return result
 
 
@@ -393,7 +456,8 @@ def parse_survival(text: str, log_path: str = "") -> dict:
     """Parse ``metrics_survival`` log output.
 
     Extracts Cox proportional-hazards table rows (covariate, HR, 95% CI,
-    p-value), the global likelihood-ratio test, and IPCW weight ranges.
+    p-value), the global likelihood-ratio test, IPCW weight ranges, and
+    time-varying Cox model results (v2.1-dev).
 
     Parameters
     ----------
@@ -405,12 +469,14 @@ def parse_survival(text: str, log_path: str = "") -> dict:
     Returns
     -------
     dict
-        Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``, ``parse_warnings``.
+        Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``,
+        ``time_varying_cox``, ``parse_warnings``.
     """
     result: dict = {
         "hazard_ratios": [],
         "global_lrt": None,
         "ipcw": None,
+        "time_varying_cox": None,
         "parse_warnings": [],
     }
 
@@ -454,6 +520,39 @@ def parse_survival(text: str, log_path: str = "") -> dict:
             "max_weight": w_max,
             "weight_range_ratio": range_ratio,
         }
+
+    # ── Time-Varying Cox (v2.1-dev) ──
+    # Parses output from fit_time_varying_cox.m in the metrics_survival log.
+    m = RE_TV_VIOLATED.search(text)
+    if m:
+        violated_names = [n.strip() for n in m.group(1).split(",") if n.strip()]
+        tv_data: dict = {
+            "violated_covariates": violated_names,
+            "interaction_models": [],
+            "stratified_by": None,
+        }
+
+        # Stratified model info
+        m_strat = RE_TV_STRATIFIED.search(text)
+        if m_strat:
+            tv_data["stratified_by"] = m_strat.group(1)
+
+        # Extended Cox interaction models: pair base + interaction lines
+        base_matches = {m.group(1): m for m in RE_TV_BASE_COEF.finditer(text)}
+        for m_int in RE_TV_INTERACTION_COEF.finditer(text):
+            cov_name = m_int.group(1)
+            entry: dict = {
+                "covariate": cov_name,
+                "interaction_coef": float(m_int.group(2)),
+                "interaction_p": float(m_int.group(3)),
+            }
+            m_base = base_matches.get(cov_name)
+            if m_base:
+                entry["base_coef"] = float(m_base.group(2))
+                entry["base_p"] = float(m_base.group(3))
+            tv_data["interaction_models"].append(entry)
+
+        result["time_varying_cox"] = tv_data  # type: ignore
 
     return result
 
@@ -745,6 +844,25 @@ def main():
         if sv["global_lrt"]:
             g = sv["global_lrt"]
             print(f"\n  Global LRT: chi2({g['df']}) = {g['chi2']:.2f}, p = {g['p']:.4f}")
+
+        # ── Time-Varying Cox ──
+        tv = sv.get("time_varying_cox")
+        if tv:
+            print(f"\n  Time-Varying Cox (PH violations: {', '.join(tv['violated_covariates'])}):")
+            if tv.get("stratified_by"):
+                print(f"    Stratified by: {tv['stratified_by']}")
+            for im in tv.get("interaction_models", []):
+                base_p = im.get("base_p", float("nan"))
+                print(f"    {im['covariate']}: base_coef={im.get('base_coef', 'N/A')}, "
+                      f"interaction_coef={im['interaction_coef']:.4f}, "
+                      f"interaction_p={im['interaction_p']:.4f}")
+
+        # ── Imputation Sensitivity ──
+        imp = sp.get("imputation_sensitivity", [])
+        if imp:
+            print("\n  Imputation Sensitivity:")
+            for entry in imp:
+                print(f"    {entry['method']}: AUC={entry['auc']:.3f}, N_Imputed={entry['n_imputed']}")
 
         # ── Sanity checks ──
         san = data.get("sanity_checks", {})
