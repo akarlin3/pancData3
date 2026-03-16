@@ -280,6 +280,32 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 - `pip install -r analysis/requirements.txt`
 - `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
 
+#### WeasyPrint System Dependencies (PDF report generation)
+
+WeasyPrint requires **Cairo**, **Pango**, and **GDK-PixBuf** installed at the system level. These are *not* installed by `pip` and must be set up separately. If you only need HTML reports (use `--no-pdf`), you can skip this step.
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt-get install -y libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libffi-dev
+```
+
+**macOS (Homebrew):**
+
+```bash
+brew install cairo pango gdk-pixbuf libffi
+```
+
+**Windows:**
+
+Install the GTK3 runtime, which bundles Cairo, Pango, and GDK-PixBuf:
+
+1. Download the latest GTK3 installer from <https://github.com/nickvdp/gtk3-windows-installer/releases> or install via MSYS2: `pacman -S mingw-w64-x86_64-gtk3`
+2. Add the GTK3 `bin` directory to your system `PATH`
+3. Restart your terminal before running `pip install weasyprint`
+
+See the [WeasyPrint installation docs](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html) for the latest platform-specific instructions.
+
 ### Usage
 
 ```bash
@@ -343,7 +369,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (720 tests across 23 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (823 tests across 25 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -400,7 +426,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (23 test files, 720 tests)
+│   └── tests/                      #   Python test suite (25 test files, 823 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
