@@ -66,8 +66,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (8 files)
-│   └── tests/                          # Python test suite — 23 test files, 720 tests (pytest)
+│   │   └── sections/                   # Section builders (16 files)
+│   └── tests/                          # Python test suite — 23 test files, 760 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -374,13 +374,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `report/sections/` | Section builder package for the HTML report, split into 16 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `enrollment.py`, `supplemental.py`, `gallery.py`, `graph_overview.py`, `cross_dwi.py`, `correlations.py`, `effect_sizes.py`, `model_diagnostics.py`, `power_analysis.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions). Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 23 test files with 720 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 23 test files with 760 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -399,9 +399,9 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_report_sections_helpers.py` | Report helper functions: JSON loading, series normalization, cohort size, AUC finding, trend agreement |
 | `test_report_sections_metadata.py` | Report metadata sections: cover page, part breaks, TOC, publication header, data availability |
 | `test_report_sections_main_results.py` | Main results sections: executive summary, hypothesis, statistical significance, treatment response |
-| `test_report_sections_data_sections.py` | Data sections: cohort overview, patient flow, data completeness, MAT data, appendix, figure gallery |
-| `test_report_sections_analysis.py` | Analysis sections: graph overview/issues, stats by type, cross-DWI comparison, correlations, feature overlap |
-| `test_report_sections_statistics.py` | Statistics sections: effect sizes, multiple comparisons, model diagnostics, sensitivity, power analysis |
+| `test_report_sections_data_sections.py` | Data sections: cohort_overview (cohort, patient flow, completeness), supplemental (MAT data), gallery (appendix, figure gallery) |
+| `test_report_sections_analysis.py` | Analysis sections: graph_overview (overview, issues, stats by type), cross_dwi (comparison, feature overlap), correlations |
+| `test_report_sections_statistics.py` | Statistics sections: effect_sizes (HR effects, multiple comparisons), model_diagnostics (diagnostics, sensitivity), power_analysis |
 | `test_report_sections_discussion.py` | Discussion sections: methods, limitations, conclusions, reporting checklist, journal guide |
 | `test_cross_reference_dwi.py` | Cross-DWI comparison output: graph matching, trend display, stat test formatting, truncation, JSON robustness |
 | `test_cross_reference_summary.py` | Cross-DWI summary: trend agreement/disagreement, priority ordering, parameter maps, inflection points |

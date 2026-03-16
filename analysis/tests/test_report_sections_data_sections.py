@@ -1,4 +1,4 @@
-"""Tests for report_sections.data_sections module.
+"""Tests for report sections: enrollment, supplemental, and gallery modules.
 
 Validates data section builders:
 - Cohort overview
@@ -20,10 +20,12 @@ if str(ANALYSIS_DIR) not in sys.path:
 
 from conftest import SAMPLE_GRAPH_CSV_ROWS
 
-from report.sections.data_sections import (
+from report.sections.enrollment import (
     _section_cohort_overview,
     _section_patient_flow,
     _section_data_completeness,
+)
+from report.sections.supplemental import (
     _section_mat_data,
 )
 from report.sections.gallery import (
