@@ -323,7 +323,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (metadata, main results, data, analysis, statistics, discussion, helpers) |
+| `report/sections/` | Section builder modules for the HTML report (metadata, main results, statistical reporting, manuscript, data, gallery, analysis, statistics, discussion, publication, helpers) |
 
 ### Report Features (v2.0.0)
 
