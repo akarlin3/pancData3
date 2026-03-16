@@ -49,9 +49,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (48 files)
+│   ├── utils/                          # Helper utilities (55 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (92 test files)
+│   ├── tests/                          # Full test suite (93 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -66,8 +66,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (8 files)
-│   └── tests/                          # Python test suite — 23 test files, 720 tests (pytest)
+│   │   └── sections/                   # Section builders (25 submodules + __init__.py)
+│   └── tests/                          # Python test suite — 24 test files, 760 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -302,6 +302,8 @@ run('pipeline/tests/run_all_tests.m')
 | `safe_load_mask.m` | Securely loads `.mat` mask files (rejects unsafe variable classes) |
 | `calculate_subvolume_metrics.m` | Dose coverage metrics within diffusion-defined GTV subvolume |
 | `load_dl_provenance.m` | Loads DL training provenance to guard against data leakage |
+| `nanmean_safe.m` | Octave-compatible NaN-ignoring mean |
+| `nanstd_safe.m` | Octave-compatible NaN-ignoring standard deviation |
 | `perform_statistical_test.m` | Wilcoxon rank-sum testing with NaN-safe group extraction |
 | `parsave_dir_cache.m` | Parallel-safe `save` wrapper for `parfor` caching |
 | `escape_shell_arg.m` | Cross-platform shell argument escaping (Windows and Unix) |
@@ -310,6 +312,7 @@ run('pipeline/tests/run_all_tests.m')
 | `plot_feature_distribution.m` | Histogram/boxplot with ANOVA p-value annotation |
 | `init_scan_structs.m` | Initializes scan data structures for pipeline processing |
 | `compute_scan_days_from_dates.m` | Derives scan days from DICOM acquisition dates |
+| `detect_baseline_outliers.m` | Outcome-blinded IQR outlier detection for baseline metrics |
 | `format_p_value.m` | Formats p-values for display with appropriate precision |
 | `remove_constant_columns.m` | Removes constant/NaN-only columns from feature matrices |
 | `parfor_progress.m` | Parallel loop progress reporting |
@@ -318,12 +321,15 @@ run('pipeline/tests/run_all_tests.m')
 | `PipelineProgressGUI.m` | Pipeline-aware progress bar wrapper (maps step keys to display names) |
 | `ProgressGUI.m` | Professional custom-figure progress bar for MATLAB pipelines |
 | `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
+| `compute_histogram_laplace.m` | Laplace-smoothed histogram probability distribution |
 | `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
 | `plot_cross_dwi_subvolume_comparison.m` | Cross-DWI-type ADC subvolume comparison visualization |
 | `compute_adc_metrics.m` | ADC summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
 | `compute_ivim_metrics.m` | IVIM (D/f/D*) summary metrics for a single patient/timepoint/DWI-type (extracted from compute_summary_metrics) |
+| `compute_kurt_skew.m` | Kurtosis/skewness computation with minimum sample guard |
 | `compute_spatial_repeatability.m` | Dice and Hausdorff spatial repeatability between Fx1 repeat sub-volumes |
 | `compute_multi_core_metrics.m` | Multi-method (11 core methods) sub-volume metrics per patient/timepoint |
+| `compute_percent_deltas.m` | Treatment-induced percent/absolute changes from baseline |
 | `assemble_predictive_features.m` | Builds 22-column feature matrix for elastic net (extracted from metrics_stats_predictive) |
 | `run_elastic_net_cv.m` | 5-fold elastic net CV + final model fitting (extracted from metrics_stats_predictive) |
 | `run_loocv_risk_scores.m` | Nested LOOCV for unbiased out-of-fold risk scores (extracted from metrics_stats_predictive) |
@@ -374,13 +380,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `report/sections/` | Section builder package for the HTML report, split into 25 submodules: 5 facade files (`analysis_sections.py`, `statistics.py`, `data_sections.py`, `main_results.py`, `manuscript.py`) that re-export from 15 focused submodules, plus `metadata.py`, `gallery.py`, `discussion.py`, `publication.py`, `statistical_reporting.py`, and `_helpers.py` |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 23 test files with 720 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 24 test files with 760 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
