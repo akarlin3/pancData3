@@ -2,6 +2,8 @@
 
 This file provides essential context for AI assistants (Claude, Antigravity, etc.) working in this repository.
 
+For detailed module tables, test file lists, utility descriptions, and analysis script references, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+
 ---
 
 ## Project Overview
@@ -72,7 +74,8 @@ pancData3/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
 ├── README.md                            # Human-facing documentation
-└── CLAUDE.md                            # This file
+├── CLAUDE.md                            # This file (essentials for every session)
+└── CLAUDE_REFERENCE.md                  # Detailed module/test/utility reference tables
 ```
 
 ---
@@ -414,6 +417,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_statistical_relevance.py` | Statistical findings: p-value extraction, Bonferroni correction, significance markers, correlations, cross-DWI comparison |
 | `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
+For the full list of 92 MATLAB test files and 23 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -436,8 +440,6 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 - `escape_shell_arg.m` auto-detects `ispc()` for Windows (double-quote) vs Unix (single-quote) shell escaping.
 - All file paths use `fullfile()`, `filesep`, and `pathsep` — never hardcoded separators.
-- `ProgressBarPlugin.m` uses `isunix`/`ispc` for platform-specific terminal width detection.
-- `test_convert_dicom.m` generates `.bat` scripts on Windows and shell scripts on Unix.
 - Python analysis scripts use `pathlib.Path` throughout and reconfigure `stdout` to UTF-8 on Windows for emoji support.
 - CI runs the full MATLAB and Python test suites on Linux, macOS, and Windows.
 
@@ -485,29 +487,7 @@ All console output is captured to log files via MATLAB's `diary` command. MATLAB
 3. Each **core module** (sanity_checks, visualize_results, metrics_*) opens its own diary, overriding the orchestrator's.
 4. After each module returns, the orchestrator **restarts** its diary to resume capturing.
 
-**Output folder structure:**
-
-```
-saved_files_YYYYMMDD_HHMMSS/
-├── execute_all_workflows.log        # Top-level workflow log
-├── test_suite_output.log            # Full test suite output
-├── preflight_tests_output.log       # Pre-flight test output (run_dwi_pipeline)
-├── error.log                        # Error/warning log
-├── Standard/                        # DWI type subfolder
-│   ├── pipeline_log_Standard.txt    # Orchestrator log
-│   ├── sanity_checks_output.txt
-│   ├── visualize_results_output.txt
-│   ├── metrics_baseline_output_Standard.txt
-│   ├── compare_core_methods_output_Standard.txt
-│   ├── compare_core_results_Standard.mat
-│   ├── metrics_longitudinal_output_Standard.txt
-│   ├── metrics_dosimetry_output.txt
-│   ├── metrics_stats_comparisons_output_Standard.txt
-│   ├── metrics_stats_predictive_output_Standard.txt
-│   └── metrics_survival_output_Standard.txt
-├── dnCNN/                           # Same structure as Standard/
-└── IVIMnet/                         # Same structure as Standard/
-```
+For the full output folder structure, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#diary--console-logging--output-folder-structure).
 
 **Important for tests:** Any test that exercises a core module must call `diary off;` in its `TestMethodTeardown` before calling `rmdir` on temp directories, because the module's diary file will still be open (locked on Windows).
 
@@ -533,19 +513,13 @@ saved_files_YYYYMMDD_HHMMSS/
 
 ### `pipeline/dependencies/` folder (DO NOT MODIFY)
 
-Contains third-party scripts. Treat as read-only:
+Contains third-party scripts. Treat as read-only. For the full file listing, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#pipelinedependencies-contents-do-not-modify).
 
-| File | Purpose |
-|---|---|
-| `IVIMmodelfit.m`, `IVIM_seg.m`, `IVIM_bayes.m` | IVIM model fitting implementations |
-| `fit_adc_mono.m` | Mono-exponential ADC fitting |
-| `apply_dncnn_symmetric.m` | DnCNN deep learning denoising |
-| `dvh.m`, `sample_rtdose_on_image.m` | Dose-volume histogram processing |
-| `clean_dir_command.m` | Directory cleaning helper |
-| `halfSampleMode.m` | Half-sample mode statistical estimator |
-| `im2Y.m` | Image-to-luminance conversion |
+---
 
-See `pipeline/dependencies/README_DEPENDENCIES.md` for licenses and attribution.
+## Module Reference
+
+For detailed tables of all core modules (18 files), utility modules (48 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
 
 ---
 
@@ -557,19 +531,20 @@ After **every feature implementation** (adding a new file, adding a config field
 
 | File | What to update |
 |---|---|
-| `CLAUDE.md` | File counts in Repository Structure, module tables (Core/Utils/Analysis), config example block, key test files, Octave compat listing |
+| `CLAUDE.md` | File counts in Repository Structure, config example block |
+| `CLAUDE_REFERENCE.md` | Module tables (Core/Utils/Analysis), key test files, Octave compat listing |
 | `README.md` | File counts (test badge, Repository Structure tree, utils/tests/analysis counts), config field table if a user-facing field was added |
 | `MEMORY.md` (auto-memory) | File signatures, new patterns, any architectural decisions made during the feature |
 
 ### Checklist (run mentally after each feature)
 
-1. **New `.m` file in `pipeline/core/` or `pipeline/utils/`?** → Add to the corresponding CLAUDE.md module table with a one-line purpose. Update the file count in Repository Structure (both CLAUDE.md and README.md).
-2. **New test file?** → Update test file count in Repository Structure (both CLAUDE.md and README.md) and the README test badge number. If it covers a notable area, add to CLAUDE.md Key test files table.
+1. **New `.m` file in `pipeline/core/` or `pipeline/utils/`?** → Add to the corresponding CLAUDE_REFERENCE.md module table with a one-line purpose. Update the file count in Repository Structure (CLAUDE.md and README.md).
+2. **New test file?** → Update test file count in Repository Structure (CLAUDE.md and README.md) and the README test badge number. If it covers a notable area, add to CLAUDE_REFERENCE.md Key test files table.
 3. **New config field?** → Add to the CLAUDE.md config JSON block. If user-facing, add to README.md config field table. Ensure `pipeline/utils/parse_config.m` default exists (per Config Backwards Compatibility rules).
-4. **New `pipeline/.octave_compat/` shim?** → Add to the CLAUDE.md Octave Compatibility listing and update the file count.
+4. **New `pipeline/.octave_compat/` shim?** → Add to the CLAUDE_REFERENCE.md Octave Compatibility listing and update the file count.
 5. **New top-level `.m` file in `pipeline/`?** → Add to CLAUDE.md Repository Structure tree.
 6. **Changed module signature?** → Update MEMORY.md File Signatures section.
-7. **New Python script in `analysis/`?** → Add to CLAUDE.md Analysis Scripts table. Update the file count in Repository Structure (both CLAUDE.md and README.md).
+7. **New Python script in `analysis/`?** → Add to CLAUDE_REFERENCE.md Analysis Scripts table. Update the file count in Repository Structure (CLAUDE.md and README.md).
 
 ---
 
@@ -591,7 +566,7 @@ After **every feature implementation** (adding a new file, adding a config field
 - Follow the orchestrator pattern — keep pipeline steps modular and independently callable.
 - Preserve checkpointing logic in `load_dwi_data.m`; it is critical for large cohort recovery.
 - Consult `config.example.json` before adding new configuration fields.
-- **Update documentation after every feature implementation** — see [Documentation Maintenance](#documentation-maintenance-mandatory) below.
+- **Update documentation after every feature implementation** — see [Documentation Maintenance](#documentation-maintenance-mandatory) above.
 
 ### Do Not
 - Modify anything in `pipeline/dependencies/`.
