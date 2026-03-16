@@ -449,5 +449,109 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
                 'Diary log file should be created.');
         end
 
+        function testSinglePatientSingleTimepoint(testCase)
+            % Edge case: 1 patient with 1 timepoint should produce valid
+            % 11x11 Dice matrix without erroring.
+            rng(42);
+            n_vox = 100;
+
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
+                'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], ...
+                'dstar_vector_ivimnet', [], ...
+                'vox_vol', [], 'vox_dims', []);
+            dv_single = repmat(empty_entry, 1, 1, 1);
+
+            adc = [0.0005 + 0.0001*randn(30,1); 0.0015 + 0.0002*randn(70,1)];
+            dv_single(1,1,1).adc_vector = adc;
+            dv_single(1,1,1).d_vector = adc * 0.8;
+            dv_single(1,1,1).f_vector = 0.1 * ones(n_vox, 1);
+            dv_single(1,1,1).dstar_vector = 0.02 * ones(n_vox, 1);
+            dv_single(1,1,1).vox_dims = [2 2 2];
+
+            sm_single = struct();
+            sm_single.id_list = {'P_SINGLE'};
+            sm_single.gtv_locations = cell(1, 1, 1);
+            sm_single.gtv_locations{1, 1, 1} = '';
+
+            results = compare_core_methods(dv_single, sm_single, testCase.ConfigStruct);
+
+            testCase.verifyEqual(size(results.mean_dice_matrix), [11 11], ...
+                'Single patient should still produce 11x11 Dice matrix.');
+            testCase.verifyEqual(results.n_patients, 1);
+            testCase.verifyEqual(results.nTp, 1);
+        end
+
+        function testDnCNNDwiType(testCase)
+            % When dwi_types_to_run=2, compare_core_methods should read
+            % from the _dncnn vector fields and produce valid output.
+            rng(42);
+            n_vox = 100;
+
+            dv = testCase.DataVectors;
+            % Populate DnCNN fields for Patient 1 Fx1
+            dv(1,1,1).adc_vector_dncnn = dv(1,1,1).adc_vector;
+            dv(1,1,1).d_vector_dncnn = dv(1,1,1).d_vector;
+            dv(1,1,1).f_vector_dncnn = dv(1,1,1).f_vector;
+            dv(1,1,1).dstar_vector_dncnn = dv(1,1,1).dstar_vector;
+            % Fx2
+            dv(1,2,1).adc_vector_dncnn = dv(1,2,1).adc_vector;
+            dv(1,2,1).d_vector_dncnn = dv(1,2,1).d_vector;
+            dv(1,2,1).f_vector_dncnn = dv(1,2,1).f_vector;
+            dv(1,2,1).dstar_vector_dncnn = dv(1,2,1).dstar_vector;
+
+            cfg = testCase.ConfigStruct;
+            cfg.dwi_types_to_run = 2;
+            cfg.dwi_type_name = 'dnCNN';
+
+            results = compare_core_methods(dv, testCase.SummaryMetrics, cfg);
+
+            testCase.verifyEqual(results.dwi_type_name, 'dnCNN', ...
+                'DWI type name should be dnCNN.');
+            testCase.verifyTrue(any(results.dice_count(:) > 0), ...
+                'Should have valid Dice observations for dnCNN type.');
+        end
+
+        function testUniformDataHighDice(testCase)
+            % When all voxels have very similar values, threshold-based
+            % methods should agree closely, producing high Dice values.
+            rng(42);
+            n_vox = 100;
+
+            empty_entry = struct( ...
+                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+                'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
+                'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], ...
+                'dstar_vector_ivimnet', [], ...
+                'vox_vol', [], 'vox_dims', []);
+            dv_uniform = repmat(empty_entry, 1, 1, 1);
+
+            % All voxels far below threshold (entire GTV is "core")
+            dv_uniform(1,1,1).adc_vector = 0.0003 * ones(n_vox, 1);
+            dv_uniform(1,1,1).d_vector = 0.0003 * ones(n_vox, 1);
+            dv_uniform(1,1,1).f_vector = 0.05 * ones(n_vox, 1);
+            dv_uniform(1,1,1).dstar_vector = 0.005 * ones(n_vox, 1);
+            dv_uniform(1,1,1).vox_dims = [2 2 2];
+
+            sm_u = struct();
+            sm_u.id_list = {'P_UNIFORM'};
+            sm_u.gtv_locations = cell(1, 1, 1);
+            sm_u.gtv_locations{1, 1, 1} = '';
+
+            results = compare_core_methods(dv_uniform, sm_u, testCase.ConfigStruct);
+
+            % ADC threshold and D threshold should agree perfectly
+            % since values are well below both thresholds
+            adc_idx = 1; d_idx = 2;  % indices in ALL_METHODS
+            dice_ad = results.mean_dice_matrix(adc_idx, d_idx);
+            if ~isnan(dice_ad)
+                testCase.verifyGreaterThanOrEqual(dice_ad, 0.9, ...
+                    'ADC and D threshold should agree when all voxels are below threshold.');
+            end
+        end
+
     end
 end

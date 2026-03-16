@@ -322,6 +322,100 @@ classdef test_process_single_scan < matlab.unittest.TestCase
             testCase.verifyTrue(iscell(result.bad_dwi_list), ...
                 'bad_dwi_list should be a cell array.');
         end
+
+        function test_all_result_fields_present(testCase)
+            % Comprehensive check: result struct should contain ALL expected
+            % scalar metric fields, data struct fields, and bad_dwi_list.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+
+            expected_scalar = {'adc_mean', 'adc_kurtosis', 'd_mean', 'd_kurtosis', ...
+                'd_mean_dncnn', 'd_mean_ivimnet', ...
+                'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', ...
+                'v50gy_gtvp', 'v50gy_gtvn'};
+            for i = 1:numel(expected_scalar)
+                testCase.verifyTrue(isfield(result, expected_scalar{i}), ...
+                    sprintf('Result should have field %s.', expected_scalar{i}));
+            end
+            testCase.verifyTrue(isfield(result, 'data_gtvp'), 'Result should have data_gtvp.');
+            testCase.verifyTrue(isfield(result, 'data_gtvn'), 'Result should have data_gtvn.');
+        end
+
+        function test_fi_equals_n_rtdose_cols_is_on_treatment(testCase)
+            % When fi equals n_rtdose_cols, the scan is still on-treatment
+            % (fx_id = "fx5"), not post-treatment. Only fi > n_rtdose_cols
+            % triggers the "post" naming convention.
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 5;
+            ctx.n_rtdose_cols = 5;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyEmpty(result.bad_dwi_list, ...
+                'fi=5 with n_rtdose_cols=5 should not error.');
+        end
+
+        function test_repeat_index_high(testCase)
+            % Repeat indices up to 6 are valid (e.g., Fx1 repeatability).
+            ctx = testCase.makeMinimalCtx();
+            ctx.rpi = 6;
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+            testCase.verifyTrue(isnan(result.adc_mean), ...
+                'adc_mean should be NaN for high repeat index with no data.');
+        end
+
+        function test_fi_greater_than_1_without_fx1_ref(testCase)
+            % When fi > 1 but no Fx1 reference is available (b0_fx1_ref
+            % is empty), DIR registration should be skipped gracefully.
+            ctx = testCase.makeMinimalCtx();
+            ctx.fi = 3;
+            ctx.b0_fx1_ref = [];
+            ctx.gtv_mask_fx1_ref = [];
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, b0_ref, gtvp_ref, gtvn_ref] = process_single_scan(ctx);
+            testCase.verifyEmpty(b0_ref, 'b0_ref should be empty for fi>1.');
+            testCase.verifyEmpty(gtvp_ref, 'gtvp_ref should be empty for fi>1.');
+            testCase.verifyEmpty(gtvn_ref, 'gtvn_ref should be empty for fi>1.');
+            testCase.verifyTrue(isnan(result.adc_mean));
+        end
+
+        function test_multiple_scalar_fields_are_nan(testCase)
+            % Exhaustive NaN verification: EVERY scalar metric field
+            % should default to NaN, not 0 or empty.
+            ctx = testCase.makeMinimalCtx();
+            ctx.dicomloc = '';
+            ctx.struct_file = '';
+            ctx.struct_file_gtvn = '';
+            ctx.dicomdoseloc = '';
+
+            [result, ~, ~, ~] = process_single_scan(ctx);
+
+            nan_fields = {'adc_mean', 'adc_kurtosis', 'd_mean', 'd_kurtosis', ...
+                'd_mean_dncnn', 'd_mean_ivimnet', ...
+                'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', ...
+                'v50gy_gtvp', 'v50gy_gtvn'};
+            for i = 1:numel(nan_fields)
+                testCase.verifyTrue(isnan(result.(nan_fields{i})), ...
+                    sprintf('%s should default to NaN, got %g.', nan_fields{i}, result.(nan_fields{i})));
+            end
+        end
     end
 
     methods(Access = private)

@@ -49,9 +49,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (44 files)
+│   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (88 test files)
+│   ├── tests/                          # Full test suite (92 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -66,7 +66,7 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (8 files)
+│   │   └── sections/                   # Section builders (12 files)
 │   └── tests/                          # Python test suite — 18 test files, 569 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
@@ -211,6 +211,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_safe_load_mask.m` | Secure mask file loading |
 | `test_escape_shell_arg.m` | Cross-platform shell argument escaping |
 | `test_visualize_smoke.m` | Visualization output smoke tests |
+| `test_fit_models.m` | IVIM + ADC model fitting (dimensions, padding, b-value validation, known value recovery) |
 | `test_core_methods.m` | Tumor core extraction method validation (all 11 methods) |
 | `test_new_core_methods.m` | Detailed tests for percentile, spectral, and fDM core methods |
 | `test_compute_dice_hausdorff.m` | Dice/Hausdorff distance computation tests |
@@ -252,6 +253,10 @@ run('pipeline/tests/run_all_tests.m')
 | `test_assemble_predictive_features.m` | Feature matrix assembly: 22-column layout, post-treatment dose exclusion, NaN column removal |
 | `test_compute_multi_core_metrics.m` | Multi-method core metrics: all 11 methods, unified mask sharing, fDM volume fractions |
 | `test_compute_spatial_repeatability.m` | Spatial repeatability: Dice/Hausdorff across Fx1 repeats, 12-output validation |
+| `test_clear_pipeline_cache.m` | Cache clearing: deletion, protection, sentinel, once-per-session guard |
+| `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
+| `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
+| `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
 
 ---
 
@@ -328,6 +333,10 @@ run('pipeline/tests/run_all_tests.m')
 | `write_sentinel_file.m` | Write pipeline step completion sentinel files |
 | `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
 | `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
+| `clear_pipeline_cache.m` | Remove pipeline-generated .mat cache files (once-per-session guard, protected files, sentinel checks) |
+| `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
+| `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |
+| `resolve_scan_days.m` | Three-level scan day resolution for survival analysis (DICOM dates -> config -> defaults) |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -359,7 +368,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
-| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `report/sections/` | Section builder package for the HTML report, split into 11 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `data_sections.py`, `gallery.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions) |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
