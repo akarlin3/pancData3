@@ -53,7 +53,4 @@ This project processes medical imaging data. The following security measures are
 | Version | Supported |
 |---|---|
 | 2.0.1 (latest) | Yes |
-| 2.0.0 | Yes |
-| 2.0.0-rc.x and earlier pre-releases | No |
-| 1.x | No |
-| 0.x | No |
+| 2.0.0 and earlier | No |
