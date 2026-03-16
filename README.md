@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-92%20MATLAB%20%2B%2026%20Python%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-101%20MATLAB%20%2B%2022%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -256,7 +256,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 92 test files covering:
+The test suite includes 101 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -279,6 +279,32 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 - Python 3.12+
 - `pip install -r analysis/requirements.txt`
 - `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
+
+#### WeasyPrint System Dependencies (PDF report generation)
+
+WeasyPrint requires **Cairo**, **Pango**, and **GDK-PixBuf** installed at the system level. These are *not* installed by `pip` and must be set up separately. If you only need HTML reports (use `--no-pdf`), you can skip this step.
+
+**Ubuntu / Debian:**
+
+```bash
+sudo apt-get install -y libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libffi-dev
+```
+
+**macOS (Homebrew):**
+
+```bash
+brew install cairo pango gdk-pixbuf libffi
+```
+
+**Windows:**
+
+Install the GTK3 runtime, which bundles Cairo, Pango, and GDK-PixBuf:
+
+1. Download the latest GTK3 installer from <https://github.com/nickvdp/gtk3-windows-installer/releases> or install via MSYS2: `pacman -S mingw-w64-x86_64-gtk3`
+2. Add the GTK3 `bin` directory to your system `PATH`
+3. Restart your terminal before running `pip install weasyprint`
+
+See the [WeasyPrint installation docs](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html) for the latest platform-specific instructions.
 
 ### Usage
 
@@ -343,7 +369,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (768 tests across 26 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (823 tests across 25 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -374,7 +400,7 @@ pancData3/
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (92 test files)
+│   ├── tests/                      #   Test suite (101 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
@@ -400,7 +426,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (26 test files, 768 tests)
+│   └── tests/                      #   Python test suite (25 test files, 823 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

@@ -51,7 +51,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (92 test files)
+│   ├── tests/                          # Full test suite (101 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -67,7 +67,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (8 files)
-│   └── tests/                          # Python test suite — 26 test files, 768 tests (pytest)
+│   └── tests/                          # Python test suite — 25 test files, 823 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -260,6 +260,18 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_octave_shims.m` | Octave compatibility shims: nanmean, nanstd, contains, categorical, cvpartition, fitglme, nifti I/O, sgtitle, yline, spectralcluster, @table (Octave only) |
+| `test_run_elastic_net_cv.m` | Elastic net CV: output shapes, lambda grid, consensus filtering, reproducibility, degenerate data |
+| `test_run_loocv_risk_scores.m` | Nested LOOCV: risk score shapes, median split, DL provenance leakage detection, NaN handling |
+| `test_plot_predictive_diagnostics.m` | Predictive diagnostics: ROC curve, sanity panels, 2D scatter, filename sanitization |
+| `test_progress_gui.m` | ProgressGUI: construction, update, color logic, close lifecycle, display availability |
+| `test_initialize_pipeline.m` | Pipeline init: config resolution, path setup, pre-flight skip logic, toolbox checks |
+| `test_normalize_patient_ids.m` | Patient ID normalization: underscore/hyphen, quote stripping, categorical conversion |
+| `test_select_dwi_vectors.m` | DWI vector extraction: Standard/dnCNN/IVIMnet field selection, 3D struct indexing |
+| `test_parfor_progress.m` | Parfor progress: callback factory, independent counters, argument handling |
+| `test_write_sentinel_file.m` | Sentinel files: path construction, message content, overwrite, invalid path warning |
+| `test_execute_all_workflows.m` | Workflow orchestrator: config mutation/restoration, step sequencing, compare_cores injection, sentinel creation |
+| `test_data_integrity_check.m` | Pre-pipeline data integrity: missing fractions/DWI/GTV/dose severity, patient filtering, report struct |
 
 ---
 
@@ -356,7 +368,7 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
 
-**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
+**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint` plus system-level Cairo, Pango, and GDK-PixBuf libraries (see README for platform-specific installation); all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
 **Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
@@ -380,7 +392,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 26 test files with 768 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 25 test files with 823 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -411,6 +423,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_statistical_relevance.py` | Statistical findings: p-value extraction, Bonferroni correction, significance markers, correlations, cross-DWI comparison |
 | `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
+| `test_integration.py` | End-to-end pipeline integration: full report generation with all data sources, run_analysis.py subprocess execution, graceful degradation on missing data |
 
 ---
 
