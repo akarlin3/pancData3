@@ -14,11 +14,17 @@ Results are validated via strict Pydantic schemas and written to a flat CSV
 consumed by downstream analysis scripts (``generate_report.py``,
 ``cross_reference_dwi.py``, ``statistical_relevance.py``, etc.).
 
-**Requires** the ``GEMINI_API_KEY`` environment variable to be set.
+When the ``GEMINI_API_KEY`` is not set or the ``google-genai`` package is
+not installed, the script automatically falls back to a **local
+filename-based heuristic** that infers graph type, axes, and comparison
+type from the structured filenames produced by the MATLAB pipeline.  This
+fallback produces lower-fidelity results (no visual analysis) but keeps the
+downstream CSV pipeline functional.
 
 Usage:
     python batch_graph_analysis.py                       # auto-detect folder
     python batch_graph_analysis.py /path/to/saved_files  # explicit folder
+    python batch_graph_analysis.py --local /path/to/saved_files  # force local
 """
 
 from __future__ import annotations
@@ -222,6 +228,153 @@ def media_type_for(path: Path) -> str:
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
     }.get(ext, "image/png")
+
+
+# ── Local filename-based fallback analyzer ───────────────────────────────────
+# When the Gemini API is unavailable, this function infers graph metadata
+# from the structured filenames produced by the MATLAB pipeline.  The
+# results are lower-fidelity (no visual analysis) but keep the downstream
+# CSV pipeline functional for report generation and cross-DWI comparison.
+
+# Filename keywords → graph_type mapping.  Order matters: first match wins.
+_GRAPH_TYPE_KEYWORDS: list[tuple[list[str], str]] = [
+    (["heatmap", "dice_heatmap", "hausdorff_heatmap"], "heatmap"),
+    (["parameter_map", "param_map", "overlay"], "parameter_map"),
+    (["histogram", "hist"], "histogram"),
+    (["boxplot", "box_plot", "box"], "box"),
+    (["scatter", "correlation"], "scatter"),
+    (["violin"], "violin"),
+    (["bar", "volume_comparison"], "bar"),
+    (["longitudinal", "trajectory", "timeseries", "time_series"], "line"),
+    (["kaplan", "survival", "km_curve"], "line"),
+    (["roc", "auc"], "line"),
+    (["dose_vs", "dvh"], "line"),
+]
+
+# Filename keywords → axis label / units hints.
+_AXIS_HINTS: dict[str, dict[str, str | None]] = {
+    "adc": {"label": "ADC", "units": "mm\u00b2/s"},
+    "ivim": {"label": "IVIM Parameter", "units": None},
+    "d_mean": {"label": "D (mean)", "units": "mm\u00b2/s"},
+    "f_mean": {"label": "f (mean)", "units": None},
+    "dstar": {"label": "D* (mean)", "units": "mm\u00b2/s"},
+    "dose": {"label": "Dose", "units": "Gy"},
+    "time": {"label": "Time", "units": "days"},
+    "longitudinal": {"label": "Timepoint", "units": None},
+    "survival": {"label": "Time", "units": "days"},
+    "kaplan": {"label": "Time", "units": "days"},
+    "dice": {"label": "Method", "units": None},
+    "hausdorff": {"label": "Method", "units": None},
+    "volume": {"label": "Method", "units": None},
+}
+
+# Filename keywords → comparison_type hints.
+_COMPARISON_HINTS: dict[str, str] = {
+    "longitudinal": "longitudinal",
+    "trajectory": "longitudinal",
+    "byoutcome": "unpaired",
+    "lf_vs_lc": "unpaired",
+    "dose_vs": "dose-response",
+    "dvh": "dose-response",
+    "repeat": "paired",
+    "baseline": "cross-sectional",
+}
+
+
+def _infer_graph_type(name_lower: str) -> str:
+    """Infer graph_type from a lowercased filename stem."""
+    for keywords, gtype in _GRAPH_TYPE_KEYWORDS:
+        for kw in keywords:
+            if kw in name_lower:
+                return gtype
+    return "unknown"
+
+
+def _infer_axes(name_lower: str) -> tuple[Axis | None, Axis | None]:
+    """Infer x/y axis labels from filename keywords."""
+    x_axis = None
+    y_axis = None
+    for keyword, hints in _AXIS_HINTS.items():
+        if keyword in name_lower:
+            # For time-related x-axes, set x_axis
+            if keyword in ("time", "longitudinal", "survival", "kaplan"):
+                x_axis = Axis(
+                    label=hints["label"],
+                    units=hints.get("units"),
+                )
+            else:
+                # For metric keywords, set as y_axis
+                y_axis = Axis(
+                    label=hints["label"],
+                    units=hints.get("units"),
+                )
+    return x_axis, y_axis
+
+
+def _infer_comparison_type(name_lower: str) -> str | None:
+    """Infer comparison_type from filename keywords."""
+    for keyword, ctype in _COMPARISON_HINTS.items():
+        if keyword in name_lower:
+            return ctype
+    return None
+
+
+def analyze_image_local(image_path: Path) -> GraphAnalysis:
+    """Produce a best-effort ``GraphAnalysis`` from filename heuristics.
+
+    This function does **not** inspect the image pixels.  It uses the
+    structured naming conventions of the MATLAB pipeline
+    (e.g. ``Longitudinal_Mean_Metrics_Standard.png``,
+    ``core_method_dice_heatmap.png``) to infer graph type, axis labels,
+    and comparison type.
+
+    Parameters
+    ----------
+    image_path : Path
+        Path to the graph image.
+
+    Returns
+    -------
+    GraphAnalysis
+        A structured analysis with ``graph_type``, axis hints, and a
+        summary noting that the result was produced by the local fallback.
+    """
+    rel_path = str(image_path)
+    stem = image_path.stem  # filename without extension
+    name_lower = stem.lower()
+
+    graph_type = _infer_graph_type(name_lower)
+    x_axis, y_axis = _infer_axes(name_lower)
+    comparison_type = _infer_comparison_type(name_lower)
+
+    # Build a human-readable summary from the filename.
+    pretty_name = stem.replace("_", " ")
+    summary = (
+        f"Local fallback analysis of '{pretty_name}' "
+        f"(inferred type: {graph_type}). "
+        "No visual analysis was performed; metadata was inferred from the "
+        "filename. Re-run with GEMINI_API_KEY set for full vision analysis."
+    )
+
+    # Detect DWI type from path for clinical context.
+    dwi_types = {"Standard", "dnCNN", "IVIMnet"}
+    clinical_note = None
+    for part in image_path.parts:
+        if part in dwi_types:
+            clinical_note = f"Graph from {part} DWI processing pipeline."
+            break
+
+    return GraphAnalysis(
+        file_path=rel_path,
+        graph_title=pretty_name,
+        graph_type=graph_type,
+        x_axis=x_axis,
+        y_axis=y_axis,
+        summary=summary,
+        comparison_type=comparison_type,
+        clinical_relevance=clinical_note,
+        figure_quality="unknown",
+    )
 
 
 SYSTEM_PROMPT = """\
@@ -700,8 +853,98 @@ def flatten(a: GraphAnalysis) -> dict:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _should_use_local(argv: list[str]) -> bool:
+    """Check whether ``--local`` was passed on the command line."""
+    return "--local" in argv
+
+
+def _write_results_csv(
+    folder: Path,
+    final_results: list[GraphAnalysis],
+    errors: int,
+    images: list[Path],
+    mode_label: str,
+) -> int:
+    """Write the results CSV and print a summary.
+
+    Parameters
+    ----------
+    folder : Path
+        Output folder.
+    final_results : list[GraphAnalysis]
+        Analysed results (one per image).
+    errors : int
+        Number of images that failed analysis.
+    images : list[Path]
+        Original image list (for the error count denominator).
+    mode_label : str
+        Label for the analysis mode (e.g. "Gemini API" or "local fallback").
+
+    Returns
+    -------
+    int
+        Exit code: 1 if any errors, 0 otherwise.
+    """
+    if errors:
+        print(f"\n  {errors}/{len(images)} images failed (see 'error' rows in CSV)")
+
+    out_csv = folder / "graph_analysis_results.csv"
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+        writer.writeheader()
+        for analysis in final_results:
+            writer.writerow(flatten(analysis))
+
+    print()
+    print(f"\U0001f4c1 Results saved to: {out_csv}")
+    print(f"   Total graphs analyzed: {len(final_results)} ({mode_label})")
+
+    type_counts: dict[str, int] = {}
+    for r in final_results:
+        type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
+    print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
+
+    return 1 if errors else 0
+
+
+def _run_local_fallback(folder: Path, images: list[Path]) -> int:
+    """Run the local filename-based fallback analyser for all images.
+
+    Parameters
+    ----------
+    folder : Path
+        Output folder.
+    images : list[Path]
+        Image files to analyse.
+
+    Returns
+    -------
+    int
+        Exit code (always 0 for local fallback).
+    """
+    print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
+    print("   Mode: local fallback (filename heuristics)")
+    print()
+
+    pbar = tqdm(
+        total=len(images),
+        desc="Analyzing graphs (local)",
+        unit="img",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+    )
+
+    final_results: list[GraphAnalysis] = []
+    for img in images:
+        pbar.set_postfix_str(img.name, refresh=True)
+        final_results.append(analyze_image_local(img))
+        pbar.update(1)
+    pbar.close()
+
+    return _write_results_csv(folder, final_results, 0, images, "local fallback")
+
+
 async def main():
-    """Discover images, send them to the Gemini vision API, and write CSV.
+    """Discover images, analyse them, and write CSV.
 
     This is the async entry point.  It uses a **worker pool** pattern
     instead of ``asyncio.gather`` + semaphore: a fixed number of worker
@@ -711,36 +954,91 @@ async def main():
     were created upfront and backoff sleeps held semaphore slots, starving
     queued tasks and causing cascading rate-limit failures.
 
+    **Fallback behaviour:**
+
+    - If ``--local`` is passed, the local filename-based fallback is used
+      unconditionally.
+    - If ``GEMINI_API_KEY`` is not set or the ``google-genai`` package is
+      not installed, the script falls back to local analysis automatically
+      (with a warning) instead of exiting with an error.
+    - If ``vision.fallback_to_local`` is ``false`` in the analysis config,
+      missing API credentials will still cause a hard exit (preserving the
+      original behaviour for CI environments that require Gemini).
+
     Steps:
     1. Resolves the output folder.
     2. Collects all PNG/JPG images recursively.
-    3. Validates the ``GEMINI_API_KEY`` environment variable.
-    4. Spawns ``SEM_LIMIT`` worker coroutines pulling from a queue.
-    5. Collects results, substituting error placeholders for failures.
+    3. Checks for ``--local`` flag, API key, and ``google-genai`` package.
+    4. If Gemini is available: spawns async workers for API analysis.
+    5. If Gemini is unavailable: runs local filename-based fallback.
     6. Writes ``graph_analysis_results.csv`` to the output folder.
     """
-    _ensure_genai()
+    force_local = _should_use_local(sys.argv)
+
     folder = resolve_folder(sys.argv)
     images = collect_images(folder)
 
     if not images:
         sys.exit(f"ERROR: No image files found in {folder}")
 
+    # ── Determine analysis mode ──
+    fallback_enabled = _vision_cfg.get("fallback_to_local", True)
+    use_local = force_local
+
+    if not force_local:
+        # Check whether the google-genai package is installed.
+        try:
+            _ensure_genai()
+        except ImportError:
+            if fallback_enabled:
+                print(
+                    "\u26a0\ufe0f  google-genai package not installed. "
+                    "Falling back to local filename-based analysis.\n"
+                    "   Install with: pip install google-genai\n"
+                )
+                use_local = True
+            else:
+                sys.exit(
+                    "ERROR: google-genai package not installed.\n"
+                    "  Install with: pip install google-genai\n"
+                    "  Or set vision.fallback_to_local=true in analysis_config.json "
+                    "to allow local fallback."
+                )
+
+        if not use_local:
+            api_key = os.environ.get("GEMINI_API_KEY")
+            if not api_key:
+                if fallback_enabled:
+                    print(
+                        "\u26a0\ufe0f  GEMINI_API_KEY not set. "
+                        "Falling back to local filename-based analysis.\n"
+                        "   For full vision analysis, set the key via:\n"
+                        "   1. Running 'python run_analysis.py' (interactive prompt)\n"
+                        "   2. Creating 'analysis/.env' with GEMINI_API_KEY=your-key\n"
+                        "   3. export GEMINI_API_KEY='your-key'\n"
+                    )
+                    use_local = True
+                else:
+                    sys.exit(
+                        "ERROR: GEMINI_API_KEY environment variable not set.\n"
+                        "  You can set it by:\n"
+                        "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
+                        "  2. Creating an 'analysis/.env' file with GEMINI_API_KEY=your-api-key\n"
+                        "  3. Exporting it in your shell: export GEMINI_API_KEY='your-api-key'\n"
+                        "  Or set vision.fallback_to_local=true in analysis_config.json "
+                        "to allow local fallback."
+                    )
+
+    # ── Local fallback path ──
+    if use_local:
+        return _run_local_fallback(folder, images)
+
+    # ── Gemini API path ──
+    api_key = os.environ.get("GEMINI_API_KEY")
     print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
     print(f"   Model: {GEMINI_MODEL} (Google Gemini)")
     print(f"   Concurrency: {SEM_LIMIT}")
     print()
-
-    # ── API key validation ──
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        sys.exit(
-            "ERROR: GEMINI_API_KEY environment variable not set.\n"
-            "  You can set it by:\n"
-            "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
-            "  2. Creating an 'analysis/.env' file with GEMINI_API_KEY=your-api-key\n"
-            "  3. Exporting it in your shell: export GEMINI_API_KEY='your-api-key'"
-        )
 
     client = genai.Client(api_key=api_key)  # type: ignore
     rate_limiter = _RateLimitCoordinator()
@@ -808,29 +1106,7 @@ async def main():
         else:
             final_results.append(res)
 
-    if errors:
-        print(f"\n  {errors}/{len(images)} images failed (see 'error' rows in CSV)")
-
-    # ── Write output CSV ──
-    out_csv = folder / "graph_analysis_results.csv"
-    with open(out_csv, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
-        writer.writeheader()
-        for analysis in final_results:
-            writer.writerow(flatten(analysis))
-
-    print()
-    print(f"\U0001f4c1 Results saved to: {out_csv}")
-    print(f"   Total graphs analyzed: {len(final_results)}")
-
-    # Print a quick breakdown of graph types found.
-    type_counts: dict[str, int] = {}
-    for r in final_results:
-        type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
-    print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
-
-    # Return non-zero exit code if any images failed (e.g. timeouts).
-    return 1 if errors else 0
+    return _write_results_csv(folder, final_results, errors, images, "Gemini API")
 
 
 if __name__ == "__main__":
