@@ -46,6 +46,13 @@ This repository uses a three-agent architecture:
 pancData3/
 ├── config.json                          # Active configuration (not committed)
 ├── config.example.json                  # Configuration template (committed)
+├── Dockerfile                           # Multi-stage Docker build (MATLAB Runtime + Python)
+├── docker-compose.yml                   # Pipeline + analysis Docker services
+├── .dockerignore                        # Docker build exclusions
+├── docker/                              # Docker support files
+│   └── entrypoint.sh                   #   Container entrypoint (mode dispatch + validation)
+├── docs/                                # Additional documentation
+│   └── DOCKER.md                       #   Docker usage guide
 ├── pipeline/                            # MATLAB pipeline
 │   ├── run_dwi_pipeline.m              # Master orchestrator — main entry point
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
