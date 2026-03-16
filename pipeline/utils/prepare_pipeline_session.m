@@ -53,20 +53,20 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
     set(0, 'DefaultFigureVisible', 'off');
 
     fprintf('=======================================================\n');
-    fprintf('\xf0\x9f\x9a\x80 Starting Master DWI Pipeline Orchestrator\n');
+    fprintf('🚀 Starting Master DWI Pipeline Orchestrator\n');
     fprintf('=======================================================\n');
 
     % Step 1: Parse configuration
     try
-        fprintf('\xe2\x9a\x99\xef\xb8\x8f [1/5] Parsing configuration from %s...\n', config_path);
+        fprintf('⚙️ [1/5] Parsing configuration from %s...\n', config_path);
         config_struct = parse_config(config_path);
-        fprintf('      \xe2\x9c\x85 Done.\n');
+        fprintf('      ✅ Done.\n');
 
         master_output_folder = setup_output_folders(pipeline_dir, master_output_folder);
         config_struct.master_output_folder = master_output_folder;
     catch ME
-        fprintf('\xe2\x9d\x8c FAILED.\n');
-        fprintf('\xe2\x9d\x8c Error parsing configuration: %s\n', ME.message);
+        fprintf('❌ FAILED.\n');
+        fprintf('❌ Error parsing configuration: %s\n', ME.message);
         fb_fid = fopen(fullfile(pipeline_dir, '..', 'error.log'), 'a');
         if fb_fid > 0
             fprintf(fb_fid, '[%s] [ERROR] Error parsing configuration: %s\n', ...
@@ -87,7 +87,7 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
     current_name = dwi_type_names{current_dtype};
 
     fprintf('\n=======================================================\n');
-    fprintf('\xf0\x9f\x8e\xaf EXECUTING PIPELINE FOR TARGET: %s\n', upper(current_name));
+    fprintf('🎯 EXECUTING PIPELINE FOR TARGET: %s\n', upper(current_name));
     fprintf('=======================================================\n');
 
     config_struct.dwi_type_name = current_name;
@@ -110,7 +110,7 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
     end
     lastwarn('');
-    fprintf('      \xf0\x9f\x93\x8b Logging errors/warnings to: %s\n', error_log_file);
+    fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
 
     % Conditionally inject compare_cores
     if config_struct.run_compare_cores && ~ismember('compare_cores', steps_to_run)
