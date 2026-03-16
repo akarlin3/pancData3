@@ -66,8 +66,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (12 files)
-│   └── tests/                          # Python test suite — 18 test files, 569 tests (pytest)
+│   │   └── sections/                   # Section builders (11 files)
+│   └── tests/                          # Python test suite — 22 test files, 653 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
