@@ -34,6 +34,8 @@ from parsers.batch_graph_analysis import (
     Trend,
     _RateLimitCoordinator,
     _is_rate_limit_error,
+    _should_use_local,
+    analyze_image_local,
     collect_images,
     flatten,
     image_to_base64,
@@ -651,3 +653,146 @@ class TestRateLimitCoordinator:
             await coord.record_success()
             assert coord._consecutive_hits == 0
         asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# _should_use_local
+# ---------------------------------------------------------------------------
+
+class TestShouldUseLocal:
+    """Verify --local CLI flag detection."""
+
+    def test_local_flag_present(self):
+        """--local flag is detected in argv."""
+        assert _should_use_local(["script.py", "--local", "/some/path"])
+
+    def test_local_flag_absent(self):
+        """Returns False when --local is not in argv."""
+        assert not _should_use_local(["script.py", "/some/path"])
+
+    def test_empty_argv(self):
+        """Returns False for empty argv."""
+        assert not _should_use_local([])
+
+
+# ---------------------------------------------------------------------------
+# analyze_image_local
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeImageLocal:
+    """Verify filename-based local fallback analysis."""
+
+    def test_line_graph_from_longitudinal_filename(self):
+        """Longitudinal filenames are inferred as 'line' graph type."""
+        p = Path("saved_files_20240115/Standard/Longitudinal_Mean_Metrics_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "line"
+        assert result.file_path == str(p)
+        assert "local fallback" in result.summary.lower()
+
+    def test_heatmap_from_dice_filename(self):
+        """Dice heatmap filenames are inferred as 'heatmap' graph type."""
+        p = Path("saved_files_20240115/Standard/core_method_dice_heatmap.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "heatmap"
+
+    def test_bar_chart_from_volume_comparison(self):
+        """Volume comparison filenames are inferred as 'bar' graph type."""
+        p = Path("saved_files_20240115/Standard/core_method_volume_comparison.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "bar"
+
+    def test_scatter_from_correlation_filename(self):
+        """Correlation filenames are inferred as 'scatter' graph type."""
+        p = Path("saved_files_20240115/Standard/Dose_Correlation_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "scatter"
+
+    def test_histogram_from_hist_filename(self):
+        """Histogram filenames are inferred as 'histogram' graph type."""
+        p = Path("saved_files_20240115/Standard/Feature_Histograms_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "histogram"
+
+    def test_box_from_boxplot_filename(self):
+        """Boxplot filenames are inferred as 'box' graph type."""
+        p = Path("saved_files_20240115/Standard/Feature_BoxPlots_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "box"
+
+    def test_unknown_type_for_unrecognised_filename(self):
+        """Unrecognised filenames get 'unknown' graph type."""
+        p = Path("saved_files_20240115/Standard/mystery_plot.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "unknown"
+
+    def test_clinical_relevance_from_dwi_path(self):
+        """DWI type in path is reflected in clinical_relevance."""
+        p = Path("saved_files_20240115/dnCNN/some_graph.png")
+        result = analyze_image_local(p)
+        assert result.clinical_relevance is not None
+        assert "dnCNN" in result.clinical_relevance
+
+    def test_no_clinical_relevance_for_root_path(self):
+        """Files not inside a DWI-type subfolder get no clinical relevance."""
+        p = Path("saved_files_20240115/some_root_graph.png")
+        result = analyze_image_local(p)
+        assert result.clinical_relevance is None
+
+    def test_comparison_type_longitudinal(self):
+        """Longitudinal filenames get comparison_type='longitudinal'."""
+        p = Path("saved_files_20240115/Standard/Longitudinal_Mean_Metrics.png")
+        result = analyze_image_local(p)
+        assert result.comparison_type == "longitudinal"
+
+    def test_comparison_type_dose_response(self):
+        """Dose_vs filenames get comparison_type='dose-response'."""
+        p = Path("saved_files_20240115/Standard/Dose_vs_Diffusion.png")
+        result = analyze_image_local(p)
+        assert result.comparison_type == "dose-response"
+
+    def test_graph_title_from_filename(self):
+        """Graph title is derived from filename with underscores replaced."""
+        p = Path("saved_files_20240115/Standard/Feature_BoxPlots_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_title == "Feature BoxPlots Standard"
+
+    def test_x_axis_for_longitudinal(self):
+        """Longitudinal graphs get a time-related x-axis."""
+        p = Path("saved_files_20240115/Standard/Longitudinal_Mean_Metrics.png")
+        result = analyze_image_local(p)
+        assert result.x_axis is not None
+        assert "time" in result.x_axis.label.lower() or "timepoint" in result.x_axis.label.lower()
+
+    def test_y_axis_for_adc_graph(self):
+        """ADC-related filenames get an ADC y-axis hint."""
+        p = Path("saved_files_20240115/Standard/ADC_distribution.png")
+        result = analyze_image_local(p)
+        assert result.y_axis is not None
+        assert "adc" in result.y_axis.label.lower()
+
+    def test_figure_quality_is_unknown(self):
+        """Local fallback sets figure_quality to 'unknown' (no visual inspection)."""
+        p = Path("saved_files_20240115/Standard/some_graph.png")
+        result = analyze_image_local(p)
+        assert result.figure_quality == "unknown"
+
+    def test_result_is_valid_graph_analysis(self):
+        """The returned object is a valid GraphAnalysis that can be flattened."""
+        p = Path("saved_files_20240115/Standard/Longitudinal_Mean_Metrics_Standard.png")
+        result = analyze_image_local(p)
+        row = flatten(result)
+        for col in CSV_COLUMNS:
+            assert col in row, f"Missing column: {col}"
+
+    def test_survival_inferred_as_line(self):
+        """Survival/Kaplan-Meier filenames are inferred as 'line' type."""
+        p = Path("saved_files_20240115/Standard/Kaplan_Meier_Curve_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "line"
+
+    def test_parameter_map_inferred(self):
+        """Parameter map filenames are inferred as 'parameter_map' type."""
+        p = Path("saved_files_20240115/Standard/ADC_parameter_map_Standard.png")
+        result = analyze_image_local(p)
+        assert result.graph_type == "parameter_map"
