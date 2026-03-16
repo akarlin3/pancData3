@@ -425,5 +425,72 @@ classdef test_fit_models < matlab.unittest.TestCase
                 'All voxels in large mask should have finite ADC.');
         end
 
+        function testGpuFlagFalseMatchesCPU(testCase)
+            % With use_gpu=false, results should be identical to default
+            % (no use_gpu field). This verifies the GPU code path doesn't
+            % accidentally change CPU behavior.
+            bvals = [0; 200; 400; 800];
+            true_adc = 1.5e-3;
+            S0 = 100;
+            sig = S0 * exp(-bvals * true_adc);
+
+            dwi = reshape(sig, [1, 1, 1, 4]);
+            mask = true(1, 1, 1);
+
+            opts_no_gpu = struct('bthr', 100);
+            opts_gpu_off = struct('bthr', 100, 'use_gpu', false);
+
+            [~, ~, ~, adc_no_gpu] = fit_models(dwi, bvals, mask, opts_no_gpu);
+            [~, ~, ~, adc_gpu_off] = fit_models(dwi, bvals, mask, opts_gpu_off);
+
+            testCase.verifyEqual(adc_no_gpu, adc_gpu_off, ...
+                'use_gpu=false should produce identical results to no use_gpu field.');
+        end
+
+        function testGpuFlagTrueGracefulFallback(testCase)
+            % With use_gpu=true on a machine WITHOUT a GPU, fit_models
+            % should fall back to CPU gracefully and produce correct ADC.
+            % On a machine WITH a GPU, the GPU path should produce the
+            % same result (within floating-point tolerance).
+            bvals = [0; 200; 400; 800];
+            true_adc = 1.5e-3;
+            S0 = 100;
+            sig = S0 * exp(-bvals * true_adc);
+
+            dwi = reshape(sig, [1, 1, 1, 4]);
+            mask = true(1, 1, 1);
+
+            opts_cpu = struct('bthr', 100, 'use_gpu', false);
+            opts_gpu = struct('bthr', 100, 'use_gpu', true);
+
+            [~, ~, ~, adc_cpu] = fit_models(dwi, bvals, mask, opts_cpu);
+            [~, ~, ~, adc_gpu] = fit_models(dwi, bvals, mask, opts_gpu);
+
+            testCase.verifyEqual(adc_gpu, adc_cpu, 'RelTol', 1e-6, ...
+                'GPU path should produce same ADC as CPU (within fp tolerance).');
+        end
+
+        function testGpuMultipleVoxelsCorrectness(testCase)
+            % GPU path with multiple voxels should produce correct per-voxel
+            % ADC values matching ground truth.
+            bvals = [0; 200; 400; 800];
+            S0 = 100;
+            adc1 = 0.5e-3;
+            adc2 = 2.0e-3;
+
+            dwi = zeros(1, 2, 1, 4);
+            dwi(1,1,1,:) = S0 * exp(-bvals * adc1);
+            dwi(1,2,1,:) = S0 * exp(-bvals * adc2);
+            mask = true(1, 2, 1);
+            opts = struct('bthr', 100, 'use_gpu', true);
+
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            testCase.verifyEqual(adc_map(1,1,1), adc1, 'RelTol', 0.05, ...
+                'GPU: first voxel ADC should match ground truth.');
+            testCase.verifyEqual(adc_map(1,2,1), adc2, 'RelTol', 0.05, ...
+                'GPU: second voxel ADC should match ground truth.');
+        end
+
     end
 end

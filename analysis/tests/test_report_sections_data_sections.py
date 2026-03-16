@@ -25,6 +25,8 @@ from report.sections.data_sections import (
     _section_patient_flow,
     _section_data_completeness,
     _section_mat_data,
+)
+from report.sections.gallery import (
     _section_appendix,
     _section_figure_gallery,
 )

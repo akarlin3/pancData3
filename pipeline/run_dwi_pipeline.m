@@ -141,32 +141,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         fprintf('      ✅ Done.\n');
 
         % --- Master Output Folder Logic ---
-        % Use a persistent variable scoped to this function instead of a
-        % global, which can leak across unrelated MATLAB sessions.
-        % Persistent variable is ONLY used when execute_all_workflows
-        % passes an explicit folder (3rd arg) and subsequent calls within
-        % the same multi-DWI-type session need to reuse it.  Direct
-        % manual calls (no 3rd arg) always create a fresh timestamped
-        % folder, avoiding silent reuse of a previous run's directory.
-        persistent MASTER_OUTPUT_FOLDER;
-
-        if ~isempty(master_output_folder)
-            % User/execute_all_workflows explicitly provided a folder
-            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
-            MASTER_OUTPUT_FOLDER = master_output_folder;
-            fprintf('      📁 Using explicitly provided master output folder: %s\n', master_output_folder);
-        else
-            % Standalone run — always create a fresh folder
-            timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-            master_output_folder = fullfile(pipeline_dir, '..', sprintf('saved_files_%s', timestamp_str));
-            if ~exist(master_output_folder, 'dir'), mkdir(master_output_folder); end
-            % Write provenance sentinel so cleanup tools know this directory
-            % was created by the pipeline and is safe to delete.
-            sent_fid = fopen(fullfile(master_output_folder, '.pipeline_created'), 'w');
-            if sent_fid > 0, fprintf(sent_fid, 'Created by run_dwi_pipeline at %s\n', timestamp_str); fclose(sent_fid); end
-            MASTER_OUTPUT_FOLDER = master_output_folder;
-            fprintf('      📁 Created NEW master output folder: %s\n', master_output_folder);
-        end
+        % Delegate folder creation/reuse to setup_output_folders.
+        % The helper creates a timestamped folder (with .pipeline_created
+        % sentinel) for standalone runs, or reuses the explicit folder
+        % from execute_all_workflows.
+        master_output_folder = setup_output_folders(pipeline_dir, master_output_folder);
 
         config_struct.master_output_folder = master_output_folder;
     catch ME
@@ -273,51 +252,10 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
 
     % --- Clear cached files if requested ---
-    % When clear_cache is true, remove all pipeline-generated .mat files
-    % from the data directory so the pipeline recomputes everything from
-    % scratch.  This is a one-time operation on the first DWI type run;
-    % subsequent types in the same execute_all_workflows session reuse
-    % freshly generated caches.
-    persistent cache_cleared_this_session;
-    if isfield(config_struct, 'clear_cache') && config_struct.clear_cache
-        if isempty(cache_cleared_this_session) || ~cache_cleared_this_session
-            dataloc = config_struct.dataloc;
-            cache_patterns = {
-                fullfile(dataloc, 'dwi_vectors*.mat'), ...
-                fullfile(dataloc, 'summary_metrics*.mat'), ...
-                fullfile(dataloc, 'adc_vectors.mat')
-            };
-            % Protect manually curated files from cache clearing
-            protected_files = {'dwi_vectors_ea.mat'};
-            n_deleted = 0;
-            for cp = 1:numel(cache_patterns)
-                cached = dir(cache_patterns{cp});
-                for cf = 1:numel(cached)
-                    if any(strcmpi(cached(cf).name, protected_files))
-                        fprintf('  🛡️ Skipping protected file: %s\n', cached(cf).name);
-                        continue;
-                    end
-                    delete(fullfile(cached(cf).folder, cached(cf).name));
-                    n_deleted = n_deleted + 1;
-                end
-            end
-            % Remove per-patient checkpoint directory — only if it was
-            % created by the pipeline (contains .pipeline_created sentinel).
-            checkpoint_dir = fullfile(dataloc, 'processed_patients');
-            if isfolder(checkpoint_dir) && exist(fullfile(checkpoint_dir, '.pipeline_created'), 'file')
-                rmdir(checkpoint_dir, 's');
-                fprintf('  🗑️ Removed per-patient checkpoint directory.\n');
-            elseif isfolder(checkpoint_dir)
-                fprintf('  🛡️ Skipping checkpoint directory (no pipeline sentinel): %s\n', checkpoint_dir);
-            end
-            if n_deleted > 0
-                fprintf('  🗑️ Cleared %d cached .mat file(s) from %s\n', n_deleted, dataloc);
-            else
-                fprintf('  💡 No cached files found to clear.\n');
-            end
-            cache_cleared_this_session = true;
-        end
-    end
+    % Delegate to clear_pipeline_cache which handles the once-per-session
+    % guard via its own persistent variable, protected file lists, and
+    % sentinel-verified checkpoint directory removal.
+    clear_pipeline_cache(config_struct);
 
     % Step 2: Load DWI Data
     % [ANALYTICAL RATIONALE — DATA LOADING AND MODEL FITTING]:
@@ -569,18 +507,18 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         if any(ismember(metrics_steps, steps_to_run))
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'skipped'); end
             fprintf('\n⏭️ [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
-            if exist(baseline_results_file, 'file')
-                tmp_base = load(baseline_results_file);
+            try
+                tmp_base = load_baseline_from_disk(baseline_results_file);
                 m_lf = tmp_base.m_lf; m_total_time = tmp_base.m_total_time; m_total_follow_up_time = tmp_base.m_total_follow_up_time; m_gtv_vol = tmp_base.m_gtv_vol; m_adc_mean = tmp_base.m_adc_mean; m_d_mean = tmp_base.m_d_mean; m_f_mean = tmp_base.m_f_mean; m_dstar_mean = tmp_base.m_dstar_mean;
                 m_id_list = tmp_base.m_id_list; m_mrn_list = tmp_base.m_mrn_list; m_d95_gtvp = tmp_base.m_d95_gtvp; m_v50gy_gtvp = tmp_base.m_v50gy_gtvp; m_data_vectors_gtvp = tmp_base.m_data_vectors_gtvp; lf_group = tmp_base.lf_group; valid_pts = tmp_base.valid_pts;
                 ADC_abs = tmp_base.ADC_abs; D_abs = tmp_base.D_abs; f_abs = tmp_base.f_abs; Dstar_abs = tmp_base.Dstar_abs; ADC_pct = tmp_base.ADC_pct; D_pct = tmp_base.D_pct; f_delta = tmp_base.f_delta; Dstar_pct = tmp_base.Dstar_pct;
                 nTp = tmp_base.nTp; metric_sets = tmp_base.metric_sets; set_names = tmp_base.set_names; time_labels = tmp_base.time_labels; dtype_label = tmp_base.dtype_label; dl_provenance = tmp_base.dl_provenance;
-            else
-                fprintf('❌ metrics_baseline results not found at: %s\n', baseline_results_file);
+            catch ME_base
+                fprintf('❌ %s\n', ME_base.message);
                 fprintf('❌ Downstream metrics steps require baseline results. Halting pipeline.\n');
                 if log_fid > 0
-                    fprintf(log_fid, '[%s] [ERROR] metrics_baseline results not found at: %s. Halting pipeline.\n', ...
-                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), baseline_results_file);
+                    fprintf(log_fid, '[%s] [ERROR] %s. Halting pipeline.\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME_base.message);
                 end
                 return;
             end
@@ -1048,29 +986,8 @@ function run_metrics_survival_step(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, 
 % td_scan_days_cfg = actual MRI acquisition days relative to treatment start,
 %   critical for time-dependent Cox models to avoid immortal time bias
     fprintf('⚙️ [5.5/5] [%s] Running metrics_survival...\n', current_name);
-    % Three-level scan day resolution strategy (decreasing data quality):
-    %   1. DICOM StudyDate headers (most accurate — actual scanner timestamps)
-    %   2. config.json td_scan_days (user-specified, e.g., from clinical records)
-    %   3. Built-in defaults in metrics_survival (assumes standard schedule,
-    %      emits immortal-time-bias warning since actual dates may differ)
-    td_scan_days_cfg = [];
-    if isfield(summary_metrics, 'fx_dates') && ~isempty(summary_metrics.fx_dates)
-        n_dates = sum(~cellfun('isempty', summary_metrics.fx_dates(:)));
-        fprintf('      💡 Found %d DICOM StudyDate entries across cohort.\n', n_dates);
-        td_scan_days_cfg = compute_scan_days_from_dates(summary_metrics.fx_dates);
-        if isempty(td_scan_days_cfg)
-            fprintf('      ⚠️  Could not derive scan days from DICOM dates (insufficient valid dates or non-monotonic).\n');
-        end
-    else
-        fprintf('      💡 No DICOM StudyDate data available (fx_dates empty).\n');
-    end
-    if isempty(td_scan_days_cfg) && isfield(config_struct, 'td_scan_days') && ~isempty(config_struct.td_scan_days)
-        td_scan_days_cfg = config_struct.td_scan_days;
-        fprintf('      💡 Using td_scan_days from config.json.\n');
-    end
-    if isempty(td_scan_days_cfg)
-        fprintf('      💡 Set "td_scan_days" in config.json to override defaults.\n');
-    end
+    % Three-level scan day resolution (DICOM dates -> config -> defaults).
+    td_scan_days_cfg = resolve_scan_days(summary_metrics, config_struct);
     metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, ...
                      m_total_follow_up_time, nTp, 'Survival', dtype_label, m_gtv_vol, config_struct.output_folder, td_scan_days_cfg);
 

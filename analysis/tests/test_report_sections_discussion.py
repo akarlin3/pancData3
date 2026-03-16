@@ -24,6 +24,8 @@ from report.sections.discussion import (
     _section_methods,
     _section_limitations,
     _section_conclusions,
+)
+from report.sections.publication import (
     _section_reporting_checklist,
     _section_journal_guide,
 )
