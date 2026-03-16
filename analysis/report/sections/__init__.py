@@ -16,9 +16,13 @@ from .metadata import (  # noqa: F401
 from .main_results import (  # noqa: F401
     _section_executive_summary,
     _section_hypothesis,
+    _section_treatment_response,
+)
+from .statistical_reporting import (  # noqa: F401
     _section_statistical_significance,
     _section_broad_statistical_overview,
-    _section_treatment_response,
+)
+from .manuscript import (  # noqa: F401
     _section_predictive_performance,
     _section_manuscript_ready_findings,
     _section_results_draft,
@@ -28,6 +32,8 @@ from .data_sections import (  # noqa: F401
     _section_patient_flow,
     _section_data_completeness,
     _section_mat_data,
+)
+from .gallery import (  # noqa: F401
     _section_appendix,
     _section_figure_gallery,
 )
@@ -50,6 +56,8 @@ from .discussion import (  # noqa: F401
     _section_methods,
     _section_limitations,
     _section_conclusions,
+)
+from .publication import (  # noqa: F401
     _section_reporting_checklist,
     _section_journal_guide,
 )
