@@ -40,16 +40,9 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
         if ~isempty(pipeGUI), pipeGUI.startStep('metrics_baseline'); end
         try
             fprintf('\n\xe2\x9a\x99\xef\xb8\x8f [5.1/5] [%s] Running metrics_baseline...\n', current_name);
-            [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
-             m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
-             ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-             nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
-             metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
+            baseline = metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
 
-            save(baseline_results_file, 'm_lf', 'm_total_time', 'm_total_follow_up_time', 'm_gtv_vol', 'm_adc_mean', 'm_d_mean', 'm_f_mean', 'm_dstar_mean', ...
-             'm_id_list', 'm_mrn_list', 'm_d95_gtvp', 'm_v50gy_gtvp', 'm_data_vectors_gtvp', 'lf_group', 'valid_pts', ...
-             'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
-             'nTp', 'metric_sets', 'set_names', 'time_labels', 'dtype_label', 'dl_provenance');
+            save(baseline_results_file, '-struct', 'baseline');
             fprintf('      \xe2\x9c\x85 Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'success'); end
             [warn_msg, warn_id] = lastwarn;
@@ -76,11 +69,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'skipped'); end
             fprintf('\n\xe2\x8f\xad\xef\xb8\x8f [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             try
-                tmp_base = load_baseline_from_disk(baseline_results_file);
-                m_lf = tmp_base.m_lf; m_total_time = tmp_base.m_total_time; m_total_follow_up_time = tmp_base.m_total_follow_up_time; m_gtv_vol = tmp_base.m_gtv_vol; m_adc_mean = tmp_base.m_adc_mean; m_d_mean = tmp_base.m_d_mean; m_f_mean = tmp_base.m_f_mean; m_dstar_mean = tmp_base.m_dstar_mean;
-                m_id_list = tmp_base.m_id_list; m_mrn_list = tmp_base.m_mrn_list; m_d95_gtvp = tmp_base.m_d95_gtvp; m_v50gy_gtvp = tmp_base.m_v50gy_gtvp; m_data_vectors_gtvp = tmp_base.m_data_vectors_gtvp; lf_group = tmp_base.lf_group; valid_pts = tmp_base.valid_pts;
-                ADC_abs = tmp_base.ADC_abs; D_abs = tmp_base.D_abs; f_abs = tmp_base.f_abs; Dstar_abs = tmp_base.Dstar_abs; ADC_pct = tmp_base.ADC_pct; D_pct = tmp_base.D_pct; f_delta = tmp_base.f_delta; Dstar_pct = tmp_base.Dstar_pct;
-                nTp = tmp_base.nTp; metric_sets = tmp_base.metric_sets; set_names = tmp_base.set_names; time_labels = tmp_base.time_labels; dtype_label = tmp_base.dtype_label; dl_provenance = tmp_base.dl_provenance;
+                baseline = load_baseline_from_disk(baseline_results_file);
             catch ME_base
                 fprintf('\xe2\x9d\x8c %s\n', ME_base.message);
                 fprintf('\xe2\x9d\x8c Downstream metrics steps require baseline results. Halting pipeline.\n');
@@ -92,6 +81,19 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             end
         end
     end
+
+    % Unpack baseline struct into local variables for downstream steps.
+    if exist('baseline', 'var')
+        m_lf = baseline.m_lf; m_total_time = baseline.m_total_time; m_total_follow_up_time = baseline.m_total_follow_up_time;
+        m_gtv_vol = baseline.m_gtv_vol; m_adc_mean = baseline.m_adc_mean; m_d_mean = baseline.m_d_mean; m_f_mean = baseline.m_f_mean; m_dstar_mean = baseline.m_dstar_mean; %#ok<NASGU>
+        m_id_list = baseline.m_id_list; m_mrn_list = baseline.m_mrn_list; m_d95_gtvp = baseline.m_d95_gtvp; m_v50gy_gtvp = baseline.m_v50gy_gtvp; m_data_vectors_gtvp = baseline.m_data_vectors_gtvp; %#ok<NASGU>
+        lf_group = baseline.lf_group; valid_pts = baseline.valid_pts;
+        ADC_abs = baseline.ADC_abs; D_abs = baseline.D_abs; f_abs = baseline.f_abs; Dstar_abs = baseline.Dstar_abs;
+        ADC_pct = baseline.ADC_pct; D_pct = baseline.D_pct; f_delta = baseline.f_delta; Dstar_pct = baseline.Dstar_pct;
+        nTp = baseline.nTp; metric_sets = baseline.metric_sets; set_names = baseline.set_names;
+        time_labels = baseline.time_labels; dtype_label = baseline.dtype_label; dl_provenance = baseline.dl_provenance;
+    end
+
     diary(master_diary_file);
     lastwarn('');
 
