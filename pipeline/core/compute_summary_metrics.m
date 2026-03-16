@@ -504,7 +504,13 @@ for j=1:n_patients_metrics
             % --- Texture features (when enabled) ---
             if use_texture && ~isempty(adc_vec) && has_3d_iter
                 try
-                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d);
+                    % Derive isotropic voxel spacing from voxel volume for shape features
+                    if isfinite(vox_vol) && vox_vol > 0
+                        iso_spacing = vox_vol^(1/3) * [1 1 1];
+                    else
+                        iso_spacing = [1 1 1];
+                    end
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing);
                 catch
                     % Texture extraction is non-fatal
                 end

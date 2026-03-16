@@ -33,6 +33,12 @@
     "compute_fine_gray": true,
     "exclude_motion_volumes": false,
     "use_texture_features": false,
+    "run_imputation_sensitivity": false,
+    "fit_time_varying_cox": true,
+    "export_validation_model": false,
+    "external_validation_data": "",
+    "auxiliary_biomarker_csv": "",
+    "use_auxiliary_biomarkers": false,
     "use_gpu": false,
     "gpu_device": 1
 }

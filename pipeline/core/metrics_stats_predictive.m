@@ -315,6 +315,67 @@ for target_fx = 2:nTp
         m_gtv_vol, adc_sd, ADC_abs, ...
         target_fx, fx_label, dtype_label, dtype, output_folder, use_firth);
 
+    %% --- Decision Curve Analysis ---
+    try
+        dca_results = decision_curve_analysis( ...
+            y_clean, risk_scores_oof, [], output_folder, dtype_label, fx_label);
+    catch ME_dca
+        fprintf('  ⚠️  Decision curve analysis failed: %s\n', ME_dca.message);
+    end
+
+    %% --- Net Reclassification Improvement (NRI) ---
+    % Compare full model vs baseline model (GTV volume + D95 only)
+    try
+        % Build baseline model features: GTV volume (col 13) + D95 (col 14) only
+        % Map to available columns in imputed data
+        baseline_cols = [];
+        for bc = 1:numel(feat_names_lasso)
+            if any(strcmp(feat_names_lasso{bc}, {'D95_GTVp', 'V50_GTVp'}))
+                baseline_cols(end+1) = bc; %#ok<AGROW>
+            end
+        end
+        if numel(baseline_cols) >= 1 && numel(y_clean) >= 10
+            % Fit baseline logistic model via LOOCV
+            X_baseline = X_impute(:, baseline_cols);
+            prob_baseline = nan(numel(y_clean), 1);
+            for li = 1:numel(y_clean)
+                train_mask = true(numel(y_clean), 1);
+                train_mask(li) = false;
+                X_tr = X_baseline(train_mask, :);
+                y_tr = y_clean(train_mask);
+                X_te = X_baseline(li, :);
+                % Simple logistic regression for baseline
+                try
+                    b_bl = glmfit(X_tr, y_tr, 'binomial', 'Link', 'logit');
+                    prob_baseline(li) = glmval(b_bl, X_te, 'logit');
+                catch
+                    prob_baseline(li) = mean(y_tr);
+                end
+            end
+
+            % Full model probabilities
+            prob_full = 1 ./ (1 + exp(-risk_scores_oof));
+            prob_full(isnan(prob_full)) = 0.5;
+
+            fprintf('\n  --- Net Reclassification Improvement (Full vs Baseline) ---\n');
+            nri_results = compute_nri(y_clean, prob_baseline, prob_full);
+        end
+    catch ME_nri
+        fprintf('  ⚠️  NRI computation failed: %s\n', ME_nri.message);
+    end
+
+    %% --- Imputation Sensitivity Analysis (optional, expensive) ---
+    if isfield(config_struct, 'run_imputation_sensitivity') && config_struct.run_imputation_sensitivity
+        try
+            fprintf('\n');
+            imp_sens = imputation_sensitivity(X_impute, id_list_impute, ...
+                feat_names_lasso, y_clean, id_list_impute, dl_provenance, ...
+                dtype, dtype_label, use_firth, output_folder);
+        catch ME_imp
+            fprintf('  ⚠️  Imputation sensitivity analysis failed: %s\n', ME_imp.message);
+        end
+    end
+
     % Keep the earliest timepoint with significant features so that
     % survival analysis uses the most clinically actionable (early) risk
     % scores rather than silently overwriting with the last timepoint.
@@ -323,6 +384,44 @@ for target_fx = 2:nTp
         is_high_risk = is_high_risk_target;
         best_risk_fx = target_fx;
         fprintf('  Retaining risk scores from %s (earliest significant timepoint so far).\n', fx_label);
+    end
+end
+
+%% --- External Validation Model Export (optional) ---
+if isfield(config_struct, 'export_validation_model') && config_struct.export_validation_model
+    if ~isempty(risk_scores_all) && exist('coefs_en', 'var') && exist('feat_names_lasso', 'var')
+        try
+            trained_model = struct();
+            trained_model.coefficients = coefs_en;
+            trained_model.selected_features = selected_indices;
+            trained_model.feature_names = feat_names_lasso;
+            % Compute scaling from training data
+            trained_model.scaling_mu = mean(X_impute, 1, 'omitnan');
+            trained_model.scaling_sigma = std(X_impute, 0, 1, 'omitnan');
+            trained_model.imputation_ref = X_impute;
+            % Youden threshold from ROC
+            valid_rs = ~isnan(risk_scores_oof) & ~isnan(y_clean);
+            if sum(valid_rs) >= 5
+                [~, ~, thresholds_roc, ~] = perfcurve(y_clean(valid_rs), risk_scores_oof(valid_rs), 1);
+                trained_model.risk_threshold = median(thresholds_roc);
+            else
+                trained_model.risk_threshold = 0.5;
+            end
+            % Compute AUC from LOOCV risk scores
+            if sum(valid_rs) >= 5
+                [~, ~, ~, auc_export] = perfcurve(y_clean(valid_rs), risk_scores_oof(valid_rs), 1);
+            else
+                auc_export = NaN;
+            end
+            trained_model.auc = auc_export;
+            trained_model.n_patients = numel(y_clean);
+            trained_model.event_rate = mean(y_clean == 1);
+
+            val_path = fullfile(output_folder, sprintf('validation_model_%s.mat', dtype_label));
+            prepare_external_validation(trained_model, config_struct, val_path);
+        catch ME_exp
+            fprintf('  ⚠️  Validation model export failed: %s\n', ME_exp.message);
+        end
     end
 end
 

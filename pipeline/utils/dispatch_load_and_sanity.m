@@ -177,5 +177,22 @@ function [validated_data_gtvp, validated_data_gtvn, summary_metrics, abort] = di
         end
     end
     diary(master_diary_file);
+
+    % --- Load Auxiliary Biomarkers (if configured) ---
+    if isfield(config_struct, 'auxiliary_biomarker_csv') && ...
+            ~isempty(config_struct.auxiliary_biomarker_csv)
+        try
+            aux_csv = config_struct.auxiliary_biomarker_csv;
+            if isfield(summary_metrics, 'id_list')
+                aux_data = load_auxiliary_biomarkers(aux_csv, summary_metrics.id_list);
+                summary_metrics.auxiliary_biomarkers = aux_data;
+            else
+                fprintf('  ⚠️  Cannot load auxiliary biomarkers: id_list not available.\n');
+            end
+        catch ME_aux
+            fprintf('  ⚠️  Auxiliary biomarker loading failed: %s\n', ME_aux.message);
+        end
+    end
+
     lastwarn('');
 end

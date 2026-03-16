@@ -316,6 +316,47 @@ function config_struct = parse_config(json_path)
             config_struct.use_texture_features = false;
         end
 
+        % run_imputation_sensitivity: When true, runs imputation sensitivity
+        % analysis comparing KNN against LOCF, mean, and linear interpolation.
+        % This is computationally expensive (4× LOOCV) so disabled by default.
+        if ~isfield(config_struct, 'run_imputation_sensitivity')
+            config_struct.run_imputation_sensitivity = false;
+        end
+
+        % fit_time_varying_cox: When true, fits stratified and extended Cox
+        % models as follow-up when Schoenfeld residual tests detect PH
+        % violations.  Includes covariate × log(time) interaction terms.
+        if ~isfield(config_struct, 'fit_time_varying_cox')
+            config_struct.fit_time_varying_cox = true;
+        end
+
+        % export_validation_model: When true, exports the trained elastic net
+        % model and preprocessing pipeline to a .mat file for external
+        % validation on independent datasets.
+        if ~isfield(config_struct, 'export_validation_model')
+            config_struct.export_validation_model = false;
+        end
+
+        % external_validation_data: Path to folder containing external
+        % validation dataset (same directory structure as training data).
+        % Empty string means disabled.
+        if ~isfield(config_struct, 'external_validation_data')
+            config_struct.external_validation_data = '';
+        end
+
+        % auxiliary_biomarker_csv: Path to CSV file with non-DWI biomarker
+        % data (columns: patient_id, biomarker_name, timepoint, value).
+        % Empty string means disabled.
+        if ~isfield(config_struct, 'auxiliary_biomarker_csv')
+            config_struct.auxiliary_biomarker_csv = '';
+        end
+
+        % use_auxiliary_biomarkers: When true, includes auxiliary biomarker
+        % features in the predictive model feature matrix.
+        if ~isfield(config_struct, 'use_auxiliary_biomarkers')
+            config_struct.use_auxiliary_biomarkers = false;
+        end
+
         % use_gpu: When true, offloads computationally intensive operations
         % to a CUDA-capable GPU via gpuArray.  Currently accelerates:
         %   - ADC monoexponential WLS fitting (vectorized matrix ops)

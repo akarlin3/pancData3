@@ -58,9 +58,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (61 files)
+│   ├── utils/                          # Helper utilities (68 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (100 test files)
+│   ├── tests/                          # Full test suite (106 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -129,7 +129,13 @@ Key fields:
   "exclude_motion_volumes": false,
   "use_texture_features": false,
   "use_gpu": false,
-  "gpu_device": 1
+  "gpu_device": 1,
+  "run_imputation_sensitivity": false,
+  "fit_time_varying_cox": true,
+  "export_validation_model": false,
+  "external_validation_data": "",
+  "auxiliary_biomarker_csv": "",
+  "use_auxiliary_biomarkers": false
 }
 ```
 
@@ -280,6 +286,12 @@ run('pipeline/tests/run_all_tests.m')
 | `test_compute_texture_features.m` | Texture features: checkerboard, uniform, field count, 3D, empty mask |
 | `test_compute_registration_quality.m` | Registration quality: identity transform, known shift, mutual information |
 | `test_detect_motion_artifacts.m` | Motion artifacts: clean DWI, signal dropout, single slice, output structure |
+| `test_imputation_sensitivity.m` | Imputation sensitivity: KNN vs LOCF vs Mean vs Linear Interp comparison |
+| `test_time_varying_cox.m` | Time-varying Cox: stratified models, extended Cox, PH violation handling |
+| `test_decision_curve_analysis.m` | Decision curve analysis: net benefit, treat-all/none comparison, clinical utility |
+| `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
+| `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
+| `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
 
 ---
 
@@ -370,9 +382,16 @@ run('pipeline/tests/run_all_tests.m')
 | `bootstrap_ci.m` | BCa bootstrap confidence intervals for arbitrary scalar metric functions |
 | `compute_schoenfeld_residuals.m` | Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation |
 | `compute_calibration_metrics.m` | Calibration assessment: Brier score, Hosmer-Lemeshow test, calibration slope/intercept |
-| `compute_texture_features.m` | First-order and GLCM texture feature extraction from parameter maps |
+| `compute_texture_features.m` | First-order, GLCM, GLRLM, shape, and uniformity texture feature extraction from parameter maps (24 features) |
 | `compute_registration_quality.m` | Registration quality metrics: Jacobian determinant, NCC, mutual information |
 | `detect_motion_artifacts.m` | DWI volume quality assessment: CV, NMI, signal dropout detection |
+| `imputation_sensitivity.m` | Imputation sensitivity analysis (KNN vs LOCF vs Mean vs Linear Interp) |
+| `fit_time_varying_cox.m` | Stratified and extended Cox models for PH violations |
+| `decision_curve_analysis.m` | Decision curve analysis for clinical utility |
+| `compute_nri.m` | Net reclassification improvement (NRI, cNRI, IDI) |
+| `prepare_external_validation.m` | Export trained model for external validation |
+| `apply_external_validation.m` | Apply saved model to external dataset |
+| `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -449,7 +468,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
-For the full list of 100 MATLAB test files and 30 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 106 MATLAB test files and 30 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -551,7 +570,7 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (18 files), utility modules (48 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (18 files), utility modules (55 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
 
 ---
 

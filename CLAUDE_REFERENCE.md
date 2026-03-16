@@ -87,9 +87,16 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `bootstrap_ci.m` | BCa bootstrap confidence intervals for arbitrary scalar metric functions |
 | `compute_schoenfeld_residuals.m` | Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation |
 | `compute_calibration_metrics.m` | Calibration assessment: Brier score, Hosmer-Lemeshow test, calibration slope/intercept |
-| `compute_texture_features.m` | First-order and GLCM texture feature extraction from parameter maps |
+| `compute_texture_features.m` | First-order, GLCM, GLRLM, shape, and uniformity texture feature extraction from parameter maps (24 features) |
 | `compute_registration_quality.m` | Registration quality metrics: Jacobian determinant, NCC, mutual information |
 | `detect_motion_artifacts.m` | DWI volume quality assessment: CV, NMI, signal dropout detection |
+| `imputation_sensitivity.m` | Imputation sensitivity analysis (KNN vs LOCF vs Mean vs Linear Interp) |
+| `fit_time_varying_cox.m` | Stratified and extended Cox models for PH violations |
+| `decision_curve_analysis.m` | Decision curve analysis for clinical utility |
+| `compute_nri.m` | Net reclassification improvement (NRI, cNRI, IDI) |
+| `prepare_external_validation.m` | Export trained model for external validation |
+| `apply_external_validation.m` | Apply saved model to external dataset |
+| `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
 
 ---
 
@@ -172,6 +179,12 @@ Contains 21 shim files for GNU Octave compatibility, including:
 | `test_compute_texture_features.m` | Texture features: checkerboard, uniform, field count, 3D, empty mask |
 | `test_compute_registration_quality.m` | Registration quality: identity transform, known shift, mutual information |
 | `test_detect_motion_artifacts.m` | Motion artifacts: clean DWI, signal dropout, single slice, output structure |
+| `test_imputation_sensitivity.m` | Imputation sensitivity: KNN vs LOCF vs Mean vs Linear Interp comparison |
+| `test_time_varying_cox.m` | Time-varying Cox: stratified models, extended Cox, PH violation handling |
+| `test_decision_curve_analysis.m` | Decision curve analysis: net benefit, treat-all/none comparison, clinical utility |
+| `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
+| `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
+| `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
 
 ---
 
