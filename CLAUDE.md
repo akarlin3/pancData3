@@ -114,7 +114,9 @@ Key fields:
   "run_compare_cores": false,
   "run_all_core_methods": false,
   "store_core_masks": false,
-  "use_firth_refit": true
+  "use_firth_refit": true,
+  "use_gpu": false,
+  "gpu_device": 1
 }
 ```
 
@@ -253,6 +255,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_assemble_predictive_features.m` | Feature matrix assembly: 22-column layout, post-treatment dose exclusion, NaN column removal |
 | `test_compute_multi_core_metrics.m` | Multi-method core metrics: all 11 methods, unified mask sharing, fDM volume fractions |
 | `test_compute_spatial_repeatability.m` | Spatial repeatability: Dice/Hausdorff across Fx1 repeats, 12-output validation |
+| `test_gpu_available.m` | GPU detection utility: availability check, graceful fallback, invalid device handling |
 | `test_clear_pipeline_cache.m` | Cache clearing: deletion, protection, sentinel, once-per-session guard |
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
@@ -333,6 +336,7 @@ run('pipeline/tests/run_all_tests.m')
 | `write_sentinel_file.m` | Write pipeline step completion sentinel files |
 | `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
 | `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
+| `gpu_available.m` | GPU availability detection with graceful CPU fallback |
 | `clear_pipeline_cache.m` | Remove pipeline-generated .mat cache files (once-per-session guard, protected files, sentinel checks) |
 | `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
 | `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |

@@ -5,6 +5,10 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 %   Flattens the 3D masked volume to 1D, calls IVIMmodelfit, and calculates
 %   monoexponential ADC using vectorized OLS. Reconstructs outputs to 3D.
 %
+%   opts.use_gpu (optional, default false): When true and a GPU is available,
+%   the ADC weighted least-squares computation is offloaded to the GPU via
+%   gpuArray for faster vectorized matrix operations.
+%
 % ANALYTICAL RATIONALE — TWO-MODEL APPROACH
 %   This function fits two complementary diffusion models to multi-b-value
 %   DWI data within the GTV mask:
@@ -144,6 +148,9 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];  % same as sz3 above
     adc_map = nan(adc_sz);  % NaN background for non-tumor voxels
 
+    % Determine whether to use GPU for the ADC WLS computation.
+    use_gpu_adc = isfield(opts, 'use_gpu') && opts.use_gpu;
+
     if n_valid > 0
         % Extract 1D signal decay curves if not already computed
         if ~exist('dwi_valid', 'var')
@@ -188,13 +195,38 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             % b=0 is excluded from the regression (used only as S0 reference)
             % because ln(S0/S0) = 0 provides no information about ADC.
             A_b = -bvalues(2:end);                             % [n_b x 1]
-            Y = log(S_a(:,2:end) ./ S_a(:,1));                % [n_vox x n_b]
-            W = S_a(:,2:end).^2;                               % [n_vox x n_b]
 
-            % Compute weighted numerator and denominator per voxel
-            numer = sum(W .* Y .* A_b', 2);                   % [n_vox x 1]
-            denom = sum(W .* (A_b'.^2), 2);                   % [n_vox x 1]
-            adc_vals = numer ./ denom;
+            if use_gpu_adc
+                % GPU-accelerated path: transfer signal matrix and b-values
+                % to GPU memory for vectorized WLS computation. gpuArray
+                % operations use cuBLAS for element-wise and reduction ops,
+                % which is beneficial when n_vox is large.
+                try
+                    S_a_gpu = gpuArray(S_a);
+                    A_b_gpu = gpuArray(A_b);
+
+                    Y_gpu = log(S_a_gpu(:,2:end) ./ S_a_gpu(:,1));
+                    W_gpu = S_a_gpu(:,2:end).^2;
+
+                    numer = sum(W_gpu .* Y_gpu .* A_b_gpu', 2);
+                    denom = sum(W_gpu .* (A_b_gpu'.^2), 2);
+                    adc_vals = gather(numer ./ denom);
+                catch gpu_err
+                    fprintf('  [GPU] ADC fitting GPU error: %s — falling back to CPU.\n', gpu_err.message);
+                    use_gpu_adc = false;
+                end
+            end
+
+            if ~use_gpu_adc
+                % CPU path: standard vectorized WLS
+                Y = log(S_a(:,2:end) ./ S_a(:,1));                % [n_vox x n_b]
+                W = S_a(:,2:end).^2;                               % [n_vox x n_b]
+
+                % Compute weighted numerator and denominator per voxel
+                numer = sum(W .* Y .* A_b', 2);                   % [n_vox x 1]
+                denom = sum(W .* (A_b'.^2), 2);                   % [n_vox x 1]
+                adc_vals = numer ./ denom;
+            end
 
             % Negative ADC values are physically impossible (diffusion cannot
             % be negative). They arise from noise-dominated signal where

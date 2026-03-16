@@ -296,7 +296,8 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             if exist(gtvn_filepath, 'file')
                 gtvn_mask_for_dncnn = rot90(niftiread(niftiinfo(gtvn_filepath)));
             end
-            [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask_for_dncnn, gtvn_mask_for_dncnn);
+            use_gpu_dncnn = isfield(ctx, 'use_gpu') && ctx.use_gpu;
+            [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask_for_dncnn, gtvn_mask_for_dncnn, use_gpu_dncnn);
         end
     end
 
@@ -381,6 +382,10 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         % segmented fitting. b < bthr captures perfusion, b >= bthr captures diffusion.
         opts = [];
         opts.bthr = ctx.ivim_bthr;
+        % Pass GPU flag to fit_models for GPU-accelerated ADC WLS fitting.
+        if isfield(ctx, 'use_gpu')
+            opts.use_gpu = ctx.use_gpu;
+        end
 
         [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim, opts);
         if havedenoised==1
@@ -718,44 +723,77 @@ function bio = extract_biomarkers(mask, maps, meta, dncnn_maps, dncnn_mask, ivim
     end
 end
 
-function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask, gtvn_mask)
+function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask, gtvn_mask, use_gpu)
     % COMPUTE_DNCNN_FALLBACK On-the-fly DnCNN denoising when cache is missing
     %   When pre-computed denoised volumes are not available (e.g., first run
-    %   or cache cleared), this fallback applies DnCNN denoising on the CPU.
+    %   or cache cleared), this fallback applies DnCNN denoising.
     %   Denoising is applied independently per b-value volume because noise
     %   characteristics differ across b-values (higher b = lower SNR = more
-    %   noise). The GTV mask focuses denoising on the tumor region. This is
-    %   significantly slower than loading cached results (~minutes vs seconds)
-    %   but ensures the DnCNN pipeline can always produce results.
+    %   noise). The GTV mask focuses denoising on the tumor region.
+    %
+    %   When use_gpu is true and a GPU is available, the DnCNN network is
+    %   moved to GPU and predict() runs on the GPU, providing significant
+    %   speedup for neural network inference (~10-100x vs CPU).
+    if nargin < 5, use_gpu = false; end
     havedenoised = 0;
     dwi_dncnn = [];
-    fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on CPU...\n');
+
+    % Determine execution environment
+    gpu_active = false;
+    if use_gpu
+        [gpu_ok, ~] = gpu_available();
+        if gpu_ok
+            gpu_active = true;
+            fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on GPU...\n');
+        else
+            fprintf('  [DnCNN] GPU requested but unavailable. Falling back to CPU.\n');
+        end
+    end
+    if ~gpu_active
+        fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on CPU...\n');
+    end
+
     try
         loaded_model = load(fullfile(fileparts(mfilename('fullpath')), '..', 'dependencies', 'dncnn_model.mat'), 'net');
         dncnn_net = loaded_model.net;
 
-        dwi_cpu = single(dwi);
+        % Move network to GPU if available and it supports GPU execution.
+        % dlnetwork objects can be moved to GPU, which causes predict() to
+        % run on the GPU automatically without needing gpuArray input data.
+        if gpu_active && isa(dncnn_net, 'dlnetwork')
+            try
+                dncnn_net = dlupdate(@gpuArray, dncnn_net);
+                fprintf('  [DnCNN] Network moved to GPU.\n');
+            catch
+                fprintf('  [DnCNN] Could not move network to GPU. Using CPU.\n');
+                gpu_active = false;
+            end
+        end
+
+        dwi_input = single(dwi);
 
         if ~isempty(gtv_mask)
-            mask_cpu = single(gtv_mask);
+            mask_input = single(gtv_mask);
         elseif ~isempty(gtvn_mask)
-            mask_cpu = single(gtvn_mask);
+            mask_input = single(gtvn_mask);
         else
-            mask_cpu = ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single');
+            mask_input = ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single');
         end
 
-        dwi_dncnn_cpu = zeros(size(dwi_cpu), 'single');
-        n_bvals_dncnn = size(dwi_cpu, 4);
+        dwi_dncnn_out = zeros(size(dwi_input), 'single');
+        n_bvals_dncnn = size(dwi_input, 4);
         for b_idx = 1:n_bvals_dncnn
             text_progress_bar(b_idx, n_bvals_dncnn, 'DnCNN denoising b-values');
-            dwi_dncnn_cpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_cpu(:,:,:,b_idx), mask_cpu, dncnn_net, 15);
+            dwi_dncnn_out(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_input(:,:,:,b_idx), mask_input, dncnn_net, 15);
         end
 
-        dwi_dncnn = double(mat2gray(dwi_dncnn_cpu));
+        dwi_dncnn = double(mat2gray(dwi_dncnn_out));
         havedenoised = 1;
-        fprintf('  [DnCNN] Deep learning denoising completed.\n');
-    catch CPU_ME
-        fprintf('  [DnCNN] CPU Computation failed: %s\n', CPU_ME.message);
+        device_label = 'GPU';
+        if ~gpu_active, device_label = 'CPU'; end
+        fprintf('  [DnCNN] Deep learning denoising completed on %s.\n', device_label);
+    catch ME
+        fprintf('  [DnCNN] Computation failed: %s\n', ME.message);
         fprintf('  [DnCNN] Proceeding without denoised data.\n');
     end
 end

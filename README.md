@@ -133,6 +133,8 @@ Edit `config.json` with your local paths:
 | `spectral_min_voxels` | Minimum valid voxels required for the `"spectral"` core method (default: `20`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 | `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
+| `use_gpu` | Offload ADC WLS fitting and DnCNN inference to a CUDA GPU via `gpuArray`. Requires Parallel Computing Toolbox and a CUDA-capable GPU. Falls back to CPU when unavailable (default: `false`) |
+| `gpu_device` | 1-based index of the CUDA GPU device to use when `use_gpu` is true (default: `1`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 
