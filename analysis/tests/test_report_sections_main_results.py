@@ -28,9 +28,13 @@ from conftest import SAMPLE_GRAPH_CSV_ROWS
 from report.sections.main_results import (
     _section_executive_summary,
     _section_hypothesis,
+    _section_treatment_response,
+)
+from report.sections.statistical_reporting import (
     _section_statistical_significance,
     _section_broad_statistical_overview,
-    _section_treatment_response,
+)
+from report.sections.manuscript import (
     _section_predictive_performance,
     _section_manuscript_ready_findings,
     _section_results_draft,

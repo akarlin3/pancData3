@@ -49,9 +49,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (45 files)
+│   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (89 test files)
+│   ├── tests/                          # Full test suite (92 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -67,7 +67,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (8 files)
-│   └── tests/                          # Python test suite — 18 test files, 569 tests (pytest)
+│   └── tests/                          # Python test suite — 23 test files, 720 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -256,6 +256,10 @@ run('pipeline/tests/run_all_tests.m')
 | `test_compute_multi_core_metrics.m` | Multi-method core metrics: all 11 methods, unified mask sharing, fDM volume fractions |
 | `test_compute_spatial_repeatability.m` | Spatial repeatability: Dice/Hausdorff across Fx1 repeats, 12-output validation |
 | `test_gpu_available.m` | GPU detection utility: availability check, graceful fallback, invalid device handling |
+| `test_clear_pipeline_cache.m` | Cache clearing: deletion, protection, sentinel, once-per-session guard |
+| `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
+| `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
+| `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
 
 ---
 
@@ -333,6 +337,10 @@ run('pipeline/tests/run_all_tests.m')
 | `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
 | `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
 | `gpu_available.m` | GPU availability detection with graceful CPU fallback |
+| `clear_pipeline_cache.m` | Remove pipeline-generated .mat cache files (once-per-session guard, protected files, sentinel checks) |
+| `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
+| `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |
+| `resolve_scan_days.m` | Three-level scan day resolution for survival analysis (DICOM dates -> config -> defaults) |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -364,13 +372,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/generate_report.py` | HTML+PDF report orchestrator: data loading, section assembly, CLI entry point for `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, forest plot cells, effect size helpers, table/figure numbering, figure captions, citation system, manuscript sentence helpers) |
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
-| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `report/sections/` | Section builder package for the HTML report, split into 11 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `data_sections.py`, `gallery.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions) |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 22 test files with 653 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 23 test files with 720 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -396,6 +404,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_cross_reference_summary.py` | Cross-DWI summary: trend agreement/disagreement, priority ordering, parameter maps, inflection points |
 | `test_statistical_relevance.py` | Statistical findings: p-value extraction, Bonferroni correction, significance markers, correlations, cross-DWI comparison |
 | `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
+| `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
 
 ---
 
