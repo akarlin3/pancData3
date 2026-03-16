@@ -325,6 +325,11 @@ def main():
         action="store_true",
         help="Skip pre-flight checks (requirements verification and test suite)",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Also generate an interactive HTML report with client-side filtering",
+    )
     args = parser.parse_args()
 
     # ── Apply CLI overrides to the centralised config ──
@@ -475,6 +480,34 @@ def main():
             results["report"] = False
 
         pipeline_bar.update(1)
+
+        # Step 5 (optional): Generate interactive report.
+        if args.interactive:
+            interactive_script = ANALYSIS_DIR / "report" / "generate_interactive_report.py"
+            if interactive_script.exists():
+                pipeline_bar.total += 1
+                pipeline_bar.refresh()
+                pipeline_bar.set_postfix_str("interactive report", refresh=True)
+                print(f"\n  Running generate_interactive_report.py ...")
+                t0 = time.time()
+                result = subprocess.run(
+                    [sys.executable, str(interactive_script), str(folder)],
+                    cwd=str(ANALYSIS_DIR),
+                    capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
+                )
+                elapsed = time.time() - t0
+                for stream_output in (result.stdout, result.stderr):
+                    if stream_output:
+                        sys.stdout.write(stream_output)
+                if result.returncode == 0:
+                    print(f"  Done: generate_interactive_report.py ({elapsed:.1f}s)")
+                    results["interactive"] = True
+                else:
+                    print(f"  FAILED: generate_interactive_report.py (exit code {result.returncode}, {elapsed:.1f}s)")
+                    results["interactive"] = False
+                pipeline_bar.update(1)
+
         pipeline_bar.set_postfix_str("complete", refresh=True)
         pipeline_bar.close()
 
@@ -492,6 +525,9 @@ def main():
             print(f"\n  HTML Report: {report_path}")
         if pdf_path.exists():
             print(f"  PDF Report:  {pdf_path}")
+        interactive_path = folder / "interactive_report.html"  # type: ignore
+        if interactive_path.exists():
+            print(f"  Interactive: {interactive_path}")
         print(f"  Log file:    {log_path}")
         print()
 
