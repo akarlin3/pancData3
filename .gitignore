@@ -22,6 +22,9 @@ sfprj/
 *patient_data*
 *cohort*
 
+# Windows hostname duplicate directories
+*-WIN-*
+
 # Project Specific / PHI Protection
 saved_files*/
 /data/
