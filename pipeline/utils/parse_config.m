@@ -316,6 +316,16 @@ function config_struct = parse_config(json_path)
             config_struct.use_texture_features = false;
         end
 
+        % texture_3d: When true and the input mask is 3D (more than one
+        % slice), the GLRLM texture features are computed in 13 3D
+        % directions (axis-aligned, face-diagonal, body-diagonal) and
+        % averaged, capturing inter-slice texture information.  When false
+        % or the mask is 2D/single-slice, falls back to 4 in-plane 2D
+        % directions.  Default true.
+        if ~isfield(config_struct, 'texture_3d')
+            config_struct.texture_3d = true;
+        end
+
         % run_imputation_sensitivity: When true, runs imputation sensitivity
         % analysis comparing KNN against LOCF, mean, and linear interpolation.
         % This is computationally expensive (4× LOOCV) so disabled by default.

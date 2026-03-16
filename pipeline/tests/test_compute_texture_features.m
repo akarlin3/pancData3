@@ -6,6 +6,7 @@ classdef test_compute_texture_features < matlab.unittest.TestCase
     %   - Uniform image: zero contrast
     %   - Output struct field count
     %   - 3D input handling
+    %   - 3D GLRLM (13 directions) vs 2D GLRLM (4 directions)
     %   - Empty mask edge case
 
     properties
@@ -185,6 +186,78 @@ classdef test_compute_texture_features < matlab.unittest.TestCase
 
             testCase.verifyLessThan(features.shape_sphericity, 0.8, ...
                 'Elongated ellipsoid should have low sphericity.');
+        end
+
+        function test3DCheckerboardGLRLM(testCase)
+            % 3D checkerboard pattern: 3D GLRLM (13 directions) should
+            % produce different features than 2D-only (4 directions)
+            % because the inter-slice alternation creates additional
+            % short runs visible only in the z and diagonal directions.
+            sz = 16;
+            img_3d = zeros(sz, sz, sz);
+            for i = 1:sz
+                for j = 1:sz
+                    for k = 1:sz
+                        if mod(i + j + k, 2) == 0
+                            img_3d(i, j, k) = 1;
+                        end
+                    end
+                end
+            end
+            mask_3d = true(sz, sz, sz);
+
+            % 3D GLRLM (13 directions, default)
+            f3d = compute_texture_features(img_3d, mask_3d, 32, [1 1 1], true);
+
+            % 2D GLRLM (4 directions, forced)
+            f2d = compute_texture_features(img_3d, mask_3d, 32, [1 1 1], false);
+
+            % Both should produce finite GLRLM features
+            testCase.verifyTrue(isfinite(f3d.glrlm_sre), ...
+                '3D GLRLM SRE should be finite.');
+            testCase.verifyTrue(isfinite(f2d.glrlm_sre), ...
+                '2D GLRLM SRE should be finite.');
+
+            % 3D and 2D should differ because 3D captures additional
+            % directions (z-axis, face-diagonals, body-diagonals) that
+            % contribute different run-length statistics.
+            testCase.verifyNotEqual(f3d.glrlm_sre, f2d.glrlm_sre, ...
+                '3D GLRLM SRE should differ from 2D for 3D checkerboard.');
+            testCase.verifyNotEqual(f3d.glrlm_lre, f2d.glrlm_lre, ...
+                '3D GLRLM LRE should differ from 2D for 3D checkerboard.');
+            testCase.verifyNotEqual(f3d.glrlm_rp, f2d.glrlm_rp, ...
+                '3D GLRLM RP should differ from 2D for 3D checkerboard.');
+        end
+
+        function test3DGLRLMSingleSliceFallback(testCase)
+            % Single-slice 3D input should use 2D GLRLM even with texture_3d=true.
+            rng(99);
+            img_3d = rand(20, 20, 1);
+            mask_3d = true(20, 20, 1);
+
+            f_3d_flag = compute_texture_features(img_3d, mask_3d, 16, [1 1 1], true);
+            f_2d_flag = compute_texture_features(img_3d, mask_3d, 16, [1 1 1], false);
+
+            % With only 1 slice, both should produce identical GLRLM results
+            testCase.verifyEqual(f_3d_flag.glrlm_sre, f_2d_flag.glrlm_sre, 'AbsTol', 1e-10, ...
+                'Single-slice should fall back to 2D GLRLM regardless of texture_3d flag.');
+            testCase.verifyEqual(f_3d_flag.glrlm_lre, f_2d_flag.glrlm_lre, 'AbsTol', 1e-10, ...
+                'Single-slice LRE should match between 3D and 2D flags.');
+        end
+
+        function test3DGLRLMDisabledFlag(testCase)
+            % When texture_3d=false, a multi-slice 3D input should use 2D GLRLM.
+            rng(77);
+            img_3d = rand(16, 16, 8);
+            mask_3d = true(16, 16, 8);
+
+            f_off = compute_texture_features(img_3d, mask_3d, 16, [1 1 1], false);
+
+            % Should still produce finite features
+            testCase.verifyTrue(isfinite(f_off.glrlm_sre), ...
+                '2D fallback GLRLM should produce finite SRE for 3D input.');
+            testCase.verifyTrue(isfinite(f_off.glrlm_gln), ...
+                '2D fallback GLRLM should produce finite GLN for 3D input.');
         end
 
         function testShapeVolumePhysicalUnits(testCase)

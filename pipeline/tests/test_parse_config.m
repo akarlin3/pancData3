@@ -243,5 +243,28 @@ classdef test_parse_config < matlab.unittest.TestCase
             config = parse_config(testCase.TempConfigFile);
             testCase.verifyEqual(config.gpu_device, 2);
         end
+
+        function testTexture3dDefaultsTrue(testCase)
+            % texture_3d should default to true when not specified.
+            cfg = struct('dataloc', '/tmp');
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyTrue(config.texture_3d);
+        end
+
+        function testTexture3dPreservedWhenFalse(testCase)
+            % When texture_3d is explicitly set to false, the value should
+            % be preserved (not overwritten by the default).
+            cfg = struct('dataloc', '/tmp', 'texture_3d', false);
+            fid = fopen(testCase.TempConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            config = parse_config(testCase.TempConfigFile);
+            testCase.verifyFalse(config.texture_3d);
+        end
     end
 end
