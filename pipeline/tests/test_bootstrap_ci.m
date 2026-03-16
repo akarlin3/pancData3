@@ -110,5 +110,55 @@ classdef test_bootstrap_ci < matlab.unittest.TestCase
             testCase.verifyTrue(isfinite(ci_hi));
         end
 
+        function testVectorizedMeanPath(testCase)
+            % @mean on a column vector should use the vectorized path and
+            % produce the same number of bootstrap values.
+            rng(99);
+            data = randn(100, 1);
+            [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, @mean, 800);
+
+            testCase.verifyEqual(numel(boot_dist), 800);
+            testCase.verifyLessThanOrEqual(ci_lo, ci_hi);
+            testCase.verifyTrue(isfinite(ci_lo));
+            testCase.verifyTrue(isfinite(ci_hi));
+        end
+
+        function testVectorizedMedianPath(testCase)
+            % @median on a column vector should also vectorize.
+            rng(99);
+            data = randn(80, 1);
+            [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, @median, 600);
+
+            testCase.verifyEqual(numel(boot_dist), 600);
+            testCase.verifyLessThanOrEqual(ci_lo, ci_hi);
+        end
+
+        function testNonVectorizableFnFallsBackToLoop(testCase)
+            % A custom metric_fn that is not column-wise vectorizable
+            % should still work via the loop path.
+            rng(42);
+            data = randn(40, 1);
+            % IQR via diff of quantiles — returns a scalar for vectors
+            % but does not vectorize column-wise on a matrix
+            fn = @(x) quantile(x, 0.75) - quantile(x, 0.25);
+            [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, fn, 300);
+
+            testCase.verifyEqual(numel(boot_dist), 300);
+            testCase.verifyLessThanOrEqual(ci_lo, ci_hi);
+            testCase.verifyTrue(isfinite(ci_lo));
+        end
+
+        function testMultiColumnDataUsesLoop(testCase)
+            % Multi-column data cannot use the vectorized path; loop
+            % should still produce correct results.
+            rng(42);
+            data = randn(50, 3);
+            fn = @(x) mean(x(:));  % scalar over all elements
+            [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, fn, 400);
+
+            testCase.verifyEqual(numel(boot_dist), 400);
+            testCase.verifyLessThanOrEqual(ci_lo, ci_hi);
+        end
+
     end
 end
