@@ -71,3 +71,8 @@ from .publication import (  # noqa: F401
     _section_reporting_checklist,
     _section_journal_guide,
 )
+from .forest_plot import (  # noqa: F401
+    _section_forest_plot_figure,
+    extract_hr_data,
+    generate_forest_plot,
+)

@@ -84,6 +84,12 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `setup_output_folders.m` | Create or reuse the master pipeline output folder (timestamped auto-creation with sentinel) |
 | `load_baseline_from_disk.m` | Load persisted metrics_baseline outputs from .mat file |
 | `resolve_scan_days.m` | Three-level scan day resolution for survival analysis (DICOM dates -> config -> defaults) |
+| `bootstrap_ci.m` | BCa bootstrap confidence intervals for arbitrary scalar metric functions |
+| `compute_schoenfeld_residuals.m` | Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation |
+| `compute_calibration_metrics.m` | Calibration assessment: Brier score, Hosmer-Lemeshow test, calibration slope/intercept |
+| `compute_texture_features.m` | First-order and GLCM texture feature extraction from parameter maps |
+| `compute_registration_quality.m` | Registration quality metrics: Jacobian determinant, NCC, mutual information |
+| `detect_motion_artifacts.m` | DWI volume quality assessment: CV, NMI, signal dropout detection |
 
 ---
 
@@ -159,6 +165,13 @@ Contains 21 shim files for GNU Octave compatibility, including:
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_schoenfeld_residuals.m` | Schoenfeld residuals: PH holds, time-varying effect, few events, diagnostic figure |
+| `test_fine_gray.m` | Fine-Gray model: competing events, no competing events, all censored, CIF plot |
+| `test_calibration_metrics.m` | Model calibration: perfect/miscalibrated, single class, Brier decomposition |
+| `test_bootstrap_ci.m` | Bootstrap CI: normal mean, ordering, degenerate input, NaN resilience, median |
+| `test_compute_texture_features.m` | Texture features: checkerboard, uniform, field count, 3D, empty mask |
+| `test_compute_registration_quality.m` | Registration quality: identity transform, known shift, mutual information |
+| `test_detect_motion_artifacts.m` | Motion artifacts: clean DWI, signal dropout, single slice, output structure |
 
 ---
 
@@ -189,12 +202,14 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
+| `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
+| `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
 ---
 
 ## Python Test Suite (`analysis/tests/`)
 
-28 test files with 1164 tests. Run with `cd analysis/tests && python -m pytest -v`.
+30 test files with 1186 tests. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -227,6 +242,8 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
 | `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
+| `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
+| `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 
 ---
 

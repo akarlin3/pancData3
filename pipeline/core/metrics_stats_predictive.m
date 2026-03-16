@@ -301,6 +301,11 @@ for target_fx = 2:nTp
     times_km = times_km(valid_pts);
     events_km = events_km(valid_pts);
 
+    %% --- Calibration Assessment ---
+    % Compute calibration metrics for the LOOCV risk scores at this timepoint
+    cal_metrics = compute_calibration_metrics( ...
+        risk_scores_oof, y_clean, 5, output_folder, dtype_label, fx_label);
+
     %% --- Diagnostic Plots (ROC, Sanity Checks, 2D Scatter) ---
     plot_predictive_diagnostics( ...
         selected_indices, n_sig, sig_data_selected, sig_names, sig_is_abs, ...

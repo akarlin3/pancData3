@@ -378,6 +378,30 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         if havegtvp, mask_ivim = logical(mask_ivim + logical(gtv_mask)); end
         if havegtvn, mask_ivim = logical(mask_ivim + logical(gtvn_mask)); end
 
+        % --- Motion artifact detection (optional) ---
+        % When enabled, flag DWI volumes with excessive motion corruption
+        % before model fitting. Flagged volumes can be excluded to improve
+        % parameter estimation accuracy.
+        if isfield(ctx, 'exclude_motion_volumes') && ctx.exclude_motion_volumes
+            try
+                motion = detect_motion_artifacts(dwi, bvalues, mask_ivim);
+                if any(motion.flagged)
+                    n_flagged = sum(motion.flagged);
+                    fprintf('    ⚠️  Motion: %d/%d volumes flagged, excluding from fit\n', ...
+                        n_flagged, numel(motion.flagged));
+                    % Remove flagged volumes from DWI and b-values
+                    keep_vols = ~motion.flagged;
+                    dwi = dwi(:,:,:,keep_vols);
+                    bvalues = bvalues(keep_vols);
+                    if havedenoised == 1
+                        dwi_dncnn = dwi_dncnn(:,:,:,keep_vols);
+                    end
+                end
+            catch me_motion
+                fprintf('    💡 Motion detection skipped: %s\n', me_motion.message);
+            end
+        end
+
         % opts.bthr: b-value threshold (typically 100 s/mm^2) for IVIM
         % segmented fitting. b < bthr captures perfusion, b >= bthr captures diffusion.
         opts = [];

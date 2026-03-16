@@ -263,6 +263,16 @@ ks_pvals_d = nan(length(id_list),nTp,3);
 fx_corrupted = nan(length(id_list),nTp,3);
 adc_max = config_struct.adc_max;
 
+% --- Texture features (optional, when use_texture_features is enabled) ---
+% GLCM and first-order texture features capture spatial heterogeneity
+% patterns in parameter maps that summary statistics (mean, kurtosis)
+% may miss. These include contrast, correlation, energy, homogeneity,
+% entropy, and other radiomics descriptors.
+use_texture = isfield(config_struct, 'use_texture_features') && config_struct.use_texture_features;
+if use_texture
+    texture_features = cell(length(id_list), nTp, 3);
+end
+
 % --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
 % Within-session repeat scans at Fx1 allow computation of within-subject
 % coefficient of variation (wCV = SD_within / mean), which quantifies
@@ -491,6 +501,15 @@ for j=1:n_patients_metrics
                 dstar_skew(j,k,dwi_type) = ivim_out.dstar_skew_val;
             end
 
+            % --- Texture features (when enabled) ---
+            if use_texture && ~isempty(adc_vec) && has_3d_iter
+                try
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d);
+                catch
+                    % Texture extraction is non-fatal
+                end
+            end
+
             % --- Multi-method core metrics (when enabled) ---
             if run_all_core && ~isempty(adc_vec)
                 per_method = compute_multi_core_metrics(per_method, config_struct, ...
@@ -659,6 +678,11 @@ summary_metrics.fdm_stable_pc = fdm_stable_pc;
 % Package per-method core metrics when multi-method computation was enabled
 if run_all_core
     summary_metrics.all_core_metrics = per_method;
+end
+
+% Package texture features when enabled
+if use_texture
+    summary_metrics.texture_features = texture_features;
 end
 
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
