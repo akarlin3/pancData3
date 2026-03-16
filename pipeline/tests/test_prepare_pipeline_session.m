@@ -133,20 +133,19 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
 
         function test_invalid_config_sets_abort(testCase)
             % Bad config file should set abort=true without throwing.
+            % The function should also restore DefaultFigureVisible on
+            % abort so the caller does not need to clean up.
             bad_config = fullfile(testCase.TmpDir, 'bad_config.json');
             fid = fopen(bad_config, 'w');
             fprintf(fid, '{{invalid json');
             fclose(fid);
 
+            set(0, 'DefaultFigureVisible', 'on');
             session = prepare_pipeline_session(testCase.PipelineDir, bad_config, '', {'load'});
-            % Restore figure visibility (prepare_pipeline_session sets it off)
-            if isfield(session, 'prev_fig_vis') && ~isempty(session.prev_fig_vis)
-                set(0, 'DefaultFigureVisible', session.prev_fig_vis);
-            else
-                set(0, 'DefaultFigureVisible', 'on');
-            end
 
             testCase.verifyTrue(session.abort);
+            % Figure visibility should have been restored by the catch block
+            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'on');
         end
 
         function test_type_output_folder_created(testCase)
@@ -193,6 +192,42 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
             testCase.verifyEqual(session.current_dtype, 2);
             testCase.verifyEqual(session.current_name, 'dnCNN');
             if session.log_fid > 0, fclose(session.log_fid); end
+        end
+
+        function test_post_config_error_restores_state(testCase)
+            % If an error occurs after config parsing (e.g., bad dataloc
+            % triggers a failure in clear_pipeline_cache or mkdir), the
+            % function should close log_fid and restore
+            % DefaultFigureVisible before re-throwing.
+            cfg = struct();
+            % Use a non-existent dataloc that will not cause parse_config
+            % to fail but will cause downstream operations to fail when
+            % clear_pipeline_cache tries to access it with dir().
+            cfg.dataloc = fullfile(testCase.TmpDir, 'nonexistent_data_dir');
+            cfg.dwi_type = 'Standard';
+            cfg.run_compare_cores = false;
+            cfg.run_all_core_methods = false;
+            cfg.clear_cache = true;
+            bad_cfg_file = fullfile(testCase.TmpDir, 'post_config_fail.json');
+            fid = fopen(bad_cfg_file, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            set(0, 'DefaultFigureVisible', 'on');
+            threw = false;
+            try
+                prepare_pipeline_session(testCase.PipelineDir, bad_cfg_file, '', {'load'});
+            catch
+                threw = true;
+            end
+            diary off;
+
+            % Whether or not it threw, figure visibility must be restored
+            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'on');
+            % If it did throw, that confirms the catch-and-rethrow path ran
+            if threw
+                testCase.verifyTrue(true, 'Error was properly re-thrown after cleanup');
+            end
         end
 
         function test_figure_visibility_set_to_off(testCase)
