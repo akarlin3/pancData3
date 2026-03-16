@@ -260,6 +260,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_octave_shims.m` | Octave compatibility shims: nanmean, nanstd, contains, categorical, cvpartition, fitglme, nifti I/O, sgtitle, yline, spectralcluster, @table (Octave only) |
 | `test_run_elastic_net_cv.m` | Elastic net CV: output shapes, lambda grid, consensus filtering, reproducibility, degenerate data |
 | `test_run_loocv_risk_scores.m` | Nested LOOCV: risk score shapes, median split, DL provenance leakage detection, NaN handling |
 | `test_plot_predictive_diagnostics.m` | Predictive diagnostics: ROC curve, sanity panels, 2D scatter, filename sanitization |
