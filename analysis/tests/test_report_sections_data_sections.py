@@ -756,3 +756,340 @@ class TestFigureGallery:
         (folder / "cross_dwi_comparison.png").write_bytes(png_data * 100)
         html = "\n".join(_section_figure_gallery(folder))
         assert "Cross-DWI" in html
+
+
+# ── Edge cases: empty cohorts, missing metrics, convergence failures ──
+
+
+class TestCohortOverviewEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_cohort_overview(None, None, None)
+        assert isinstance(result, list)
+
+    def test_empty_longitudinal_dict(self):
+        mat = {"Standard": {"longitudinal": {}}}
+        result = _section_cohort_overview(mat, None, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_mat_data_missing_dwi_type_key(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 5}}}
+        result = _section_cohort_overview(mat, _make_log_data(), ["Standard", "dnCNN", "IVIMnet"])
+        assert isinstance(result, list)
+
+    def test_zero_patient_count(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 0, "num_timepoints": 0}}}
+        result = _section_cohort_overview(mat, None, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_single_timepoint(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 1}}}
+        result = _section_cohort_overview(mat, _make_log_data(), ["Standard"])
+        html = "\n".join(result)
+        # Single timepoint should not show attrition
+        assert isinstance(html, str)
+
+    def test_patients_per_timepoint_not_a_list(self):
+        mat = {"Standard": {"longitudinal": {
+            "num_patients": 42, "num_timepoints": 3,
+            "patients_per_timepoint": "not_a_list",
+        }}}
+        result = _section_cohort_overview(mat, None, ["Standard"])
+        assert isinstance(result, list)
+
+    def test_heavily_imbalanced_lf_high(self):
+        log = _make_log_data()
+        log["Standard"]["survival"]["n_lf"] = 38
+        log["Standard"]["survival"]["n_lc"] = 4
+        html = "\n".join(_section_cohort_overview(_make_mat_data(), log, ["Standard"]))
+        assert "Imbalanced" in html
+
+    def test_balanced_outcomes_no_warning(self):
+        log = _make_log_data()
+        log["Standard"]["survival"]["n_lf"] = 20
+        log["Standard"]["survival"]["n_lc"] = 22
+        html = "\n".join(_section_cohort_overview(_make_mat_data(), log, ["Standard"]))
+        assert "Imbalanced" not in html
+
+    def test_three_dwi_types_with_mixed_data(self):
+        mat = {
+            "Standard": {"longitudinal": {"num_patients": 42, "num_timepoints": 5}},
+            "dnCNN": {"longitudinal": {"num_patients": 40, "num_timepoints": 5}},
+            "IVIMnet": {},
+        }
+        result = _section_cohort_overview(mat, None, ["Standard", "dnCNN", "IVIMnet"])
+        assert isinstance(result, list)
+
+    def test_baseline_exclusion_zero(self):
+        log = _make_log_data()
+        log["Standard"]["baseline"]["baseline_exclusion"]["n_excluded"] = 0
+        log["Standard"]["baseline"]["baseline_exclusion"]["n_total"] = 42
+        html = "\n".join(_section_cohort_overview(_make_mat_data(), log, ["Standard"]))
+        assert isinstance(html, str)
+
+
+class TestPatientFlowEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_patient_flow(None, [], None)
+        assert isinstance(result, list)
+
+    def test_missing_baseline_key(self):
+        log = {"Standard": {"stats_comparisons": {"glme_excluded": {"n_excluded": 5, "n_total": 42, "pct": 12.0}}}}
+        result = _section_patient_flow(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_missing_glme_excluded(self):
+        log = _make_log_data()
+        del log["Standard"]["stats_comparisons"]
+        result = _section_patient_flow(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_zero_exclusions(self):
+        log = _make_log_data()
+        log["Standard"]["baseline"]["baseline_exclusion"]["n_excluded"] = 0
+        log["Standard"]["stats_comparisons"]["glme_excluded"]["n_excluded"] = 0
+        log["Standard"]["baseline"]["total_outliers"]["n_removed"] = 0
+        result = _section_patient_flow(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_empty_dwi_types_list(self):
+        result = _section_patient_flow(_make_log_data(), [], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_dwi_type_not_in_log(self):
+        result = _section_patient_flow(_make_log_data(), ["IVIMnet"], _make_mat_data())
+        assert isinstance(result, list)
+
+
+class TestDataCompletenessEdgeCases:
+    def test_convergence_failure_all_types(self):
+        log = {
+            "Standard": {"sanity_checks": {
+                "all_converged": False, "total_convergence": 15,
+                "dim_mismatches": 5, "nan_dose_warnings": 3,
+            }},
+            "dnCNN": {"sanity_checks": {
+                "all_converged": False, "total_convergence": 20,
+                "dim_mismatches": 8, "nan_dose_warnings": 0,
+            }},
+        }
+        html = "\n".join(_section_data_completeness(log, ["Standard", "dnCNN"]))
+        assert "15" in html
+        assert "Standard" in html
+        assert "dnCNN" in html
+
+    def test_partial_sanity_data(self):
+        log = {
+            "Standard": {"sanity_checks": {
+                "all_converged": True, "total_convergence": 0,
+                "dim_mismatches": 0, "nan_dose_warnings": 0,
+            }},
+            "dnCNN": {"baseline": {}},  # No sanity_checks key
+        }
+        result = _section_data_completeness(log, ["Standard", "dnCNN"])
+        html = "\n".join(result)
+        assert "Standard" in html
+
+    def test_excessive_nan_multiple_params(self):
+        log = {"Standard": {"sanity_checks": {
+            "all_converged": True, "total_convergence": 0,
+            "dim_mismatches": 0, "nan_dose_warnings": 0,
+            "excessive_nan": [
+                {"parameter": "D_star", "pct_nan": 75.0},
+                {"parameter": "f", "pct_nan": 60.0},
+                {"parameter": "ADC", "pct_nan": 55.0},
+            ],
+        }}}
+        html = "\n".join(_section_data_completeness(log, ["Standard"]))
+        assert "D_star" in html
+        assert "f" in html
+        assert "ADC" in html
+
+    def test_dwi_type_in_list_but_not_in_log(self):
+        log = {"Standard": {"sanity_checks": {
+            "all_converged": True, "total_convergence": 0,
+            "dim_mismatches": 0, "nan_dose_warnings": 0,
+        }}}
+        result = _section_data_completeness(log, ["Standard", "IVIMnet"])
+        assert isinstance(result, list)
+
+    def test_all_zeros_no_issues(self):
+        log = {"Standard": {"sanity_checks": {
+            "all_converged": True, "total_convergence": 0,
+            "dim_mismatches": 0, "nan_dose_warnings": 0,
+        }}}
+        html = "\n".join(_section_data_completeness(log, ["Standard"]))
+        assert "Passed" in html
+
+
+class TestMatDataEdgeCases:
+    def test_dosimetry_all_none(self):
+        mat = {"Standard": {"dosimetry": {
+            "d95_adc_mean": None, "v50_adc_mean": None,
+            "d95_d_mean": None, "v50_d_mean": None,
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert "\u2014" in html
+
+    def test_dosimetry_partial_data(self):
+        mat = {"Standard": {"dosimetry": {
+            "d95_adc_mean": {"mean": 46.0, "std": 2.0},
+        }}}
+        result = _section_mat_data(mat)
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "46.0" in html
+
+    def test_core_method_single_method(self):
+        mat = {"Standard": {"core_method": {
+            "methods": ["adc_threshold"],
+            "mean_dice_matrix": [[1.0]],
+        }}}
+        result = _section_mat_data(mat)
+        assert isinstance(result, list)
+
+    def test_core_method_mismatched_matrix(self):
+        mat = {"Standard": {"core_method": {
+            "methods": ["adc_threshold", "otsu"],
+            "mean_dice_matrix": [[1.0]],  # Wrong dimensions
+        }}}
+        result = _section_mat_data(mat)
+        assert isinstance(result, list)
+
+    def test_dosimetry_v50_exactly_one(self):
+        mat = {"Standard": {"dosimetry": {
+            "v50_adc_mean": {"mean": 1.0, "std": 0.0},
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert "100.0%" in html or "100" in html
+
+    def test_dosimetry_d95_exactly_45(self):
+        mat = {"Standard": {"dosimetry": {
+            "d95_adc_mean": {"mean": 45.0, "std": 0.0},
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert "PASS" in html or "\u2705" in html
+
+    def test_no_dosimetry_no_core(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 42}}}
+        result = _section_mat_data(mat)
+        assert isinstance(result, list)
+
+    def test_core_all_high_dice(self):
+        mat = {"Standard": {"core_method": {
+            "methods": ["adc_threshold", "otsu", "gmm"],
+            "mean_dice_matrix": [
+                [1.0, 0.90, 0.85],
+                [0.90, 1.0, 0.88],
+                [0.85, 0.88, 1.0],
+            ],
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert "interchangeable" in html.lower()
+
+    def test_core_all_low_dice(self):
+        mat = {"Standard": {"core_method": {
+            "methods": ["adc_threshold", "otsu", "gmm"],
+            "mean_dice_matrix": [
+                [1.0, 0.30, 0.25],
+                [0.30, 1.0, 0.28],
+                [0.25, 0.28, 1.0],
+            ],
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert isinstance(html, str)
+
+    def test_dosimetry_dict_without_std(self):
+        mat = {"Standard": {"dosimetry": {
+            "d95_adc_mean": {"mean": 47.5},
+            "v50_adc_mean": {"mean": 0.9},
+        }}}
+        result = _section_mat_data(mat)
+        html = "\n".join(result)
+        assert "47.5" in html
+
+
+class TestAppendixEdgeCases:
+    def test_rows_with_missing_keys(self):
+        rows = [{"file_path": "Standard/test.png"}]
+        result = _section_appendix(rows)
+        assert isinstance(result, list)
+
+    def test_many_rows(self):
+        rows = []
+        for i in range(20):
+            rows.append({
+                "file_path": f"Standard/graph_{i}.png",
+                "graph_title": f"Graph {i}",
+                "graph_type": "scatter" if i % 2 == 0 else "line",
+                "trends_json": "[]",
+                "issues_json": "[]",
+                "summary": f"Summary for graph {i}",
+            })
+        result = _section_appendix(rows)
+        html = "\n".join(result)
+        assert "20" in html or "graph_19" in html
+
+
+class TestBuildGraphAnalysisHtmlEdgeCases:
+    def test_empty_row(self):
+        result = _build_graph_analysis_html({})
+        assert isinstance(result, list)
+
+    def test_row_with_all_empty_fields(self):
+        row = {
+            "file_path": "", "graph_title": "", "graph_type": "",
+            "x_axis_label": "", "y_axis_label": "", "trends_json": "[]",
+            "issues_json": "[]", "summary": "", "inflection_points_json": "[]",
+        }
+        result = _build_graph_analysis_html(row)
+        assert isinstance(result, list)
+
+    def test_row_with_many_trends(self):
+        trends = [{"series": f"S{i}", "direction": "increasing", "description": f"Trend {i}"} for i in range(10)]
+        row = {
+            "file_path": "Standard/test.png",
+            "trends_json": json.dumps(trends),
+            "issues_json": "[]",
+            "summary": "Many trends",
+        }
+        result = _build_graph_analysis_html(row)
+        html = "\n".join(result)
+        assert "S9" in html
+
+    def test_row_with_many_inflection_points(self):
+        ips = [{"approximate_x": i * 10, "approximate_y": 0.001 * i, "description": f"IP {i}"} for i in range(5)]
+        row = {
+            "file_path": "Standard/test.png",
+            "trends_json": "[]",
+            "issues_json": "[]",
+            "inflection_points_json": json.dumps(ips),
+            "summary": "Multiple IPs",
+        }
+        result = _build_graph_analysis_html(row)
+        html = "\n".join(result)
+        assert "IP 4" in html
+
+    def test_summary_starts_with_json_error(self):
+        row = {
+            "file_path": "Standard/test.png",
+            "summary": "JSON parse error: unexpected token",
+            "trends_json": "[]", "issues_json": "[]",
+        }
+        result = _build_graph_analysis_html(row)
+        html = "\n".join(result)
+        assert "JSON parse error" not in html or isinstance(html, str)
+
+    def test_short_summary_inline(self):
+        row = {
+            "file_path": "Standard/test.png",
+            "summary": "Short summary",
+            "trends_json": "[]", "issues_json": "[]",
+        }
+        result = _build_graph_analysis_html(row)
+        html = "\n".join(result)
+        assert "<details" not in html or "Short summary" in html

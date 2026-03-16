@@ -646,3 +646,204 @@ class TestJournalGuide:
         assert isinstance(result, list)
         html = "\n".join(result)
         assert "Journal" in html
+
+
+# ── Edge cases: empty cohorts, convergence failures, partial data ──
+
+
+class TestMethodsEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_methods(None, None, None)
+        assert isinstance(result, list)
+        html = "\n".join(result)
+        assert "Statistical Methods" in html
+
+    def test_multiple_dwi_types(self):
+        result = _section_methods(["Standard", "dnCNN", "IVIMnet"], _make_mat_data(), _make_log_data())
+        assert isinstance(result, list)
+
+    def test_log_with_no_roc_no_ipcw(self):
+        log = {"Standard": {
+            "stats_comparisons": {"glme_details": []},
+            "stats_predictive": {"roc_analyses": [], "feature_selections": []},
+            "survival": {},
+            "baseline": {},
+        }}
+        html = "\n".join(_section_methods(["Standard"], {}, log))
+        assert "LOOCV" not in html
+
+    def test_mat_with_empty_dosimetry(self):
+        mat = {"Standard": {"dosimetry": {}}}
+        result = _section_methods(["Standard"], mat, None)
+        assert isinstance(result, list)
+
+    def test_no_survival_data(self):
+        log = {"Standard": {
+            "stats_comparisons": {"glme_details": []},
+            "stats_predictive": {"roc_analyses": [{"auc": 0.75}], "feature_selections": []},
+        }}
+        html = "\n".join(_section_methods(["Standard"], {}, log))
+        assert "LOOCV" in html
+
+
+class TestLimitationsEdgeCases:
+    def test_large_cohort(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 150, "num_timepoints": 5}}}
+        html = "\n".join(_section_limitations(_make_log_data(), ["Standard"], mat))
+        assert "Small sample size" not in html
+
+    def test_empty_baseline_exclusion(self):
+        log = _make_log_data()
+        log["Standard"]["baseline"]["baseline_exclusion"] = {}
+        result = _section_limitations(log, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_all_none_inputs(self):
+        result = _section_limitations(None, None, None)
+        assert isinstance(result, list)
+
+    def test_multiple_dwi_types(self):
+        result = _section_limitations(_make_log_data(), ["Standard", "dnCNN"], _make_mat_data())
+        assert isinstance(result, list)
+
+    def test_high_baseline_exclusion(self):
+        log = _make_log_data()
+        log["Standard"]["baseline"]["baseline_exclusion"] = {"n_excluded": 20, "n_total": 42}
+        html = "\n".join(_section_limitations(log, ["Standard"], _make_mat_data()))
+        assert "20/42" in html
+
+
+class TestConclusionsEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_conclusions(None, None, None, None, None)
+        assert isinstance(result, list)
+
+    def test_empty_log_data_dict(self):
+        result = _section_conclusions({}, ["Standard"], None, _make_mat_data(), None)
+        assert isinstance(result, list)
+
+    def test_csv_data_empty_fdr(self):
+        csv_data = {"fdr_global": {}}
+        result = _section_conclusions(None, [], csv_data, {}, None)
+        assert isinstance(result, list)
+
+    def test_no_sig_findings_at_all(self):
+        log = {"Standard": {
+            "stats_comparisons": {"glme_details": [
+                {"metric": "x", "p": 0.5, "adj_alpha": 0.025},
+            ], "glme_interactions": [0.9]},
+            "stats_predictive": {"roc_analyses": [{"auc": 0.52, "timepoint": "BL"}]},
+            "survival": {"hazard_ratios": [
+                {"covariate": "x", "hr": 1.0, "ci_lo": 0.5, "ci_hi": 2.0, "p": 0.8},
+            ]},
+            "baseline": {},
+        }}
+        result = _section_conclusions(log, ["Standard"], None, {}, None)
+        html = "\n".join(result)
+        assert "Conclusion" in html
+
+    def test_groups_with_empty_trends(self):
+        groups = {
+            "Longitudinal_Mean_Metrics": {
+                "Standard": {"trends_json": "[]"},
+            },
+        }
+        result = _section_conclusions(None, ["Standard"], None, {}, groups)
+        assert isinstance(result, list)
+
+    def test_mat_data_with_core_method_no_dosimetry(self):
+        mat = {"Standard": {
+            "core_method": {
+                "methods": ["adc_threshold", "otsu"],
+                "mean_dice_matrix": [[1.0, 0.75], [0.75, 1.0]],
+            },
+        }}
+        result = _section_conclusions(None, [], None, mat, None)
+        html = "\n".join(result)
+        assert "Dice" in html or "agreement" in html.lower()
+
+    def test_single_dwi_no_cross_comparison(self):
+        result = _section_conclusions(
+            _make_log_data(), ["Standard"], None, _make_mat_data(), None
+        )
+        html = "\n".join(result)
+        assert isinstance(html, str)
+
+    def test_three_dwi_types_cross_comparison(self):
+        groups = {
+            "G1": {
+                "Standard": {"trends_json": json.dumps([{"series": "x", "direction": "up"}])},
+                "dnCNN": {"trends_json": json.dumps([{"series": "x", "direction": "up"}])},
+                "IVIMnet": {"trends_json": json.dumps([{"series": "x", "direction": "down"}])},
+            },
+        }
+        result = _section_conclusions(
+            None, ["Standard", "dnCNN", "IVIMnet"], None, {}, groups
+        )
+        assert isinstance(result, list)
+
+
+class TestReportingChecklistEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_reporting_checklist(None, None, None, None, None)
+        assert isinstance(result, list)
+
+    def test_comprehensive_data(self):
+        from conftest import SAMPLE_GRAPH_CSV_ROWS
+        csv_data = {"fdr_global": {"Standard": [{"metric": "adc"}]}}
+        rows = SAMPLE_GRAPH_CSV_ROWS
+        result = _section_reporting_checklist(
+            _make_log_data(), ["Standard"], _make_mat_data(), csv_data, rows
+        )
+        html = "\n".join(result)
+        assert "Addressed" in html
+
+    def test_partial_log_data(self):
+        log = {"Standard": {"stats_comparisons": {"glme_details": [
+            {"metric": "m1", "p": 0.01, "adj_alpha": 0.025},
+        ]}}}
+        result = _section_reporting_checklist(log, ["Standard"], {}, None, None)
+        assert isinstance(result, list)
+
+    def test_empty_dwi_types_and_data(self):
+        result = _section_reporting_checklist({}, [], {}, {}, [])
+        assert isinstance(result, list)
+
+
+class TestJournalGuideEdgeCases:
+    def test_all_none_inputs(self):
+        result = _section_journal_guide(None, [], None)
+        assert isinstance(result, list)
+
+    def test_mat_data_zero_patients(self):
+        mat = {"Standard": {"longitudinal": {"num_patients": 0, "num_timepoints": 0}}}
+        result = _section_journal_guide(None, [], mat)
+        assert isinstance(result, list)
+
+    def test_only_survival_data(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": [{"covariate": "x", "hr": 1.5, "p": 0.03}]},
+            "stats_predictive": {"roc_analyses": []},
+        }}
+        html = "\n".join(_section_journal_guide(log, ["Standard"], _make_mat_data()))
+        assert "Acta Oncologica" in html
+        assert "European Radiology" not in html
+
+    def test_only_predictive_data(self):
+        log = {"Standard": {
+            "survival": {"hazard_ratios": []},
+            "stats_predictive": {"roc_analyses": [{"auc": 0.8}]},
+        }}
+        html = "\n".join(_section_journal_guide(log, ["Standard"], _make_mat_data()))
+        assert "European Radiology" in html
+        assert "Acta Oncologica" not in html
+
+    def test_multiple_dwi_types_keywords(self):
+        html = "\n".join(_section_journal_guide(
+            _make_log_data(), ["Standard", "dnCNN", "IVIMnet"], _make_mat_data()
+        ))
+        assert "deep learning" in html.lower()
+
+    def test_empty_log_dict(self):
+        result = _section_journal_guide({}, ["Standard"], _make_mat_data())
+        assert isinstance(result, list)

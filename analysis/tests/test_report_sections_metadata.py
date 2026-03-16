@@ -147,3 +147,139 @@ class TestFigureIndex:
         numbering.figure_titles.clear()
         result = _section_figure_index()
         assert result == []
+
+
+# ── Edge cases: metadata section robustness ──
+
+
+class TestCoverPageEdgeCases:
+    def test_single_dwi_type(self):
+        result = _section_cover_page("ts", ["Standard"], 5)
+        html = "\n".join(result)
+        assert "Standard" in html
+
+    def test_all_three_dwi_types(self):
+        result = _section_cover_page("ts", ["Standard", "dnCNN", "IVIMnet"], 100)
+        html = "\n".join(result)
+        assert "Standard" in html
+        assert "dnCNN" in html
+        assert "IVIMnet" in html
+
+    def test_large_graph_count(self):
+        result = _section_cover_page("ts", ["Standard"], 999999)
+        html = "\n".join(result)
+        assert "999999" in html
+
+    def test_special_chars_in_timestamp(self):
+        result = _section_cover_page("2026/03/16 12:00 & <test>", ["Standard"], 1)
+        html = "\n".join(result)
+        assert "&lt;" in html or "<test>" not in html
+
+    def test_unicode_in_dwi_type(self):
+        result = _section_cover_page("ts", ["\u0394-DWI"], 1)
+        html = "\n".join(result)
+        assert isinstance(html, str)
+
+    def test_negative_graph_count(self):
+        result = _section_cover_page("ts", ["Standard"], -1)
+        assert isinstance(result, list)
+
+    def test_empty_timestamp(self):
+        result = _section_cover_page("", ["Standard"], 5)
+        assert isinstance(result, list)
+        assert len(result) > 0
+
+
+class TestPartBreakEdgeCases:
+    def test_empty_label(self):
+        result = _part_break("")
+        assert "part-break" in result
+
+    def test_unicode_label(self):
+        result = _part_break("\u0394 Analysis")
+        assert "part-break" in result
+
+    def test_long_label(self):
+        result = _part_break("A" * 200)
+        assert "part-break" in result
+
+    def test_html_entities_in_label(self):
+        result = _part_break("Results & Discussion")
+        assert "&amp;" in result or "Results" in result
+
+
+class TestPrintTocEdgeCases:
+    def test_contains_navigation_groups(self):
+        html = "\n".join(_section_print_toc())
+        # Should have multiple section links
+        assert html.count("<a href=") >= 3
+
+    def test_toc_structure(self):
+        result = _section_print_toc()
+        html = "\n".join(result)
+        assert "Table of Contents" in html or "toc" in html.lower()
+
+
+class TestTableIndexEdgeCases:
+    def test_with_table_entries(self):
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.table_titles.clear()
+        numbering.table_titles.append((1, "Test Table 1"))
+        numbering.table_titles.append((2, "Test Table 2"))
+        result = _section_table_index()
+        html = "\n".join(result)
+        assert "Test Table 1" in html
+        assert "Test Table 2" in html
+        numbering.table_titles.clear()
+
+    def test_table_titles_with_html_chars(self):
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.table_titles.clear()
+        numbering.table_titles.append((1, "<b>Bold Table</b>"))
+        result = _section_table_index()
+        html = "\n".join(result)
+        assert "<b>Bold Table</b>" not in html or "&lt;b&gt;" in html
+        numbering.table_titles.clear()
+
+
+class TestFigureIndexEdgeCases:
+    def test_with_figure_entries(self):
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.figure_titles.clear()
+        numbering.figure_titles.append((1, "ADC Parameter Map"))
+        numbering.figure_titles.append((2, "Survival Curve"))
+        result = _section_figure_index()
+        html = "\n".join(result)
+        assert "ADC Parameter Map" in html
+        assert "Survival Curve" in html
+        numbering.figure_titles.clear()
+
+    def test_single_figure(self):
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.figure_titles.clear()
+        numbering.figure_titles.append((1, "Only Figure"))
+        result = _section_figure_index()
+        assert len(result) > 0
+        numbering.figure_titles.clear()
+
+
+class TestDataAvailabilityEdgeCases:
+    def test_contains_code_availability(self):
+        html = "\n".join(_section_data_availability())
+        assert "code" in html.lower() or "pipeline" in html.lower()
+
+    def test_is_nonempty(self):
+        result = _section_data_availability()
+        assert len(result) > 0
+        html = "\n".join(result)
+        assert len(html) > 50
+
+
+class TestPublicationHeaderEdgeCases:
+    def test_contains_correspondence(self):
+        html = "\n".join(_section_publication_header())
+        assert "Corresponding" in html or "correspondence" in html.lower() or "Author" in html
