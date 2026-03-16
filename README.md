@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-101%20MATLAB%20%2B%2022%20Python%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-95%20MATLAB%20%2B%2022%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -256,7 +256,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 101 test files covering:
+The test suite includes 95 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -394,13 +394,13 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (48 files)
+│   ├── utils/                      #   Helper utilities (52 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (101 test files)
+│   ├── tests/                      #   Test suite (95 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
