@@ -51,7 +51,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (92 test files)
+│   ├── tests/                          # Full test suite (93 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -260,6 +260,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_octave_shims.m` | Octave compatibility shims: nanmean, nanstd, contains, categorical, cvpartition, fitglme, nifti I/O, sgtitle, yline, spectralcluster, @table (Octave only) |
 
 ---
 

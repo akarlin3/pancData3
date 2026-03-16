@@ -256,7 +256,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 92 test files covering:
+The test suite includes 93 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -374,7 +374,7 @@ pancData3/
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (92 test files)
+│   ├── tests/                      #   Test suite (93 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
