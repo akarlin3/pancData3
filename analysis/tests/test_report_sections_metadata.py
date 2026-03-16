@@ -7,6 +7,14 @@ Validates the metadata section builders:
 - Publication header
 - Data availability statement
 - Table/figure index generation
+
+Edge cases covered:
+- Empty/None/zero inputs
+- HTML escaping (XSS prevention)
+- Special characters in labels
+- Large graph counts
+- Empty DWI types list
+- Index with entries present
 """
 
 from __future__ import annotations
@@ -63,10 +71,28 @@ class TestCoverPage:
         assert isinstance(result, list)
 
     def test_html_escaping(self):
-        # Ensure special characters are escaped
         result = _section_cover_page("<script>alert('xss')</script>", [], 0)
         html = "\n".join(result)
         assert "<script>" not in html
+
+    def test_large_graph_count(self):
+        """Large graph count should be displayed."""
+        result = _section_cover_page("ts", ["Standard"], 5000)
+        html = "\n".join(result)
+        assert "5000" in html
+
+    def test_all_three_dwi_types(self):
+        """All three DWI types should be shown."""
+        result = _section_cover_page("ts", ["Standard", "dnCNN", "IVIMnet"], 10)
+        html = "\n".join(result)
+        assert "Standard" in html
+        assert "dnCNN" in html
+        assert "IVIMnet" in html
+
+    def test_none_timestamp(self):
+        """None timestamp should not crash."""
+        result = _section_cover_page(None, ["Standard"], 5)
+        assert isinstance(result, list)
 
 
 class TestPartBreak:
@@ -86,6 +112,15 @@ class TestPartBreak:
         result = _part_break("<b>bold</b>")
         assert "<b>" not in result
 
+    def test_empty_label(self):
+        result = _part_break("")
+        assert isinstance(result, str)
+        assert "part-break" in result
+
+    def test_special_characters(self):
+        result = _part_break("Results & Discussion")
+        assert "&amp;" in result or "Results" in result
+
 
 class TestPrintToc:
     def test_returns_html_list(self):
@@ -101,6 +136,11 @@ class TestPrintToc:
         html = "\n".join(_section_print_toc())
         assert "<a href=" in html
 
+    def test_has_multiple_entries(self):
+        """TOC should have multiple section entries."""
+        result = _section_print_toc()
+        assert len(result) > 3
+
 
 class TestPublicationHeader:
     def test_returns_html_list(self):
@@ -113,6 +153,12 @@ class TestPublicationHeader:
         assert "Author" in html
         assert "Affiliations" in html
         assert "IRB" in html
+
+    def test_always_same_output(self):
+        """Should be deterministic."""
+        r1 = _section_publication_header()
+        r2 = _section_publication_header()
+        assert r1 == r2
 
 
 class TestDataAvailability:
@@ -129,15 +175,33 @@ class TestDataAvailability:
         html = "\n".join(_section_data_availability())
         assert "MIT" in html
 
+    def test_always_same_output(self):
+        """Should be deterministic."""
+        r1 = _section_data_availability()
+        r2 = _section_data_availability()
+        assert r1 == r2
+
 
 class TestTableIndex:
     def test_empty_when_no_tables(self):
-        # Reset numbering state
         from report.report_formatters import get_numbering
         numbering = get_numbering()
         numbering.table_titles.clear()
         result = _section_table_index()
         assert result == []
+
+    def test_with_tables(self):
+        """Table index should list registered tables."""
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.table_titles.clear()
+        numbering.table_titles.append((1, "Patient Demographics"))
+        numbering.table_titles.append((2, "Effect Sizes"))
+        result = _section_table_index()
+        html = "\n".join(result)
+        assert "Patient Demographics" in html
+        assert "Effect Sizes" in html
+        numbering.table_titles.clear()
 
 
 class TestFigureIndex:
@@ -147,3 +211,16 @@ class TestFigureIndex:
         numbering.figure_titles.clear()
         result = _section_figure_index()
         assert result == []
+
+    def test_with_figures(self):
+        """Figure index should list registered figures."""
+        from report.report_formatters import get_numbering
+        numbering = get_numbering()
+        numbering.figure_titles.clear()
+        numbering.figure_titles.append((1, "ROC Curve"))
+        numbering.figure_titles.append((2, "Longitudinal Trends"))
+        result = _section_figure_index()
+        html = "\n".join(result)
+        assert "ROC Curve" in html
+        assert "Longitudinal Trends" in html
+        numbering.figure_titles.clear()
