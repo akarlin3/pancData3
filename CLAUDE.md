@@ -67,7 +67,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (8 files)
-│   └── tests/                          # Python test suite — 23 test files, 720 tests (pytest)
+│   └── tests/                          # Python test suite — 26 test files, 768 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -380,16 +380,19 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 23 test files with 720 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 26 test files with 768 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
-| `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports |
+| `conftest.py` | Shared fixtures: synthetic saved_files directories, graph CSVs, log files, pipeline CSV exports, `make_tiny_png()` helper |
 | `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
 | `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening |
-| `test_generate_report.py` | Significance tags, section headers, full HTML report generation, data completeness, feature overlap, power analysis, manuscript findings, reporting checklist, table/figure index, copy helpers, BibTeX export, draft Results section, figure gallery, journal guide |
+| `test_generate_report_helpers.py` | Series normalization, significance tags, section headers, effect sizes, copy helpers, figure captions |
+| `test_generate_report_sections.py` | Forest plots, data completeness, feature overlap, power analysis, patient flow, sensitivity analysis, appendix, figure index/gallery |
+| `test_generate_report_manuscript.py` | Manuscript findings, effect sizes, reporting checklist, results draft, BibTeX, table index, journal guide |
+| `test_generate_report_integration.py` | Full report generation, data quality, Cox PH, correlations, new sections integration |
 | `test_interactive_report.py` | Interactive report: HTML escaping, DWI badges, significance classes, trend tags, patient extraction, core method extraction, section builders (overview, patient explorer, visualisations, significance, graph explorer, core comparison, dosimetry), Chart.js integration, JSON data blob, sidebar filters, sortable tables |
 | `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
