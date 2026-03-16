@@ -339,5 +339,91 @@ classdef test_fit_models < matlab.unittest.TestCase
                 'D should be all NaN with only 1 b-value above threshold.');
         end
 
+        function testMinimumBvaluesForIVIM(testCase)
+            % Exactly 2 b-values above threshold and 1 below: the minimum
+            % required for IVIM segmented fitting. Should produce IVIM
+            % output (not NaN).
+            bvals = [0; 200; 800];  % 1 below bthr=100, 2 above
+            S0 = 100; true_D = 1e-3; true_f = 0.12; true_Dstar = 15e-3;
+            sig = S0 * (true_f * exp(-bvals * true_Dstar) + ...
+                        (1 - true_f) * exp(-bvals * true_D));
+            dwi = repmat(reshape(sig, [1, 1, 1, 3]), [2, 2, 1, 1]);
+            mask = true(2, 2, 1);
+            opts.bthr = 100;
+
+            [d_map, ~, ~, ~] = fit_models(dwi, bvals, mask, opts);
+
+            % D should be computed (not NaN) with exactly 2 high-b values
+            testCase.verifyTrue(any(isfinite(d_map(:))), ...
+                'IVIM D should be computed with exactly 2 b-values above threshold.');
+        end
+
+        function testAllInvalidSignalReturnsNaNADC(testCase)
+            % When every voxel has at least one non-positive signal value,
+            % all ADC values should be NaN.
+            bvals = [0; 200; 800];
+            dwi = zeros(2, 2, 1, 3);
+            % All voxels have zero signal at b=800
+            dwi(:,:,:,1) = 100;
+            dwi(:,:,:,2) = 50;
+            dwi(:,:,:,3) = 0;
+
+            mask = true(2, 2, 1);
+            opts.bthr = 100;
+
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            testCase.verifyTrue(all(isnan(adc_map(mask))), ...
+                'All voxels with non-positive signal should have NaN ADC.');
+        end
+
+        function testHighNoiseADCRecovery(testCase)
+            % ADC should be recoverable from moderately noisy signal.
+            % Uses a realistic SNR scenario with known ground truth.
+            rng(42);
+            bvals = [0; 100; 200; 400; 800];
+            true_adc = 1.2e-3;
+            S0 = 200;
+            sig = S0 * exp(-bvals * true_adc);
+
+            % Create 4x4x1 volume with independent noise per voxel
+            Ny = 4; Nx = 4; Nz = 1;
+            dwi = zeros(Ny, Nx, Nz, numel(bvals));
+            for y = 1:Ny
+                for x = 1:Nx
+                    noise = 5 * randn(numel(bvals), 1);  % SNR ~40
+                    dwi(y, x, 1, :) = max(sig + noise, 1);  % floor at 1 to avoid log(0)
+                end
+            end
+            mask = true(Ny, Nx, Nz);
+            opts.bthr = 100;
+
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            % Mean ADC across voxels should be close to true value
+            mean_adc = nanmean(adc_map(:));
+            testCase.verifyEqual(mean_adc, true_adc, 'RelTol', 0.15, ...
+                'Mean ADC from noisy voxels should approximate ground truth.');
+        end
+
+        function testLargeMaskEvenVoxels(testCase)
+            % Large even-count mask should not require padding.
+            bvals = [0; 200; 800];
+            S0 = 100; true_adc = 1e-3;
+            sig = S0 * exp(-bvals * true_adc);
+
+            Ny = 10; Nx = 10; Nz = 1;
+            dwi = repmat(reshape(sig, [1, 1, 1, 3]), [Ny, Nx, Nz, 1]);
+            mask = true(Ny, Nx, Nz);  % 100 voxels (even)
+            opts.bthr = 100;
+
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            testCase.verifyEqual(size(adc_map), [Ny, Nx], ...
+                'Large mask output should match spatial dimensions.');
+            testCase.verifyTrue(all(isfinite(adc_map(mask))), ...
+                'All voxels in large mask should have finite ADC.');
+        end
+
     end
 end

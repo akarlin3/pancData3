@@ -211,6 +211,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_safe_load_mask.m` | Secure mask file loading |
 | `test_escape_shell_arg.m` | Cross-platform shell argument escaping |
 | `test_visualize_smoke.m` | Visualization output smoke tests |
+| `test_fit_models.m` | IVIM + ADC model fitting (dimensions, padding, b-value validation, known value recovery) |
 | `test_core_methods.m` | Tumor core extraction method validation (all 11 methods) |
 | `test_new_core_methods.m` | Detailed tests for percentile, spectral, and fDM core methods |
 | `test_compute_dice_hausdorff.m` | Dice/Hausdorff distance computation tests |
