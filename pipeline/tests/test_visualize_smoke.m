@@ -295,5 +295,71 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             % A saved_files_* directory should have been created somewhere
             % We just verify it doesn't crash.
         end
+
+        function testMultipleDwiTypes(testCase)
+            % When multiple DWI types are configured, visualize_results
+            % should generate separate distribution and scatter plots
+            % for each type.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+
+            sm = testCase.SummaryMetrics;
+            % Expand metrics to 3 DWI types (Standard, dnCNN, IVIMnet)
+            sm.adc_mean = repmat(sm.adc_mean, [1 1 3]);
+            sm.d_mean = repmat(sm.d_mean, [1 1 3]);
+            sm.f_mean = repmat(sm.f_mean, [1 1 3]);
+            sm.dstar_mean = repmat(sm.dstar_mean, [1 1 3]);
+
+            config = testCase.ConfigStruct;
+            config.dwi_types_to_run = [1, 2];
+
+            visualize_results(testCase.DataVectors, sm, testCase.CalculatedResults, config);
+
+            outputDir = config.output_folder;
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Feature_Histograms_Standard.png'), 'file') > 0, ...
+                'Standard histograms should be created.');
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Feature_Histograms_dnCNN.png'), 'file') > 0, ...
+                'dnCNN histograms should be created.');
+        end
+
+        function testDiaryContentNonEmpty(testCase)
+            % Diary log file should contain actual content (not just empty).
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+            diary off;
+
+            diary_file = fullfile(testCase.ConfigStruct.output_folder, 'visualize_results_output.txt');
+            if exist(diary_file, 'file')
+                fid = fopen(diary_file, 'r');
+                content = fread(fid, '*char')';
+                fclose(fid);
+                testCase.verifyGreaterThan(length(content), 10, ...
+                    'Diary file should contain meaningful content.');
+            end
+        end
+
+        function testValidPtsFilteringAllNaNADC(testCase)
+            % When all patients have NaN ADC at baseline, distributions
+            % should still complete (empty valid set, no crash).
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+
+            sm = testCase.SummaryMetrics;
+            sm.adc_mean = NaN;  % All NaN baseline ADC
+            sm.lf = [0];       % Finite LF
+
+            visualize_results(testCase.DataVectors, sm, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            testCase.verifyTrue(isfolder(testCase.ConfigStruct.output_folder), ...
+                'Output folder should exist even with all-NaN baseline ADC.');
+        end
+
+        function testScatterPlotsCreated(testCase)
+            % Explicitly verify dose-diffusion scatter plots are created.
+            if exist('OCTAVE_VERSION', 'builtin'); return; end
+            visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
+
+            outputDir = testCase.ConfigStruct.output_folder;
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Dose_vs_Diffusion_Standard.png'), 'file') > 0, ...
+                'Dose_vs_Diffusion_Standard.png should be created.');
+        end
     end
 end
