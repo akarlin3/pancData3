@@ -552,6 +552,24 @@ else
     schoenfeld_results = struct('violated', false(td_n_feat, 1), 'p_value', nan(td_n_feat, 1));
 end
 
+% ---- Time-Varying Cox Model (PH Violation Follow-Up) ---------------------
+% When Schoenfeld residuals detect PH violations, fit stratified and
+% extended Cox models as follow-up analysis.
+fit_tv_cox = true;
+if isfield(config_struct_internal, 'fit_time_varying_cox')
+    fit_tv_cox = config_struct_internal.fit_time_varying_cox;
+end
+
+if fit_tv_cox && any(schoenfeld_results.violated)
+    try
+        tv_results = fit_time_varying_cox(X_td_global, t_start_td, t_stop_td, ...
+            event_td_csh, td_feat_names, schoenfeld_results, ...
+            output_folder, dtype_label, config_struct_internal);
+    catch ME_tv
+        fprintf('  ⚠️  Time-varying Cox model failed: %s\n', ME_tv.message);
+    end
+end
+
 % ---- Fine-Gray Subdistribution Hazard Model ------------------------------
 % Complement to the CSH model above. The Fine-Gray model estimates the
 % subdistribution hazard ratio (sHR) for local failure (event=1) with

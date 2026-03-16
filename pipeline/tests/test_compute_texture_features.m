@@ -63,21 +63,24 @@ classdef test_compute_texture_features < matlab.unittest.TestCase
         end
 
         function testOutputFieldCount(testCase)
-            % Verify the output struct has all expected fields.
+            % Verify the output struct has all expected fields (now 24).
             img = rand(20, 20);
             mask = true(20, 20);
 
             features = compute_texture_features(img, mask);
 
-            expected_fields = {'energy', 'entropy', 'kurtosis', 'skewness', ...
+            expected_fields = {'energy', 'uniformity', 'entropy', 'kurtosis', 'skewness', ...
                 'p10', 'p90', 'iqr', 'mad', 'rmad', ...
-                'glcm_contrast', 'glcm_correlation', 'glcm_energy', 'glcm_homogeneity'};
+                'glcm_contrast', 'glcm_correlation', 'glcm_energy', 'glcm_homogeneity', ...
+                'glrlm_sre', 'glrlm_lre', 'glrlm_gln', 'glrlm_rln', 'glrlm_rp', ...
+                'shape_volume', 'shape_surface_area', 'shape_sphericity', ...
+                'shape_elongation', 'shape_compactness'};
             for i = 1:length(expected_fields)
                 testCase.verifyTrue(isfield(features, expected_fields{i}), ...
                     sprintf('Missing field: %s', expected_fields{i}));
             end
-            testCase.verifyEqual(length(fieldnames(features)), 13, ...
-                'Should have exactly 13 texture features.');
+            testCase.verifyEqual(length(fieldnames(features)), 24, ...
+                'Should have exactly 24 texture features.');
         end
 
         function test3DInput(testCase)
@@ -115,6 +118,89 @@ classdef test_compute_texture_features < matlab.unittest.TestCase
             testCase.verifyGreaterThan(features.entropy, 0, 'Entropy should be positive.');
             testCase.verifyTrue(isfinite(features.iqr), 'IQR should be finite.');
             testCase.verifyTrue(features.p90 > features.p10, 'P90 should exceed P10.');
+            testCase.verifyTrue(isfinite(features.uniformity), 'Uniformity should be finite.');
+        end
+
+        function testCheckerboardGLRLM(testCase)
+            % Checkerboard pattern: all runs should be length 1, so
+            % SRE should be high (near 1) and LRE should be low (near 1).
+            img = zeros(64, 64);
+            for i = 1:64
+                for j = 1:64
+                    if mod(i + j, 2) == 0
+                        img(i, j) = 1;
+                    end
+                end
+            end
+            mask = true(64, 64);
+            features = compute_texture_features(img, mask, 32);
+
+            testCase.verifyGreaterThan(features.glrlm_sre, 0.8, ...
+                'Checkerboard should have high SRE (all runs length 1).');
+            testCase.verifyLessThan(features.glrlm_lre, 2.0, ...
+                'Checkerboard should have low LRE (all runs length 1).');
+        end
+
+        function testSphereMaskSphericity(testCase)
+            % A sphere mask should have sphericity near 1.0.
+            sz = 51;
+            center = (sz + 1) / 2;
+            radius = 20;
+            mask = false(sz, sz, sz);
+            for x = 1:sz
+                for y = 1:sz
+                    for z = 1:sz
+                        if (x-center)^2 + (y-center)^2 + (z-center)^2 <= radius^2
+                            mask(x,y,z) = true;
+                        end
+                    end
+                end
+            end
+            img = rand(sz, sz, sz);
+            features = compute_texture_features(img, mask, 16, [1 1 1]);
+
+            testCase.verifyGreaterThan(features.shape_sphericity, 0.8, ...
+                'Sphere mask should have sphericity near 1.0.');
+            testCase.verifyLessThanOrEqual(features.shape_sphericity, 1.0 + 0.05, ...
+                'Sphericity should not exceed 1.0 significantly.');
+        end
+
+        function testElongatedEllipsoidLowSphericity(testCase)
+            % An elongated ellipsoid should have low sphericity.
+            sz_x = 10; sz_y = 10; sz_z = 60;
+            mask = false(sz_x, sz_y, sz_z);
+            cx = 5; cy = 5; cz = 30;
+            rx = 3; ry = 3; rz = 25;
+            for x = 1:sz_x
+                for y = 1:sz_y
+                    for z = 1:sz_z
+                        if ((x-cx)/rx)^2 + ((y-cy)/ry)^2 + ((z-cz)/rz)^2 <= 1
+                            mask(x,y,z) = true;
+                        end
+                    end
+                end
+            end
+            img = rand(sz_x, sz_y, sz_z);
+            features = compute_texture_features(img, mask, 16, [1 1 1]);
+
+            testCase.verifyLessThan(features.shape_sphericity, 0.8, ...
+                'Elongated ellipsoid should have low sphericity.');
+        end
+
+        function testShapeVolumePhysicalUnits(testCase)
+            % Volume should scale with voxel spacing.
+            mask = true(10, 10, 10);  % 1000 voxels
+            img = rand(10, 10, 10);
+
+            % Unit spacing
+            f1 = compute_texture_features(img, mask, 16, [1 1 1]);
+            testCase.verifyEqual(f1.shape_volume, 1000, 'AbsTol', 1e-6, ...
+                'Volume should be 1000 mm^3 at unit spacing.');
+
+            % 2mm spacing
+            f2 = compute_texture_features(img, mask, 16, [2 2 2]);
+            testCase.verifyEqual(f2.shape_volume, 8000, 'AbsTol', 1e-6, ...
+                'Volume should be 8000 mm^3 at 2mm spacing.');
         end
 
     end

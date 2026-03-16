@@ -4,7 +4,7 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
     m_d95_gtvp, m_v50gy_gtvp, ...
     d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
     d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, ...
-    adc_kurt, adc_skew)
+    adc_kurt, adc_skew, auxiliary_features, auxiliary_feature_names)
 % ASSEMBLE_PREDICTIVE_FEATURES  Build the feature matrix for elastic net.
 %
 %   Assembles candidate features from baseline covariates (Fx1 absolute
@@ -12,6 +12,8 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
 %   dose features.  Post-treatment timepoints exclude dose columns.
 %   When kurtosis and skewness arrays are provided, they are appended as
 %   columns 23-24 (yielding a 24-column matrix before NaN removal).
+%   Optional auxiliary features (e.g., biomarkers) are appended after
+%   the radiomics columns when provided.
 %   All-NaN columns are removed.
 %
 % Inputs:
@@ -21,8 +23,10 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
 %   fx_label               - Label for the current fraction (for error messages)
 %   output_folder          - Output folder path (for debug file on error)
 %   ADC_abs ... v50_dstar_sub - Parameter arrays (n_patients x nTp)
-%   adc_kurt               - (Optional) ADC kurtosis (n_patients x nTp)
-%   adc_skew               - (Optional) ADC skewness (n_patients x nTp)
+%   adc_kurt               - (Optional, arg 23) ADC kurtosis (n_patients x nTp)
+%   adc_skew               - (Optional, arg 24) ADC skewness (n_patients x nTp)
+%   auxiliary_features     - (Optional, arg 25) [n_patients x n_aux] auxiliary features
+%   auxiliary_feature_names - (Optional, arg 26) {1 x n_aux} cell array of names
 %
 % Outputs:
 %   X_lasso_all             - Feature matrix with all-NaN columns removed
@@ -76,6 +80,13 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
                        adc_skew(valid_pts, target_fx)];
         feat_names_lasso = [feat_names_lasso, 'ADC_Kurt', 'ADC_Skew'];
         n_base_features = 24;
+    end
+
+    % Append auxiliary features if provided (e.g., ctDNA, PET SUV, genomic)
+    if nargin >= 26 && ~isempty(auxiliary_features) && ~isempty(auxiliary_feature_names)
+        X_lasso_all = [X_lasso_all, auxiliary_features(valid_pts, :)];
+        feat_names_lasso = [feat_names_lasso, auxiliary_feature_names(:)'];
+        n_base_features = n_base_features + size(auxiliary_features, 2);
     end
 
     % Track original column positions through filtering so we can map

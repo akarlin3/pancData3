@@ -195,6 +195,45 @@ def _section_model_diagnostics(log_data, dwi_types_present, mat_data) -> list[st
                 )
             h.append("</tbody></table>")
 
+    # ── Decision Curve Analysis ──
+    if log_data:
+        dca_found = False
+        for dwi_type in dwi_types_present:
+            if dwi_type not in log_data:
+                continue
+            sp = log_data[dwi_type].get("stats_predictive", {})
+            dca = sp.get("decision_curve")
+            if not dca:
+                continue
+
+            if not dca_found:
+                h.append("<h3>Decision Curve Analysis</h3>")
+                h.append(
+                    '<p class="meta">Decision curve analysis evaluates clinical '
+                    'utility by computing net benefit across a range of threshold '
+                    'probabilities. A model provides clinical value at thresholds '
+                    'where its net benefit exceeds both the treat-all and treat-none '
+                    'default strategies.</p>'
+                )
+                dca_found = True
+            diagnostics_found = True
+
+            useful_lo = dca.get("useful_range_lo", float("nan"))
+            useful_hi = dca.get("useful_range_hi", float("nan"))
+            h.append(f"<h4>{_dwi_badge(dwi_type)}</h4>")
+            if isinstance(useful_lo, (int, float)) and isinstance(useful_hi, (int, float)):
+                h.append(
+                    f'<p>The model provides positive net benefit over default strategies '
+                    f'at threshold probabilities between <strong>{useful_lo:.2f}</strong> '
+                    f'and <strong>{useful_hi:.2f}</strong>, indicating clinical utility '
+                    f'for patients with this range of prior risk estimates.</p>'
+                )
+            else:
+                h.append(
+                    '<p>Decision curve analysis data available but threshold range '
+                    'could not be extracted from log outputs.</p>'
+                )
+
     # General assumptions note
     h.append("<h3>Assumptions and Caveats</h3>")
     h.append('<div class="methods-box">')
