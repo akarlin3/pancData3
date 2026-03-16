@@ -69,7 +69,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (16 files)
-│   └── tests/                          # Python test suite — 23 test files, 760 tests (pytest)
+│   └── tests/                          # Python test suite — 28 test files, 1164 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -389,7 +389,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 
-**Python Test Suite (pytest):** 23 test files with 760 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 28 test files with 1164 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -398,7 +398,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
 | `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening |
-| `test_generate_report.py` | Significance tags, section headers, full HTML report generation, data completeness, feature overlap, power analysis, manuscript findings, reporting checklist, table/figure index, copy helpers, BibTeX export, draft Results section, figure gallery, journal guide |
+| `test_generate_report_helpers.py` | Formatting helpers: series normalization, significance tags, section headers, effect sizes, copy buttons, figure captions |
+| `test_generate_report_integration.py` | Full HTML report generation, data quality, Cox PH direction, correlations, new sections integration |
+| `test_generate_report_manuscript.py` | Manuscript findings, reporting checklist, table/figure index, BibTeX export, results draft, journal guide |
+| `test_generate_report_sections.py` | Section builders: forest plots, data completeness, feature overlap, power analysis, patient flow, sensitivity, appendix, figure gallery |
 | `test_interactive_report.py` | Interactive report: HTML escaping, DWI badges, significance classes, trend tags, patient extraction, core method extraction, section builders (overview, patient explorer, visualisations, significance, graph explorer, core comparison, dosimetry), Chart.js integration, JSON data blob, sidebar filters, sortable tables |
 | `test_treatment_plan.py` | Suggested treatment plan: core recommendations, survival/predictive integration, timing guidance, backward compatibility |
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
@@ -417,7 +420,9 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_statistical_relevance.py` | Statistical findings: p-value extraction, Bonferroni correction, significance markers, correlations, cross-DWI comparison |
 | `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
-For the full list of 92 MATLAB test files and 23 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
+| `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
+For the full list of 92 MATLAB test files and 28 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 

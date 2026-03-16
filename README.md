@@ -3,7 +3,7 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-93%20MATLAB%20%2B%2024%20Python%20files-brightgreen)](#running-tests)
+[![Tests](https://img.shields.io/badge/tests-93%20MATLAB%20%2B%2028%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
@@ -369,7 +369,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (760 tests across 23 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (1164 tests across 28 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -426,7 +426,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (23 test files, 760 tests)
+│   └── tests/                      #   Python test suite (28 test files, 1164 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
