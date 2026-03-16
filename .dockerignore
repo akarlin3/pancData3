@@ -1,0 +1,46 @@
+# Version control
+.git
+.gitignore
+
+# Patient data and clinical files (PHI — never include in images)
+*.nii
+*.nii.gz
+*.dcm
+*.h5
+*.xlsx
+*.csv
+
+# Pipeline output folders
+saved_files_*
+
+# Runtime configuration (must be mounted at runtime)
+config.json
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+
+# MATLAB autosave / temporary files
+*.asv
+*.m~
+*.mex*
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation not needed in image
+*.md
+!analysis/requirements.txt
+LICENSE
+CITATION.cff
+CONTRIBUTING.md
+CHANGELOG.md

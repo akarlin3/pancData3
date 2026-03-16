@@ -91,6 +91,22 @@ Then in MATLAB:
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 ```
 
+### Docker
+
+For reproducible containerized execution, see the [Docker usage guide](docs/DOCKER.md).
+
+```bash
+# Build the image
+docker build -t pancdata3:latest .
+
+# Run the full pipeline
+docker run --rm \
+  -v /path/to/patient_data:/opt/pancData3/data:ro \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest pipeline
+```
+
 ---
 
 ## Configuration
@@ -385,6 +401,13 @@ cd analysis/tests && python -m pytest -v
 ```
 pancData3/
 ├── config.example.json             # Configuration template
+├── Dockerfile                      # Multi-stage Docker build
+├── docker-compose.yml              # Pipeline + analysis services
+├── .dockerignore                   # Docker build exclusions
+├── docker/                         # Docker support files
+│   └── entrypoint.sh              #   Container entrypoint script
+├── docs/                           # Additional documentation
+│   └── DOCKER.md                  #   Docker usage guide
 ├── pipeline/                       # MATLAB pipeline
 │   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
 │   ├── execute_all_workflows.m     #   Sequential multi-type runner
