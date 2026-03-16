@@ -161,10 +161,24 @@ The container entrypoint (`docker/entrypoint.sh`) accepts these modes:
 | `analysis` | `docker run ... pancdata3 analysis` | Run the Python analysis suite only |
 | `all` | `docker run ... pancdata3 all` | Run pipeline, then analysis (default) |
 
+### Flags
+
+| Flag | Command | Description |
+|---|---|---|
+| `--dry-run` | `docker run ... pancdata3 --dry-run pipeline` | Run only pre-flight checks without executing the pipeline or analysis |
+
+The `--dry-run` flag must appear **before** the mode argument. It validates the environment (config, data volumes, MATLAB Runtime, Python) and exits without running the actual pipeline or analysis. This is useful for verifying that a Docker setup is correct before committing to a full run.
+
+### Pre-flight Checks
+
 The entrypoint validates that:
 1. `config.json` exists at `/opt/pancData3/config.json`
 2. `/opt/pancData3/data` is mounted and non-empty (pipeline mode only)
 3. `/opt/pancData3/output` directory exists (creates it if missing)
+4. **MATLAB Runtime** is functional — runs `matlab -batch "disp('OK')"` (or verifies `MCR_ROOT` and the compiled binary exist)
+5. **Python 3.12** is available and executable
+
+If a pre-flight check fails, a clear error message is printed with troubleshooting guidance.
 
 ---
 
@@ -194,6 +208,21 @@ Ensure your data directory is correctly mounted and contains patient folders:
 ```bash
 -v /path/to/patient_data:/opt/pancData3/data:ro
 ```
+
+### MATLAB Runtime pre-flight fails
+
+Run with `--dry-run` to isolate the issue:
+```bash
+docker run --rm \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  -v /path/to/patient_data:/opt/pancData3/data:ro \
+  pancdata3:latest --dry-run pipeline
+```
+
+Common causes:
+- **License missing/expired**: Ensure valid MATLAB license is configured
+- **MCR_ROOT not set**: The `MCR_ROOT` env var must point to the MATLAB Runtime installation
+- **Corrupted installation**: Rebuild the Docker image from scratch
 
 ### MATLAB Runtime errors
 
