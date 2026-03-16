@@ -668,75 +668,7 @@ end
 
 end
 
-function result = nanmean_safe(v)
-% NANMEAN_SAFE — Octave-compatible NaN-ignoring mean.
-% MATLAB's nanmean is in the Statistics Toolbox; Octave may lack it.
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = mean(tmp);
-    end
-else
-    result = nanmean(v);
-end
-end
-
-function result = nanstd_safe(v)
-% NANSTD_SAFE — Octave-compatible NaN-ignoring standard deviation.
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = std(tmp);
-    end
-else
-    result = nanstd(v);
-end
-end
-
-function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
-% COMPUTE_KURT_SKEW — Compute kurtosis and skewness with minimum sample guard.
-% Returns NaN if the number of finite voxels is below min_vox_hist, because
-% higher-order moments are unreliable with too few data points (kurtosis
-% formally requires n >= 4, but practical stability needs more).
-kurt_val = NaN;
-skew_val = NaN;
-if numel(v) >= min_vox_hist
-    v_finite = v(~isnan(v));
-    if numel(v_finite) >= min_vox_hist
-        kurt_val = kurtosis(v_finite);
-        skew_val = skewness(v_finite);
-    end
-end
-end
-
-function p1 = compute_histogram_laplace(vec, bin_edges)
-% COMPUTE_HISTOGRAM_LAPLACE — Laplace-smoothed probability distribution.
-% Adds 1 pseudo-count per bin (Laplace smoothing / additive smoothing) to
-% prevent zero-probability bins that would cause log(0) = -Inf in KL
-% divergence or other information-theoretic comparisons.  The smoothing
-% has negligible effect when n_binned >> nbins (typical for >100 voxels).
-if exist('OCTAVE_VERSION', 'builtin')
-    vec_f = vec(~isnan(vec));
-    c1 = histc(vec_f, bin_edges);
-    % histc includes a count for exact matches of the last edge; merge it
-    % into the penultimate bin to match histcounts behavior.
-    c1(end-1) = c1(end-1) + c1(end);
-    c1 = c1(1:end-1);
-else
-    [c1, ~] = histcounts(vec, bin_edges);
-end
-n_binned = sum(c1);
-nbins = length(c1);
-if n_binned > 0
-    % Laplace smoothing: P(bin) = (count + 1) / (total + n_bins)
-    p1 = (c1 + 1) / (n_binned + nbins);
-else
-    p1 = zeros(size(c1));
-end
-end
-
-% select_dwi_vectors is now a shared utility in utils/select_dwi_vectors.m
+% Local helper functions (nanmean_safe, nanstd_safe, compute_kurt_skew,
+% compute_histogram_laplace) have been extracted to pipeline/utils/ as
+% shared utilities used by compute_adc_metrics.m and compute_ivim_metrics.m.
+% select_dwi_vectors is also a shared utility in utils/select_dwi_vectors.m.

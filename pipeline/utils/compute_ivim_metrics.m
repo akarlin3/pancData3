@@ -142,65 +142,7 @@ ivim_out.dstar_mean_val = nanmean_safe(dstar_vec);
 
 end
 
-%% --- Local helper functions (duplicated from compute_summary_metrics.m) ---
-% Duplicated for parfor transparency (see compute_adc_metrics.m for rationale).
-
-function result = nanmean_safe(v)
-% NaN-safe mean with Octave compatibility
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = mean(tmp);
-    end
-else
-    result = nanmean(v);
-end
-end
-
-function result = nanstd_safe(v)
-% NaN-safe standard deviation with Octave compatibility
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = std(tmp);
-    end
-else
-    result = nanstd(v);
-end
-end
-
-function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
-% Kurtosis and skewness with minimum voxel count guard
-kurt_val = NaN;
-skew_val = NaN;
-if numel(v) >= min_vox_hist
-    v_finite = v(~isnan(v));
-    if numel(v_finite) >= min_vox_hist
-        kurt_val = kurtosis(v_finite);
-        skew_val = skewness(v_finite);
-    end
-end
-end
-
-function p1 = compute_histogram_laplace(vec, bin_edges)
-% Laplace-smoothed (add-one) histogram; see compute_adc_metrics.m for details
-if exist('OCTAVE_VERSION', 'builtin')
-    vec_f = vec(~isnan(vec));
-    c1 = histc(vec_f, bin_edges);
-    c1(end-1) = c1(end-1) + c1(end);
-    c1 = c1(1:end-1);
-else
-    [c1, ~] = histcounts(vec, bin_edges);
-end
-n_binned = sum(c1);
-nbins = length(c1);
-if n_binned > 0
-    p1 = (c1 + 1) / (n_binned + nbins);
-else
-    p1 = zeros(size(c1));
-end
-end
+% Local helper functions (nanmean_safe, nanstd_safe, compute_kurt_skew,
+% compute_histogram_laplace) have been extracted to pipeline/utils/ as
+% shared utilities. These functions are on the MATLAB path and are
+% accessible from within parfor loops as standalone .m files.

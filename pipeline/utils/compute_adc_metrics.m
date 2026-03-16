@@ -188,72 +188,7 @@ end
 
 end
 
-%% --- Local helper functions (duplicated from compute_summary_metrics.m) ---
-% These are duplicated rather than shared because this function is called
-% inside parfor loops, where subfunctions in external files cause
-% transparency issues with MATLAB's parallel execution engine.
-
-function result = nanmean_safe(v)
-% NaN-safe mean with Octave compatibility (Octave lacks nanmean in base)
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = mean(tmp);
-    end
-else
-    result = nanmean(v);
-end
-end
-
-function result = nanstd_safe(v)
-% NaN-safe standard deviation with Octave compatibility
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = std(tmp);
-    end
-else
-    result = nanstd(v);
-end
-end
-
-function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
-% Compute kurtosis and skewness only if the voxel count exceeds
-% min_vox_hist; with too few voxels, higher-order moments are unreliable.
-kurt_val = NaN;
-skew_val = NaN;
-if numel(v) >= min_vox_hist
-    v_finite = v(~isnan(v));
-    if numel(v_finite) >= min_vox_hist
-        kurt_val = kurtosis(v_finite);
-        skew_val = skewness(v_finite);
-    end
-end
-end
-
-function p1 = compute_histogram_laplace(vec, bin_edges)
-% Compute a Laplace-smoothed (add-one) histogram.
-% Laplace smoothing adds 1 to each bin count and normalizes by
-% (total + n_bins), ensuring no bin has zero probability. This is
-% critical for downstream KL-divergence and entropy calculations.
-if exist('OCTAVE_VERSION', 'builtin')
-    % Octave uses histc instead of histcounts; merge the last edge bin
-    vec_f = vec(~isnan(vec));
-    c1 = histc(vec_f, bin_edges);
-    c1(end-1) = c1(end-1) + c1(end);  % histc includes an extra edge bin
-    c1 = c1(1:end-1);
-else
-    [c1, ~] = histcounts(vec, bin_edges);
-end
-n_binned = sum(c1);
-nbins = length(c1);
-if n_binned > 0
-    p1 = (c1 + 1) / (n_binned + nbins);  % Laplace (add-one) smoothing
-else
-    p1 = zeros(size(c1));
-end
-end
+% Local helper functions (nanmean_safe, nanstd_safe, compute_kurt_skew,
+% compute_histogram_laplace) have been extracted to pipeline/utils/ as
+% shared utilities. These functions are on the MATLAB path and are
+% accessible from within parfor loops as standalone .m files.
