@@ -269,6 +269,8 @@ run('pipeline/tests/run_all_tests.m')
 | `test_select_dwi_vectors.m` | DWI vector extraction: Standard/dnCNN/IVIMnet field selection, 3D struct indexing |
 | `test_parfor_progress.m` | Parfor progress: callback factory, independent counters, argument handling |
 | `test_write_sentinel_file.m` | Sentinel files: path construction, message content, overwrite, invalid path warning |
+| `test_execute_all_workflows.m` | Workflow orchestrator: config mutation/restoration, step sequencing, compare_cores injection, sentinel creation |
+| `test_data_integrity_check.m` | Pre-pipeline data integrity: missing fractions/DWI/GTV/dose severity, patient filtering, report struct |
 
 ---
 
@@ -365,7 +367,7 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
 
-**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
+**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint` plus system-level Cairo, Pango, and GDK-PixBuf libraries (see README for platform-specific installation); all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
 **Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
