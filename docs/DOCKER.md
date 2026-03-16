@@ -147,7 +147,8 @@ docker run --rm \
 | `OUTPUT_DIR` | No (compose) | `./output` | Host path for pipeline output |
 | `CONFIG_FILE` | No (compose) | `./config.json` | Host path to `config.json` |
 | `GEMINI_API_KEY` | No | — | Google Gemini API key for vision-based graph analysis |
-| `MCR_ROOT` | No | `/opt/matlabruntime/R2024a` | MATLAB Runtime installation path (set automatically) |
+| `MCR_ROOT` | No | `/opt/matlabruntime/${MCR_VERSION}` | MATLAB Runtime installation path (set automatically) |
+| `MCR_VERSION` | No | `r2024a` | MATLAB Runtime version (set from build arg; see [MATLAB Runtime Version](#matlab-runtime-version)) |
 
 ---
 
@@ -165,6 +166,36 @@ The entrypoint validates that:
 1. `config.json` exists at `/opt/pancData3/config.json`
 2. `/opt/pancData3/data` is mounted and non-empty (pipeline mode only)
 3. `/opt/pancData3/output` directory exists (creates it if missing)
+
+---
+
+## MATLAB Runtime Version
+
+The Docker image includes a specific version of the MATLAB Compiler Runtime (MCR). **The MCR version must exactly match the MATLAB version used to compile the pipeline binary.** A version mismatch will cause runtime errors when executing the compiled pipeline.
+
+### Default version
+
+The default MCR version is `r2024a`, defined by the `MCR_VERSION` build argument in the `Dockerfile`. The expected version is also recorded in the `.matlab_version` file at the repository root.
+
+### Changing the MCR version
+
+If the pipeline binary was compiled with a different MATLAB version, override the build argument:
+
+```bash
+docker build --build-arg MCR_VERSION=r2023b -t pancdata3:latest .
+```
+
+Then update `.matlab_version` in the repository root to match:
+
+```bash
+echo "r2023b" > .matlab_version
+```
+
+Available MCR versions correspond to tags on the `mathworks/matlab-runtime` Docker Hub image (e.g., `r2023a`, `r2023b`, `r2024a`).
+
+### Runtime version check
+
+On startup, the entrypoint script prints the installed MCR version and compares it against the `.matlab_version` file baked into the image. If there is a mismatch, a warning is displayed with the correct `docker build` command to fix it. This catches cases where the image was built with one MCR version but the repository expects another (e.g., after upgrading the pipeline compiler).
 
 ---
 
@@ -197,7 +228,7 @@ Ensure your data directory is correctly mounted and contains patient folders:
 
 ### MATLAB Runtime errors
 
-The container uses MATLAB Runtime R2024a. Ensure your compiled pipeline is compatible with this version. If running uncompiled `.m` files, a full MATLAB installation is required (not included in the Runtime image).
+The container uses MATLAB Runtime at the version specified by the `MCR_VERSION` build argument (default: `r2024a`). Ensure your compiled pipeline is compatible with this version — see [MATLAB Runtime Version](#matlab-runtime-version). If running uncompiled `.m` files, a full MATLAB installation is required (not included in the Runtime image).
 
 ### WeasyPrint PDF generation fails
 
