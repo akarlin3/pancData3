@@ -299,6 +299,9 @@ python analysis/run_analysis.py --folder saved_files_20260308_010713
 # Skip pre-flight checks (requirements verification and test suite)
 python analysis/run_analysis.py --skip-checks
 
+# Generate interactive report with client-side filtering and Chart.js charts
+python analysis/run_analysis.py --interactive
+
 # Individual scripts can still be run standalone
 python analysis/parsers/batch_graph_analysis.py
 python analysis/parsers/parse_log_metrics.py [saved_files_path]
@@ -338,7 +341,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (653 tests across 22 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (701 tests across 23 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -392,8 +395,10 @@ pancData3/
 │   │   ├── generate_report.py      #     HTML+PDF report generator
 │   │   ├── report_formatters.py    #     Formatting utilities
 │   │   ├── report_constants.py     #     CSS, JS, references, HTML template
+│   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
+│   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (22 test files, 653 tests)
+│   └── tests/                      #   Python test suite (23 test files, 701 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

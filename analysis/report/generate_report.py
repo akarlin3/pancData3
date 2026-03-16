@@ -639,6 +639,7 @@ def main():
 
     skip_pdf = "--no-pdf" in sys.argv
     skip_html = "--no-html" in sys.argv
+    gen_interactive = "--interactive" in sys.argv
 
     html_report = generate_report(folder)
 
@@ -655,6 +656,15 @@ def main():
         if html_to_pdf(html_report, pdf_path):
             print(f"  PDF written: {pdf_path}")
             print(f"  Size: {pdf_path.stat().st_size / 1024:.0f} KB")
+
+    # Generate interactive report
+    if gen_interactive:
+        from report.generate_interactive_report import generate_interactive_report  # type: ignore
+        interactive_html = generate_interactive_report(folder)
+        interactive_path = folder / "interactive_report.html"
+        interactive_path.write_text(interactive_html, encoding="utf-8")
+        print(f"Interactive report written to: {interactive_path}")
+        print(f"  Length: {len(interactive_html)} characters")
 
 
 if __name__ == "__main__":
