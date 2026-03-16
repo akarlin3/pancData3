@@ -51,7 +51,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (48 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (95 test files)
+│   ├── tests/                          # Full test suite (101 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -260,6 +260,15 @@ run('pipeline/tests/run_all_tests.m')
 | `test_setup_output_folders.m` | Output folder creation: explicit reuse, timestamped auto-creation, sentinel |
 | `test_load_baseline_from_disk.m` | Baseline loading: field access, missing file error |
 | `test_resolve_scan_days.m` | Scan day resolution: DICOM preferred, config fallback, empty fallback |
+| `test_run_elastic_net_cv.m` | Elastic net CV: output shapes, lambda grid, consensus filtering, reproducibility, degenerate data |
+| `test_run_loocv_risk_scores.m` | Nested LOOCV: risk score shapes, median split, DL provenance leakage detection, NaN handling |
+| `test_plot_predictive_diagnostics.m` | Predictive diagnostics: ROC curve, sanity panels, 2D scatter, filename sanitization |
+| `test_progress_gui.m` | ProgressGUI: construction, update, color logic, close lifecycle, display availability |
+| `test_initialize_pipeline.m` | Pipeline init: config resolution, path setup, pre-flight skip logic, toolbox checks |
+| `test_normalize_patient_ids.m` | Patient ID normalization: underscore/hyphen, quote stripping, categorical conversion |
+| `test_select_dwi_vectors.m` | DWI vector extraction: Standard/dnCNN/IVIMnet field selection, 3D struct indexing |
+| `test_parfor_progress.m` | Parfor progress: callback factory, independent counters, argument handling |
+| `test_write_sentinel_file.m` | Sentinel files: path construction, message content, overwrite, invalid path warning |
 | `test_execute_all_workflows.m` | Workflow orchestrator: config mutation/restoration, step sequencing, compare_cores injection, sentinel creation |
 | `test_data_integrity_check.m` | Pre-pipeline data integrity: missing fractions/DWI/GTV/dose severity, patient filtering, report struct |
 
