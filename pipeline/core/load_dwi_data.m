@@ -129,6 +129,17 @@ skip_to_reload = config_struct.skip_to_reload;
 % perfusion-sensitive low set, and b=100, 150, 550 in the diffusion-
 % dominated high set.
 ivim_bthr = config_struct.ivim_bthr;
+use_gpu = config_struct.use_gpu;
+
+% When GPU is requested, validate availability once at startup rather than
+% per-scan to avoid redundant checks inside the parfor loop.
+if use_gpu
+    [gpu_ok, ~] = gpu_available(config_struct.gpu_device);
+    if ~gpu_ok
+        fprintf('  ⚠️ use_gpu is true but no suitable GPU found. Falling back to CPU.\n');
+        use_gpu = false;
+    end
+end
 
 %% ========================================================================
 % Pre-check: if skip_to_reload is requested for a specific DWI type
@@ -521,6 +532,7 @@ parfor j = 1:length(mrn_list)
             scan_ctx.pat_immuno = pat_immuno;
             scan_ctx.dcm2nii_call = dcm2nii_call;
             scan_ctx.ivim_bthr = ivim_bthr;
+            scan_ctx.use_gpu = use_gpu;
             scan_ctx.n_rtdose_cols = size(rtdose_locations,2);
             scan_ctx.b0_fx1_ref = b0_fx1_ref;
             scan_ctx.gtv_mask_fx1_ref = gtv_mask_fx1_ref;

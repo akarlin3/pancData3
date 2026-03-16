@@ -442,6 +442,7 @@ classdef test_process_single_scan < matlab.unittest.TestCase
             ctx.b0_fx1_ref = [];
             ctx.gtv_mask_fx1_ref = [];
             ctx.gtvn_mask_fx1_ref = [];
+            ctx.use_gpu = false;
         end
     end
 end

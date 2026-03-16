@@ -49,9 +49,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (44 files)
+│   ├── utils/                          # Helper utilities (45 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (88 test files)
+│   ├── tests/                          # Full test suite (89 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -114,7 +114,9 @@ Key fields:
   "run_compare_cores": false,
   "run_all_core_methods": false,
   "store_core_masks": false,
-  "use_firth_refit": true
+  "use_firth_refit": true,
+  "use_gpu": false,
+  "gpu_device": 1
 }
 ```
 
@@ -253,6 +255,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_assemble_predictive_features.m` | Feature matrix assembly: 22-column layout, post-treatment dose exclusion, NaN column removal |
 | `test_compute_multi_core_metrics.m` | Multi-method core metrics: all 11 methods, unified mask sharing, fDM volume fractions |
 | `test_compute_spatial_repeatability.m` | Spatial repeatability: Dice/Hausdorff across Fx1 repeats, 12-output validation |
+| `test_gpu_available.m` | GPU detection utility: availability check, graceful fallback, invalid device handling |
 
 ---
 
@@ -329,6 +332,7 @@ run('pipeline/tests/run_all_tests.m')
 | `write_sentinel_file.m` | Write pipeline step completion sentinel files |
 | `benjamini_hochberg_fdr.m` | Benjamini-Hochberg FDR correction for multiple hypothesis testing |
 | `compute_ipcw_weights.m` | Inverse probability of censoring weights for Cox PH survival models |
+| `gpu_available.m` | GPU availability detection with graceful CPU fallback |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 

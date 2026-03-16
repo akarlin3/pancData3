@@ -291,6 +291,27 @@ function config_struct = parse_config(json_path)
             config_struct.use_firth_refit = true;
         end
 
+        % use_gpu: When true, offloads computationally intensive operations
+        % to a CUDA-capable GPU via gpuArray.  Currently accelerates:
+        %   - ADC monoexponential WLS fitting (vectorized matrix ops)
+        %   - DnCNN deep learning inference (predict() on GPU)
+        % IVIM segmented fitting remains CPU-only because it relies on the
+        % read-only IVIMmodelfit dependency.  Default false to ensure the
+        % pipeline works on machines without a GPU or the Parallel Computing
+        % Toolbox.  When true but no GPU is available, falls back to CPU
+        % with a warning.
+        if ~isfield(config_struct, 'use_gpu')
+            config_struct.use_gpu = false;
+        end
+
+        % gpu_device: 1-based index of the CUDA GPU device to use when
+        % use_gpu is true.  On multi-GPU workstations, set this to select
+        % a specific card (e.g., 2 for the second GPU).  Default 1
+        % selects the first available device.
+        if ~isfield(config_struct, 'gpu_device')
+            config_struct.gpu_device = 1;
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % Any JSON syntax error or field-access failure is caught here.
