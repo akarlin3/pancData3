@@ -316,6 +316,16 @@ function config_struct = parse_config(json_path)
             config_struct.use_texture_features = false;
         end
 
+        % texture_3d: When true and the input volume is 3D, GLRLM texture
+        % features are computed using all 13 3D directions rather than
+        % the 4 in-plane directions from the largest 2D slice.  Default
+        % true for volumetric analysis; set false to restrict to 2D
+        % (faster, and appropriate when slice thickness >> in-plane
+        % resolution makes inter-slice runs physically less meaningful).
+        if ~isfield(config_struct, 'texture_3d')
+            config_struct.texture_3d = true;
+        end
+
         % texture_quantization_method: Controls how continuous parameter
         % values are discretised into grey levels for GLCM/GLRLM texture
         % features.  IBSI specifies both methods and notes that the choice

@@ -531,7 +531,16 @@ for j=1:n_patients_metrics
                     else
                         tex_quant_method = 'fixed_bin_number';
                     end
-                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing, tex_quant_method);
+                    tex_3d = true;
+                    if isfield(config_struct, 'texture_3d')
+                        tex_3d = config_struct.texture_3d;
+                    end
+                    % Reconstruct the 3D parameter map from the 1D voxel
+                    % vector and the 3D mask so that compute_texture_features
+                    % receives spatially coherent data for GLCM/GLRLM.
+                    adc_map_3d = NaN(size(gtv_mask_3d));
+                    adc_map_3d(gtv_mask_3d) = adc_vec;
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_map_3d, gtv_mask_3d, 32, iso_spacing, tex_quant_method, tex_3d);
                 catch
                     % Texture extraction is non-fatal
                 end

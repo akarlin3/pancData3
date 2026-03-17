@@ -1,4 +1,4 @@
-function features = compute_texture_features(param_map, mask, n_levels, voxel_spacing, quantization_method)
+function features = compute_texture_features(param_map, mask, n_levels, voxel_spacing, quantization_method, texture_3d)
 % COMPUTE_TEXTURE_FEATURES  Extract first-order, GLCM, GLRLM, and shape features.
 %
 %   Computes first-order statistics, gray-level co-occurrence matrix (GLCM),
@@ -20,7 +20,8 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 %       invariance per IBSI recommendation (Section 3.4.2).
 %     GLRLM: short run emphasis (22OV), long run emphasis (W4KF),
 %       grey level non-uniformity (FP8K), run length non-uniformity (IC23),
-%       run percentage (9ZK5). Multi-direction averaging at 4 angles.
+%       run percentage (9ZK5). Multi-direction averaging at 4 angles (2D)
+%       or 13 directions (3D, when texture_3d=true).
 %     Shape: volume (RNU0), surface area (C0JK), sphericity (QCFX),
 %       compactness (XPCE).
 %
@@ -40,8 +41,8 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 %       rather than full 3D. This is standard for pancreatic DWI where
 %       slice thickness (5-7mm) >> in-plane resolution (1-2mm), making
 %       inter-slice co-occurrence physically less meaningful.
-%     - GLRLM is computed per 2D slice (4 in-plane directions). Full 3D
-%       GLRLM (13 directions) is not implemented.
+%     - GLRLM uses 2D (4 directions) or 3D (13 directions) depending on
+%       the texture_3d parameter.
 %
 %   QUANTIZATION:
 %     The quantization_method parameter controls how continuous parameter
@@ -63,6 +64,9 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 %   voxel_spacing        - [dx dy dz] voxel spacing in mm for physical-unit
 %                          shape features (default: [1 1 1])
 %   quantization_method  - 'fixed_bin_number' (default) or 'fixed_bin_width'
+%   texture_3d           - Use 3D GLRLM (13 directions) for 3D volumes
+%                          (default: true). When false, uses 2D GLRLM on
+%                          the largest mask slice.
 %
 % Outputs:
 %   features       - Struct with named texture feature fields:
@@ -75,7 +79,13 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 
     if nargin < 3 || isempty(n_levels), n_levels = 32; end
     if nargin < 4 || isempty(voxel_spacing), voxel_spacing = [1 1 1]; end
+    % Backward compatibility: 5th arg may be a logical (legacy texture_3d usage)
+    if nargin >= 5 && islogical(quantization_method)
+        texture_3d = quantization_method;
+        quantization_method = 'fixed_bin_number';
+    end
     if nargin < 5 || isempty(quantization_method), quantization_method = 'fixed_bin_number'; end
+    if nargin < 6 || isempty(texture_3d), texture_3d = true; end
 
     % Extract masked voxels
     vals = double(param_map(mask > 0));
@@ -206,7 +216,7 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                     n_valid_angles = n_valid_angles + 1;
                 catch ME_glcm
                     warning('compute_texture_features:glcmFailed', ...
-                        'GLCM computation failed for angle %d: %s', ai, ME_glcm.message);
+                        'GLCM computation failed for angle %d: %s', a, ME_glcm.message);
                 end
             end
 
@@ -223,8 +233,35 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
             end
 
             % --- GLRLM features ---
-            [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
-                features.glrlm_rln, features.glrlm_rp] = compute_glrlm(quantized, mask_2d, n_levels_glcm);
+            if use_3d_glrlm
+                % 3D GLRLM: quantize the full 3D volume, then use 13-direction scanner
+                if strcmpi(quantization_method, 'fixed_bin_width')
+                    all_vals = double(param_map(mask > 0));
+                    all_vals = all_vals(isfinite(all_vals));
+                    min_val_3d = min(all_vals);
+                    max_val_3d = max(all_vals);
+                    bw = (max_val_3d - min_val_3d) / n_levels;
+                    quantized_3d = floor((double(param_map) - min_val_3d) / bw) + 1;
+                    quantized_3d(~mask) = 0;
+                    actual_n_3d = max(quantized_3d(mask));
+                    quantized_3d = max(1, min(actual_n_3d, quantized_3d));
+                    n_levels_3d = actual_n_3d;
+                else
+                    all_vals = double(param_map(mask > 0));
+                    all_vals = all_vals(isfinite(all_vals));
+                    min_val_3d = min(all_vals);
+                    max_val_3d = max(all_vals);
+                    quantized_3d = round((double(param_map) - min_val_3d) / (max_val_3d - min_val_3d) * (n_levels - 1)) + 1;
+                    quantized_3d(~mask) = 0;
+                    quantized_3d = max(1, min(n_levels, quantized_3d));
+                    n_levels_3d = n_levels;
+                end
+                [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
+                    features.glrlm_rln, features.glrlm_rp] = compute_glrlm_3d(quantized_3d, mask, n_levels_3d);
+            else
+                [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
+                    features.glrlm_rln, features.glrlm_rp] = compute_glrlm(quantized, mask_2d, n_levels_glcm);
+            end
         end
     else
         features.glcm_contrast = NaN;
