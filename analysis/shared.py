@@ -383,7 +383,7 @@ def extract_pvalues(text: str) -> list[tuple[float, str]]:
         for m in re.finditer(pat, text, re.IGNORECASE):
             # Deduplicate overlapping matches (p-value pattern is a superset).
             span = (m.start(), m.end())
-            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+            if any(s[0] <= span[0] < s[1] or s[0] < span[1] <= s[1] for s in seen_spans):
                 continue
             seen_spans.add(span)
             try:
@@ -432,7 +432,7 @@ def extract_correlations(text: str) -> list[tuple[float, str]]:
     for pat in patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
             span = (m.start(), m.end())
-            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+            if any(s[0] <= span[0] < s[1] or s[0] < span[1] <= s[1] for s in seen_spans):
                 continue
             seen_spans.add(span)
             try:
