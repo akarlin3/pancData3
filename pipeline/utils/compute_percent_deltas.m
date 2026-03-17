@@ -43,6 +43,16 @@ D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
 f_delta = (f_abs - f_abs(:,1));
 Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
 
+% Warn if a significant fraction of the cohort lost percent-change data
+n_total = size(ADC_abs, 1);
+n_nan_adc = sum(isnan(adc_bl));
+n_nan_d = sum(isnan(d_bl));
+n_nan_dstar = sum(isnan(dstar_bl));
+if n_nan_adc > 0.2 * n_total || n_nan_d > 0.2 * n_total || n_nan_dstar > 0.2 * n_total
+    fprintf('  ⚠️  Near-zero baseline exclusions: ADC=%d/%d, D=%d/%d, D*=%d/%d patients — percent changes set to NaN.\n', ...
+        n_nan_adc, n_total, n_nan_d, n_total, n_nan_dstar, n_total);
+end
+
 % Winsorize percent changes at +/-500% to limit influence of near-zero baselines.
 pct_clip = 500;
 ADC_pct(ADC_pct < -pct_clip) = -pct_clip;  ADC_pct(ADC_pct > pct_clip) = pct_clip;
