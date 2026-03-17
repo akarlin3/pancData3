@@ -681,6 +681,18 @@ Report:
 - All improvements made, with their scores
 - Final state assessment
 ```
+## Validation Protocol
+
+After every implementation on a feature branch, run the test suite before merging:
+```bash
+cd /path/to/pipeline
+matlab -batch "results = runtests('tests'); if any([results.Failed]), exit(1); else exit(0); end"
+```
+
+- If exit code 0: all tests pass, proceed to merge
+- If exit code 1: tests failed, diagnose and fix before merging
+- Never merge a branch with failing tests
+- If a fix causes a previously passing test to fail, treat this as a regression — revert and reassess
 
 ## Exit Condition
 
