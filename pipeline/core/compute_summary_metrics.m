@@ -331,7 +331,12 @@ end
 morph_min_cc = 10;  % minimum connected component size (voxels) — clusters
                     % smaller than this are discarded as noise artifacts
 
-% Cache for GTV mask loading (avoids repeated disk I/O for same file)
+% Cache for GTV mask loading (avoids repeated disk I/O for same file).
+% Using containers.Map to cache ALL previously loaded masks by filename,
+% not just the last one.  Many patient-timepoint pairs reuse the Fx1
+% reference mask, so a full cache eliminates redundant safe_load_mask calls.
+gtv_mask_cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+% Legacy single-entry cache passed to compute_spatial_repeatability
 last_rpt_gtv_mat = '';
 last_rpt_gtv_mask = [];
 
@@ -361,7 +366,12 @@ for j=1:n_patients_metrics
                 size(gtv_locations, 1) >= j && size(gtv_locations, 2) >= k
             gtv_mat = gtv_locations{j, k, 1};
             if ~isempty(gtv_mat) && exist(gtv_mat, 'file')
-                gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                if gtv_mask_cache.isKey(gtv_mat)
+                    gtv_mask_3d = gtv_mask_cache(gtv_mat);
+                else
+                    gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                    gtv_mask_cache(gtv_mat) = gtv_mask_3d;
+                end
                 if ~isempty(gtv_mask_3d)
                     has_3d = true;
                 end
@@ -382,7 +392,12 @@ for j=1:n_patients_metrics
                 if ~isempty(ref_vec) && sum(gtv_mask_3d(:) == 1) ~= numel(ref_vec)
                     fx1_mat = gtv_locations{j, 1, 1};
                     if ~isempty(fx1_mat) && exist(fx1_mat, 'file')
-                        fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                        if gtv_mask_cache.isKey(fx1_mat)
+                            fx1_mask_3d = gtv_mask_cache(fx1_mat);
+                        else
+                            fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                            gtv_mask_cache(fx1_mat) = fx1_mask_3d;
+                        end
                         if ~isempty(fx1_mask_3d) && sum(fx1_mask_3d(:) == 1) == numel(ref_vec)
                             gtv_mask_3d = fx1_mask_3d;
                         else
