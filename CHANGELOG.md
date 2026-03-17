@@ -4,6 +4,87 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0-alpha.1] - 2026-03-17
+
+### Added
+
+#### Advanced Modeling Framework
+- **Imputation sensitivity analysis** (`imputation_sensitivity.m`): Compare KNN imputation against LOCF, Mean, and Linear Interpolation alternatives; controlled via `run_imputation_sensitivity` config field
+- **Time-varying Cox models** (`fit_time_varying_cox.m`): Stratified and extended Cox models for when proportional hazards assumption is violated; controlled via `fit_time_varying_cox` config field
+- **Decision curve analysis** (`decision_curve_analysis.m`): Net benefit calculation and treat-all/none comparison for clinical utility assessment
+- **Net reclassification improvement** (`compute_nri.m`): NRI, continuous NRI, and IDI for comparing predictive models
+- **External validation** (`prepare_external_validation.m`, `apply_external_validation.m`): Export trained models and apply to external datasets; controlled via `export_validation_model` and `external_validation_data` config fields
+- **Auxiliary biomarker integration** (`load_auxiliary_biomarkers.m`): Load non-DWI biomarker data from CSV for multi-modal predictive modeling; controlled via `auxiliary_biomarker_csv` and `use_auxiliary_biomarkers` config fields
+
+#### Survival & Predictive Enhancements
+- **Schoenfeld residuals** (`compute_schoenfeld_residuals.m`): Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation with diagnostic figures
+- **Fine-Gray subdistribution hazard model**: Proper subdistribution weights replacing ad-hoc 0.5 multiplier
+- **Calibration metrics** (`compute_calibration_metrics.m`): Brier score, Hosmer-Lemeshow test, calibration slope/intercept
+- **Bootstrap confidence intervals** (`bootstrap_ci.m`): BCa bootstrap CIs for arbitrary scalar metric functions; vectorized resampling with parfor support
+- **Forest plot section** (`analysis/report/sections/forest_plot.py`): Hazard ratio extraction and matplotlib forest plot generation for the HTML report
+
+#### Radiomics & Image Quality
+- **Texture features** (`compute_texture_features.m`): First-order, GLCM, GLRLM (3D with 13 directions), shape, and uniformity features (24 total); IBSI-compliant quantization; controlled via `use_texture_features` and `texture_quantization_method` config fields
+- **Registration quality metrics** (`compute_registration_quality.m`): Jacobian determinant, NCC, mutual information; configurable `voxel_spacing` parameter
+- **Motion artifact detection** (`detect_motion_artifacts.m`): DWI volume quality assessment — CV, NMI, signal dropout detection; controlled via `exclude_motion_volumes` config field
+
+#### GPU Acceleration
+- **GPU-accelerated fitting** (`gpu_available.m`): Offload ADC WLS fitting and DnCNN inference to CUDA GPUs via `gpuArray`; graceful CPU fallback; controlled via `use_gpu` and `gpu_device` config fields
+- **GPU memory safety**: Automatic memory checks and fallback in `fit_models.m` when GPU memory is insufficient
+
+#### Docker Support
+- **Dockerfile**: Multi-stage Docker build with MATLAB Runtime and Python environment
+- **docker-compose.yml**: Pipeline and analysis service definitions
+- **`docker/entrypoint.sh`**: Container entrypoint with mode dispatch, validation, and `--dry-run` flag
+- **`docs/DOCKER.md`**: Comprehensive Docker usage guide
+- Configurable MCR version build arg (`.matlab_version`) with runtime version check
+- MATLAB/Python pre-flight checks in Docker entrypoint
+- Relaxed apt-get version pins to prevent stale build failures
+
+#### Vision Analysis
+- **Claude API provider** (`analysis/parsers/batch_graph_analysis.py`): Anthropic Claude vision analysis alongside Gemini; `--provider gemini|claude|both` for single or dual-provider comparison with per-image difference CSV
+- **Local Gemini fallback**: Automatic retry with local Gemini when API calls fail
+- **Cross-DWI agreement analysis** (`analysis/cross_reference/cross_dwi_agreement.py`): Bland-Altman, Lin's CCC, and ICC agreement metrics between DWI types
+
+#### Interactive Reporting
+- **Interactive HTML report** (`analysis/report/generate_interactive_report.py`): Client-side filtering, Chart.js visualizations, patient drill-down, sortable tables, and DWI/core-method comparison
+- **Interactive report constants** (`analysis/report/interactive_constants.py`): CSS and JavaScript for sidebar, tabs, chart rendering, and filter logic
+
+#### Pipeline Infrastructure
+- **`prepare_pipeline_session.m`**: Pipeline session initialization with try-catch error handling
+- **`dispatch_load_and_sanity.m`**, **`dispatch_pipeline_steps.m`**: Extracted pipeline step dispatch logic
+- **`compute_percent_deltas.m`**: Treatment-induced percent/absolute changes from baseline (extracted from metrics_baseline)
+- **`compute_histogram_laplace.m`**: Laplace-smoothed histogram probability distribution
+- **`compute_kurt_skew.m`**: Kurtosis/skewness computation with minimum sample guard
+- **`detect_baseline_outliers.m`**: Outcome-blinded IQR outlier detection for baseline metrics
+- **`nanmean_safe.m`**, **`nanstd_safe.m`**: Octave-compatible NaN-ignoring mean/std
+
+#### New Test Files (14 MATLAB, 10 Python)
+- MATLAB: `test_gpu_available.m`, `test_imputation_sensitivity.m`, `test_initialize_pipeline.m`, `test_load_auxiliary_biomarkers.m`, `test_normalize_patient_ids.m`, `test_octave_shims.m`, `test_parfor_progress.m`, `test_plot_predictive_diagnostics.m`, `test_prepare_external_validation.m`, `test_prepare_pipeline_session.m`, `test_progress_gui.m`, `test_run_elastic_net_cv.m`, `test_run_loocv_risk_scores.m`, `test_schoenfeld_residuals.m`, `test_select_dwi_vectors.m`, `test_time_varying_cox.m`, `test_write_sentinel_file.m`
+- Python: `test_cross_dwi_agreement.py`, `test_forest_plot.py`, `test_generate_report_helpers.py`, `test_generate_report_integration.py`, `test_generate_report_manuscript.py`, `test_generate_report_sections.py`, `test_integration.py`, `test_parse_imputation_and_tv_cox.py`, `test_report_sections_robustness.py`, `test_interactive_report.py`
+- MATLAB test suite: 106 → 120 files; Python test suite: 22 → 32 files (~1482 tests)
+
+### Changed
+- **`metrics_baseline.m`**: Refactored to return a single struct instead of 29 positional outputs
+- **Pipeline step functions**: Refactored to use `baseline_results` and `session` structs for cleaner parameter passing
+- **`run_dwi_pipeline.m`**: Further reduced from 60KB to 7KB by extracting orchestrator logic into `dispatch_load_and_sanity.m`, `dispatch_pipeline_steps.m`, and `prepare_pipeline_session.m`
+- **`bootstrap_ci.m`**: Optimized with vectorized resampling, pre-generated indices, and parfor support
+- **NMI computation**: Replaced hand-rolled NMI with `histcounts2` and added constant-signal guard
+- **`imputation_sensitivity.m`**: Refactored `evaluate_imputed` to delegate to `run_elastic_net_cv` and `run_loocv_risk_scores`
+- **Report section submodules**: Further split into finer-grained submodules for analysis, statistics, data, and discussion sections
+- **`analysis/__init__.py`**: Updated to import directly from sub-modules instead of wrappers
+- **Per-method dosimetry**: Extracted from disk loading when loading dosimetry results
+- **UTF-8 handling**: Replaced raw UTF-8 byte escape sequences with native Unicode emoji characters
+- **Python dependencies**: Added `numpy`, `matplotlib`; regenerated `requirements-lock.txt`; added upper version bounds
+- **CLAUDE.md**: Split into two files (`CLAUDE.md` + `CLAUDE_REFERENCE.md`) to reduce context window usage
+- **Changelog**: Archived pre-v2.0.0 entries to `CHANGELOG_ARCHIVE.md`
+
+### Fixed
+- **Fine-Gray weights**: Replaced ad-hoc 0.5 multiplier with proper subdistribution weights for competing risk modeling
+- **Dockerfile**: Relaxed apt-get version pins that caused stale build failures
+
+---
+
 ## [2.0.1] - 2026-03-16
 
 ### Added

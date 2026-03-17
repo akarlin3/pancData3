@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-106%20MATLAB%20%2B%2032%20Python%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.1.0--alpha.1-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-120%20MATLAB%20%2B%2032%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.0.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.1.0-alpha.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -407,7 +407,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 106 test files covering:
+The test suite includes 120 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -549,7 +549,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
 | `report/sections/` | Section builder modules for the HTML report (17 submodules: metadata, main_results, statistical_reporting, manuscript, enrollment, supplemental, gallery, graph_overview, cross_dwi, correlations, effect_sizes, model_diagnostics, model_robustness, power_analysis, discussion, publication, _helpers) |
 
-### Report Features (v2.0.0)
+### Report Features
 
 The generated HTML/PDF report includes:
 
@@ -562,7 +562,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (1164 tests across 28 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (1482 tests across 32 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -594,13 +594,13 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (68 files)
+│   ├── utils/                      #   Helper utilities (71 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (106 test files)
+│   ├── tests/                      #   Test suite (120 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
@@ -626,7 +626,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (32 test files, 1451 tests)
+│   └── tests/                      #   Python test suite (32 test files, 1482 tests)
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
@@ -649,7 +649,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.0.1},
+  version   = {2.1.0-alpha.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {AGPL-3.0}
 }
