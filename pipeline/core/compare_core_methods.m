@@ -305,10 +305,10 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     for a = 1:n_methods
         for b_idx = a:n_methods
             % Collect all Dice values for this method pair across patients/timepoints
-            pair_vals = zeros(n_patients * n_tp, 1);
+            pair_vals = zeros(n_patients * nTp, 1);
             pv_count = 0;
             for j = 1:n_patients
-                for k = 1:n_tp
+                for k = 1:nTp
                     if ~isempty(all_dice{j, k})
                         val = all_dice{j, k}(a, b_idx);
                         if ~isnan(val)
