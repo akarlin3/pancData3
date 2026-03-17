@@ -182,27 +182,36 @@ function ys = lowess_smooth(x, y, span)
 % Simple LOWESS smoother implementation
     n = length(x);
     ys = zeros(n, 1);
-    h = ceil(span * n);
+    h = max(3, ceil(span * n));  % At least 3 points for stable regression
 
     for i = 1:n
         dists = abs(x - x(i));
         [~, idx] = sort(dists);
         idx = idx(1:min(h, n));
 
-        w = (1 - (dists(idx) / max(dists(idx) + eps)).^3).^3;
-        w = max(w, 0);
-
-        if sum(w) == 0
-            ys(i) = y(i);
+        max_dist = max(dists(idx));
+        if max_dist < eps
+            % All neighbours are at the same x-location; regression is
+            % degenerate, so return the weighted mean directly.
+            ys(i) = mean(y(idx));
         else
-            % Weighted linear regression
-            X_local = [ones(length(idx), 1), x(idx)];
-            W = diag(w);
-            try
-                b_local = (X_local' * W * X_local) \ (X_local' * W * y(idx));
-                ys(i) = [1, x(i)] * b_local;
-            catch
-                ys(i) = sum(w .* y(idx)) / sum(w);
+            w = (1 - (dists(idx) / (max_dist + eps)).^3).^3;
+            w = max(w, 0);
+
+            if sum(w) == 0
+                ys(i) = y(i);
+            else
+                % Weighted linear regression
+                X_local = [ones(length(idx), 1), x(idx)];
+                W = diag(w);
+                A = X_local' * W * X_local;
+                if rcond(A) < eps
+                    % Ill-conditioned: fall back to weighted mean
+                    ys(i) = sum(w .* y(idx)) / sum(w);
+                else
+                    b_local = A \ (X_local' * W * y(idx));
+                    ys(i) = [1, x(i)] * b_local;
+                end
             end
         end
     end
