@@ -224,7 +224,7 @@ def setup_utf8_stdout():
         if hasattr(sys.stdout, "reconfigure"):
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        elif getattr(sys.stdout, "encoding", "").lower() != "utf-8":
+        elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
             # Wrap the raw binary buffer with a new TextIOWrapper.
             sys.stdout = io.TextIOWrapper(
                 sys.stdout.buffer, encoding="utf-8", errors="replace",
