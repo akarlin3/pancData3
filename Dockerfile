@@ -9,16 +9,19 @@
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-20240211-slim AS builder
 
+# NOTE: No exact version pins on system packages — exact pins cause apt-get
+# failures when the base image updates its package index (the pinned version
+# is removed and only the newer version is available).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential=12.9 \
-        cmake=3.25.1-1 \
-        git=1:2.39.5-0+deb12u1 \
-        ca-certificates=20230311 \
-        zlib1g-dev=1:1.2.13.dfsg-1 \
+        build-essential \
+        cmake \
+        git \
+        ca-certificates \
+        zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build dcm2niix (pinned to latest stable tag)
-RUN git clone --branch v1.0.20240202 --depth 1 \
+# Clone and build dcm2niix (pinned to stable release tag for reproducibility)
+RUN git clone --branch v1.0.20250506 --depth 1 \
         https://github.com/rordenlab/dcm2niix.git /tmp/dcm2niix \
     && mkdir /tmp/dcm2niix/build \
     && cd /tmp/dcm2niix/build \
@@ -29,7 +32,8 @@ RUN git clone --branch v1.0.20240202 --depth 1 \
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime image with MATLAB Runtime and Python 3.12
 # ---------------------------------------------------------------------------
-FROM mathworks/matlab-runtime:r2024a
+ARG MCR_VERSION=r2024a
+FROM mathworks/matlab-runtime:${MCR_VERSION}
 
 LABEL maintainer="Avery Karlin <akarlin3>" \
       description="pancData3: Pancreatic DWI Analysis Pipeline" \
@@ -38,18 +42,21 @@ LABEL maintainer="Avery Karlin <akarlin3>" \
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python 3.12, WeasyPrint system dependencies, and runtime libraries
+# Install Python 3.12, WeasyPrint system dependencies, and runtime libraries.
+# NOTE: No exact version pins — exact pins cause apt-get failures when the
+# base image updates its package index (the pinned version is removed and
+# only the newer version is available).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.12=3.12.1-2+b1 \
-        python3.12-venv=3.12.1-2+b1 \
-        python3-pip=23.0.1+dfsg-1 \
-        libcairo2=1.16.0-7 \
-        libpango-1.0-0=1.50.12+ds-1 \
-        libpangocairo-1.0-0=1.50.12+ds-1 \
-        libgdk-pixbuf-2.0-0=2.42.10+dfsg-1+b1 \
-        libffi-dev=3.4.4-1 \
-        shared-mime-info=2.2-1 \
-        zlib1g=1:1.2.13.dfsg-1 \
+        python3.12 \
+        python3.12-venv \
+        python3-pip \
+        libcairo2 \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libgdk-pixbuf-2.0-0 \
+        libffi-dev \
+        shared-mime-info \
+        zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy dcm2niix from builder stage
@@ -67,6 +74,9 @@ RUN python3.12 -m pip install --no-cache-dir --break-system-packages \
 COPY pipeline/ /opt/pancData3/pipeline/
 COPY analysis/ /opt/pancData3/analysis/
 
+# Copy MCR version file for runtime verification
+COPY .matlab_version /opt/pancData3/.matlab_version
+
 # Copy entrypoint script
 COPY docker/entrypoint.sh /opt/pancData3/entrypoint.sh
 RUN chmod +x /opt/pancData3/entrypoint.sh
@@ -74,11 +84,15 @@ RUN chmod +x /opt/pancData3/entrypoint.sh
 # Create mount points
 RUN mkdir -p /opt/pancData3/data /opt/pancData3/output
 
+# Re-declare ARG after FROM so it's available in this stage
+ARG MCR_VERSION=r2024a
+
 # Set PATH to include MATLAB Runtime, dcm2niix, and Python
 ENV PATH="/usr/local/bin:/opt/pancData3:${PATH}"
-# MATLAB Runtime paths (r2024a default location in the mathworks image)
-ENV LD_LIBRARY_PATH="/opt/matlabruntime/R2024a/runtime/glnxa64:/opt/matlabruntime/R2024a/bin/glnxa64:/opt/matlabruntime/R2024a/sys/os/glnxa64:${LD_LIBRARY_PATH}"
-ENV MCR_ROOT="/opt/matlabruntime/R2024a"
+# MATLAB Runtime paths (location in the mathworks image, version-dependent)
+ENV LD_LIBRARY_PATH="/opt/matlabruntime/${MCR_VERSION}/runtime/glnxa64:/opt/matlabruntime/${MCR_VERSION}/bin/glnxa64:/opt/matlabruntime/${MCR_VERSION}/sys/os/glnxa64:${LD_LIBRARY_PATH}"
+ENV MCR_ROOT="/opt/matlabruntime/${MCR_VERSION}"
+ENV MCR_VERSION="${MCR_VERSION}"
 
 # Volumes for patient data and results
 VOLUME ["/opt/pancData3/data", "/opt/pancData3/output"]
