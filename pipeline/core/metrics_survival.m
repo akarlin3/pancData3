@@ -585,26 +585,101 @@ end
 if compute_fine_gray && sum(event_td == 1) >= 3 && sum(event_td == 2) >= 1
     fprintf('\n  --- Fine-Gray Subdistribution Hazard Model ---\n');
     try
-        % Fine-Gray uses modified risk sets where competing events remain
-        % in the risk set with IPCW-derived weights that decrease over time.
-        % We approximate this by reweighting: patients with competing events
-        % receive weights based on the censoring distribution G(t).
+        % --- Subdistribution weights via "redistribution to the right" ---
+        % Fine & Gray (JASA 1999): subjects who experience a competing event
+        % remain in the risk set beyond their event time with weight
+        %   w_i(t) = G(t) / G(t_i)
+        % where G is the Kaplan-Meier estimate of the censoring survival
+        % function and t_i is the competing event time.  This redistributes
+        % the probability mass of competing-event subjects to the right:
+        % at t = t_i the weight is 1 (fully in the risk set); as t grows,
+        % G(t) shrinks and the weight decreases toward 0, reflecting
+        % increasing uncertainty about whether the subject would have
+        % experienced the primary event had the competing event been
+        % prevented.  The censoring survival G(t) used here is the same
+        % Kaplan-Meier censoring distribution already computed for IPCW
+        % (Robins & Finkelstein 2000).
 
-        % Build Fine-Gray weights: for competing events, weight = G(t)/G(t_comp)
-        fg_weights = ones(size(event_td));
-        comp_idx = (event_td == 2);
-        if any(comp_idx)
-            % Use IPCW-like weighting for competing events
-            fg_weights(comp_idx) = ipcw_weights(comp_idx) * 0.5;  % downweight competing
+        % Step 1: Kaplan-Meier estimate of censoring survival G(t).
+        % "Event" = administrative censoring (event_td==0 at a patient's
+        % terminal interval); actual events (type 1 or 2) are treated as
+        % censored observations for the censoring model.
+        is_terminal_fg = false(size(event_td));
+        [~, last_idx_fg] = unique(pat_id_td, 'last');
+        is_terminal_fg(last_idx_fg) = true;
+        term_times_fg  = t_stop_td(is_terminal_fg);
+        term_events_fg = event_td(is_terminal_fg);
+        cens_ind_fg = double(term_events_fg == 0);  % 1=censored, 0=event
+        [sorted_t_fg, sort_order_fg] = sort(term_times_fg);
+        sorted_c_fg = cens_ind_fg(sort_order_fg);
+        uniq_km_t = unique(sorted_t_fg);
+        G_km_vals = ones(length(uniq_km_t), 1);
+        G_running = 1.0;
+        for ki = 1:length(uniq_km_t)
+            tk = uniq_km_t(ki);
+            n_risk_km = sum(sorted_t_fg >= tk);
+            n_cens_km = sum(sorted_t_fg == tk & sorted_c_fg == 1);
+            if n_risk_km > 0
+                G_running = G_running * (1 - n_cens_km / n_risk_km);
+            end
+            G_km_vals(ki) = max(G_running, 0.01);  % floor prevents division by zero
         end
 
-        % Fit Cox model on the subdistribution dataset
-        % Event: 1=LF (event of interest), 0=censored OR competing (all in risk set)
-        event_fg = double(event_td == 1);  % binary: LF vs all else
-        fg_freq = max(1, round(fg_weights * ipcw_scale));
+        % Step 2: Extend competing-event patients beyond their event time.
+        % Each competing-event patient gets new (t_start, t_stop) intervals
+        % at each subsequent primary-event failure time, weighted by
+        % G(t)/G(t_comp).  Covariates are carried forward (LOCF) from the
+        % last observation — modelling the counterfactual scenario where the
+        % competing event did not occur.
+        comp_terminal = find(is_terminal_fg & (event_td == 2));
+        fail_times_fg = sort(unique(t_stop_td(event_td == 1)));
+        ext_X = zeros(0, size(X_td_global, 2));
+        ext_tstart = zeros(0, 1);  ext_tstop = zeros(0, 1);
+        ext_event  = zeros(0, 1);  ext_w     = zeros(0, 1);
+        for ci = 1:length(comp_terminal)
+            row_c  = comp_terminal(ci);
+            t_comp = t_stop_td(row_c);
+            G_comp = local_eval_G(t_comp, uniq_km_t, G_km_vals);
+            future_t = fail_times_fg(fail_times_fg > t_comp);
+            if isempty(future_t), continue; end
+            bounds = [t_comp; future_t(:)];
+            n_ext  = length(bounds) - 1;
+            ext_X      = [ext_X;      repmat(X_td_global(row_c, :), n_ext, 1)];
+            ext_tstart = [ext_tstart;  bounds(1:end-1)];
+            ext_tstop  = [ext_tstop;   bounds(2:end)];
+            ext_event  = [ext_event;   zeros(n_ext, 1)];
+            for bi = 1:n_ext
+                G_t = local_eval_G(bounds(bi+1), uniq_km_t, G_km_vals);
+                ext_w = [ext_w; max(G_t / G_comp, 0.01)];
+            end
+        end
+
+        % Step 3: Combine original + extended intervals.
+        if ~isempty(ext_X)
+            X_fg_all      = [X_td_global;  ext_X];
+            tstart_fg_all = [t_start_td;   ext_tstart];
+            tstop_fg_all  = [t_stop_td;    ext_tstop];
+            event_fg_all  = [event_td;     ext_event];
+            fg_w_all      = [ones(size(event_td)); ext_w];
+        else
+            X_fg_all      = X_td_global;
+            tstart_fg_all = t_start_td;
+            tstop_fg_all  = t_stop_td;
+            event_fg_all  = event_td;
+            fg_w_all      = ones(size(event_td));
+        end
+        fprintf('    Extended %d competing-event patients (%d new intervals).\n', ...
+            length(comp_terminal), size(ext_X, 1));
+
+        % Binary event for Fine-Gray: 1 = LF, 0 = everything else
+        event_fg = double(event_fg_all == 1);
+        % Apply same column mask as CSH model for comparability
+        X_fg_clean = X_fg_all(:, keep_main);
+        fg_freq = max(1, round(fg_w_all * ipcw_scale));
 
         w_fg = warning('off', 'all');
-        [b_fg_short, ~, ~, stats_fg_short] = coxphfit(X_td_clean, [t_start_td, t_stop_td], ...
+        [b_fg_short, ~, ~, stats_fg_short] = coxphfit(X_fg_clean, ...
+            [tstart_fg_all, tstop_fg_all], ...
             'Censoring', event_fg == 0, 'Ties', 'breslow', ...
             'Frequency', fg_freq);
         warning(w_fg);
@@ -725,6 +800,17 @@ end
 % var(X,0,1) which propagated NaN, silently dropping features with ANY
 % missing value.  Ensure utils/ is on the path so the NaN-safe version is
 % called.
+
+function G = local_eval_G(t, km_times, km_vals)
+%LOCAL_EVAL_G  Evaluate KM censoring survival G(t) by step-function lookup.
+%   Returns G at the largest KM time <= t, or 1.0 if t precedes all KM times.
+    idx = find(km_times <= t, 1, 'last');
+    if isempty(idx)
+        G = 1.0;
+    else
+        G = km_vals(idx);
+    end
+end
 
 function coef = local_coxph_coef(data, fi, keep_mask, n_feat)
 %LOCAL_COXPH_COEF  Refit Cox PH on bootstrap sample, return log-HR for feature fi.

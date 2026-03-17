@@ -328,6 +328,7 @@ NAV_SECTIONS = [
     ("predictive", "Predictive"),
     ("feature-overlap", "Features"),
     ("model-diag", "Diagnostics"),
+    ("model-robustness", "Robustness"),
     ("power", "Power"),
     ("sensitivity", "Sensitivity"),
     ("supplemental", "Supplemental"),
@@ -377,6 +378,7 @@ NAV_GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
         ("predictive", "Predictive"),
         ("feature-overlap", "Features"),
         ("model-diag", "Diagnostics"),
+        ("model-robustness", "Robustness"),
     ]),
     ("Discussion", [
         ("power", "Power"),

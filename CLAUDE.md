@@ -46,6 +46,7 @@ This repository uses a three-agent architecture:
 pancData3/
 ├── config.json                          # Active configuration (not committed)
 ├── config.example.json                  # Configuration template (committed)
+├── .matlab_version                      # Expected MCR version for Docker builds
 ├── Dockerfile                           # Multi-stage Docker build (MATLAB Runtime + Python)
 ├── docker-compose.yml                   # Pipeline + analysis Docker services
 ├── .dockerignore                        # Docker build exclusions
@@ -75,8 +76,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (17 files)
-│   └── tests/                          # Python test suite — 30 test files, 1186 tests (pytest)
+│   │   └── sections/                   # Section builders (18 files)
+│   └── tests/                          # Python test suite — 32 test files, 1451 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -128,6 +129,7 @@ Key fields:
   "compute_fine_gray": true,
   "exclude_motion_volumes": false,
   "use_texture_features": false,
+  "texture_3d": true,
   "use_gpu": false,
   "gpu_device": 1,
   "run_imputation_sensitivity": false,
@@ -425,7 +427,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report, split into 16 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `enrollment.py`, `supplemental.py`, `gallery.py`, `graph_overview.py`, `cross_dwi.py`, `correlations.py`, `effect_sizes.py`, `model_diagnostics.py`, `power_analysis.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions). Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
+| `report/sections/` | Section builder package for the HTML report, split into 17 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `enrollment.py`, `supplemental.py`, `gallery.py`, `graph_overview.py`, `cross_dwi.py`, `correlations.py`, `effect_sizes.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions). Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -433,7 +435,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 30 test files with 1186 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 32 test files with 1451 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -468,7 +470,9 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
-For the full list of 106 MATLAB test files and 30 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
+| `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
+For the full list of 106 MATLAB test files and 32 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
