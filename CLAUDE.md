@@ -674,7 +674,6 @@ Delete merged feature branches.
 
 ## Phase 5: Repeat
 Return to Phase 1 and re-audit the updated codebase.
-Continue until no findings score above 1/10.
 
 ## Completion
 Report:
@@ -682,3 +681,20 @@ Report:
 - All improvements made, with their scores
 - Final state assessment
 ```
+
+## Exit Condition
+
+You may ONLY stop the loop when ALL of the following are simultaneously true:
+1. Every finding in the current audit scores STRICTLY LESS THAN 2 out of 10
+2. All tests pass on the dev branch
+3. You have explicitly listed every finding from the current audit with its score
+4. You have written a one-sentence justification for why each finding is below 2/10
+
+If ANY finding scores 2/10 or higher, you MUST continue the loop.
+Do NOT round down scores to justify stopping.
+Do NOT aggregate findings to reduce their count.
+Do NOT stop because improvements are "minor" — only stop when scores are strictly below 2/10.
+
+Before declaring completion, state explicitly:
+"All findings score below 2/10. Listing them: [list]. Proceeding to exit."
+If you cannot complete that statement truthfully, continue the loop.
