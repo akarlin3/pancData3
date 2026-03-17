@@ -210,9 +210,24 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         bval_file = fullfile(outloc, [scanID '.bval']);
         if exist(bval_file,'file')
             fid = fopen(bval_file);
-            tline = fgetl(fid);
-            fclose(fid);
-            bvalues = sscanf(tline, '%f');
+            if fid < 0
+                warning('process_single_scan:bvalOpenFailed', ...
+                    'Cannot open bval file %s for %s. Skipping.', bval_file, scanID);
+                havedwi = 0;
+                bvalues = [];
+            end
+            if havedwi
+                tline = fgetl(fid);
+                fclose(fid);
+                if ~ischar(tline)
+                    warning('process_single_scan:bvalEmpty', ...
+                        'Empty bval file %s for %s. Skipping.', bval_file, scanID);
+                    havedwi = 0;
+                    bvalues = [];
+                else
+                    bvalues = sscanf(tline, '%f');
+                end
+            end
             % Validate volume count BEFORE sorting to prevent indexing
             % errors when the bval file has more entries than the NIfTI
             % has volumes (e.g., truncated acquisition, protocol mismatch).
