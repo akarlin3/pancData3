@@ -48,6 +48,16 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
     session.log_fid = -1;
     session.pipeGUI = [];
 
+    % Guard ownership pattern: This function creates the error-log file
+    % handle (log_fid) and modifies DefaultFigureVisible.  Under normal
+    % operation the *caller* owns cleanup via onCleanup tied to the
+    % returned session struct.  However, if this function throws before
+    % returning, the caller never receives the struct, so its onCleanup
+    % guards never fire.  The try-catch below ensures that on any error
+    % after the global-state change we (a) close log_fid if it was opened
+    % and (b) restore DefaultFigureVisible, then re-throw so the caller
+    % still sees the failure.
+
     % Suppress figure windows — all plots are saved to disk via saveas()
     session.prev_fig_vis = get(0, 'DefaultFigureVisible');
     set(0, 'DefaultFigureVisible', 'off');
@@ -73,72 +83,90 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
                 datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME.message);
             fclose(fb_fid);
         end
+        % Restore figure visibility — caller will never see session.prev_fig_vis
+        set(0, 'DefaultFigureVisible', session.prev_fig_vis);
         session.abort = true;
         return;
     end
 
-    % Resolve DWI type to scalar
-    current_dtype = config_struct.dwi_types_to_run;
-    if ~isscalar(current_dtype)
-        current_dtype = current_dtype(1);
-        config_struct.dwi_types_to_run = current_dtype;
-    end
-    dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
-    current_name = dwi_type_names{current_dtype};
-
-    fprintf('\n=======================================================\n');
-    fprintf('🎯 EXECUTING PIPELINE FOR TARGET: %s\n', upper(current_name));
-    fprintf('=======================================================\n');
-
-    config_struct.dwi_type_name = current_name;
-
-    % Type-specific output folder
-    type_output_folder = fullfile(master_output_folder, current_name);
-    if ~exist(type_output_folder, 'dir'), mkdir(type_output_folder); end
-    config_struct.output_folder = type_output_folder;
-
-    % Master diary
-    master_diary_file = fullfile(type_output_folder, sprintf('pipeline_log_%s.txt', current_name));
-    if exist(master_diary_file, 'file'), delete(master_diary_file); end
-    diary(master_diary_file);
-
-    % Error log
-    error_log_file = fullfile(master_output_folder, 'error.log');
-    log_fid = fopen(error_log_file, 'a');
-    if log_fid > 0
-        fprintf(log_fid, '\n[%s] ===== Pipeline run started (type: %s) =====\n', ...
-            datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
-    end
-    lastwarn('');
-    fprintf('      📋 Logging errors/warnings to: %s\n', error_log_file);
-
-    % Conditionally inject compare_cores
-    if config_struct.run_compare_cores && ~ismember('compare_cores', steps_to_run)
-        idx = find(strcmp(steps_to_run, 'metrics_baseline'));
-        if ~isempty(idx)
-            steps_to_run = [steps_to_run(1:idx), {'compare_cores'}, steps_to_run(idx+1:end)];
-        else
-            steps_to_run{end+1} = 'compare_cores';
+    % Everything below can throw (mkdir, diary, fopen, clear_pipeline_cache,
+    % etc.).  Wrap in try-catch so we clean up global state before
+    % re-throwing — the caller's onCleanup cannot help because it never
+    % receives the session struct on an error path.
+    log_fid = -1;
+    try
+        % Resolve DWI type to scalar
+        current_dtype = config_struct.dwi_types_to_run;
+        if ~isscalar(current_dtype)
+            current_dtype = current_dtype(1);
+            config_struct.dwi_types_to_run = current_dtype;
         end
+        dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
+        current_name = dwi_type_names{current_dtype};
+
+        fprintf('\n=======================================================\n');
+        fprintf('\xf0\x9f\x8e\xaf EXECUTING PIPELINE FOR TARGET: %s\n', upper(current_name));
+        fprintf('=======================================================\n');
+
+        config_struct.dwi_type_name = current_name;
+
+        % Type-specific output folder
+        type_output_folder = fullfile(master_output_folder, current_name);
+        if ~exist(type_output_folder, 'dir'), mkdir(type_output_folder); end
+        config_struct.output_folder = type_output_folder;
+
+        % Master diary
+        master_diary_file = fullfile(type_output_folder, sprintf('pipeline_log_%s.txt', current_name));
+        if exist(master_diary_file, 'file'), delete(master_diary_file); end
+        diary(master_diary_file);
+
+        % Error log
+        error_log_file = fullfile(master_output_folder, 'error.log');
+        log_fid = fopen(error_log_file, 'a');
+        if log_fid > 0
+            fprintf(log_fid, '\n[%s] ===== Pipeline run started (type: %s) =====\n', ...
+                datestr(now, 'yyyy-mm-dd HH:MM:SS'), current_name);
+        end
+        lastwarn('');
+        fprintf('      \xf0\x9f\x93\x8b Logging errors/warnings to: %s\n', error_log_file);
+
+        % Conditionally inject compare_cores
+        if config_struct.run_compare_cores && ~ismember('compare_cores', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'metrics_baseline'));
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'compare_cores'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'compare_cores';
+            end
+        end
+
+        % Pipeline progress GUI
+        pipeGUI = [];
+        if ProgressGUI.isDisplayAvailable()
+            pipeGUI = PipelineProgressGUI(steps_to_run, current_name);
+        end
+
+        % Build type-specific file paths
+        dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
+        fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+        summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
+        results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
+        baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
+        dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
+        predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
+
+        % Clear cached files if requested
+        clear_pipeline_cache(config_struct);
+
+    catch ME
+        % Clean up resources this function acquired — the caller's
+        % onCleanup will never fire because session was not returned.
+        if log_fid > 0
+            fclose(log_fid);
+        end
+        set(0, 'DefaultFigureVisible', session.prev_fig_vis);
+        rethrow(ME);
     end
-
-    % Pipeline progress GUI
-    pipeGUI = [];
-    if ProgressGUI.isDisplayAvailable()
-        pipeGUI = PipelineProgressGUI(steps_to_run, current_name);
-    end
-
-    % Build type-specific file paths
-    dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
-    fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
-    summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
-    results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
-    baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
-    dosimetry_results_file = fullfile(config_struct.output_folder, sprintf('metrics_dosimetry_results_%s.mat', current_name));
-    predictive_results_file = fullfile(config_struct.output_folder, sprintf('metrics_stats_predictive_results_%s.mat', current_name));
-
-    % Clear cached files if requested
-    clear_pipeline_cache(config_struct);
 
     % Pack session struct
     session.config_struct = config_struct;
