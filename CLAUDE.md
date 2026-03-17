@@ -633,3 +633,52 @@ After **every feature implementation** (adding a new file, adding a config field
 - Hard-code file paths — all paths must flow through `config.json`.
 - Run the pipeline (`execute_all_workflows`, `run_dwi_pipeline`) without explicit researcher approval. Pipeline runs are initiated by the researcher, not by AI assistants. Running the test suite (`pipeline/tests/run_all_tests.m`) for verification is encouraged.
 - Add, remove, or rename fields in `config.json` / `config.example.json` without ensuring **backwards compatibility**: new fields must have a default in `pipeline/utils/parse_config.m` (via `isfield` + fallback), and removed fields must be cleaned up from all consumers so that configs still containing them do not cause errors. If a change truly cannot be made backwards-compatible, you **must** ask the user for explicit permission before proceeding.
+
+# Pipeline Improvement Loop
+
+## Trigger
+When asked to run the improvement loop, execute the following cycle autonomously without pausing for confirmation.
+
+## Phase 1: Audit
+Analyze the entire codebase across these dimensions:
+- Performance/speed
+- Code quality/readability  
+- Correctness/accuracy
+- Memory usage
+- Error handling
+- Modularity/structure
+
+For each finding, assign an importance score from 1-10.
+Compile a ranked improvement list. If no finding scores above 1/10, terminate the loop and report completion.
+
+## Phase 2: Plan
+Group findings into independent, non-conflicting work units.
+For each unit, create a feature branch off dev:
+  git checkout dev
+  git checkout -b improvement/<short-descriptor>
+
+## Phase 3: Implement (Parallel)
+Implement each improvement on its respective branch.
+After implementing, validate:
+- Run existing tests if present
+- Reason through correctness
+- Check for regressions against adjacent code
+
+## Phase 4: Merge
+For each completed branch, merge into dev sequentially:
+  git checkout dev
+  git merge improvement/<short-descriptor>
+  gh pr create --base dev --head improvement/<short-descriptor> --title "..." --body "..." --merge
+Resolve any conflicts before proceeding to the next branch.
+Delete merged feature branches.
+
+## Phase 5: Repeat
+Return to Phase 1 and re-audit the updated codebase.
+Continue until no findings score above 1/10.
+
+## Completion
+Report:
+- Total iterations run
+- All improvements made, with their scores
+- Final state assessment
+```
