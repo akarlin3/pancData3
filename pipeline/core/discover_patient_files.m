@@ -165,14 +165,20 @@ for j=1:n_pat_discover
                             continue;
                         end
                         dcm_idx = min(5, length(dicom_files));
-                        pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
-                        if have_mrn==0
-                            mrn_list{j} = pat_data.PatientID;
-                            id_list{j} = patlist(j).name;
-                            have_mrn=1;
+                        try
+                            pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
+                            if have_mrn==0
+                                mrn_list{j} = pat_data.PatientID;
+                                id_list{j} = patlist(j).name;
+                                have_mrn=1;
+                            end
+                            fx_dates{j,fi} = pat_data.StudyDate;
+                            have_fx_date=1;
+                        catch ME_dcm
+                            fprintf('  ⚠️  Failed to read DICOM header from %s: %s\n', ...
+                                dicom_files(dcm_idx).name, ME_dcm.message);
+                            continue;
                         end
-                        fx_dates{j,fi} = pat_data.StudyDate;
-                        have_fx_date=1;
                     end
 
                     % --- Locate GTV mask .mat files for this DWI repeat ---
