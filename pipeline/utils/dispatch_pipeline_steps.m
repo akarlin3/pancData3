@@ -39,7 +39,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             fprintf('\n\xe2\x9a\x99\xef\xb8\x8f [5.1/5] [%s] Running metrics_baseline...\n', current_name);
             baseline = metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
 
-            save(baseline_results_file, '-struct', 'baseline');
+            save(session.baseline_results_file, '-struct', 'baseline');
             fprintf('      \xe2\x9c\x85 Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'success'); end
             [warn_msg, warn_id] = lastwarn;
@@ -66,7 +66,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'skipped'); end
             fprintf('\n⏭️ [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             try
-                baseline = load_baseline_from_disk(baseline_results_file);
+                baseline = load_baseline_from_disk(session.baseline_results_file);
             catch ME_base
                 fprintf('❌ %s\n', ME_base.message);
                 fprintf('❌ Downstream metrics steps require baseline results. Halting pipeline.\n');
@@ -79,16 +79,10 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
         end
     end
 
-    % Unpack baseline struct into local variables for downstream steps.
+    % Populate baseline_results from the loaded/computed baseline struct so
+    % that downstream helper functions can access fields via baseline_results.
     if exist('baseline', 'var')
-        m_lf = baseline.m_lf; m_total_time = baseline.m_total_time; m_total_follow_up_time = baseline.m_total_follow_up_time;
-        m_gtv_vol = baseline.m_gtv_vol; m_adc_mean = baseline.m_adc_mean; m_d_mean = baseline.m_d_mean; m_f_mean = baseline.m_f_mean; m_dstar_mean = baseline.m_dstar_mean; %#ok<NASGU>
-        m_id_list = baseline.m_id_list; m_mrn_list = baseline.m_mrn_list; m_d95_gtvp = baseline.m_d95_gtvp; m_v50gy_gtvp = baseline.m_v50gy_gtvp; m_data_vectors_gtvp = baseline.m_data_vectors_gtvp; %#ok<NASGU>
-        lf_group = baseline.lf_group; valid_pts = baseline.valid_pts;
-        ADC_abs = baseline.ADC_abs; D_abs = baseline.D_abs; f_abs = baseline.f_abs; Dstar_abs = baseline.Dstar_abs;
-        ADC_pct = baseline.ADC_pct; D_pct = baseline.D_pct; f_delta = baseline.f_delta; Dstar_pct = baseline.Dstar_pct;
-        nTp = baseline.nTp; metric_sets = baseline.metric_sets; set_names = baseline.set_names;
-        time_labels = baseline.time_labels; dtype_label = baseline.dtype_label; dl_provenance = baseline.dl_provenance;
+        baseline_results = baseline;
     end
 
     diary(master_diary_file);
@@ -220,45 +214,6 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
         if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'skipped'); end
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
     end
-end
-
-%% ===== Helper: pack baseline outputs into a struct =====
-
-function br = pack_baseline_results(m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, ...
-    m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, ...
-    m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, ...
-    Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, metric_sets, set_names, ...
-    time_labels, dtype_label, dl_provenance)
-% PACK_BASELINE_RESULTS  Bundle all metrics_baseline outputs into a struct.
-    br.m_lf = m_lf;
-    br.m_total_time = m_total_time;
-    br.m_total_follow_up_time = m_total_follow_up_time;
-    br.m_gtv_vol = m_gtv_vol;
-    br.m_adc_mean = m_adc_mean;
-    br.m_d_mean = m_d_mean;
-    br.m_f_mean = m_f_mean;
-    br.m_dstar_mean = m_dstar_mean;
-    br.m_id_list = m_id_list;
-    br.m_mrn_list = m_mrn_list;
-    br.m_d95_gtvp = m_d95_gtvp;
-    br.m_v50gy_gtvp = m_v50gy_gtvp;
-    br.m_data_vectors_gtvp = m_data_vectors_gtvp;
-    br.lf_group = lf_group;
-    br.valid_pts = valid_pts;
-    br.ADC_abs = ADC_abs;
-    br.D_abs = D_abs;
-    br.f_abs = f_abs;
-    br.Dstar_abs = Dstar_abs;
-    br.ADC_pct = ADC_pct;
-    br.D_pct = D_pct;
-    br.f_delta = f_delta;
-    br.Dstar_pct = Dstar_pct;
-    br.nTp = nTp;
-    br.metric_sets = metric_sets;
-    br.set_names = set_names;
-    br.time_labels = time_labels;
-    br.dtype_label = dtype_label;
-    br.dl_provenance = dl_provenance;
 end
 
 %% ===== Helper: empty dosimetry struct =====
