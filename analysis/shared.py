@@ -222,8 +222,11 @@ def setup_utf8_stdout():
     """
     if sys.platform == "win32":
         if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            try:
+                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass  # Captured/redirected streams may reject reconfigure
         elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
             # Wrap the raw binary buffer with a new TextIOWrapper.
             # Guard: stdout/stderr may lack .buffer when captured (e.g.,
