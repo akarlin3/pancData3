@@ -15,6 +15,7 @@ classdef test_fit_models < matlab.unittest.TestCase
             % fit_adc_mono.m) to the MATLAB path.
             repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
             addpath(fullfile(repoRoot, 'core'));
+            addpath(fullfile(repoRoot, 'utils'));
             addpath(fullfile(repoRoot, 'dependencies'));
         end
     end
@@ -490,6 +491,98 @@ classdef test_fit_models < matlab.unittest.TestCase
                 'GPU: first voxel ADC should match ground truth.');
             testCase.verifyEqual(adc_map(1,2,1), adc2, 'RelTol', 0.05, ...
                 'GPU: second voxel ADC should match ground truth.');
+        end
+
+        function testGpuMemoryCheckFallback(testCase)
+            % Verify that when gpu_available reports insufficient memory,
+            % fit_models falls back to CPU and produces correct ADC.
+            % We mock gpu_available by shadowing it on the path with a
+            % version that returns a device struct with tiny AvailableMemory.
+
+            bvals = [0; 200; 400; 800];
+            true_adc = 1.5e-3;
+            S0 = 100;
+            sig = S0 * exp(-bvals * true_adc);
+
+            dwi = reshape(sig, [1, 1, 1, 4]);
+            mask = true(1, 1, 1);
+
+            % Create a temporary directory with a mock gpu_available that
+            % returns available=true but AvailableMemory=1 byte (too small).
+            mock_dir = tempname;
+            mkdir(mock_dir);
+            cleanup = onCleanup(@() rmdir(mock_dir, 's'));
+
+            mock_code = [ ...
+                'function [available, gpu_dev] = gpu_available(varargin)\n' ...
+                '    available = true;\n' ...
+                '    gpu_dev = struct(''AvailableMemory'', 1, ''Name'', ''MockGPU'', ...\n' ...
+                '                     ''ComputeCapability'', ''7.5'');\n' ...
+                'end\n'];
+            fid = fopen(fullfile(mock_dir, 'gpu_available.m'), 'w');
+            fprintf(fid, mock_code);
+            fclose(fid);
+
+            % Shadow the real gpu_available with our mock
+            addpath(mock_dir);
+            path_cleanup = onCleanup(@() rmpath(mock_dir));
+
+            opts = struct('bthr', 100, 'use_gpu', true);
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            % Should still produce correct ADC via CPU fallback
+            testCase.verifyEqual(adc_map(1), true_adc, 'RelTol', 0.05, ...
+                'GPU memory fallback should produce correct ADC via CPU path.');
+        end
+
+        function testGpuArrayErrorFallback(testCase)
+            % Verify that when gpuArray throws an error (e.g., driver crash),
+            % fit_models catches it and falls back to CPU.
+            % We mock gpu_available to report sufficient memory and mock
+            % gpuArray to throw an error.
+
+            bvals = [0; 200; 400; 800];
+            true_adc = 1.5e-3;
+            S0 = 100;
+            sig = S0 * exp(-bvals * true_adc);
+
+            dwi = reshape(sig, [1, 1, 1, 4]);
+            mask = true(1, 1, 1);
+
+            % Create mock directory with gpu_available (reports OK) and
+            % gpuArray (throws error) and gpuDevice (no-op for wait).
+            mock_dir = tempname;
+            mkdir(mock_dir);
+            cleanup = onCleanup(@() rmdir(mock_dir, 's'));
+
+            % Mock gpu_available: reports plenty of memory
+            fid = fopen(fullfile(mock_dir, 'gpu_available.m'), 'w');
+            fprintf(fid, [ ...
+                'function [available, gpu_dev] = gpu_available(varargin)\n' ...
+                '    available = true;\n' ...
+                '    gpu_dev = struct(''AvailableMemory'', 1e12, ''Name'', ''MockGPU'', ...\n' ...
+                '                     ''ComputeCapability'', ''7.5'');\n' ...
+                'end\n']);
+            fclose(fid);
+
+            % Mock gpuArray: throws error to simulate GPU failure
+            fid = fopen(fullfile(mock_dir, 'gpuArray.m'), 'w');
+            fprintf(fid, [ ...
+                'function out = gpuArray(varargin)\n' ...
+                '    error(''parallel:gpu:OOM'', ''Mock GPU out of memory'');\n' ...
+                'end\n']);
+            fclose(fid);
+
+            % Shadow real functions with mocks
+            addpath(mock_dir);
+            path_cleanup = onCleanup(@() rmpath(mock_dir));
+
+            opts = struct('bthr', 100, 'use_gpu', true);
+            [~, ~, ~, adc_map] = fit_models(dwi, bvals, mask, opts);
+
+            % Should still produce correct ADC via CPU fallback
+            testCase.verifyEqual(adc_map(1), true_adc, 'RelTol', 0.05, ...
+                'gpuArray error fallback should produce correct ADC via CPU path.');
         end
 
     end

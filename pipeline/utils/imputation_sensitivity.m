@@ -31,6 +31,7 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
 %                       auc_values      - [1x4] AUC per method
 %                       n_imputed_per_method - [1x4] count of imputed values
 %                       concordance     - [4x4] Spearman correlation of risk scores
+%                       selected_features - {1x4} cell of selected feature indices per method
 
     fprintf('\n  --- Imputation Sensitivity Analysis ---\n');
 
@@ -45,34 +46,39 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
     auc_values = nan(1, n_methods);
     n_imputed = zeros(1, n_methods);
     risk_scores_all = nan(numel(y_clean), n_methods);
+    selected_features = cell(1, n_methods);
 
     % --- Method 1: KNN (use existing pipeline function) ---
     fprintf('  [1/4] KNN imputation...\n');
     X_knn = impute_knn_wrapper(td_panel_raw, patient_ids);
     n_imputed(1) = total_missing;
-    [auc_values(1), risk_scores_all(:,1)] = evaluate_imputed( ...
-        X_knn, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
+    [auc_values(1), risk_scores_all(:,1), selected_features{1}] = evaluate_imputed( ...
+        X_knn, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
+        use_firth, feature_names, 'KNN');
 
     % --- Method 2: LOCF ---
     fprintf('  [2/4] LOCF imputation...\n');
     X_locf = impute_locf(td_panel_raw, patient_ids);
     n_imputed(2) = sum(~isnan(X_locf(:)) & nan_mask(:));
-    [auc_values(2), risk_scores_all(:,2)] = evaluate_imputed( ...
-        X_locf, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
+    [auc_values(2), risk_scores_all(:,2), selected_features{2}] = evaluate_imputed( ...
+        X_locf, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
+        use_firth, feature_names, 'LOCF');
 
     % --- Method 3: Mean ---
     fprintf('  [3/4] Mean imputation...\n');
     X_mean = impute_mean(td_panel_raw);
     n_imputed(3) = sum(~isnan(X_mean(:)) & nan_mask(:));
-    [auc_values(3), risk_scores_all(:,3)] = evaluate_imputed( ...
-        X_mean, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
+    [auc_values(3), risk_scores_all(:,3), selected_features{3}] = evaluate_imputed( ...
+        X_mean, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
+        use_firth, feature_names, 'Mean');
 
     % --- Method 4: Linear Interpolation ---
     fprintf('  [4/4] Linear interpolation...\n');
     X_interp = impute_linear(td_panel_raw, patient_ids);
     n_imputed(4) = sum(~isnan(X_interp(:)) & nan_mask(:));
-    [auc_values(4), risk_scores_all(:,4)] = evaluate_imputed( ...
-        X_interp, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
+    [auc_values(4), risk_scores_all(:,4), selected_features{4}] = evaluate_imputed( ...
+        X_interp, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
+        use_firth, feature_names, 'Linear_Interp');
 
     % --- Concordance matrix (pairwise Spearman) ---
     concordance = eye(n_methods);
@@ -138,6 +144,7 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
     results.auc_values = auc_values;
     results.n_imputed_per_method = n_imputed;
     results.concordance = concordance;
+    results.selected_features = selected_features;
 end
 
 
@@ -228,22 +235,30 @@ function X_out = impute_linear(X_raw, patient_ids)
     end
 end
 
-function [auc_val, risk_scores] = evaluate_imputed(X_imputed, y_clean, id_list, dl_provenance, dtype, dtype_label, use_firth)
-%EVALUATE_IMPUTED  Run elastic net + LOOCV on imputed data and return AUC.
-    % Fill any remaining NaN before LOOCV
-    for c = 1:size(X_imputed, 2)
-        col = X_imputed(:, c);
-        if any(isnan(col))
-            col(isnan(col)) = nanmean_safe(col);
-            X_imputed(:, c) = col;
-        end
-    end
+function [auc_val, risk_scores, selected_indices] = evaluate_imputed( ...
+    X_imputed, y_clean, id_list, dl_provenance, dtype, dtype_label, ...
+    use_firth, feature_names, method_label)
+%EVALUATE_IMPUTED  Run elastic net CV + LOOCV on imputed data and return AUC.
+%
+%   Delegates to run_elastic_net_cv for feature selection and
+%   run_loocv_risk_scores for unbiased out-of-fold risk scores, matching
+%   the main pipeline flow in metrics_stats_predictive.m.  This ensures
+%   improvements (Firth refit, collinearity filtering, DL provenance
+%   checks) automatically apply to all imputation sensitivity variants.
 
     n_pts = numel(y_clean);
     risk_scores = nan(n_pts, 1);
     auc_val = NaN;
+    selected_indices = [];
 
     try
+        % Feature selection via elastic net CV (mirrors main pipeline)
+        original_feature_indices = 1:size(X_imputed, 2);
+        [selected_indices] = run_elastic_net_cv( ...
+            X_imputed, y_clean, id_list, 5, use_firth, ...
+            original_feature_indices, feature_names, method_label);
+
+        % Unbiased risk scores via nested LOOCV
         [risk_scores_oof, ~] = run_loocv_risk_scores( ...
             X_imputed, y_clean, id_list, dl_provenance, dtype, dtype_label, use_firth);
         risk_scores = risk_scores_oof;
@@ -254,6 +269,6 @@ function [auc_val, risk_scores] = evaluate_imputed(X_imputed, y_clean, id_list, 
             [~, ~, ~, auc_val] = perfcurve(y_clean(valid), risk_scores(valid), 1);
         end
     catch ME
-        fprintf('    ⚠️  LOOCV failed for this method: %s\n', ME.message);
+        fprintf('    ⚠️  Evaluation failed for %s: %s\n', method_label, ME.message);
     end
 end

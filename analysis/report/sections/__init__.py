@@ -13,20 +13,16 @@ from .metadata import (  # noqa: F401
     _section_table_index,
     _section_figure_index,
 )
-from .main_results import (  # noqa: F401
-    _section_executive_summary,
-    _section_hypothesis,
-    _section_treatment_response,
-)
+from .main_results_summary import _section_executive_summary  # noqa: F401
+from .main_results_hypothesis import _section_hypothesis  # noqa: F401
+from .main_results_trends import _section_treatment_response  # noqa: F401
 from .statistical_reporting import (  # noqa: F401
     _section_statistical_significance,
     _section_broad_statistical_overview,
 )
-from .manuscript import (  # noqa: F401
-    _section_predictive_performance,
-    _section_manuscript_ready_findings,
-    _section_results_draft,
-)
+from .manuscript_performance import _section_predictive_performance  # noqa: F401
+from .manuscript_findings import _section_manuscript_ready_findings  # noqa: F401
+from .manuscript_results import _section_results_draft  # noqa: F401
 from .enrollment import (  # noqa: F401
     _section_cohort_overview,
     _section_patient_flow,
@@ -58,6 +54,9 @@ from .effect_sizes import (  # noqa: F401
 from .model_diagnostics import (  # noqa: F401
     _section_model_diagnostics,
     _section_sensitivity_analysis,
+)
+from .model_robustness import (  # noqa: F401
+    _section_model_robustness,
 )
 from .power_analysis import (  # noqa: F401
     _section_power_analysis,

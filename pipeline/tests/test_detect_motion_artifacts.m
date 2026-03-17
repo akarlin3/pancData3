@@ -126,5 +126,66 @@ classdef test_detect_motion_artifacts < matlab.unittest.TestCase
             testCase.verifyEqual(motion.n_flagged, 0);
         end
 
+        function testIdenticalVolumeNMINearOne(testCase)
+            % A volume identical to the reference (b=0) should yield NMI ≈ 1.
+            rng(99);
+            sz = [20, 20, 5];
+            b_values = [0, 100];
+
+            % Both volumes are the same signal
+            signal = 500 + randn(sz) * 30;
+            signal = max(signal, 1);
+            dwi_4d = zeros([sz, 2]);
+            dwi_4d(:,:,:,1) = signal;
+            dwi_4d(:,:,:,2) = signal;  % identical to b=0
+            mask = true(sz);
+
+            motion = detect_motion_artifacts(dwi_4d, b_values, mask);
+
+            testCase.verifyEqual(motion.per_volume(2).nmi, 1.0, 'AbsTol', 0.05, ...
+                'Identical volume should have NMI close to 1.');
+        end
+
+        function testRandomNoiseVolumeNMINearZero(testCase)
+            % A pure random-noise volume unrelated to the reference should
+            % have NMI much lower than 1 (near the 1.0 baseline for
+            % independent signals — well below the structured-signal case).
+            rng(101);
+            sz = [30, 30, 5];
+            b_values = [0, 100];
+
+            dwi_4d = zeros([sz, 2]);
+            dwi_4d(:,:,:,1) = 500 + randn(sz) * 30;  % structured reference
+            dwi_4d(:,:,:,2) = rand(sz) * 1000;        % unrelated noise
+            dwi_4d = max(dwi_4d, 1);
+            mask = true(sz);
+
+            motion = detect_motion_artifacts(dwi_4d, b_values, mask);
+
+            % For independent signals NMI ≈ 1.0 (H(X)+H(Y) ≈ H(X,Y)),
+            % whereas identical signals give NMI ≈ 2.0.  Accept anything
+            % below 1.3 as "near zero dependence".
+            testCase.verifyLessThan(motion.per_volume(2).nmi, 1.3, ...
+                'Random noise volume should have low NMI relative to reference.');
+        end
+
+        function testConstantVolumeReturnsNaNNMI(testCase)
+            % A constant-signal volume has zero entropy; NMI should be NaN
+            % rather than producing Inf or an error.
+            sz = [20, 20, 5];
+            b_values = [0, 100];
+
+            dwi_4d = zeros([sz, 2]);
+            dwi_4d(:,:,:,1) = 500 + randn(sz) * 30;
+            dwi_4d(:,:,:,1) = max(dwi_4d(:,:,:,1), 1);
+            dwi_4d(:,:,:,2) = 42;  % constant signal
+            mask = true(sz);
+
+            motion = detect_motion_artifacts(dwi_4d, b_values, mask);
+
+            testCase.verifyTrue(isnan(motion.per_volume(2).nmi), ...
+                'Constant volume should yield NaN NMI, not error or Inf.');
+        end
+
     end
 end

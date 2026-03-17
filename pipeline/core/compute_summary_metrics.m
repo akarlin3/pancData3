@@ -510,7 +510,8 @@ for j=1:n_patients_metrics
                     else
                         iso_spacing = [1 1 1];
                     end
-                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing);
+                    tex_3d = ~isfield(config_struct, 'texture_3d') || config_struct.texture_3d;
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing, tex_3d);
                 catch
                     % Texture extraction is non-fatal
                 end

@@ -1,4 +1,4 @@
-function quality = compute_registration_quality(reference_volume, warped_volume, deformation_field)
+function quality = compute_registration_quality(reference_volume, warped_volume, deformation_field, voxel_spacing)
 % COMPUTE_REGISTRATION_QUALITY  Quantify deformable image registration fidelity.
 %
 %   Computes Jacobian determinant statistics, normalized cross-correlation,
@@ -9,9 +9,15 @@ function quality = compute_registration_quality(reference_volume, warped_volume,
 %   reference_volume  - 3D reference image volume
 %   warped_volume     - 3D warped (registered) image volume
 %   deformation_field - 4D deformation field [x, y, z, 3] or empty
+%   voxel_spacing     - [dx, dy, dz] voxel dimensions in mm (default: [1 1 1])
+%                       Used for physically correct Jacobian gradient computation.
 %
 % Outputs:
 %   quality           - Struct with registration quality metrics
+
+    if nargin < 4 || isempty(voxel_spacing)
+        voxel_spacing = [1 1 1];
+    end
 
     quality = struct();
 
@@ -26,9 +32,10 @@ function quality = compute_registration_quality(reference_volume, warped_volume,
         dz = deformation_field(:,:,:,3);
 
         % Numerical gradient of deformation field
-        [dxx, dxy, dxz] = gradient(dx);
-        [dyx, dyy, dyz] = gradient(dy);
-        [dzx, dzy, dzz] = gradient(dz);
+        % MATLAB gradient() uses (dy, dx, dz) ordering for 3D arrays
+        [dxx, dxy, dxz] = gradient(dx, voxel_spacing(2), voxel_spacing(1), voxel_spacing(3));
+        [dyx, dyy, dyz] = gradient(dy, voxel_spacing(2), voxel_spacing(1), voxel_spacing(3));
+        [dzx, dzy, dzz] = gradient(dz, voxel_spacing(2), voxel_spacing(1), voxel_spacing(3));
 
         % Add identity (deformation = displacement + identity)
         dxx = dxx + 1;

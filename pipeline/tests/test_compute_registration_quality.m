@@ -98,5 +98,32 @@ classdef test_compute_registration_quality < matlab.unittest.TestCase
                 'MI for identical volumes should exceed MI for random volumes.');
         end
 
+        function testIdentityAnisotropicSpacing(testCase)
+            % Identity displacement field with anisotropic spacing:
+            % Jacobian determinant should be exactly 1.0 everywhere.
+            sz = [20, 15, 10];
+            rng(42);
+            vol = rand(sz);
+
+            % Zero displacement field (identity transform)
+            def_field = zeros([sz, 3]);
+
+            % Anisotropic voxel spacing: 0.5mm x 1.0mm x 2.5mm
+            voxel_spacing = [0.5, 1.0, 2.5];
+
+            quality = compute_registration_quality(vol, vol, def_field, voxel_spacing);
+
+            testCase.verifyEqual(quality.jacobian_mean, 1.0, 'AbsTol', 1e-10, ...
+                'Mean Jacobian should be exactly 1.0 for identity with anisotropic spacing.');
+            testCase.verifyEqual(quality.jacobian_std, 0.0, 'AbsTol', 1e-10, ...
+                'Jacobian std should be 0 for identity with anisotropic spacing.');
+            testCase.verifyEqual(quality.jacobian_min, 1.0, 'AbsTol', 1e-10, ...
+                'Min Jacobian should be 1.0 for identity with anisotropic spacing.');
+            testCase.verifyEqual(quality.jacobian_max, 1.0, 'AbsTol', 1e-10, ...
+                'Max Jacobian should be 1.0 for identity with anisotropic spacing.');
+            testCase.verifyEqual(quality.jacobian_folding_pct, 0, ...
+                'No folding for identity transform.');
+        end
+
     end
 end
