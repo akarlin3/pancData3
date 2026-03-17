@@ -251,9 +251,14 @@ if __name__ == "__main__":
         print(get_context_for_next_iteration())
 
     elif args.command == "log":
-        findings = json.loads(args.findings)
-        branches_created = json.loads(args.branches_created)
-        branches_merged = json.loads(args.branches_merged)
+        # Fix Windows single-quote JSON by replacing with double quotes
+        findings_str = args.findings.replace("'", '"')
+        branches_created_str = args.branches_created.replace("'", '"')
+        branches_merged_str = args.branches_merged.replace("'", '"')
+        
+        findings = json.loads(findings_str)
+        branches_created = json.loads(branches_created_str)
+        branches_merged = json.loads(branches_merged_str)
         tests_passed = args.tests_passed.lower() == "true"
 
         entry = log_iteration(
