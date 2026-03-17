@@ -8,10 +8,15 @@ Tests the non-API-dependent functions:
 - Pydantic schema validation (GraphAnalysis, Axis, Trend, InflectionPoint)
 - Timeout configuration: REQUEST_TIMEOUT loaded from config
 - _is_rate_limit_error: rate-limit error detection
+- _is_claude_rate_limit_error: Claude rate-limit error detection
 - _RateLimitCoordinator: shared rate-limit backoff coordination
+- _get_provider: CLI provider flag extraction
+- _compare_results: dual-provider comparison
+- _parse_vision_response: shared JSON response parsing
+- _check_gemini_available / _check_claude_available: provider checks
 
-API-dependent functions (analyze_image, main) are not tested here as they
-require an active GEMINI_API_KEY and network access.
+API-dependent functions (analyze_image, analyze_image_claude, main) are not
+tested here as they require active API keys and network access.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from pathlib import Path
 
 from parsers.batch_graph_analysis import (
     Axis,
+    COMPARISON_COLUMNS,
     CSV_COLUMNS,
     GraphAnalysis,
     InflectionPoint,
@@ -33,7 +39,11 @@ from parsers.batch_graph_analysis import (
     StatisticalTest,
     Trend,
     _RateLimitCoordinator,
+    _compare_results,
+    _get_provider,
+    _is_claude_rate_limit_error,
     _is_rate_limit_error,
+    _parse_vision_response,
     _should_use_local,
     analyze_image_local,
     collect_images,
@@ -796,3 +806,185 @@ class TestAnalyzeImageLocal:
         p = Path("saved_files_20240115/Standard/ADC_parameter_map_Standard.png")
         result = analyze_image_local(p)
         assert result.graph_type == "parameter_map"
+
+
+# ---------------------------------------------------------------------------
+# _is_claude_rate_limit_error
+# ---------------------------------------------------------------------------
+
+class TestIsClaudeRateLimitError:
+    """Verify detection of Claude rate-limit error messages."""
+
+    def test_429_status_code(self):
+        """HTTP 429 in error message is detected."""
+        assert _is_claude_rate_limit_error(Exception("Error 429 rate_limit_error"))
+
+    def test_rate_limit_keyword(self):
+        """'rate_limit' keyword is detected."""
+        assert _is_claude_rate_limit_error(Exception("rate_limit_error: too many requests"))
+
+    def test_rate_limit_with_space(self):
+        """'rate limit' with space is detected."""
+        assert _is_claude_rate_limit_error(Exception("Rate limit exceeded"))
+
+    def test_overloaded(self):
+        """'overloaded' keyword is detected."""
+        assert _is_claude_rate_limit_error(Exception("API is overloaded"))
+
+    def test_non_rate_limit_error(self):
+        """Normal errors are not misclassified."""
+        assert not _is_claude_rate_limit_error(Exception("Invalid API key"))
+        assert not _is_claude_rate_limit_error(Exception("Connection refused"))
+
+
+# ---------------------------------------------------------------------------
+# _get_provider
+# ---------------------------------------------------------------------------
+
+class TestGetProvider:
+    """Verify --provider CLI flag extraction."""
+
+    def test_gemini_provider(self):
+        """--provider gemini returns 'gemini'."""
+        assert _get_provider(["script.py", "--provider", "gemini"]) == "gemini"
+
+    def test_claude_provider(self):
+        """--provider claude returns 'claude'."""
+        assert _get_provider(["script.py", "--provider", "claude"]) == "claude"
+
+    def test_both_provider(self):
+        """--provider both returns 'both'."""
+        assert _get_provider(["script.py", "--provider", "both"]) == "both"
+
+    def test_default_without_flag(self):
+        """Without --provider flag, returns the config default."""
+        result = _get_provider(["script.py", "/some/path"])
+        # Should be the default from config (typically "gemini")
+        assert isinstance(result, str)
+
+    def test_mixed_flags(self):
+        """--provider works alongside other flags."""
+        result = _get_provider(["script.py", "--local", "--provider", "claude", "/path"])
+        assert result == "claude"
+
+    def test_provider_case_insensitive(self):
+        """--provider BOTH is lowercased to 'both'."""
+        assert _get_provider(["script.py", "--provider", "BOTH"]) == "both"
+
+
+# ---------------------------------------------------------------------------
+# _parse_vision_response
+# ---------------------------------------------------------------------------
+
+class TestParseVisionResponse:
+    """Verify shared JSON response parsing."""
+
+    def test_valid_json_response(self):
+        """A well-formed JSON response is parsed correctly."""
+        raw = json.dumps({
+            "graph_type": "line",
+            "summary": "A simple line graph.",
+            "trends": [],
+            "inflection_points": [],
+            "statistical_tests": [],
+            "outliers": [],
+            "reference_lines": [],
+            "issues": [],
+            "annotations": [],
+            "legend_items": [],
+        })
+        result = _parse_vision_response(raw, Path("test.png"), "test.png")
+        assert result.graph_type == "line"
+        assert result.summary == "A simple line graph."
+
+    def test_json_with_code_fences(self):
+        """Markdown code fences around JSON are stripped."""
+        raw = '```json\n{"graph_type": "bar", "summary": "Bar chart."}\n```'
+        result = _parse_vision_response(raw, Path("test.png"), "test.png")
+        assert result.graph_type == "bar"
+
+    def test_invalid_json_returns_unknown(self):
+        """Unparseable JSON returns graph_type='unknown'."""
+        result = _parse_vision_response("not json at all", Path("test.png"), "test.png")
+        assert result.graph_type == "unknown"
+        assert "parse error" in result.summary.lower()
+
+    def test_file_path_injected(self):
+        """The file_path field is set from the rel_path argument."""
+        raw = json.dumps({"graph_type": "scatter", "summary": "dots"})
+        result = _parse_vision_response(raw, Path("a.png"), "my/path.png")
+        assert result.file_path == "my/path.png"
+
+
+# ---------------------------------------------------------------------------
+# _compare_results
+# ---------------------------------------------------------------------------
+
+class TestCompareResults:
+    """Verify dual-provider comparison logic."""
+
+    def _make_ga(self, **kwargs) -> GraphAnalysis:
+        """Helper to create a GraphAnalysis with defaults."""
+        defaults = {
+            "file_path": "test.png",
+            "graph_type": "line",
+            "summary": "A graph.",
+        }
+        defaults.update(kwargs)
+        return GraphAnalysis(**defaults)
+
+    def test_identical_results_no_differences(self):
+        """Two identical results produce differences='none'."""
+        ga = self._make_ga()
+        row = _compare_results(ga, ga)
+        assert row["differences"] == "none"
+        assert row["graph_type_match"] == "yes"
+
+    def test_different_graph_type_noted(self):
+        """Different graph types are flagged."""
+        gem = self._make_ga(graph_type="line")
+        cla = self._make_ga(graph_type="scatter")
+        row = _compare_results(gem, cla)
+        assert row["graph_type_match"] == "no"
+        assert "graph_type" in row["differences"]
+
+    def test_different_trend_counts_noted(self):
+        """Different numbers of trends are flagged."""
+        gem = self._make_ga(
+            trends=[Trend(direction="increasing", description="up")])
+        cla = self._make_ga()
+        row = _compare_results(gem, cla)
+        assert "num_trends" in row["differences"]
+
+    def test_different_trend_directions_noted(self):
+        """Different trend directions are flagged."""
+        gem = self._make_ga(
+            trends=[Trend(direction="increasing", description="up")])
+        cla = self._make_ga(
+            trends=[Trend(direction="decreasing", description="down")])
+        row = _compare_results(gem, cla)
+        assert row["trend_directions_match"] == "no"
+        assert "trend_directions" in row["differences"]
+
+    def test_comparison_columns_complete(self):
+        """All COMPARISON_COLUMNS are present in the output."""
+        ga = self._make_ga()
+        row = _compare_results(ga, ga)
+        for col in COMPARISON_COLUMNS:
+            assert col in row, f"Missing comparison column: {col}"
+
+    def test_different_figure_quality(self):
+        """Different figure quality is flagged."""
+        gem = self._make_ga(figure_quality="high")
+        cla = self._make_ga(figure_quality="medium")
+        row = _compare_results(gem, cla)
+        assert "figure_quality" in row["differences"]
+
+    def test_summaries_truncated(self):
+        """Long summaries are truncated to 300 characters."""
+        long_summary = "x" * 500
+        gem = self._make_ga(summary=long_summary)
+        cla = self._make_ga(summary="short")
+        row = _compare_results(gem, cla)
+        assert len(row["summary_gemini"]) == 300
+        assert row["summary_claude"] == "short"

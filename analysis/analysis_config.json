@@ -3,6 +3,8 @@
 
     "vision": {
         "gemini_model": "gemini-2.5-flash",
+        "claude_model": "claude-sonnet-4-6",
+        "provider": "gemini",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 10000,

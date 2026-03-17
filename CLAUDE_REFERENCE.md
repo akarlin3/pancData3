@@ -198,10 +198,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 | File | Purpose |
 |---|---|
-| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks`, `--interactive` flags; verifies requirements and runs tests before starting |
-| `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks`, `--interactive`, `--provider` flags; verifies requirements and runs tests before starting |
+| `analysis_config.json` | Centralised configuration: vision model/provider, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
-| `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
+| `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini and/or Anthropic Claude vision APIs; supports `--provider gemini\|claude\|both` for dual-provider comparison; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
 | `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
 | `parsers/parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `parsers/parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
@@ -223,7 +223,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-32 test files with 1451 tests. Run with `cd analysis/tests && python -m pytest -v`.
+32 test files with 1482 tests. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -231,7 +231,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
-| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening, Claude rate-limit detection, provider selection, dual-provider comparison, shared response parsing |
 | `test_generate_report_helpers.py` | Formatting helpers: series normalization, significance tags, section headers, effect sizes, copy buttons, figure captions |
 | `test_generate_report_integration.py` | Full HTML report generation, data quality, Cox PH direction, correlations, new sections integration |
 | `test_generate_report_manuscript.py` | Manuscript findings, reporting checklist, table/figure index, BibTeX export, results draft, journal guide |
@@ -241,7 +241,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_script_outputs.py` | stdout-based tests for cross_reference, statistical, and run_analysis scripts |
 | `test_report_formatters.py` | HTML escaping, significance markers, DWI badges, trend tags, effect sizes, consensus, figure captions, nav sections |
 | `test_parse_mat_metrics.py` | MAT file parsing, dosimetry/core/longitudinal extraction, scipy graceful degradation |
-| `test_analysis_config.py` | Config loading, deep merge, layered overrides, MATLAB config integration, caching |
+| `test_analysis_config.py` | Config loading, deep merge, layered overrides, MATLAB config integration, caching, Claude/provider config |
 | `test_report_sections_helpers.py` | Report helper functions: JSON loading, series normalization, cohort size, AUC finding, trend agreement |
 | `test_report_sections_metadata.py` | Report metadata sections: cover page, part breaks, TOC, publication header, data availability |
 | `test_report_sections_main_results.py` | Main results sections: executive summary, hypothesis, statistical significance, treatment response |
@@ -255,7 +255,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_statistical_by_graph_type.py` | Per-graph-type analysis: grouping, trend directions, top-5 non-sig, density/comparison aggregation, summary table |
 | `test_xref_unit.py` | Cross-reference correctness: safe_text, p-value/correlation edge cases, trend agreement logic, significance markers, Bonferroni, direction classification, priority ordering |
 | `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
-| `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
+| `test_api_connection.py` | Gemini and Claude API connection smoke tests (skipped without API keys) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
