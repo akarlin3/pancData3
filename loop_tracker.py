@@ -1,6 +1,8 @@
 # loop_tracker.py
+import argparse
 import json
 import os
+import sys
 from datetime import datetime
 from typing import Optional
 from evaluator import score_audit, should_continue_loop  # type: ignore
@@ -51,6 +53,20 @@ def log_iteration(
 
     # Score the audit
     scores = score_audit(audit_output)
+
+    # Surface evaluator failures so the loop doesn't silently proceed
+    # on default fallback scores
+    if "EVALUATION_FAILED" in scores.get("flags", []):
+        print("WARNING: Evaluator failed after max retries — using fallback "
+              "scores (all 5.0). Audit quality assessment is unreliable.")
+    else:
+        # Check for suspiciously uniform scores (sign of malfunction)
+        score_vals = [scores.get(k, 0) for k in
+                      ["specificity", "accuracy", "coverage",
+                       "prioritization", "domain_appropriateness"]]
+        if len(set(score_vals)) == 1 and score_vals[0] == 5.0:
+            print("WARNING: All audit dimension scores are exactly 5.0 — "
+                  "evaluator may have returned defaults without flagging.")
 
     # Tag each finding with a unique ID and iteration number
     tagged_findings = []
@@ -224,9 +240,6 @@ def print_full_summary() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-import argparse
-import sys
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Loop tracker CLI")
     subparsers = parser.add_subparsers(dest="command")
@@ -251,14 +264,9 @@ if __name__ == "__main__":
         print(get_context_for_next_iteration())
 
     elif args.command == "log":
-        # Fix Windows single-quote JSON by replacing with double quotes
-        findings_str = args.findings.replace("'", '"')
-        branches_created_str = args.branches_created.replace("'", '"')
-        branches_merged_str = args.branches_merged.replace("'", '"')
-        
-        findings = json.loads(findings_str)
-        branches_created = json.loads(branches_created_str)
-        branches_merged = json.loads(branches_merged_str)
+        findings = json.loads(args.findings)
+        branches_created = json.loads(args.branches_created)
+        branches_merged = json.loads(args.branches_merged)
         tests_passed = args.tests_passed.lower() == "true"
 
         entry = log_iteration(
@@ -274,7 +282,7 @@ if __name__ == "__main__":
             sys.exit(0)
         else:
             print("Continuing loop")
-            sys.exit(1)
+            sys.exit(2)
 
     elif args.command == "summary":
         print_full_summary()
