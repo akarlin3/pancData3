@@ -176,15 +176,7 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
             temp_config = config_struct;
 
             % Suppress expected fallback warnings during comparison
-            prev_warn_state = warning('query');
-            warning('off', 'extract_tumor_core:tooFewForSpectral');
-            warning('off', 'extract_tumor_core:no3DForActiveContours');
-            warning('off', 'extract_tumor_core:no3DForRegionGrowing');
-            warning('off', 'extract_tumor_core:fdmBaseline');
-            warning('off', 'extract_tumor_core:fdmNoBaseline');
-            warning('off', 'extract_tumor_core:noDValues');
-            warning('off', 'extract_tumor_core:noIVIMValues');
-            warning('off', 'extract_tumor_core:noSpectralCluster');
+            prev_warn_state = suppress_core_warnings();
 
             for m = 1:n_methods
                 % Try pre-computed mask first

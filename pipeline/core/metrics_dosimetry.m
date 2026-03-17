@@ -271,15 +271,7 @@ for j = 1:n_pat_dosimetry
             if run_all_dos
                 unified_set_dos = {'percentile', 'spectral', 'fdm'};
                 rng(42);
-                prev_warn_dos = warning('query');
-                warning('off', 'extract_tumor_core:tooFewForSpectral');
-                warning('off', 'extract_tumor_core:no3DForActiveContours');
-                warning('off', 'extract_tumor_core:no3DForRegionGrowing');
-                warning('off', 'extract_tumor_core:fdmBaseline');
-                warning('off', 'extract_tumor_core:fdmNoBaseline');
-                warning('off', 'extract_tumor_core:noDValues');
-                warning('off', 'extract_tumor_core:noIVIMValues');
-                warning('off', 'extract_tumor_core:noSpectralCluster');
+                prev_warn_dos = suppress_core_warnings();
                 for m_idx = 1:n_all_methods_dos
                     mname = ALL_CORE_METHODS_DOS{m_idx};
                     temp_cfg = config_struct;
