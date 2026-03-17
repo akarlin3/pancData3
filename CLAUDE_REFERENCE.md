@@ -217,12 +217,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
+| `report/sections/model_robustness.py` | Model robustness section: imputation sensitivity AUC comparison, time-varying Cox HR summary |
 
 ---
 
 ## Python Test Suite (`analysis/tests/`)
 
-30 test files with 1186 tests. Run with `cd analysis/tests && python -m pytest -v`.
+32 test files with 1451 tests. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -257,6 +258,8 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
+| `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
+| `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
 
 ---
 

@@ -363,7 +363,11 @@ for j = 1:nPat
            isfield(s, 'reference_volume') && ~isempty(s.reference_volume) && ...
            isfield(s, 'warped_volume') && ~isempty(s.warped_volume)
             try
-                quality = compute_registration_quality(s.reference_volume, s.warped_volume, s.deformation_field);
+                reg_vox_spacing = [1 1 1];
+                if isfield(s, 'vox_dims') && isnumeric(s.vox_dims) && numel(s.vox_dims) == 3
+                    reg_vox_spacing = s.vox_dims;
+                end
+                quality = compute_registration_quality(s.reference_volume, s.warped_volume, s.deformation_field, reg_vox_spacing);
                 if quality.jacobian_folding_pct > 1.0
                     fprintf('  ⚠️  Patient %s %s: Jacobian folding %.1f%% (>1%% threshold)\n', ...
                         id_list{j}, fx_labels{k}, quality.jacobian_folding_pct);

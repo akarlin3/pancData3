@@ -127,7 +127,11 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
     % Uniformity (sum of squared histogram bin probabilities)
     features.uniformity = sum(prob.^2);
 
-    % --- GLCM features (2D in-plane) ---
+    % --- Determine whether to use 3D GLRLM ---
+    is_3d_volume = ndims(param_map) == 3 && size(mask, 3) > 1;
+    use_3d_glrlm = texture_3d && is_3d_volume;
+
+    % --- GLCM features (2D in-plane, always uses best slice for 3D) ---
     if ndims(param_map) == 3
         n_slices = size(mask, 3);
         slice_counts = zeros(n_slices, 1);
@@ -238,13 +242,241 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 end
 
 
+%% ===== 3D GLRLM computation (13 directions) =====
+
+function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
+%COMPUTE_GLRLM_3D  Gray-Level Run-Length Matrix features in 13 3D directions, averaged.
+%
+%   Scans lines through the 3D quantized volume for each of 13 unique
+%   directions: 3 axis-aligned, 6 face-diagonal, 4 body-diagonal.
+%   For each direction, records run lengths per gray level and computes
+%   SRE, LRE, GLN, RLN, RP.  Features are averaged across valid directions.
+
+    sz = size(quantized);
+    nrows = sz(1); ncols = sz(2); nslices = sz(3);
+    max_run = max([nrows, ncols, nslices]);
+
+    % 13 unique 3D directions: [dr, dc, ds]
+    directions = [
+        0  0  1;   % z-axis
+        0  1  0;   % y-axis
+        1  0  0;   % x-axis
+        0  1  1;   % yz face-diagonal
+        0  1 -1;   % yz face-diagonal
+        1  0  1;   % xz face-diagonal
+        1  0 -1;   % xz face-diagonal
+        1  1  0;   % xy face-diagonal
+        1 -1  0;   % xy face-diagonal
+        1  1  1;   % body diagonal
+        1  1 -1;   % body diagonal
+        1 -1  1;   % body diagonal
+        1 -1 -1;   % body diagonal
+    ];
+
+    sre_sum = 0; lre_sum = 0; gln_sum = 0; rln_sum = 0; rp_sum = 0;
+    n_valid = 0;
+    n_pixels = sum(mask(:));
+
+    for d = 1:size(directions, 1)
+        dr = directions(d, 1);
+        dc = directions(d, 2);
+        ds = directions(d, 3);
+
+        % Build GLRLM for this direction
+        rlm = zeros(n_levels, max_run);
+        total_runs = 0;
+
+        % Find starting positions: voxels whose predecessor is out of bounds.
+        % A voxel (r,c,s) is a start if (r-dr, c-dc, s-ds) is outside the volume.
+        starts = find_3d_starts(nrows, ncols, nslices, dr, dc, ds);
+
+        for si = 1:size(starts, 1)
+            r = starts(si, 1);
+            c = starts(si, 2);
+            s = starts(si, 3);
+            run_len = 0;
+            run_val = 0;
+
+            while r >= 1 && r <= nrows && c >= 1 && c <= ncols && s >= 1 && s <= nslices
+                pix = quantized(r, c, s);
+                in_mask = mask(r, c, s);
+
+                if in_mask && pix > 0
+                    if pix == run_val
+                        run_len = run_len + 1;
+                    else
+                        if run_len > 0 && run_val > 0
+                            rl = min(run_len, max_run);
+                            rlm(run_val, rl) = rlm(run_val, rl) + 1;
+                            total_runs = total_runs + 1;
+                        end
+                        run_val = pix;
+                        run_len = 1;
+                    end
+                else
+                    if run_len > 0 && run_val > 0
+                        rl = min(run_len, max_run);
+                        rlm(run_val, rl) = rlm(run_val, rl) + 1;
+                        total_runs = total_runs + 1;
+                    end
+                    run_val = 0;
+                    run_len = 0;
+                end
+                r = r + dr;
+                c = c + dc;
+                s = s + ds;
+            end
+            % End of line: record final run
+            if run_len > 0 && run_val > 0
+                rl = min(run_len, max_run);
+                rlm(run_val, rl) = rlm(run_val, rl) + 1;
+                total_runs = total_runs + 1;
+            end
+        end
+
+        if total_runs == 0
+            continue;
+        end
+        n_valid = n_valid + 1;
+
+        % Compute GLRLM features from this direction's matrix
+        n_r = total_runs;
+
+        % Short Run Emphasis
+        sre_d = 0;
+        for j = 1:max_run
+            sre_d = sre_d + sum(rlm(:, j)) / (j^2);
+        end
+        sre_sum = sre_sum + sre_d / n_r;
+
+        % Long Run Emphasis
+        lre_d = 0;
+        for j = 1:max_run
+            lre_d = lre_d + sum(rlm(:, j)) * (j^2);
+        end
+        lre_sum = lre_sum + lre_d / n_r;
+
+        % Gray-Level Non-Uniformity
+        gi_sums = sum(rlm, 2);
+        gln_sum = gln_sum + sum(gi_sums.^2) / n_r;
+
+        % Run-Length Non-Uniformity
+        rj_sums = sum(rlm, 1);
+        rln_sum = rln_sum + sum(rj_sums.^2) / n_r;
+
+        % Run Percentage
+        rp_sum = rp_sum + n_r / n_pixels;
+    end
+
+    if n_valid > 0
+        sre = sre_sum / n_valid;
+        lre = lre_sum / n_valid;
+        gln = gln_sum / n_valid;
+        rln = rln_sum / n_valid;
+        rp = rp_sum / n_valid;
+    else
+        sre = NaN; lre = NaN; gln = NaN; rln = NaN; rp = NaN;
+    end
+end
+
+
+%% ===== Find 3D line starting positions =====
+
+function starts = find_3d_starts(nrows, ncols, nslices, dr, dc, ds)
+%FIND_3D_STARTS  Enumerate starting voxels for line tracing in direction [dr,dc,ds].
+%
+%   A voxel (r,c,s) is a starting point for a line in direction [dr,dc,ds]
+%   if the predecessor voxel (r-dr, c-dc, s-ds) lies outside the volume.
+
+    % Determine range for each dimension based on direction sign
+    r_range = 1:nrows;
+    c_range = 1:ncols;
+    s_range = 1:nslices;
+
+    % Build grid of all candidate starts (one face per nonzero direction component)
+    % A start is where predecessor is out of bounds in at least one dimension.
+    % For efficiency, generate starts on the entry faces.
+
+    starts_list = zeros(nrows * ncols + nrows * nslices + ncols * nslices, 3);
+    count = 0;
+
+    if dr > 0
+        % Entry face: r = 1
+        for c = c_range
+            for s = s_range
+                count = count + 1;
+                starts_list(count, :) = [1, c, s];
+            end
+        end
+    elseif dr < 0
+        % Entry face: r = nrows
+        for c = c_range
+            for s = s_range
+                count = count + 1;
+                starts_list(count, :) = [nrows, c, s];
+            end
+        end
+    end
+
+    if dc > 0
+        % Entry face: c = 1 (exclude already-counted voxels)
+        for r = r_range
+            for s = s_range
+                if dr > 0 && r == 1, continue; end
+                if dr < 0 && r == nrows, continue; end
+                count = count + 1;
+                starts_list(count, :) = [r, 1, s];
+            end
+        end
+    elseif dc < 0
+        % Entry face: c = ncols
+        for r = r_range
+            for s = s_range
+                if dr > 0 && r == 1, continue; end
+                if dr < 0 && r == nrows, continue; end
+                count = count + 1;
+                starts_list(count, :) = [r, ncols, s];
+            end
+        end
+    end
+
+    if ds > 0
+        % Entry face: s = 1
+        for r = r_range
+            for c = c_range
+                if dr > 0 && r == 1, continue; end
+                if dr < 0 && r == nrows, continue; end
+                if dc > 0 && c == 1, continue; end
+                if dc < 0 && c == ncols, continue; end
+                count = count + 1;
+                starts_list(count, :) = [r, c, 1];
+            end
+        end
+    elseif ds < 0
+        % Entry face: s = nslices
+        for r = r_range
+            for c = c_range
+                if dr > 0 && r == 1, continue; end
+                if dr < 0 && r == nrows, continue; end
+                if dc > 0 && c == 1, continue; end
+                if dc < 0 && c == ncols, continue; end
+                count = count + 1;
+                starts_list(count, :) = [r, c, nslices];
+            end
+        end
+    end
+
+    starts = starts_list(1:count, :);
+end
+
+
 %% ===== GLRLM computation (no toolbox dependency) =====
 
 function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask_2d, n_levels)
 %COMPUTE_GLRLM  Gray-Level Run-Length Matrix features at 4 angles, averaged.
 %
 %   Scans rows of the quantized image for each of 4 directions:
-%   0° (horizontal), 90° (vertical), 45° (diagonal), 135° (anti-diagonal).
+%   0 (horizontal), 90 (vertical), 45 (diagonal), 135 (anti-diagonal).
 %   For each direction, records run lengths per gray level.
 
     [nrows, ncols] = size(quantized);
