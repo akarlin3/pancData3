@@ -33,12 +33,22 @@ function aux_data = load_auxiliary_biomarkers(csv_path, id_list)
         return;
     end
 
-    % Parse all data lines
-    raw_ids = {};
-    raw_biomarkers = {};
-    raw_timepoints = [];
-    raw_values = [];
+    % Count data lines for pre-allocation (avoids repeated array growing)
+    file_pos = ftell(fid);
+    n_lines_est = 0;
+    while ~feof(fid)
+        fgetl(fid);
+        n_lines_est = n_lines_est + 1;
+    end
+    fseek(fid, file_pos, 'bof');
+
+    % Pre-allocate arrays
+    raw_ids = cell(1, n_lines_est);
+    raw_biomarkers = cell(1, n_lines_est);
+    raw_timepoints = zeros(1, n_lines_est);
+    raw_values = zeros(1, n_lines_est);
     line_num = 1;
+    row_count = 0;
 
     while ~feof(fid)
         line = fgetl(fid);
@@ -54,12 +64,19 @@ function aux_data = load_auxiliary_biomarkers(csv_path, id_list)
             continue;
         end
 
-        raw_ids{end+1} = strtrim(parts{1}); %#ok<AGROW>
-        raw_biomarkers{end+1} = strtrim(parts{2}); %#ok<AGROW>
-        raw_timepoints(end+1) = str2double(strtrim(parts{3})); %#ok<AGROW>
-        raw_values(end+1) = str2double(strtrim(parts{4})); %#ok<AGROW>
+        row_count = row_count + 1;
+        raw_ids{row_count} = strtrim(parts{1});
+        raw_biomarkers{row_count} = strtrim(parts{2});
+        raw_timepoints(row_count) = str2double(strtrim(parts{3}));
+        raw_values(row_count) = str2double(strtrim(parts{4}));
     end
     fclose(fid);
+
+    % Trim to actual size
+    raw_ids = raw_ids(1:row_count);
+    raw_biomarkers = raw_biomarkers(1:row_count);
+    raw_timepoints = raw_timepoints(1:row_count);
+    raw_values = raw_values(1:row_count);
 
     if isempty(raw_ids)
         return;

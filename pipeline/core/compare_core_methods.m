@@ -305,17 +305,20 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     for a = 1:n_methods
         for b_idx = a:n_methods
             % Collect all Dice values for this method pair across patients/timepoints
-            pair_vals = [];
+            pair_vals = zeros(n_patients * n_tp, 1);
+            pv_count = 0;
             for j = 1:n_patients
                 for k = 1:n_tp
                     if ~isempty(all_dice{j, k})
                         val = all_dice{j, k}(a, b_idx);
                         if ~isnan(val)
-                            pair_vals(end+1) = val; %#ok<AGROW>
+                            pv_count = pv_count + 1;
+                            pair_vals(pv_count) = val;
                         end
                     end
                 end
             end
+            pair_vals = pair_vals(1:pv_count);
             if numel(pair_vals) >= 3
                 try
                     [ci_lo_d, ci_hi_d] = bootstrap_ci(pair_vals(:), @mean, 1000, 0.05);
