@@ -429,9 +429,43 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 
 - Python 3.12+
 - `pip install -r analysis/requirements.txt`
-- `GEMINI_API_KEY` environment variable (for Gemini vision analysis)
-- `ANTHROPIC_API_KEY` environment variable (for Claude vision analysis)
-- Vision provider selection: `--provider gemini` (default), `--provider claude`, or `--provider both` (runs both APIs and writes a comparison CSV noting differences)
+- Vision API key(s) — see [API Key Setup](#api-key-setup) below
+
+#### API Key Setup
+
+Vision-based graph analysis requires API key(s) depending on your chosen provider:
+
+| Provider | Environment Variable | Get a Key |
+|---|---|---|
+| Gemini (default) | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) |
+| Claude | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) |
+| Both (comparison) | Both of the above | Both links above |
+
+Set the key(s) as environment variables before running:
+
+```bash
+# Option 1: Export in your shell
+export GEMINI_API_KEY="your-gemini-key-here"
+export ANTHROPIC_API_KEY="your-claude-key-here"
+
+# Option 2: Inline with the command
+GEMINI_API_KEY="..." python analysis/run_analysis.py
+
+# Option 3: Interactive prompt — if a required key is missing,
+# run_analysis.py will prompt you to paste it at startup
+python analysis/run_analysis.py --provider claude
+# → ANTHROPIC_API_KEY is not set. Paste your key: ▌
+```
+
+Provider selection: `--provider gemini` (default), `--provider claude`, or `--provider both` (runs both APIs and writes a comparison CSV noting per-image differences).
+
+You can also set defaults in `analysis/analysis_config.json` or via environment variables:
+
+```bash
+export PANCDATA3_VISION_PROVIDER="both"
+export PANCDATA3_GEMINI_MODEL="gemini-2.5-flash"
+export PANCDATA3_CLAUDE_MODEL="claude-sonnet-4-6"
+```
 
 #### WeasyPrint System Dependencies (PDF report generation)
 
