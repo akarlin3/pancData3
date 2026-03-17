@@ -29,7 +29,8 @@ RUN git clone --branch v1.0.20240202 --depth 1 \
 # ---------------------------------------------------------------------------
 # Stage 2 — Runtime image with MATLAB Runtime and Python 3.12
 # ---------------------------------------------------------------------------
-FROM mathworks/matlab-runtime:r2024a
+ARG MCR_VERSION=r2024a
+FROM mathworks/matlab-runtime:${MCR_VERSION}
 
 LABEL maintainer="Avery Karlin <akarlin3>" \
       description="pancData3: Pancreatic DWI Analysis Pipeline" \
@@ -67,6 +68,9 @@ RUN python3.12 -m pip install --no-cache-dir --break-system-packages \
 COPY pipeline/ /opt/pancData3/pipeline/
 COPY analysis/ /opt/pancData3/analysis/
 
+# Copy MCR version file for runtime verification
+COPY .matlab_version /opt/pancData3/.matlab_version
+
 # Copy entrypoint script
 COPY docker/entrypoint.sh /opt/pancData3/entrypoint.sh
 RUN chmod +x /opt/pancData3/entrypoint.sh
@@ -74,11 +78,15 @@ RUN chmod +x /opt/pancData3/entrypoint.sh
 # Create mount points
 RUN mkdir -p /opt/pancData3/data /opt/pancData3/output
 
+# Re-declare ARG after FROM so it's available in this stage
+ARG MCR_VERSION=r2024a
+
 # Set PATH to include MATLAB Runtime, dcm2niix, and Python
 ENV PATH="/usr/local/bin:/opt/pancData3:${PATH}"
-# MATLAB Runtime paths (r2024a default location in the mathworks image)
-ENV LD_LIBRARY_PATH="/opt/matlabruntime/R2024a/runtime/glnxa64:/opt/matlabruntime/R2024a/bin/glnxa64:/opt/matlabruntime/R2024a/sys/os/glnxa64:${LD_LIBRARY_PATH}"
-ENV MCR_ROOT="/opt/matlabruntime/R2024a"
+# MATLAB Runtime paths (location in the mathworks image, version-dependent)
+ENV LD_LIBRARY_PATH="/opt/matlabruntime/${MCR_VERSION}/runtime/glnxa64:/opt/matlabruntime/${MCR_VERSION}/bin/glnxa64:/opt/matlabruntime/${MCR_VERSION}/sys/os/glnxa64:${LD_LIBRARY_PATH}"
+ENV MCR_ROOT="/opt/matlabruntime/${MCR_VERSION}"
+ENV MCR_VERSION="${MCR_VERSION}"
 
 # Volumes for patient data and results
 VOLUME ["/opt/pancData3/data", "/opt/pancData3/output"]

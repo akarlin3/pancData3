@@ -46,6 +46,7 @@ This repository uses a three-agent architecture:
 pancData3/
 ├── config.json                          # Active configuration (not committed)
 ├── config.example.json                  # Configuration template (committed)
+├── .matlab_version                      # Expected MCR version for Docker builds
 ├── Dockerfile                           # Multi-stage Docker build (MATLAB Runtime + Python)
 ├── docker-compose.yml                   # Pipeline + analysis Docker services
 ├── .dockerignore                        # Docker build exclusions

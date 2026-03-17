@@ -25,6 +25,33 @@ done
 MODE="${1:-all}"
 
 # ---------------------------------------------------------------------------
+# MCR version check
+# ---------------------------------------------------------------------------
+check_mcr_version() {
+    local installed_version="${MCR_VERSION:-unknown}"
+    echo "💡 Installed MATLAB Runtime version: ${installed_version}"
+
+    local version_file="/opt/pancData3/.matlab_version"
+    if [ -f "${version_file}" ]; then
+        local expected_version
+        expected_version="$(tr -d '[:space:]' < "${version_file}")"
+        if [ "${installed_version}" != "${expected_version}" ]; then
+            echo "⚠️  WARNING: MCR version mismatch!"
+            echo "   Installed: ${installed_version}"
+            echo "   Expected (from .matlab_version): ${expected_version}"
+            echo "   The MCR version must match the MATLAB version used to compile the pipeline binary."
+            echo "   Rebuild with: docker build --build-arg MCR_VERSION=${expected_version} -t pancdata3:latest ."
+        else
+            echo "✅ MCR version matches .matlab_version"
+        fi
+    else
+        echo "💡 No .matlab_version file found — skipping version verification"
+    fi
+}
+
+check_mcr_version
+
+# ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
 validate_config() {
