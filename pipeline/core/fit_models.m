@@ -149,7 +149,27 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     adc_map = nan(adc_sz);  % NaN background for non-tumor voxels
 
     % Determine whether to use GPU for the ADC WLS computation.
-    use_gpu_adc = isfield(opts, 'use_gpu') && opts.use_gpu;
+    % First verify a GPU actually exists via gpu_available, then check that
+    % the device has enough free memory for the data transfer.
+    use_gpu_adc = false;
+    if isfield(opts, 'use_gpu') && opts.use_gpu
+        gpu_device_idx = 1;
+        if isfield(opts, 'gpu_device')
+            gpu_device_idx = opts.gpu_device;
+        end
+        [gpu_ok, gpu_dev] = gpu_available(gpu_device_idx);
+        if gpu_ok
+            % Estimate GPU memory needed: signal matrix (n_valid x n_bvalues)
+            % stored as double (8 bytes per element), plus b-value vector.
+            estimated_bytes = n_valid * length(bvalues) * 8 + length(bvalues) * 8;
+            if gpu_dev.AvailableMemory >= estimated_bytes
+                use_gpu_adc = true;
+            else
+                fprintf('  [GPU] Insufficient GPU memory (need %.1f MB, available %.1f MB) — falling back to CPU.\n', ...
+                    estimated_bytes / 1e6, gpu_dev.AvailableMemory / 1e6);
+            end
+        end
+    end
 
     if n_valid > 0
         % Extract 1D signal decay curves if not already computed
@@ -208,9 +228,13 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
                     Y_gpu = log(S_a_gpu(:,2:end) ./ S_a_gpu(:,1));
                     W_gpu = S_a_gpu(:,2:end).^2;
 
-                    numer = sum(W_gpu .* Y_gpu .* A_b_gpu', 2);
-                    denom = sum(W_gpu .* (A_b_gpu'.^2), 2);
-                    adc_vals = gather(numer ./ denom);
+                    numer_gpu = sum(W_gpu .* Y_gpu .* A_b_gpu', 2);
+                    denom_gpu = sum(W_gpu .* (A_b_gpu'.^2), 2);
+                    adc_vals_gpu = numer_gpu ./ denom_gpu;
+
+                    % Ensure all GPU operations complete before gathering
+                    gpuDevice().wait();
+                    adc_vals = gather(adc_vals_gpu);
                 catch gpu_err
                     fprintf('  [GPU] ADC fitting GPU error: %s — falling back to CPU.\n', gpu_err.message);
                     use_gpu_adc = false;
