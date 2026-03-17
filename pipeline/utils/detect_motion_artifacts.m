@@ -85,8 +85,9 @@ function motion = detect_motion_artifacts(dwi_4d, b_values, mask)
 
         motion.per_volume(v) = pv;
 
-        % Flag criteria: NMI < 0.6 OR dropout > 15%
-        if (pv.nmi < 0.6 && v ~= b0_idx) || pv.dropout_pct > 15
+        % Flag criteria: NMI < 0.6 (or NaN, indicating too few valid
+        % voxels for reliable NMI) OR dropout > 15%
+        if ((pv.nmi < 0.6 || isnan(pv.nmi)) && v ~= b0_idx) || pv.dropout_pct > 15
             motion.flagged(v) = true;
         end
     end
