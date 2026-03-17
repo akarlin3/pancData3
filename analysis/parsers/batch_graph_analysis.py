@@ -1473,6 +1473,8 @@ async def _run_worker_pool(
             try:
                 result = await analyze_fn(client, img, rate_limiter, pbar)
                 results[idx] = result
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                raise
             except Exception as e:
                 print(f"  [ERROR] {img.name}: {e}", flush=True)
                 results[idx] = GraphAnalysis(
