@@ -220,14 +220,19 @@ def setup_utf8_stdout():
     interpreters we fall back to wrapping the underlying byte buffer.
     This is a no-op on non-Windows platforms.
     """
-    if sys.platform == "win32":
-        if hasattr(sys.stdout, "reconfigure"):
-            try:
-                sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass  # Captured/redirected streams may reject reconfigure
-        elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
+    if sys.platform != "win32":
+        return
+    # Skip when running under test frameworks — modifying stdout/stderr
+    # interferes with capture mechanisms and causes teardown errors.
+    if "pytest" in sys.modules or "unittest" in sys.modules:
+        return
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass  # Captured/redirected streams may reject reconfigure
+    elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
             # Wrap the raw binary buffer with a new TextIOWrapper.
             # Guard: stdout/stderr may lack .buffer when captured (e.g.,
             # pytest StringIO or piped contexts).
