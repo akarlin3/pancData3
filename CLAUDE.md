@@ -128,6 +128,7 @@ Key fields:
   "compute_fine_gray": true,
   "exclude_motion_volumes": false,
   "use_texture_features": false,
+  "texture_3d": true,
   "use_gpu": false,
   "gpu_device": 1,
   "run_imputation_sensitivity": false,
