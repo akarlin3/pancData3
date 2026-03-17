@@ -77,7 +77,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (18 files)
-│   └── tests/                          # Python test suite — 32 test files, 1451 tests (pytest)
+│   └── tests/                          # Python test suite — 32 test files, 1482 tests (pytest)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -407,18 +407,18 @@ Contains 21 shim files for GNU Octave compatibility, including:
 
 ### Analysis Scripts (`analysis/`)
 
-Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
+Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini and/or Anthropic Claude APIs), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
 
-**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
+**Requirements:** Python 3.12+, `anthropic`, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` and/or `ANTHROPIC_API_KEY` environment variables depending on the selected provider (`--provider gemini|claude|both`); PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
-**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--provider`, `--gemini-model`, `--claude-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
 | File | Purpose |
 |---|---|
-| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks`, `--interactive` flags; verifies requirements and runs tests before starting |
-| `analysis_config.json` | Centralised configuration: vision model, concurrency, statistical thresholds, priority graphs |
+| `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks`, `--interactive`, `--provider` flags; verifies requirements and runs tests before starting |
+| `analysis_config.json` | Centralised configuration: vision model/provider, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
-| `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini vision API; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
+| `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini and/or Anthropic Claude vision APIs; supports `--provider gemini\|claude\|both` for dual-provider comparison; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
 | `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |
 | `parsers/parse_csv_results.py` | Direct parsing of pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison |
 | `parsers/parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis |
@@ -435,7 +435,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 32 test files with 1451 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 32 test files with 1482 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -443,7 +443,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_shared.py` | DWI type parsing, p-value/correlation extraction, CSV loading, folder resolution |
 | `test_parse_log_metrics.py` | GLME, ROC/AUC, survival, baseline, sanity check regex parsing; integration with log files |
 | `test_parse_csv_results.py` | CSV reading, cross-DWI significance consistency analysis |
-| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening |
+| `test_batch_graph_analysis.py` | Image collection, base64 encoding, MIME types, Pydantic schemas (Axis, Trend, InflectionPoint, StatisticalTest, Outlier, ReferenceLine, GraphAnalysis), CSV flattening, Claude rate-limit detection, provider selection, dual-provider comparison, shared response parsing |
 | `test_generate_report_helpers.py` | Formatting helpers: series normalization, significance tags, section headers, effect sizes, copy buttons, figure captions |
 | `test_generate_report_integration.py` | Full HTML report generation, data quality, Cox PH direction, correlations, new sections integration |
 | `test_generate_report_manuscript.py` | Manuscript findings, reporting checklist, table/figure index, BibTeX export, results draft, journal guide |

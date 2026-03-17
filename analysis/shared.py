@@ -35,6 +35,8 @@ _DEFAULTS: dict = {
     "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
     "vision": {
         "gemini_model": "gemini-2.5-flash",
+        "claude_model": "claude-sonnet-4-6",
+        "provider": "gemini",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 10000,
@@ -165,10 +167,17 @@ def load_analysis_config(
 
     # ── Layer 4: Environment variable overrides ──
     # These allow run_analysis.py to propagate CLI flags (--gemini-model,
-    # --concurrency) to child scripts that run as separate subprocesses.
+    # --claude-model, --provider, --concurrency) to child scripts that run
+    # as separate subprocesses.
     env_model = os.environ.get("PANCDATA3_GEMINI_MODEL")
     if env_model:
         cfg["vision"]["gemini_model"] = env_model
+    env_claude_model = os.environ.get("PANCDATA3_CLAUDE_MODEL")
+    if env_claude_model:
+        cfg["vision"]["claude_model"] = env_claude_model
+    env_provider = os.environ.get("PANCDATA3_VISION_PROVIDER")
+    if env_provider:
+        cfg["vision"]["provider"] = env_provider
     env_concurrency = os.environ.get("PANCDATA3_GEMINI_CONCURRENCY")
     if env_concurrency:
         try:

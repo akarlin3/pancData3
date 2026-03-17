@@ -15,7 +15,8 @@ which steps succeeded, failed, or were skipped.
 Usage:
     python run_analysis.py                     # auto-detect latest folder
     python run_analysis.py --folder PATH       # specify folder
-    python run_analysis.py --skip-vision       # skip Claude API calls
+    python run_analysis.py --skip-vision       # skip vision API calls
+    python run_analysis.py --provider both     # run both Gemini & Claude
     python run_analysis.py --report-only       # only generate report
     python run_analysis.py --skip-checks       # skip pre-flight checks
 """
@@ -215,15 +216,23 @@ def _run_script(
         return False
 
 
-def _ensure_api_key() -> None:
-    """Ensure GEMINI_API_KEY is available in the environment.
+def _ensure_env_key(key_name: str, display_name: str, get_url: str) -> None:
+    """Ensure an API key is available in the environment.
 
     Checks the environment and a local .env file. If still missing,
     prompts the user interactively and saves the entered key to .env.
+
+    Parameters
+    ----------
+    key_name : str
+        Environment variable name (e.g. ``"GEMINI_API_KEY"``).
+    display_name : str
+        Human-readable name for prompts (e.g. ``"Gemini"``).
+    get_url : str
+        URL where the user can obtain the key.
     """
     import os
     env_file = ANALYSIS_DIR / ".env"
-    key_name = "GEMINI_API_KEY"
 
     # Step 1: Check environment first
     if os.environ.get(key_name):
@@ -245,16 +254,16 @@ def _ensure_api_key() -> None:
 
     # Step 3: Prompt user
     print("\n" + "!" * 70)
-    print("  WARNING: GEMINI_API_KEY is not set.")
-    print("  This key is required for the vision-based graph analysis.")
-    print("  You can get an API key from: https://aistudio.google.com/")
+    print(f"  WARNING: {key_name} is not set.")
+    print(f"  This key is required for {display_name} vision analysis.")
+    print(f"  You can get an API key from: {get_url}")
     print("!" * 70)
-    
+
     import getpass
-    key = getpass.getpass("\n  Enter your Gemini API key (hidden): ").strip()
-    
+    key = getpass.getpass(f"\n  Enter your {display_name} API key (hidden): ").strip()
+
     if not key:
-        print("  [WARN] No API key provided. Vision analysis will fail if not skipped.\n")
+        print(f"  [WARN] No API key provided. {display_name} vision analysis will fail if not skipped.\n")
         return
 
     # Update environment
@@ -262,12 +271,29 @@ def _ensure_api_key() -> None:
 
     # Save to .env for future runs
     try:
-        # Append just in case there are other things in .env
         with open(env_file, "a", encoding="utf-8") as f:
             f.write(f"\n{key_name}={key}\n")
         print(f"  [INFO] Saved API key to {env_file}\n")
     except Exception as e:
         print(f"  [WARN] Failed to save key to .env: {e}\n")
+
+
+def _ensure_api_keys(provider: str) -> None:
+    """Ensure all required API keys are available for the given provider.
+
+    Parameters
+    ----------
+    provider : str
+        One of ``"gemini"``, ``"claude"``, or ``"both"``.
+    """
+    if provider in ("gemini", "both"):
+        _ensure_env_key(
+            "GEMINI_API_KEY", "Gemini",
+            "https://aistudio.google.com/")
+    if provider in ("claude", "both"):
+        _ensure_env_key(
+            "ANTHROPIC_API_KEY", "Claude (Anthropic)",
+            "https://console.anthropic.com/")
 
 
 def main():
@@ -285,7 +311,7 @@ def main():
     parser.add_argument(
         "--skip-vision",
         action="store_true",
-        help="Skip Gemini API vision analysis (use existing CSV if available)",
+        help="Skip vision API analysis (use existing CSV if available)",
     )
     parser.add_argument(
         "--report-only",
@@ -303,16 +329,29 @@ def main():
         help="Also write the HTML report to disk (default: PDF only)",
     )
     parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        choices=["gemini", "claude", "both"],
+        help="Vision API provider: gemini (default), claude, or both (runs both and compares)",
+    )
+    parser.add_argument(
         "--gemini-model",
         type=str,
         default=None,
         help="Override the Gemini vision model (e.g. gemini-2.0-flash)",
     )
     parser.add_argument(
+        "--claude-model",
+        type=str,
+        default=None,
+        help="Override the Claude vision model (e.g. claude-sonnet-4-6)",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         default=None,
-        help="Max concurrent Gemini API requests (default: from config)",
+        help="Max concurrent API requests (default: from config)",
     )
     parser.add_argument(
         "--config",
@@ -337,10 +376,15 @@ def main():
     import os as _os
     import shared as _shared_mod  # type: ignore
     cfg = load_analysis_config(config_path=args.config)
+    if args.provider:
+        cfg["vision"]["provider"] = args.provider
+        _os.environ["PANCDATA3_VISION_PROVIDER"] = args.provider
     if args.gemini_model:
         cfg["vision"]["gemini_model"] = args.gemini_model
-        # Propagate to subprocess children via environment variable.
         _os.environ["PANCDATA3_GEMINI_MODEL"] = args.gemini_model
+    if args.claude_model:
+        cfg["vision"]["claude_model"] = args.claude_model
+        _os.environ["PANCDATA3_CLAUDE_MODEL"] = args.claude_model
     if args.concurrency is not None:
         cfg["vision"]["max_concurrent_requests"] = args.concurrency
         _os.environ["PANCDATA3_GEMINI_CONCURRENCY"] = str(args.concurrency)
@@ -374,14 +418,17 @@ def main():
         print(f"  Skip vision:   {args.skip_vision}")
         print(f"  Report only:   {args.report_only}")
         print(f"  Skip checks:   {args.skip_checks}")
+        print(f"  Provider:      {cfg['vision'].get('provider', 'gemini')}")
         print(f"  Gemini model:  {cfg['vision']['gemini_model']}")
+        print(f"  Claude model:  {cfg['vision'].get('claude_model', 'claude-sonnet-4-6')}")
         print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()
 
         # ── Setup Environment ──
+        vision_provider = cfg["vision"].get("provider", "gemini")
         if not args.skip_vision:
-            _ensure_api_key()
+            _ensure_api_keys(vision_provider)
 
         # ── Pre-flight checks ──
         if not args.skip_checks:

@@ -192,16 +192,32 @@ docker run --rm \
   pancdata3:latest --dry-run pipeline
 ```
 
-#### Optional: Gemini vision analysis
+#### Optional: Vision analysis API keys
 
-To enable vision-based graph analysis, pass your API key:
+To enable vision-based graph analysis, pass API key(s) for your chosen provider:
 
 ```bash
+# Gemini (default provider)
 docker run --rm \
   -e GEMINI_API_KEY=your_key_here \
   -v /path/to/output:/opt/pancData3/output \
   -v /path/to/config.json:/opt/pancData3/config.json:ro \
   pancdata3:latest analysis --skip-checks
+
+# Claude
+docker run --rm \
+  -e ANTHROPIC_API_KEY=your_key_here \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest analysis --skip-checks --provider claude
+
+# Both (comparison mode)
+docker run --rm \
+  -e GEMINI_API_KEY=your_gemini_key \
+  -e ANTHROPIC_API_KEY=your_anthropic_key \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest analysis --skip-checks --provider both
 ```
 
 #### Output
@@ -413,7 +429,9 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 
 - Python 3.12+
 - `pip install -r analysis/requirements.txt`
-- `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
+- `GEMINI_API_KEY` environment variable (for Gemini vision analysis)
+- `ANTHROPIC_API_KEY` environment variable (for Claude vision analysis)
+- Vision provider selection: `--provider gemini` (default), `--provider claude`, or `--provider both` (runs both APIs and writes a comparison CSV noting differences)
 
 #### WeasyPrint System Dependencies (PDF report generation)
 
@@ -464,6 +482,12 @@ python analysis/run_analysis.py --skip-checks
 
 # Generate interactive report with client-side filtering and Chart.js charts
 python analysis/run_analysis.py --interactive
+
+# Use Claude API instead of Gemini for vision analysis
+python analysis/run_analysis.py --provider claude
+
+# Run both Gemini and Claude, compare results (writes graph_analysis_comparison.csv)
+python analysis/run_analysis.py --provider both
 
 # Individual scripts can still be run standalone
 python analysis/parsers/batch_graph_analysis.py
