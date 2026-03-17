@@ -96,7 +96,7 @@ end
 
 
 function nmi = compute_nmi(x, y)
-% Compute normalized mutual information between two vectors
+% Compute normalized mutual information between two vectors using histcounts2.
     n_bins = 32;
     valid = isfinite(x) & isfinite(y);
     x = x(valid); y = y(valid);
@@ -106,9 +106,27 @@ function nmi = compute_nmi(x, y)
         return;
     end
 
+    % Guard: constant-signal volumes collapse to a single bin, yielding
+    % zero entropy and NaN NMI.  Return NaN early.
+    if max(x) == min(x) || max(y) == min(y)
+        nmi = NaN;
+        return;
+    end
+
+    % Joint histogram via histcounts2 (robust edge handling)
+    x_edges = linspace(min(x), max(x) + eps(max(abs(x))), n_bins + 1);
+    y_edges = linspace(min(y), max(y) + eps(max(abs(y))), n_bins + 1);
+    joint_hist = histcounts2(x, y, x_edges, y_edges);
+
+    % Marginal histograms from joint (consistent binning)
+    mx = sum(joint_hist, 2);
+    my = sum(joint_hist, 1);
+
+    n_total = sum(joint_hist(:));
+
     % Marginal entropies
-    hx = hist_entropy(x, n_bins);
-    hy = hist_entropy(y, n_bins);
+    hx = hist_entropy_from_counts(mx, n_total);
+    hy = hist_entropy_from_counts(my, n_total);
 
     if hx == 0 || hy == 0
         nmi = NaN;
@@ -116,27 +134,16 @@ function nmi = compute_nmi(x, y)
     end
 
     % Joint entropy
-    x_edges = linspace(min(x), max(x) + eps, n_bins + 1);
-    y_edges = linspace(min(y), max(y) + eps, n_bins + 1);
-
-    joint_hist = zeros(n_bins, n_bins);
-    for i = 1:length(x)
-        xi = min(n_bins, max(1, sum(x(i) >= x_edges(1:end-1))));
-        yi = min(n_bins, max(1, sum(y(i) >= y_edges(1:end-1))));
-        joint_hist(xi, yi) = joint_hist(xi, yi) + 1;
-    end
-    joint_prob = joint_hist / sum(joint_hist(:));
-    joint_prob = joint_prob(joint_prob > 0);
-    hxy = -sum(joint_prob .* log2(joint_prob));
+    hxy = hist_entropy_from_counts(joint_hist(:), n_total);
 
     % NMI = (H(X) + H(Y)) / H(X,Y)
     nmi = (hx + hy) / hxy;
 end
 
 
-function h = hist_entropy(x, n_bins)
-    [counts, ~] = histcounts(x, n_bins);
-    prob = counts / sum(counts);
+function h = hist_entropy_from_counts(counts, n_total)
+% Compute Shannon entropy (bits) from a count vector.
+    prob = counts(:) / n_total;
     prob = prob(prob > 0);
     h = -sum(prob .* log2(prob));
 end
