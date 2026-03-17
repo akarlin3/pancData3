@@ -33,6 +33,16 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 %   on background voxels and to prevent normal tissue from contaminating
 %   tumor-specific parameter distributions.
 
+    %% ---- Input validation ----
+    % Validate that bvalues(1)==0 up-front before any model fitting.
+    % The ADC WLS formula divides by S(:,1) assuming it is S(b=0), and the
+    % IVIM segmented fit also relies on S0 being the b=0 signal. A non-zero
+    % first b-value produces silently wrong estimates for both models.
+    if bvalues(1) ~= 0
+        error('fit_models:noB0', ...
+            'First b-value is %g, not 0. Both IVIM and ADC fits require S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
+    end
+
     %% ---- IVIM MODEL FITTING (Segmented Biexponential) ----
     % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
     % Flatten 3D volume to a 1D array of strictly non-zero mask voxels
@@ -189,13 +199,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         if any(adc_valid_idx)
             S_a = dwi_valid(adc_valid_idx, :);
 
-            % Validate that bvalues(1)==0 (S0 reference for log-linear fit).
-            % The WLS formula below divides by S(:,1) assuming it is S(b=0).
-            % A non-zero first b-value produces silently wrong ADC estimates.
-            if bvalues(1) ~= 0
-                error('fit_models:noB0', ...
-                    'First b-value is %g, not 0. ADC fit requires S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
-            end
+            % bvalues(1)==0 already validated at function entry.
 
             % Vectorized WLS: weights = S^2 at each b-value.
             %
