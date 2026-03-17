@@ -209,8 +209,25 @@ After **every feature implementation** (adding a new file, adding a config field
 
 # Pipeline Improvement Loop
 
+## Tracking infrastructure
+
+The loop is tracked by two scripts in the repository root:
+
+- **`evaluator.py`** — Sends the audit text to the Claude API for independent scoring across 6 dimensions (specificity, accuracy, coverage, prioritization, domain_appropriateness, overall). Returns a structured JSON verdict with flags for risky suggestions.
+- **`loop_tracker.py`** — Logs each iteration (scores, findings, branches, test status) to `improvement_loop_log.json`. Provides `get_context_for_next_iteration()` to inject history into subsequent prompts so work is not repeated.
+
+**Requirement:** `pip install anthropic` and `ANTHROPIC_API_KEY` must be set.
+
 ## Trigger
 When asked to run the improvement loop, execute the following cycle autonomously without pausing for confirmation.
+
+## Phase 0: Load context
+Before the first audit, check for prior iteration history:
+```python
+from loop_tracker import get_context_for_next_iteration
+context = get_context_for_next_iteration()
+```
+Inject this context into your audit so you do not repeat already-implemented improvements.
 
 ## Phase 1: Audit
 Analyze the entire codebase across these dimensions:
@@ -245,15 +262,36 @@ For each completed branch, merge into dev sequentially:
 Resolve any conflicts before proceeding to the next branch.
 Delete merged feature branches.
 
-## Phase 5: Repeat
-Return to Phase 1 and re-audit the updated codebase.
+## Phase 5: Log & evaluate
+After merging all branches for this iteration, log the results via the tracker:
+```python
+from loop_tracker import log_iteration
 
-## Completion
-Report:
-- Total iterations run
-- All improvements made, with their scores
-- Final state assessment
+entry = log_iteration(
+    audit_output="<full audit text from Phase 1>",
+    findings=[
+        # One dict per finding from Phase 1:
+        {"dimension": "<dimension>", "description": "<what and where>", "importance": <1-10>},
+        # ...
+    ],
+    branches_created=["improvement/fix-X", "improvement/optimize-Y"],
+    branches_merged=["improvement/fix-X", "improvement/optimize-Y"],
+    tests_passed=True  # or False if any test failures occurred
+)
 ```
+
+The tracker will:
+1. Send the audit to `evaluator.py` for independent scoring
+2. Tag each finding with a unique ID and iteration number
+3. Check the exit condition (see below)
+4. Warn if audit scores drifted >3 points from the previous iteration
+5. Print an iteration summary
+
+## Phase 6: Repeat or stop
+Check `entry["exit_condition_met"]`:
+- **False** — return to Phase 0 (context will now include this iteration's history)
+- **True** — proceed to Completion
+
 ## Validation Protocol
 
 After every implementation on a feature branch, run the test suite before merging:
@@ -269,11 +307,15 @@ matlab -batch "results = runtests('tests'); if any([results.Failed]), exit(1); e
 
 ## Exit Condition
 
-You may ONLY stop the loop when ALL of the following are simultaneously true:
-1. Every finding in the current audit scores STRICTLY LESS THAN 2 out of 10
-2. All tests pass on the dev branch
-3. You have explicitly listed every finding from the current audit with its score
-4. You have written a one-sentence justification for why each finding is below 2/10
+The loop exits when `should_continue_loop()` in `evaluator.py` returns False, which requires ALL of:
+1. Every finding in the current audit has importance STRICTLY LESS THAN 2 out of 10
+2. The evaluator's coverage score is at least 6/10 (audit was thorough enough to trust)
+3. The evaluator raised no flags (other than EVALUATION_FAILED)
+
+Additionally, you may ONLY stop when:
+4. All tests pass on the dev branch
+5. You have explicitly listed every finding from the current audit with its score
+6. You have written a one-sentence justification for why each finding is below 2/10
 
 If ANY finding scores 2/10 or higher, you MUST continue the loop.
 Do NOT round down scores to justify stopping.
@@ -283,3 +325,16 @@ Do NOT stop because improvements are "minor" — only stop when scores are stric
 Before declaring completion, state explicitly:
 "All findings score below 2/10. Listing them: [list]. Proceeding to exit."
 If you cannot complete that statement truthfully, continue the loop.
+
+## Completion
+After the loop exits, print the full history:
+```python
+from loop_tracker import print_full_summary
+print_full_summary()
+```
+
+Report:
+- Total iterations run
+- All improvements made, with their scores
+- Evaluator score trend across iterations
+- Final state assessment
