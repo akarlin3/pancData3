@@ -27,7 +27,22 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 
     if nargin < 8, opts = struct(); end
 
+    % Validate required config field
+    if ~isfield(config_struct, 'core_method')
+        error('extract_tumor_core:missingField', ...
+            'config_struct must contain a ''core_method'' field.');
+    end
+
+    VALID_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
     core_method = lower(config_struct.core_method);
+    if ~ismember(core_method, VALID_METHODS)
+        error('extract_tumor_core:invalidMethod', ...
+            'Unrecognized core_method ''%s''. Valid options: %s', ...
+            core_method, strjoin(VALID_METHODS, ', '));
+    end
+
     n_voxels = length(adc_vec);
     % Default: no voxels belong to the core (conservative)
     core_mask = false(n_voxels, 1);
