@@ -224,5 +224,55 @@ def print_full_summary() -> None:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+import argparse
+import sys
+
 if __name__ == "__main__":
-    print_full_summary()
+    parser = argparse.ArgumentParser(description="Loop tracker CLI")
+    subparsers = parser.add_subparsers(dest="command")
+
+    # context
+    subparsers.add_parser("context", help="Print context for next iteration")
+
+    # log
+    log_parser = subparsers.add_parser("log", help="Log a completed iteration")
+    log_parser.add_argument("--audit", required=True)
+    log_parser.add_argument("--findings", required=True)
+    log_parser.add_argument("--branches-created", required=True, dest="branches_created")
+    log_parser.add_argument("--branches-merged", required=True, dest="branches_merged")
+    log_parser.add_argument("--tests-passed", required=True, dest="tests_passed")
+
+    # summary
+    subparsers.add_parser("summary", help="Print full loop summary")
+
+    args = parser.parse_args()
+
+    if args.command == "context":
+        print(get_context_for_next_iteration())
+
+    elif args.command == "log":
+        findings = json.loads(args.findings)
+        branches_created = json.loads(args.branches_created)
+        branches_merged = json.loads(args.branches_merged)
+        tests_passed = args.tests_passed.lower() == "true"
+
+        entry = log_iteration(
+            audit_output=args.audit,
+            findings=findings,
+            branches_created=branches_created,
+            branches_merged=branches_merged,
+            tests_passed=tests_passed
+        )
+
+        if entry["exit_condition_met"]:
+            print("Exit condition met — stopping")
+            sys.exit(0)
+        else:
+            print("Continuing loop")
+            sys.exit(1)
+
+    elif args.command == "summary":
+        print_full_summary()
+
+    else:
+        parser.print_help()
