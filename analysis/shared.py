@@ -226,12 +226,16 @@ def setup_utf8_stdout():
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
             # Wrap the raw binary buffer with a new TextIOWrapper.
-            sys.stdout = io.TextIOWrapper(
-                sys.stdout.buffer, encoding="utf-8", errors="replace",
-            )
-            sys.stderr = io.TextIOWrapper(
-                sys.stderr.buffer, encoding="utf-8", errors="replace",
-            )
+            # Guard: stdout/stderr may lack .buffer when captured (e.g.,
+            # pytest StringIO or piped contexts).
+            if hasattr(sys.stdout, "buffer"):
+                sys.stdout = io.TextIOWrapper(
+                    sys.stdout.buffer, encoding="utf-8", errors="replace",
+                )
+            if hasattr(sys.stderr, "buffer"):
+                sys.stderr = io.TextIOWrapper(
+                    sys.stderr.buffer, encoding="utf-8", errors="replace",
+                )
 
 
 def find_latest_saved_folder(base_dir: str | None = None) -> Path:
