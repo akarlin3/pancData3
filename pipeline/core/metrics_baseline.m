@@ -1,4 +1,4 @@
-function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
+function baseline = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % METRICS_BASELINE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 1/5 of the metrics step. Compiles baseline measures, cleans outliers,
 % computes relative changes (percent delta), and groups metric sets for later steps.
@@ -39,9 +39,12 @@ function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d
 %   config_struct     - Configuration struct
 %
 % Outputs:
-%   [Multiple Arrays] - Includes logical masks for valid_pts, clean arrays for
-%                       ADC_abs, D_abs, f_abs, and their delta percent variations,
-%                       as well as organized sets (metric_sets) for downstream analysis.
+%   baseline - Struct with fields: m_lf, m_total_time, m_total_follow_up_time,
+%              m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean,
+%              m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp,
+%              m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs,
+%              f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp,
+%              metric_sets, set_names, time_labels, dtype_label, dl_provenance
 %
 
 % =========================================================================
@@ -585,6 +588,37 @@ set_names = {
 % fractions (typically weekly during 5-fraction SBRT or daily during
 % conventional RT), Post = post-treatment follow-up scan (typically 3 months).
 time_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
+
+% Pack all outputs into a single struct for clean caller interface.
+baseline.m_lf = m_lf;
+baseline.m_total_time = m_total_time;
+baseline.m_total_follow_up_time = m_total_follow_up_time;
+baseline.m_gtv_vol = m_gtv_vol;
+baseline.m_adc_mean = m_adc_mean;
+baseline.m_d_mean = m_d_mean;
+baseline.m_f_mean = m_f_mean;
+baseline.m_dstar_mean = m_dstar_mean;
+baseline.m_id_list = m_id_list;
+baseline.m_mrn_list = m_mrn_list;
+baseline.m_d95_gtvp = m_d95_gtvp;
+baseline.m_v50gy_gtvp = m_v50gy_gtvp;
+baseline.m_data_vectors_gtvp = m_data_vectors_gtvp;
+baseline.lf_group = lf_group;
+baseline.valid_pts = valid_pts;
+baseline.ADC_abs = ADC_abs;
+baseline.D_abs = D_abs;
+baseline.f_abs = f_abs;
+baseline.Dstar_abs = Dstar_abs;
+baseline.ADC_pct = ADC_pct;
+baseline.D_pct = D_pct;
+baseline.f_delta = f_delta;
+baseline.Dstar_pct = Dstar_pct;
+baseline.nTp = nTp;
+baseline.metric_sets = metric_sets;
+baseline.set_names = set_names;
+baseline.time_labels = time_labels;
+baseline.dtype_label = dtype_label;
+baseline.dl_provenance = dl_provenance;
 
 % Restore global state modified at the top of this function
 diary off;

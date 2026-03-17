@@ -36,21 +36,11 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     if ismember('metrics_baseline', steps_to_run)
         if ~isempty(pipeGUI), pipeGUI.startStep('metrics_baseline'); end
         try
-            fprintf('\n⚙️ [5.1/5] [%s] Running metrics_baseline...\n', current_name);
-            [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
-             m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
-             ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-             nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = ...
-             metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
+            fprintf('\n\xe2\x9a\x99\xef\xb8\x8f [5.1/5] [%s] Running metrics_baseline...\n', current_name);
+            baseline = metrics_baseline(validated_data_gtvp, validated_data_gtvn, summary_metrics, config_struct);
 
-            baseline_results = pack_baseline_results( ...
-                m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, ...
-                m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ...
-                ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-                nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance);
-
-            save(session.baseline_results_file, '-struct', 'baseline_results');
-            fprintf('      ✅ Done.\n');
+            save(baseline_results_file, '-struct', 'baseline');
+            fprintf('      \xe2\x9c\x85 Done.\n');
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'success'); end
             [warn_msg, warn_id] = lastwarn;
             lastwarn('');
@@ -76,7 +66,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_baseline', 'skipped'); end
             fprintf('\n⏭️ [5.1/5] [%s] Skipping metrics_baseline. Loading from disk...\n', current_name);
             try
-                baseline_results = load_baseline_from_disk(session.baseline_results_file);
+                baseline = load_baseline_from_disk(baseline_results_file);
             catch ME_base
                 fprintf('❌ %s\n', ME_base.message);
                 fprintf('❌ Downstream metrics steps require baseline results. Halting pipeline.\n');
@@ -88,6 +78,19 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             end
         end
     end
+
+    % Unpack baseline struct into local variables for downstream steps.
+    if exist('baseline', 'var')
+        m_lf = baseline.m_lf; m_total_time = baseline.m_total_time; m_total_follow_up_time = baseline.m_total_follow_up_time;
+        m_gtv_vol = baseline.m_gtv_vol; m_adc_mean = baseline.m_adc_mean; m_d_mean = baseline.m_d_mean; m_f_mean = baseline.m_f_mean; m_dstar_mean = baseline.m_dstar_mean; %#ok<NASGU>
+        m_id_list = baseline.m_id_list; m_mrn_list = baseline.m_mrn_list; m_d95_gtvp = baseline.m_d95_gtvp; m_v50gy_gtvp = baseline.m_v50gy_gtvp; m_data_vectors_gtvp = baseline.m_data_vectors_gtvp; %#ok<NASGU>
+        lf_group = baseline.lf_group; valid_pts = baseline.valid_pts;
+        ADC_abs = baseline.ADC_abs; D_abs = baseline.D_abs; f_abs = baseline.f_abs; Dstar_abs = baseline.Dstar_abs;
+        ADC_pct = baseline.ADC_pct; D_pct = baseline.D_pct; f_delta = baseline.f_delta; Dstar_pct = baseline.Dstar_pct;
+        nTp = baseline.nTp; metric_sets = baseline.metric_sets; set_names = baseline.set_names;
+        time_labels = baseline.time_labels; dtype_label = baseline.dtype_label; dl_provenance = baseline.dl_provenance;
+    end
+
     diary(master_diary_file);
     lastwarn('');
 
