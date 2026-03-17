@@ -33,8 +33,18 @@ function bad_dwi_found = convert_dicom(dicomloc, outloc, scanID, dcm2nii_call, f
     % Only convert if the output NIfTI does not already exist (idempotent)
     % and no other worker holds the lock (parallel safety).
     if ~exist(fullfile(outloc, [scanID '.nii.gz']), 'file') && ~exist(lock_file, 'file')
-        % Create lock file to prevent parallel workers from duplicating work
-        try fclose(fopen(lock_file, 'w')); catch; end
+        % Create lock file to prevent parallel workers from duplicating work.
+        % Verify the lock was actually created — if it fails (permissions,
+        % disk full), skip conversion to avoid a race condition.
+        lock_fid = fopen(lock_file, 'w');
+        if lock_fid < 0
+            warning('convert_dicom:lockFailed', ...
+                '⚠️ Cannot create lock file %s — skipping conversion for %s to avoid race condition.', ...
+                lock_file, fx_id);
+            bad_dwi_found = 1;
+            return;
+        end
+        fclose(lock_fid);
 
         % Construct the dcm2niix command with shell-escaped arguments to
         % prevent injection attacks from paths containing spaces, quotes,
