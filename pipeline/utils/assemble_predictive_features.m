@@ -127,7 +127,7 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
             end
             fclose(fp);
         end
-        error('Invalid data type: cell array detected in X_lasso_all concatenation. See debug_concat_error.txt');
+        error('assemble_predictive_features:cellArrayDetected', 'Invalid data type: cell array detected in X_lasso_all concatenation. See debug_concat_error.txt');
     end
 
     % Remove all-NaN columns (features with no valid data for any patient).

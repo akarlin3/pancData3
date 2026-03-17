@@ -204,7 +204,9 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                     energy_sum = energy_sum + props.Energy;
                     homogeneity_sum = homogeneity_sum + props.Homogeneity;
                     n_valid_angles = n_valid_angles + 1;
-                catch
+                catch ME_glcm
+                    warning('compute_texture_features:glcmFailed', ...
+                        'GLCM computation failed for angle %d: %s', ai, ME_glcm.message);
                 end
             end
 

@@ -158,13 +158,13 @@ for target_fx = 2:nTp
     if dtype == 2
         for chk_i = 1:numel(id_list_impute)
             if any(strcmp(dl_provenance.dncnn_train_ids, id_list_impute{chk_i}))
-                error('DATA LEAKAGE DETECTED: Patient %s was used to train the DnCNN model.', id_list_impute{chk_i});
+                error('metrics_stats_predictive:dataLeakage', 'DATA LEAKAGE DETECTED: Patient %s was used to train the DnCNN model.', id_list_impute{chk_i});
             end
         end
     elseif dtype == 3
         for chk_i = 1:numel(id_list_impute)
             if any(strcmp(dl_provenance.ivimnet_train_ids, id_list_impute{chk_i}))
-                error('DATA LEAKAGE DETECTED: Patient %s was used to train the IVIMnet model.', id_list_impute{chk_i});
+                error('metrics_stats_predictive:dataLeakage', 'DATA LEAKAGE DETECTED: Patient %s was used to train the IVIMnet model.', id_list_impute{chk_i});
             end
         end
     end

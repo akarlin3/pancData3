@@ -160,6 +160,10 @@ for j=1:n_pat_discover
                         % spreadsheet; StudyDate enables temporal analysis
                         % (e.g., days between fractions, treatment duration).
                         dicom_files = dir(fullfile(dwi_locations{j,fi,dwii}, '*.dcm'));
+                        if isempty(dicom_files)
+                            fprintf('  ⚠️  No .dcm files found in %s — skipping MRN/date extraction.\n', dwi_locations{j,fi,dwii});
+                            continue;
+                        end
                         dcm_idx = min(5, length(dicom_files));
                         pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
                         if have_mrn==0
