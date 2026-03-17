@@ -649,7 +649,7 @@ Analyze the entire codebase across these dimensions:
 - Modularity/structure
 
 For each finding, assign an importance score from 1-10.
-Compile a ranked improvement list. If no finding scores above 1/10, terminate the loop and report completion.
+Compile a ranked improvement list. If no finding scores above 1/10, terminate the loop and report completion. Be as thorough as possible when finding improvements.
 
 ## Phase 2: Plan
 Group findings into independent, non-conflicting work units.
