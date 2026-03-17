@@ -61,7 +61,7 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (71 files)
+│   ├── utils/                          # Helper utilities (72 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
 │   ├── tests/                          # Full test suite (120 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
@@ -255,6 +255,7 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `prepare_external_validation.m` | Export trained model for external validation |
 | `apply_external_validation.m` | Apply saved model to external dataset |
 | `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
+| `suppress_core_warnings.m` | Suppress expected warnings from `extract_tumor_core` during batch operations |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -435,4 +436,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (18 files), utility modules (55 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (18 files), utility modules (72 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

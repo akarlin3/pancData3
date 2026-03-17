@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0-alpha.2] - 2026-03-17
+
+### Added
+
+#### Pipeline Infrastructure
+- **`suppress_core_warnings.m`** (`pipeline/utils/`): Extracted duplicate warning suppression into a reusable utility for cleaner core module code
+- **`CLAUDE_WORKFLOWS.md`**: Extracted workflow and process documentation from `CLAUDE.md` into a dedicated file for better separation of concerns
+
+#### Input Validation & Error Handling
+- **`extract_tumor_core.m`**: Input validation for mask dimensions and method parameters
+- **`filter_collinear_features.m`**: Input validation for feature matrix and threshold arguments
+- **`load_auxiliary_biomarkers.m`**: Column dimension validation and data loss warnings
+- **`fit_models.m`**: Early b-value validation moved to function entry for fail-fast behavior
+- **`load_dwi_data.m`**: Guard against empty DICOM arrays
+- **`compute_texture_features.m`**: GLCM error logging with message IDs
+- **`discover_patient_files.m`**: Error instead of warning when clinical spreadsheet has no patient column
+
+### Changed
+- **`compute_summary_metrics.m`**: Cache all GTV masks using `containers.Map` for improved performance on large cohorts
+- **`scale_td_panel.m`**: Added `omitnan` flag to baseline scaling path for consistency with other scaling operations
+- **`build_td_panel.m`**: Clarified NaN propagation behavior in decay imputation documentation
+- **`compute_schoenfeld_residuals.m`**: Improved LOWESS smoother numerical stability
+- **`assemble_predictive_features.m`**, **`compute_percent_deltas.m`**: Pre-allocated arrays to avoid repeated memory reallocation in loops
+- **`dispatch_pipeline_steps.m`**: Simplified by extracting warning suppression to `suppress_core_warnings.m`
+- **`batch_graph_analysis.py`**: Re-raise `KeyboardInterrupt` and `CancelledError` in batch worker instead of silently swallowing; added error logging to silent exceptions
+- **CLAUDE.md**: Split workflow documentation into `CLAUDE_WORKFLOWS.md`
+
+### Fixed
+- **`dispatch_pipeline_steps.m`**: Fixed critical bugs — undefined variable reference and empty struct initialization
+- **`compare_core_methods.m`**: Fixed incorrect variable name `nTp` in bootstrap CI loop
+- **`detect_motion_artifacts.m`**: Flag motion artifacts when NMI is `NaN` due to insufficient voxels
+- **`process_single_scan.m`**, **`metrics_dosimetry.m`**, **`metrics_longitudinal.m`**: Fixed `fopen` return value checks and division-by-zero in standard error computation
+- **`batch_graph_analysis.py`**: Fixed regex deduplication overlap in error handling
+- **`test_convert_dicom.m`**: Escaped shell arguments in `chmod` calls for path safety
+
+---
+
 ## [2.1.0-alpha.1] - 2026-03-17
 
 ### Added
