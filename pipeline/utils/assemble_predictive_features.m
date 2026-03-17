@@ -119,12 +119,14 @@ function [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_la
         vars = {'ADC_abs_BL', 'D_abs_BL', 'f_abs_BL', 'Dstar_abs_BL', 'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', 'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
         vars_vals = {ADC_abs, D_abs, f_abs, Dstar_abs, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
         fp = fopen(fullfile(output_folder, 'debug_concat_error.txt'), 'a');
-        fprintf(fp, '\n--- X_lasso_all is a cell array at fx_label=%s ---\n', fx_label);
-        for i_v = 1:length(vars)
-            tmp_v = vars_vals{i_v};
-            fprintf(fp, '%s -> Size: %s, Class: %s\n', vars{i_v}, mat2str(size(tmp_v)), class(tmp_v));
+        if fp >= 0
+            fprintf(fp, '\n--- X_lasso_all is a cell array at fx_label=%s ---\n', fx_label);
+            for i_v = 1:length(vars)
+                tmp_v = vars_vals{i_v};
+                fprintf(fp, '%s -> Size: %s, Class: %s\n', vars{i_v}, mat2str(size(tmp_v)), class(tmp_v));
+            end
+            fclose(fp);
         end
-        fclose(fp);
         error('Invalid data type: cell array detected in X_lasso_all concatenation. See debug_concat_error.txt');
     end
 
