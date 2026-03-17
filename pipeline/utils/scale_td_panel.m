@@ -82,8 +82,8 @@ function [X_td_scaled] = scale_td_panel(X_td_raw, feat_names, pat_id_td, t_start
                 mu  = mean(X_td_raw(is_train_row, fi), 'omitnan');
                 sig = std(X_td_raw(is_train_row, fi), 0, 'omitnan');
             else
-                mu  = mean(base_vals);
-                sig = std(base_vals);
+                mu  = mean(base_vals, 'omitnan');
+                sig = std(base_vals, 0, 'omitnan');
             end
 
             if sig == 0 || isnan(sig)
