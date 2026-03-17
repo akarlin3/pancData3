@@ -97,6 +97,7 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `prepare_external_validation.m` | Export trained model for external validation |
 | `apply_external_validation.m` | Apply saved model to external dataset |
 | `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
+| `suppress_core_warnings.m` | Suppress expected warnings from `extract_tumor_core` during batch operations |
 
 ---
 
