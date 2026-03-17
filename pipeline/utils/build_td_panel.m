@@ -277,6 +277,10 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 % non-physiological imputed values for parameters like ADC
                 % and D which have positive physiological floor values.
                 bl(isnan(bl)) = orig_X(decay_mask & isnan(baseline_X));
+                % If both baseline and last-observed are NaN (no data ever
+                % recorded for this feature), bl remains NaN and the decay
+                % formula propagates NaN correctly — the feature is truly
+                % missing and cannot be imputed from temporal context.
                 decay_factor = exp(-lambda_decay(decay_mask) .* dt_per_feat(decay_mask));
                 cov_row(decay_mask) = bl + (orig_X(decay_mask) - bl) .* decay_factor;
             end
