@@ -19,6 +19,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - [Features](#features)
 - [Requirements](#requirements)
 - [Installation](#installation)
+  - [Docker](#docker)
 - [Configuration](#configuration)
 - [Usage](#usage)
 - [Pipeline Steps](#pipeline-steps)
@@ -93,18 +94,126 @@ addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 
 ### Docker
 
-For reproducible containerized execution, see the [Docker usage guide](docs/DOCKER.md).
+A Docker image provides fully reproducible execution without installing MATLAB toolboxes, `dcm2niix`, or Python dependencies on the host. For the full reference (MCR versioning, troubleshooting, data safety), see [`docs/DOCKER.md`](docs/DOCKER.md).
+
+#### Prerequisites
+
+| Platform | Requirement |
+|---|---|
+| **Windows** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL 2 backend enabled |
+| **macOS** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
+| **Linux** | Docker Engine 20.10+ and Docker Compose v2.0+ |
+
+Verify your installation:
 
 ```bash
-# Build the image
-docker build -t pancdata3:latest .
+docker --version          # Docker version 20.10+
+docker compose version    # Docker Compose version v2.0+
+```
 
-# Run the full pipeline
+#### Building the image
+
+```bash
+docker build -t pancdata3:latest .
+```
+
+The first build takes approximately 10--15 minutes (compiles `dcm2niix` from source and installs the MATLAB Runtime). Subsequent builds use Docker layer caching and complete in seconds unless `pipeline/` or `analysis/` code has changed.
+
+#### Config setup
+
+Copy the example config and set **container-internal** paths (not host paths):
+
+```bash
+cp config.example.json config.json
+```
+
+```json
+{
+  "dataloc": "/opt/pancData3/data/",
+  "dcm2nii_call": "dcm2niix",
+  "skip_to_reload": false,
+  "dwi_type": "Standard"
+}
+```
+
+> **Note:** Inside the container, patient data is mounted at `/opt/pancData3/data/` and `dcm2niix` is on the system PATH, so `dcm2nii_call` should be `"dcm2niix"` (not a host path).
+
+#### Running with Docker Compose
+
+Set the required environment variables, then use Compose targets:
+
+```bash
+export DATA_DIR=/path/to/patient_dwi_data
+export OUTPUT_DIR=/path/to/output
+export CONFIG_FILE=/path/to/config.json
+
+# Pipeline + analysis (default)
+docker compose up
+
+# Pipeline only
+docker compose up pipeline
+
+# Analysis only (requires existing pipeline output in OUTPUT_DIR)
+docker compose up analysis
+```
+
+#### Running with `docker run`
+
+```bash
+# Full pipeline (all DWI types)
 docker run --rm \
   -v /path/to/patient_data:/opt/pancData3/data:ro \
   -v /path/to/output:/opt/pancData3/output \
   -v /path/to/config.json:/opt/pancData3/config.json:ro \
   pancdata3:latest pipeline
+
+# Analysis only
+docker run --rm \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest analysis
+
+# Both pipeline and analysis
+docker run --rm \
+  -v /path/to/patient_data:/opt/pancData3/data:ro \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest all
+```
+
+#### Dry run
+
+Validate your setup (config, volume mounts, MATLAB Runtime, Python) without executing the pipeline:
+
+```bash
+docker run --rm \
+  -v /path/to/patient_data:/opt/pancData3/data:ro \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest --dry-run pipeline
+```
+
+#### Optional: Gemini vision analysis
+
+To enable vision-based graph analysis, pass your API key:
+
+```bash
+docker run --rm \
+  -e GEMINI_API_KEY=your_key_here \
+  -v /path/to/output:/opt/pancData3/output \
+  -v /path/to/config.json:/opt/pancData3/config.json:ro \
+  pancdata3:latest analysis --skip-checks
+```
+
+#### Output
+
+Results are written to the `/opt/pancData3/output` mount point inside the container, which maps to your host `OUTPUT_DIR` (or the `-v .../output` path). The pipeline creates a timestamped `saved_files_YYYYMMDD_HHMMSS/` folder containing all logs, figures, and MAT files.
+
+#### Rebuilding after code changes
+
+After modifying pipeline or analysis code, re-run the build command. Docker layer caching ensures only changed layers are rebuilt:
+
+```bash
+docker build -t pancdata3:latest .
 ```
 
 ---
