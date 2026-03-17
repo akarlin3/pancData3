@@ -101,6 +101,11 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
                 'feat_arrays{%d} has %d rows but lf_vec has %d entries.', ...
                 fi, size(feat_arrays{fi}, 1), n_pts);
         end
+        if size(feat_arrays{fi}, 2) ~= nTp
+            error('build_td_panel:colMismatch', ...
+                'feat_arrays{%d} has %d columns but nTp=%d.', ...
+                fi, size(feat_arrays{fi}, 2), nTp);
+        end
     end
 
     % --- Default scan-day schedule (fraction days from RT start) ---
