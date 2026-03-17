@@ -152,7 +152,7 @@ Edit `config.json` with your local paths:
 | `compute_fine_gray` | Compute Fine-Gray subdistribution hazard model alongside cause-specific hazard (default: `true`) |
 | `exclude_motion_volumes` | Exclude motion-corrupted DWI volumes before model fitting (default: `false`) |
 | `use_texture_features` | Compute GLCM and first-order texture features from parameter maps (default: `false`) |
-| `texture_3d` | When true, compute GLRLM texture features in 13 3D directions (axis-aligned, face-diagonal, body-diagonal) instead of 4 in-plane 2D directions. Falls back to 2D for single-slice inputs (default: `true`) |
+| `texture_quantization_method` | IBSI quantization for texture features: `"fixed_bin_number"` (default) or `"fixed_bin_width"` |
 | `use_gpu` | Offload ADC WLS fitting and DnCNN inference to a CUDA GPU via `gpuArray`. Requires Parallel Computing Toolbox and a CUDA-capable GPU. Falls back to CPU when unavailable (default: `false`) |
 | `gpu_device` | 1-based index of the CUDA GPU device to use when `use_gpu` is true (default: `1`) |
 | `run_imputation_sensitivity` | Compare KNN imputation against LOCF, Mean, and Linear Interpolation alternatives (default: `false`) |

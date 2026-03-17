@@ -510,8 +510,13 @@ for j=1:n_patients_metrics
                     else
                         iso_spacing = [1 1 1];
                     end
-                    tex_3d = ~isfield(config_struct, 'texture_3d') || config_struct.texture_3d;
-                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing, tex_3d);
+                    % Pass quantization method from config (IBSI compliance)
+                    if isfield(config_struct, 'texture_quantization_method')
+                        tex_quant_method = config_struct.texture_quantization_method;
+                    else
+                        tex_quant_method = 'fixed_bin_number';
+                    end
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_vec(gtv_mask_3d(:)), gtv_mask_3d, 32, iso_spacing, tex_quant_method);
                 catch
                     % Texture extraction is non-fatal
                 end
