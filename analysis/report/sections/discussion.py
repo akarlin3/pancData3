@@ -602,7 +602,7 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                 if dt in dwi_dict:
                     try:
                         all_trends_dict[dt] = json.loads(str(dwi_dict[dt].get("trends_json", "[]")))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         pass
             if len(all_trends_dict) >= 2:
                 all_series: set[str] = set()
@@ -690,7 +690,7 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                             d_trends.append(direction)
                         elif series == "Mean f":
                             f_trends.append(direction)
-            except Exception:
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
                 pass
         d_cons = _get_consensus(d_trends)
         f_cons = _get_consensus(f_trends)

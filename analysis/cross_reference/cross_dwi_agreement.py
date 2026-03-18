@@ -166,8 +166,8 @@ def load_summary_metrics(folder: Path, dwi_type: str) -> dict | None:
         try:
             with open(mat_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  ⚠️  Failed to load {mat_path.name}: {e}")
     return None
 
 

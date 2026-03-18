@@ -139,7 +139,7 @@ def _section_graph_issues(rows) -> list[str]:
         issues_str = r.get("issues_json", "[]") or "[]"
         try:
             issues_list = json.loads(issues_str)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             issues_list = []
         graph_type = r.get("graph_type", "")
         # Also flag error/unknown graph types as issues.
@@ -283,7 +283,7 @@ def _section_stats_by_graph_type(rows) -> list[str]:
         trends_str = r.get("trends_json", "[]") or "[]"
         try:
             trends = json.loads(str(trends_str))
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             trends = []
         if isinstance(trends, list):
             for t in trends:

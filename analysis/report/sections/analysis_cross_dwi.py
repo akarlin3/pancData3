@@ -115,7 +115,7 @@ def _section_cross_dwi_comparison(groups, csv_data) -> list[str]:
                 if dt in dwi_dict:
                     try:
                         all_trends[dt] = json.loads(str(dwi_dict[dt].get("trends_json", "[]")))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         pass
 
             if all_trends:

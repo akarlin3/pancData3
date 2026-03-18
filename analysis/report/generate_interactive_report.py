@@ -578,14 +578,16 @@ def generate_interactive_report(folder: Path) -> str:
     report_bar.set_postfix_str("loading CSVs", refresh=True)
     try:
         csv_data = parse_all_csvs(folder)
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  CSV parsing failed ({type(e).__name__}): {e}")
         csv_data = None
     report_bar.update(1)
 
     report_bar.set_postfix_str("loading logs", refresh=True)
     try:
         log_data = parse_all_logs(folder)
-    except Exception:
+    except Exception as e:
+        print(f"  ⚠️  Log parsing failed ({type(e).__name__}): {e}")
         log_data = None
     report_bar.update(1)
 
@@ -597,8 +599,8 @@ def generate_interactive_report(folder: Path) -> str:
             try:
                 with open(mat_path, "r", encoding="utf-8") as f:
                     mat_data[dt] = json.load(f)
-            except Exception:
-                pass
+            except (json.JSONDecodeError, OSError) as e:
+                print(f"  ⚠️  Failed to load {mat_path.name} ({type(e).__name__}): {e}")
     report_bar.update(1)
 
     report_bar.set_postfix_str("loading graphs", refresh=True)

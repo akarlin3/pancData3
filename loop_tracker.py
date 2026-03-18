@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import Optional
+from typing import Optional  # noqa: F401 — used by callers via import
 from evaluator import score_audit, should_continue_loop  # type: ignore
 
 LOG_FILE = "improvement_loop_log.json"
@@ -162,7 +162,10 @@ def check_score_drift(log: list) -> bool:
     """Warn if overall scores drift more than 3 points between iterations."""
     if len(log) < 2:
         return False
-    last_two = [e["audit_scores"]["overall"] for e in log[-2:]]  # type: ignore
+    try:
+        last_two = [e["audit_scores"]["overall"] for e in log[-2:]]  # type: ignore
+    except (KeyError, TypeError):
+        return False
     drift = abs(last_two[0] - last_two[1])
     if drift > 3:
         print(f"WARNING: Score drift of {drift:.1f} detected — "

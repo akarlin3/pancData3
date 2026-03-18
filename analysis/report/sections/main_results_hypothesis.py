@@ -142,7 +142,7 @@ def _section_hypothesis(groups, log_data=None, mat_data=None) -> list[str]:
                         elif "drop" in desc or "decrease" in desc or "decline" in desc:
                             cellular_inflections.append(f"a diffusion decrease{magnitude} observed around {fx_label}")
 
-            except Exception:
+            except (json.JSONDecodeError, TypeError, KeyError, ValueError):
                 pass
 
         # Determine consensus trend direction via keyword voting.

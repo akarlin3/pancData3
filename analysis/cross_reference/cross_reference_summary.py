@@ -81,7 +81,7 @@ def main():
             r = dwi_dict[dwi_type]
             try:
                 trends = json.loads(r.get("trends_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 trends = []
             all_trends[dwi_type] = trends
 
@@ -122,7 +122,7 @@ def main():
                 continue
             try:
                 tests = json.loads(dwi_dict[dwi_type].get("statistical_tests_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 tests = []
             if tests:
                 stat_tests_by_dwi[dwi_type] = tests
@@ -191,7 +191,7 @@ def main():
                 continue
             try:
                 ips = json.loads(dwi_dict[dwi_type].get("inflection_points_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 ips = []
             if ips:
                 if not has_ip:

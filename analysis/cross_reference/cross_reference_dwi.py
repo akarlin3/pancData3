@@ -108,7 +108,7 @@ def main():
             # Parse and display trend list from JSON string.
             try:
                 trends = json.loads(r.get("trends_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 trends = []
             if trends:
                 print(f"    Trends ({len(trends)}):")
@@ -131,7 +131,7 @@ def main():
             # Parse and display inflection points from JSON string.
             try:
                 inflections = json.loads(r.get("inflection_points_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 inflections = []
             if inflections:
                 print(f"    Inflection points ({len(inflections)}):")
@@ -146,7 +146,7 @@ def main():
             # Parse and display statistical tests.
             try:
                 stat_tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 stat_tests = []
             if stat_tests:
                 print(f"    Statistical tests ({len(stat_tests)}):")
@@ -170,7 +170,7 @@ def main():
             # Parse and display outliers.
             try:
                 outliers = json.loads(r.get("outliers_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 outliers = []
             if outliers:
                 print(f"    Outliers ({len(outliers)}):")
@@ -183,7 +183,7 @@ def main():
             # Parse and display reference lines.
             try:
                 ref_lines = json.loads(r.get("reference_lines_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 ref_lines = []
             if ref_lines:
                 print(f"    Reference lines ({len(ref_lines)}):")
@@ -198,7 +198,7 @@ def main():
             # Legend items
             try:
                 legend = json.loads(r.get("legend_items_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 legend = []
             if legend:
                 print(f"    Legend: {', '.join(legend)}")

@@ -152,7 +152,7 @@ def main():
         for r in type_rows:
             try:
                 trends = json.loads(r.get("trends_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 trends = []
             for t in trends:
                 if not isinstance(t, dict):
@@ -180,7 +180,7 @@ def main():
             dwi_type, base_name = parse_dwi_info(r["file_path"])
             try:
                 tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 tests = []
             for st in tests:
                 if isinstance(st, dict) and st.get("test_name"):
@@ -254,7 +254,7 @@ def main():
 
             try:
                 trends = json.loads(r.get("trends_json", "[]") or "[]")
-            except Exception:
+            except (json.JSONDecodeError, TypeError):
                 trends = []
             n_trends += len(trends)  # type: ignore
 

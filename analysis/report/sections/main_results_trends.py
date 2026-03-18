@@ -104,7 +104,7 @@ def _section_treatment_response(groups) -> list[str]:
                     trends_str = r.get("trends_json", "[]") if isinstance(r, dict) else "[]"
                     try:
                         trends = json.loads(str(trends_str))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         trends = []
                     if isinstance(trends, list) and trends:
                         for t in trends:
@@ -124,7 +124,7 @@ def _section_treatment_response(groups) -> list[str]:
                     ips_str = r.get("inflection_points_json", "[]") if isinstance(r, dict) else "[]"
                     try:
                         ips = json.loads(str(ips_str))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
                         ips = []
                     if isinstance(ips, list) and ips:
                         h.append("<details open><summary>Inflection points</summary><ul>")
@@ -155,7 +155,7 @@ def _section_treatment_response(groups) -> list[str]:
                         t_str = r.get("trends_json", "[]") if isinstance(r, dict) else "[]"
                         try:
                             t_list = json.loads(str(t_str))
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError):
                             t_list = []
                         if isinstance(t_list, list):
                             for t in t_list:
@@ -190,7 +190,7 @@ def _section_treatment_response(groups) -> list[str]:
                 ips_str = r.get("inflection_points_json", "[]") if isinstance(r, dict) else "[]"
                 try:
                     ips = json.loads(str(ips_str))
-                except Exception:
+                except (json.JSONDecodeError, TypeError):
                     ips = []
                 if isinstance(ips, list):
                     for ip in ips:
