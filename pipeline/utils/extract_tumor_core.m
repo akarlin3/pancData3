@@ -213,36 +213,43 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                         tol_upper = config_struct.adc_thresh;
                     end
                     
-                    % BFS-based region growing from the seed voxel
+                    % BFS-based region growing from the seed voxel.
+                    % Pre-allocate queue to the number of GTV voxels (upper
+                    % bound on reachable voxels) to avoid dynamic growth
+                    % inside the loop, which causes O(n^2) memory copies.
                     rg_mask = false(size(adc_map_3d));
                     rg_mask(sx, sy, sz) = true;
-                    queue = [sx, sy, sz];  % FIFO queue of voxels to explore
+                    n_gtv_vox = sum(gtv_mask_3d(:));
+                    queue = zeros(n_gtv_vox, 3);
+                    queue(1,:) = [sx, sy, sz];
+                    q_head = 1;  % next index to dequeue
+                    q_tail = 1;  % last enqueued index
 
                     % 6-connected neighborhood shifts (face-adjacent only;
                     % excludes diagonal neighbors to prevent "leaking"
                     % through thin tissue boundaries)
                     shifts = [1 0 0; -1 0 0; 0 1 0; 0 -1 0; 0 0 1; 0 0 -1];
 
-                    while ~isempty(queue)
-                        % Dequeue the next voxel to process
-                        cx = queue(1,1); cy = queue(1,2); cz = queue(1,3);
-                        queue(1,:) = [];
-                        
+                    while q_head <= q_tail
+                        cx = queue(q_head,1); cy = queue(q_head,2); cz = queue(q_head,3);
+                        q_head = q_head + 1;
+
                         for i=1:6
                             nx = cx + shifts(i,1);
                             ny = cy + shifts(i,2);
                             nz = cz + shifts(i,3);
-                            
+
                             if nx >= 1 && nx <= size(adc_map_3d,1) && ...
                                ny >= 1 && ny <= size(adc_map_3d,2) && ...
                                nz >= 1 && nz <= size(adc_map_3d,3)
-                                
+
                                 if ~rg_mask(nx, ny, nz) && ~isnan(adc_map_3d(nx,ny,nz)) ...
                                    && gtv_mask_3d(nx,ny,nz) == 1
-                               
+
                                     if adc_map_3d(nx,ny,nz) <= tol_upper
                                         rg_mask(nx,ny,nz) = true;
-                                        queue(end+1,:) = [nx, ny, nz]; %#ok<AGROW>
+                                        q_tail = q_tail + 1;
+                                        queue(q_tail,:) = [nx, ny, nz];
                                     end
                                 end
                             end
