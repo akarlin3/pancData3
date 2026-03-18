@@ -199,9 +199,11 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 
             % Compute GLCM at 4 angles and average
             offsets = [0 1; -1 1; -1 0; -1 -1];
-            contrast_sum = 0; correlation_sum = 0;
-            energy_sum = 0; homogeneity_sum = 0;
-            n_valid_angles = 0;
+            contrast_vals = zeros(4, 1);
+            correlation_vals = zeros(4, 1);
+            energy_vals = zeros(4, 1);
+            homogeneity_vals = zeros(4, 1);
+            valid_angles = false(4, 1);
 
             for a = 1:size(offsets, 1)
                 try
@@ -209,22 +211,22 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                         'NumLevels', n_levels_glcm, 'GrayLimits', [1 n_levels_glcm], ...
                         'Symmetric', true);
                     props = graycoprops(glcm, {'Contrast', 'Correlation', 'Energy', 'Homogeneity'});
-                    contrast_sum = contrast_sum + props.Contrast;
-                    correlation_sum = correlation_sum + props.Correlation;
-                    energy_sum = energy_sum + props.Energy;
-                    homogeneity_sum = homogeneity_sum + props.Homogeneity;
-                    n_valid_angles = n_valid_angles + 1;
+                    contrast_vals(a) = props.Contrast;
+                    correlation_vals(a) = props.Correlation;
+                    energy_vals(a) = props.Energy;
+                    homogeneity_vals(a) = props.Homogeneity;
+                    valid_angles(a) = true;
                 catch ME_glcm
                     warning('compute_texture_features:glcmFailed', ...
                         'GLCM computation failed for angle %d: %s', a, ME_glcm.message);
                 end
             end
 
-            if n_valid_angles > 0
-                features.glcm_contrast = contrast_sum / n_valid_angles;
-                features.glcm_correlation = correlation_sum / n_valid_angles;
-                features.glcm_energy = energy_sum / n_valid_angles;
-                features.glcm_homogeneity = homogeneity_sum / n_valid_angles;
+            if any(valid_angles)
+                features.glcm_contrast = mean(contrast_vals(valid_angles));
+                features.glcm_correlation = mean(correlation_vals(valid_angles));
+                features.glcm_energy = mean(energy_vals(valid_angles));
+                features.glcm_homogeneity = mean(homogeneity_vals(valid_angles));
             else
                 features.glcm_contrast = NaN;
                 features.glcm_correlation = NaN;
@@ -312,8 +314,14 @@ function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
         1 -1 -1;   % body diagonal
     ];
 
-    sre_sum = 0; lre_sum = 0; gln_sum = 0; rln_sum = 0; rp_sum = 0;
-    n_valid = 0;
+    % Pre-allocate feature arrays
+    sre_vals = zeros(13, 1);
+    lre_vals = zeros(13, 1);
+    gln_vals = zeros(13, 1);
+    rln_vals = zeros(13, 1);
+    rp_vals = zeros(13, 1);
+    valid_dirs = false(13, 1);
+    
     n_pixels = sum(mask(:));
 
     for d = 1:size(directions, 1)
@@ -321,13 +329,12 @@ function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
         dc = directions(d, 2);
         ds = directions(d, 3);
 
-        % Build GLRLM for this direction
+        % Pre-allocate GLRLM matrix
         rlm = zeros(n_levels, max_run);
         total_runs = 0;
 
-        % Find starting positions: voxels whose predecessor is out of bounds.
-        % A voxel (r,c,s) is a start if (r-dr, c-dc, s-ds) is outside the volume.
-        starts = find_3d_starts(nrows, ncols, nslices, dr, dc, ds);
+        % Find starting positions using vectorized approach
+        starts = find_3d_starts_vectorized(nrows, ncols, nslices, dr, dc, ds);
 
         for si = 1:size(starts, 1)
             r = starts(si, 1);
@@ -376,147 +383,152 @@ function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
         if total_runs == 0
             continue;
         end
-        n_valid = n_valid + 1;
+        valid_dirs(d) = true;
 
-        % Compute GLRLM features from this direction's matrix
+        % Vectorized GLRLM feature computation
         n_r = total_runs;
+        run_lengths = 1:max_run;
+        
+        % Short Run Emphasis - vectorized
+        run_weights = 1 ./ (run_lengths.^2);
+        col_sums = sum(rlm, 1);
+        sre_vals(d) = sum(col_sums .* run_weights) / n_r;
 
-        % Short Run Emphasis
-        sre_d = 0;
-        for j = 1:max_run
-            sre_d = sre_d + sum(rlm(:, j)) / (j^2);
-        end
-        sre_sum = sre_sum + sre_d / n_r;
+        % Long Run Emphasis - vectorized
+        run_weights_lre = run_lengths.^2;
+        lre_vals(d) = sum(col_sums .* run_weights_lre) / n_r;
 
-        % Long Run Emphasis
-        lre_d = 0;
-        for j = 1:max_run
-            lre_d = lre_d + sum(rlm(:, j)) * (j^2);
-        end
-        lre_sum = lre_sum + lre_d / n_r;
-
-        % Gray-Level Non-Uniformity
+        % Gray-Level Non-Uniformity - vectorized
         gi_sums = sum(rlm, 2);
-        gln_sum = gln_sum + sum(gi_sums.^2) / n_r;
+        gln_vals(d) = sum(gi_sums.^2) / n_r;
 
-        % Run-Length Non-Uniformity
-        rj_sums = sum(rlm, 1);
-        rln_sum = rln_sum + sum(rj_sums.^2) / n_r;
+        % Run-Length Non-Uniformity - vectorized (col_sums already computed)
+        rln_vals(d) = sum(col_sums.^2) / n_r;
 
         % Run Percentage
-        rp_sum = rp_sum + n_r / n_pixels;
+        rp_vals(d) = n_r / n_pixels;
     end
 
-    if n_valid > 0
-        sre = sre_sum / n_valid;
-        lre = lre_sum / n_valid;
-        gln = gln_sum / n_valid;
-        rln = rln_sum / n_valid;
-        rp = rp_sum / n_valid;
+    if any(valid_dirs)
+        sre = mean(sre_vals(valid_dirs));
+        lre = mean(lre_vals(valid_dirs));
+        gln = mean(gln_vals(valid_dirs));
+        rln = mean(rln_vals(valid_dirs));
+        rp = mean(rp_vals(valid_dirs));
     else
         sre = NaN; lre = NaN; gln = NaN; rln = NaN; rp = NaN;
     end
 end
 
 
-%% ===== Find 3D line starting positions =====
+%% ===== Vectorized 3D line starting positions =====
 
-function starts = find_3d_starts(nrows, ncols, nslices, dr, dc, ds)
-%FIND_3D_STARTS  Enumerate starting voxels for line tracing in direction [dr,dc,ds].
-%
-%   A voxel (r,c,s) is a starting point for a line in direction [dr,dc,ds]
-%   if the predecessor voxel (r-dr, c-dc, s-ds) lies outside the volume.
+function starts = find_3d_starts_vectorized(nrows, ncols, nslices, dr, dc, ds)
+%FIND_3D_STARTS_VECTORIZED  Vectorized enumeration of starting voxels for line tracing.
 
-    % Determine range for each dimension based on direction sign
-    r_range = 1:nrows;
-    c_range = 1:ncols;
-    s_range = 1:nslices;
-
-    % Build grid of all candidate starts (one face per nonzero direction component)
-    % A start is where predecessor is out of bounds in at least one dimension.
-    % For efficiency, generate starts on the entry faces.
-
-    starts_list = zeros(nrows * ncols + nrows * nslices + ncols * nslices, 3);
-    count = 0;
+    starts_cell = cell(3, 1);
+    count_total = 0;
 
     if dr > 0
         % Entry face: r = 1
-        for c = c_range
-            for s = s_range
-                count = count + 1;
-                starts_list(count, :) = [1, c, s];
-            end
-        end
+        [C, S] = meshgrid(1:ncols, 1:nslices);
+        starts_cell{1} = [ones(numel(C), 1), C(:), S(:)];
+        count_total = count_total + numel(C);
     elseif dr < 0
         % Entry face: r = nrows
-        for c = c_range
-            for s = s_range
-                count = count + 1;
-                starts_list(count, :) = [nrows, c, s];
-            end
-        end
+        [C, S] = meshgrid(1:ncols, 1:nslices);
+        starts_cell{1} = [nrows*ones(numel(C), 1), C(:), S(:)];
+        count_total = count_total + numel(C);
     end
 
     if dc > 0
         % Entry face: c = 1 (exclude already-counted voxels)
-        for r = r_range
-            for s = s_range
-                if dr > 0 && r == 1, continue; end
-                if dr < 0 && r == nrows, continue; end
-                count = count + 1;
-                starts_list(count, :) = [r, 1, s];
-            end
+        r_vals = 1:nrows;
+        s_vals = 1:nslices;
+        if dr > 0
+            r_vals = r_vals(r_vals ~= 1);
+        elseif dr < 0
+            r_vals = r_vals(r_vals ~= nrows);
+        end
+        if ~isempty(r_vals)
+            [R, S] = meshgrid(r_vals, s_vals);
+            starts_cell{2} = [R(:), ones(numel(R), 1), S(:)];
+            count_total = count_total + numel(R);
         end
     elseif dc < 0
         % Entry face: c = ncols
-        for r = r_range
-            for s = s_range
-                if dr > 0 && r == 1, continue; end
-                if dr < 0 && r == nrows, continue; end
-                count = count + 1;
-                starts_list(count, :) = [r, ncols, s];
-            end
+        r_vals = 1:nrows;
+        s_vals = 1:nslices;
+        if dr > 0
+            r_vals = r_vals(r_vals ~= 1);
+        elseif dr < 0
+            r_vals = r_vals(r_vals ~= nrows);
+        end
+        if ~isempty(r_vals)
+            [R, S] = meshgrid(r_vals, s_vals);
+            starts_cell{2} = [R(:), ncols*ones(numel(R), 1), S(:)];
+            count_total = count_total + numel(R);
         end
     end
 
     if ds > 0
         % Entry face: s = 1
-        for r = r_range
-            for c = c_range
-                if dr > 0 && r == 1, continue; end
-                if dr < 0 && r == nrows, continue; end
-                if dc > 0 && c == 1, continue; end
-                if dc < 0 && c == ncols, continue; end
-                count = count + 1;
-                starts_list(count, :) = [r, c, 1];
-            end
+        r_vals = 1:nrows;
+        c_vals = 1:ncols;
+        if dr > 0
+            r_vals = r_vals(r_vals ~= 1);
+        elseif dr < 0
+            r_vals = r_vals(r_vals ~= nrows);
+        end
+        if dc > 0
+            c_vals = c_vals(c_vals ~= 1);
+        elseif dc < 0
+            c_vals = c_vals(c_vals ~= ncols);
+        end
+        if ~isempty(r_vals) && ~isempty(c_vals)
+            [R, C] = meshgrid(r_vals, c_vals);
+            starts_cell{3} = [R(:), C(:), ones(numel(R), 1)];
+            count_total = count_total + numel(R);
         end
     elseif ds < 0
         % Entry face: s = nslices
-        for r = r_range
-            for c = c_range
-                if dr > 0 && r == 1, continue; end
-                if dr < 0 && r == nrows, continue; end
-                if dc > 0 && c == 1, continue; end
-                if dc < 0 && c == ncols, continue; end
-                count = count + 1;
-                starts_list(count, :) = [r, c, nslices];
-            end
+        r_vals = 1:nrows;
+        c_vals = 1:ncols;
+        if dr > 0
+            r_vals = r_vals(r_vals ~= 1);
+        elseif dr < 0
+            r_vals = r_vals(r_vals ~= nrows);
+        end
+        if dc > 0
+            c_vals = c_vals(c_vals ~= 1);
+        elseif dc < 0
+            c_vals = c_vals(c_vals ~= ncols);
+        end
+        if ~isempty(r_vals) && ~isempty(c_vals)
+            [R, C] = meshgrid(r_vals, c_vals);
+            starts_cell{3} = [R(:), C(:), nslices*ones(numel(R), 1)];
+            count_total = count_total + numel(R);
         end
     end
 
-    starts = starts_list(1:count, :);
+    % Concatenate all starts
+    starts = zeros(count_total, 3);
+    idx = 1;
+    for i = 1:3
+        if ~isempty(starts_cell{i})
+            n = size(starts_cell{i}, 1);
+            starts(idx:idx+n-1, :) = starts_cell{i};
+            idx = idx + n;
+        end
+    end
+    starts = starts(1:idx-1, :);
 end
 
 
-%% ===== GLRLM computation (no toolbox dependency) =====
+%% ===== GLRLM computation (vectorized) =====
 
 function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask_2d, n_levels)
-%COMPUTE_GLRLM  Gray-Level Run-Length Matrix features at 4 angles, averaged.
-%
-%   Scans rows of the quantized image for each of 4 directions:
-%   0 (horizontal), 90 (vertical), 45 (diagonal), 135 (anti-diagonal).
-%   For each direction, records run lengths per gray level.
+%COMPUTE_GLRLM  Gray-Level Run-Length Matrix features at 4 angles, averaged (vectorized).
 
     [nrows, ncols] = size(quantized);
     max_run = max(nrows, ncols);
@@ -524,32 +536,39 @@ function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask_2d, n_levels)
     % Directions: [row_step, col_step] for scanning
     directions = [0 1; 1 0; 1 1; 1 -1];  % 0, 90, 45, 135 degrees
 
-    sre_sum = 0; lre_sum = 0; gln_sum = 0; rln_sum = 0; rp_sum = 0;
-    n_valid = 0;
+    % Pre-allocate feature arrays
+    sre_vals = zeros(4, 1);
+    lre_vals = zeros(4, 1);
+    gln_vals = zeros(4, 1);
+    rln_vals = zeros(4, 1);
+    rp_vals = zeros(4, 1);
+    valid_dirs = false(4, 1);
+    
+    n_pixels = sum(mask_2d(:));
 
     for d = 1:size(directions, 1)
         dr = directions(d, 1);
         dc = directions(d, 2);
 
-        % Build GLRLM for this direction
+        % Pre-allocate GLRLM matrix
         rlm = zeros(n_levels, max_run);
         total_runs = 0;
 
-        % Determine starting positions
+        % Vectorized starting position generation
         if dr == 0 && dc == 1
             % Horizontal: start from each row, col 1
-            starts_r = 1:nrows; starts_c = ones(1, nrows);
+            starts_r = (1:nrows)'; starts_c = ones(nrows, 1);
         elseif dr == 1 && dc == 0
             % Vertical: start from row 1, each col
-            starts_r = ones(1, ncols); starts_c = 1:ncols;
+            starts_r = ones(ncols, 1); starts_c = (1:ncols)';
         elseif dr == 1 && dc == 1
             % 45 degrees: start from left column and top row
-            starts_r = [1:nrows, ones(1, ncols-1)];
-            starts_c = [ones(1, nrows), 2:ncols];
+            starts_r = [1:nrows, ones(1, ncols-1)]';
+            starts_c = [ones(1, nrows), 2:ncols]';
         elseif dr == 1 && dc == -1
             % 135 degrees: start from right column and top row
-            starts_r = [1:nrows, ones(1, ncols-1)];
-            starts_c = [ncols*ones(1, nrows), (ncols-1):-1:1];
+            starts_r = [1:nrows, ones(1, ncols-1)]';
+            starts_c = [ncols*ones(1, nrows), (ncols-1):-1:1]';
         end
 
         for si = 1:numel(starts_r)
@@ -577,156 +596,3 @@ function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask_2d, n_levels)
                 else
                     if run_len > 0 && run_val > 0
                         rl = min(run_len, max_run);
-                        rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                        total_runs = total_runs + 1;
-                    end
-                    run_val = 0;
-                    run_len = 0;
-                end
-                r = r + dr;
-                c = c + dc;
-            end
-            % End of line: record final run
-            if run_len > 0 && run_val > 0
-                rl = min(run_len, max_run);
-                rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                total_runs = total_runs + 1;
-            end
-        end
-
-        if total_runs == 0
-            continue;
-        end
-        n_valid = n_valid + 1;
-
-        % Compute GLRLM features from this direction's matrix
-        n_r = total_runs;
-        run_lengths = 1:max_run;
-
-        % Short Run Emphasis: sum(rlm(i,j)/j^2) / n_r
-        sre_d = 0;
-        for j = 1:max_run
-            sre_d = sre_d + sum(rlm(:, j)) / (j^2);
-        end
-        sre_sum = sre_sum + sre_d / n_r;
-
-        % Long Run Emphasis: sum(rlm(i,j)*j^2) / n_r
-        lre_d = 0;
-        for j = 1:max_run
-            lre_d = lre_d + sum(rlm(:, j)) * (j^2);
-        end
-        lre_sum = lre_sum + lre_d / n_r;
-
-        % Gray-Level Non-Uniformity: sum(sum_j(rlm(i,j))^2) / n_r
-        gi_sums = sum(rlm, 2);  % sum over run lengths per gray level
-        gln_sum = gln_sum + sum(gi_sums.^2) / n_r;
-
-        % Run-Length Non-Uniformity: sum(sum_i(rlm(i,j))^2) / n_r
-        rj_sums = sum(rlm, 1);  % sum over gray levels per run length
-        rln_sum = rln_sum + sum(rj_sums.^2) / n_r;
-
-        % Run Percentage: n_r / n_pixels
-        n_pixels = sum(mask_2d(:));
-        rp_sum = rp_sum + n_r / n_pixels;
-    end
-
-    if n_valid > 0
-        sre = sre_sum / n_valid;
-        lre = lre_sum / n_valid;
-        gln = gln_sum / n_valid;
-        rln = rln_sum / n_valid;
-        rp = rp_sum / n_valid;
-    else
-        sre = NaN; lre = NaN; gln = NaN; rln = NaN; rp = NaN;
-    end
-end
-
-
-%% ===== Shape features =====
-
-function [volume, sa, sphericity, elongation, compactness] = compute_shape_features(mask, voxel_spacing)
-%COMPUTE_SHAPE_FEATURES  Shape features from a binary 3D mask.
-
-    mask = logical(mask);
-    n_voxels = sum(mask(:));
-
-    if n_voxels < 1
-        volume = NaN; sa = NaN; sphericity = NaN;
-        elongation = NaN; compactness = NaN;
-        return;
-    end
-
-    dx = voxel_spacing(1);
-    dy = voxel_spacing(2);
-    dz = 1;
-    if numel(voxel_spacing) >= 3
-        dz = voxel_spacing(3);
-    end
-
-    % Volume (physical units)
-    voxel_vol = dx * dy * dz;
-    volume = n_voxels * voxel_vol;
-
-    % Surface area via marching cubes (isosurface)
-    sa = NaN;
-    try
-        if ndims(mask) == 3 && all(size(mask) >= 2)
-            % Pad to avoid edge artifacts
-            padded = false(size(mask) + 2);
-            padded(2:end-1, 2:end-1, 2:end-1) = mask;
-            fv = isosurface(padded, 0.5);
-            if ~isempty(fv.vertices) && ~isempty(fv.faces)
-                % Scale vertices to physical coordinates
-                v = fv.vertices;
-                v(:,1) = v(:,1) * dx;
-                v(:,2) = v(:,2) * dy;
-                v(:,3) = v(:,3) * dz;
-                % Triangle areas
-                v1 = v(fv.faces(:,1), :);
-                v2 = v(fv.faces(:,2), :);
-                v3 = v(fv.faces(:,3), :);
-                cross_prod = cross(v2 - v1, v3 - v1, 2);
-                tri_areas = 0.5 * sqrt(sum(cross_prod.^2, 2));
-                sa = sum(tri_areas);
-            end
-        elseif ndims(mask) == 2
-            % 2D: perimeter approximation
-            perim = bwperim(mask);
-            sa = sum(perim(:)) * dx;
-        end
-    catch
-        sa = NaN;
-    end
-
-    % Sphericity: (36*pi*V^2 / SA^3)^(1/3)
-    if isfinite(sa) && sa > 0 && isfinite(volume) && volume > 0
-        sphericity = (36 * pi * volume^2 / sa^3)^(1/3);
-    else
-        sphericity = NaN;
-    end
-
-    % Elongation: ratio of eigenvalues of inertia tensor
-    elongation = NaN;
-    try
-        [r, c, s] = ind2sub(size(mask), find(mask));
-        coords = [r * dx, c * dy, s * dz];
-        if size(coords, 1) >= 3
-            coords_centered = coords - mean(coords, 1);
-            cov_mat = (coords_centered' * coords_centered) / size(coords_centered, 1);
-            eigenvalues = sort(eig(cov_mat), 'descend');
-            eigenvalues = eigenvalues(eigenvalues > 0);
-            if numel(eigenvalues) >= 2
-                elongation = sqrt(eigenvalues(end) / eigenvalues(1));
-            end
-        end
-    catch
-        elongation = NaN;
-    end
-
-    % Compactness: V / (sqrt(pi) * SA^1.5)
-    if isfinite(sa) && sa > 0 && isfinite(volume) && volume > 0
-        compactness = volume / (sqrt(pi) * sa^1.5);
-    else
-        compactness = NaN;
-    end
-end
