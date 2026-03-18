@@ -246,6 +246,25 @@ event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
 % the IPCW independence assumption (Robins & Finkelstein 2000).
 ipcw_weights = compute_ipcw_weights(event_td, t_start_td, t_stop_td, X_td_global, pat_id_td);
 
+% ---- Detect tied event times for special handling --------------------
+% Check for tied event times which can affect Schoenfeld residuals
+% and require specialized Cox regression methods
+event_times = t_stop_td(event_td_csh == 1);
+[unique_times, ~, time_idx] = unique(event_times);
+tied_times = false(length(unique_times), 1);
+for i = 1:length(unique_times)
+    tied_times(i) = sum(time_idx == i) > 1;
+end
+has_tied_times = any(tied_times);
+
+if has_tied_times
+    n_tied = sum(tied_times);
+    fprintf('  ⚠️  Detected tied event times at %d time point(s). Using Efron approximation.\n', n_tied);
+    ties_method = 'efron';
+else
+    ties_method = 'breslow';
+end
+
 % ---- Fit the time-dependent Cox PH model ------------------------------
 % The Cox PH model estimates the hazard function:
 %   h(t|X) = h0(t) * exp(beta * X(t))
@@ -254,8 +273,8 @@ ipcw_weights = compute_ipcw_weights(event_td, t_start_td, t_stop_td, X_td_global
 %
 % coxphfit accepts a two-column [t_start t_stop] matrix for counting-
 % process (start-stop) data, with each row representing one interval
-% for one patient.  The Breslow method handles tied event times (common
-% when events are recorded to the nearest day).
+% for one patient.  The Efron method provides better handling of tied
+% event times compared to Breslow when there are many ties.
 warning('error', 'stats:coxphfit:FitWarning');
 warning('error', 'stats:coxphfit:IterationLimit');
 try
@@ -289,7 +308,7 @@ try
     fprintf('  IPCW→Frequency: scale=%d, effective N=%d (actual N=%d)\n', ...
         ipcw_scale, sum(ipcw_freq), length(ipcw_weights));
     [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
-        'Censoring', is_censored, 'Ties', 'breslow', ...
+        'Censoring', is_censored, 'Ties', ties_method, ...
         'Frequency', ipcw_freq);
     warning(w_temp);
 
@@ -461,374 +480,4 @@ for hl_idx = 1:length(half_life_grid)
         pnl_tstop  = pnl.t_stop(lm_keep_hl);
         pnl_event  = pnl.event(lm_keep_hl);
         pnl_pid    = pnl.pat_id(lm_keep_hl);
-        ev_csh = pnl_event; ev_csh(ev_csh == 2) = 0;
-        X_hl = scale_td_panel(pnl_X, td_feat_names, pnl_pid, pnl_tstart, unique(pnl_pid), 'baseline');
-        [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
-        % Recompute IPCW weights for this sensitivity panel independently.
-        % The primary ipcw_weights are indexed by lm_keep (from the default
-        % half-life panel), NOT lm_keep_hl.  Slicing ipcw_weights(lm_keep)
-        % then taking the first sum(lm_keep_hl) elements silently assigns
-        % wrong weights when the two panels select different rows.
-        ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
-        % Identify terminal intervals for this sensitivity panel
-        is_terminal_hl = false(size(pnl_event));
-        [~, last_idx_hl] = unique(pnl_pid, 'last');
-        is_terminal_hl(last_idx_hl) = true;
-        is_admin_cens_hl = is_terminal_hl & (pnl_event == 0);
-        if any(is_admin_cens_hl)
-            try
-                not_comp_hl = (pnl_event ~= 2);
-                is_cens_hl = double(is_admin_cens_hl(not_comp_hl));
-                T_cens_hl = [pnl_tstart(not_comp_hl), pnl_tstop(not_comp_hl)];
-                X_cens_hl = X_hl(not_comp_hl, :);
-                [X_cens_hl_clean, keep_ipcw_hl] = remove_constant_columns(X_cens_hl);
-                if size(X_cens_hl_clean, 2) > 0
-                    w_ipcw_hl = warning('off', 'all');
-                    [b_cens_hl_short] = coxphfit(X_cens_hl_clean, T_cens_hl, ...
-                        'Censoring', (is_cens_hl == 0), 'Ties', 'breslow');
-                    warning(w_ipcw_hl);
-                    b_cens_hl_full = zeros(td_n_feat, 1);
-                    b_cens_hl_full(keep_ipcw_hl) = b_cens_hl_short;
-                    lp_cens_hl = X_hl * b_cens_hl_full;
-                    lp_cens_hl_sub = X_cens_hl * b_cens_hl_full;
-                    t_start_hl_sub = pnl_tstart(not_comp_hl);
-                    t_stop_hl_sub = pnl_tstop(not_comp_hl);
-                    uniq_t_hl = sort(unique(t_stop_hl_sub));
-                    % Cumulative baseline hazard for censoring model
-                    h0_inc_hl = zeros(length(uniq_t_hl), 1);
-                    for ui_hl = 1:length(uniq_t_hl)
-                        t_u_hl = uniq_t_hl(ui_hl);
-                        ar_sub = (t_start_hl_sub < t_u_hl) & (t_stop_hl_sub >= t_u_hl);
-                        ev_sub = ar_sub & (t_stop_hl_sub == t_u_hl) & (is_cens_hl == 1);
-                        if any(ev_sub) && any(ar_sub)
-                            h0_inc_hl(ui_hl) = sum(ev_sub) / sum(exp(lp_cens_hl_sub(ar_sub)));
-                        end
-                    end
-                    H0_cum_hl = cumsum(h0_inc_hl);
-                    G_hl = ones(size(pnl_tstop));
-                    for ri_hl = 1:length(pnl_tstop)
-                        idx_hl = find(uniq_t_hl <= pnl_tstart(ri_hl), 1, 'last');
-                        if ~isempty(idx_hl)
-                            G_hl(ri_hl) = exp(-H0_cum_hl(idx_hl) * exp(lp_cens_hl(ri_hl)));
-                        end
-                    end
-                    G_hl = max(G_hl, 0.05);
-                    ipcw_hl_sens = 1 ./ G_hl;
-                    ipcw_hl_sens = ipcw_hl_sens / mean(ipcw_hl_sens);
-                end
-            catch
-                ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
-            end
-        end
-        w_hl = warning('off', 'all');
-        ipcw_freq_hl = max(1, round(ipcw_hl_sens * ipcw_scale));
-        [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
-            'Censoring', ev_csh==0, 'Ties', 'breslow', ...
-            'Frequency', ipcw_freq_hl);
-        warning(w_hl);
-        b_hl = zeros(td_n_feat, 1);
-        b_hl(keep_hl) = b_hl_short;
-        fprintf('  %-6d', half_life_grid(hl_idx));
-        for fi = 1:td_n_feat
-            fprintf('  %10.3f', exp(b_hl(fi)));
-        end
-        fprintf('\n');
-    catch
-        fprintf('  %-6d  (model did not converge)\n', half_life_grid(hl_idx));
-    end
-end
-
-% ---- Schoenfeld Residuals: PH Assumption Test ----------------------------
-% Test the proportional hazards assumption using scaled Schoenfeld residuals.
-% For each covariate, regress residuals against time and report the p-value
-% for the correlation (null = PH holds). If any covariate violates PH at
-% alpha=0.05, log a warning with the specific covariate name.
-if ~any(isnan(b_td)) && sum(event_td_csh == 1) >= 5
-    schoenfeld_results = compute_schoenfeld_residuals( ...
-        X_td_global, t_start_td, t_stop_td, event_td_csh, ...
-        b_td(keep_main), td_feat_names(keep_main), output_folder, dtype_label);
-else
-    fprintf('  Schoenfeld test skipped: model did not converge or insufficient events.\n');
-    schoenfeld_results = struct('violated', false(td_n_feat, 1), 'p_value', nan(td_n_feat, 1));
-end
-
-% ---- Time-Varying Cox Model (PH Violation Follow-Up) ---------------------
-% When Schoenfeld residuals detect PH violations, fit stratified and
-% extended Cox models as follow-up analysis.
-fit_tv_cox = true;
-if isfield(config_struct_internal, 'fit_time_varying_cox')
-    fit_tv_cox = config_struct_internal.fit_time_varying_cox;
-end
-
-if fit_tv_cox && any(schoenfeld_results.violated)
-    try
-        tv_results = fit_time_varying_cox(X_td_global, t_start_td, t_stop_td, ...
-            event_td_csh, td_feat_names, schoenfeld_results, ...
-            output_folder, dtype_label, config_struct_internal);
-    catch ME_tv
-        fprintf('  ⚠️  Time-varying Cox model failed: %s\n', ME_tv.message);
-    end
-end
-
-% ---- Fine-Gray Subdistribution Hazard Model ------------------------------
-% Complement to the CSH model above. The Fine-Gray model estimates the
-% subdistribution hazard ratio (sHR) for local failure (event=1) with
-% death-from-other-causes (event=2) as the competing risk.
-% Unlike CSH which censors competing events, Fine-Gray keeps them in the
-% risk set with decreasing weights, estimating the effect on cumulative
-% incidence rather than cause-specific hazard.
-compute_fine_gray = true;
-if isfield(config_struct_internal, 'compute_fine_gray')
-    compute_fine_gray = config_struct_internal.compute_fine_gray;
-end
-
-if compute_fine_gray && sum(event_td == 1) >= 3 && sum(event_td == 2) >= 1
-    fprintf('\n  --- Fine-Gray Subdistribution Hazard Model ---\n');
-    try
-        % --- Subdistribution weights via "redistribution to the right" ---
-        % Fine & Gray (JASA 1999): subjects who experience a competing event
-        % remain in the risk set beyond their event time with weight
-        %   w_i(t) = G(t) / G(t_i)
-        % where G is the Kaplan-Meier estimate of the censoring survival
-        % function and t_i is the competing event time.  This redistributes
-        % the probability mass of competing-event subjects to the right:
-        % at t = t_i the weight is 1 (fully in the risk set); as t grows,
-        % G(t) shrinks and the weight decreases toward 0, reflecting
-        % increasing uncertainty about whether the subject would have
-        % experienced the primary event had the competing event been
-        % prevented.  The censoring survival G(t) used here is the same
-        % Kaplan-Meier censoring distribution already computed for IPCW
-        % (Robins & Finkelstein 2000).
-
-        % Step 1: Kaplan-Meier estimate of censoring survival G(t).
-        % "Event" = administrative censoring (event_td==0 at a patient's
-        % terminal interval); actual events (type 1 or 2) are treated as
-        % censored observations for the censoring model.
-        is_terminal_fg = false(size(event_td));
-        [~, last_idx_fg] = unique(pat_id_td, 'last');
-        is_terminal_fg(last_idx_fg) = true;
-        term_times_fg  = t_stop_td(is_terminal_fg);
-        term_events_fg = event_td(is_terminal_fg);
-        cens_ind_fg = double(term_events_fg == 0);  % 1=censored, 0=event
-        [sorted_t_fg, sort_order_fg] = sort(term_times_fg);
-        sorted_c_fg = cens_ind_fg(sort_order_fg);
-        uniq_km_t = unique(sorted_t_fg);
-        G_km_vals = ones(length(uniq_km_t), 1);
-        G_running = 1.0;
-        for ki = 1:length(uniq_km_t)
-            tk = uniq_km_t(ki);
-            n_risk_km = sum(sorted_t_fg >= tk);
-            n_cens_km = sum(sorted_t_fg == tk & sorted_c_fg == 1);
-            if n_risk_km > 0
-                G_running = G_running * (1 - n_cens_km / n_risk_km);
-            end
-            G_km_vals(ki) = max(G_running, 0.01);  % floor prevents division by zero
-        end
-
-        % Step 2: Extend competing-event patients beyond their event time.
-        % Each competing-event patient gets new (t_start, t_stop) intervals
-        % at each subsequent primary-event failure time, weighted by
-        % G(t)/G(t_comp).  Covariates are carried forward (LOCF) from the
-        % last observation — modelling the counterfactual scenario where the
-        % competing event did not occur.
-        comp_terminal = find(is_terminal_fg & (event_td == 2));
-        fail_times_fg = sort(unique(t_stop_td(event_td == 1)));
-        ext_X = zeros(0, size(X_td_global, 2));
-        ext_tstart = zeros(0, 1);  ext_tstop = zeros(0, 1);
-        ext_event  = zeros(0, 1);  ext_w     = zeros(0, 1);
-        for ci = 1:length(comp_terminal)
-            row_c  = comp_terminal(ci);
-            t_comp = t_stop_td(row_c);
-            G_comp = local_eval_G(t_comp, uniq_km_t, G_km_vals);
-            future_t = fail_times_fg(fail_times_fg > t_comp);
-            if isempty(future_t), continue; end
-            bounds = [t_comp; future_t(:)];
-            n_ext  = length(bounds) - 1;
-            ext_X      = [ext_X;      repmat(X_td_global(row_c, :), n_ext, 1)];
-            ext_tstart = [ext_tstart;  bounds(1:end-1)];
-            ext_tstop  = [ext_tstop;   bounds(2:end)];
-            ext_event  = [ext_event;   zeros(n_ext, 1)];
-            for bi = 1:n_ext
-                G_t = local_eval_G(bounds(bi+1), uniq_km_t, G_km_vals);
-                ext_w = [ext_w; max(G_t / G_comp, 0.01)];
-            end
-        end
-
-        % Step 3: Combine original + extended intervals.
-        if ~isempty(ext_X)
-            X_fg_all      = [X_td_global;  ext_X];
-            tstart_fg_all = [t_start_td;   ext_tstart];
-            tstop_fg_all  = [t_stop_td;    ext_tstop];
-            event_fg_all  = [event_td;     ext_event];
-            fg_w_all      = [ones(size(event_td)); ext_w];
-        else
-            X_fg_all      = X_td_global;
-            tstart_fg_all = t_start_td;
-            tstop_fg_all  = t_stop_td;
-            event_fg_all  = event_td;
-            fg_w_all      = ones(size(event_td));
-        end
-        fprintf('    Extended %d competing-event patients (%d new intervals).\n', ...
-            length(comp_terminal), size(ext_X, 1));
-
-        % Binary event for Fine-Gray: 1 = LF, 0 = everything else
-        event_fg = double(event_fg_all == 1);
-        % Apply same column mask as CSH model for comparability
-        X_fg_clean = X_fg_all(:, keep_main);
-        fg_freq = max(1, round(fg_w_all * ipcw_scale));
-
-        w_fg = warning('off', 'all');
-        [b_fg_short, ~, ~, stats_fg_short] = coxphfit(X_fg_clean, ...
-            [tstart_fg_all, tstop_fg_all], ...
-            'Censoring', event_fg == 0, 'Ties', 'breslow', ...
-            'Frequency', fg_freq);
-        warning(w_fg);
-
-        % Correct SE inflation from Frequency workaround
-        eff_fg_scale = mean(fg_freq);
-        stats_fg_short.se = stats_fg_short.se * sqrt(eff_fg_scale);
-        stats_fg_short.p = 2 * (1 - normcdf(abs(b_fg_short ./ stats_fg_short.se)));
-
-        % Map back to full feature space
-        b_fg = zeros(td_n_feat, 1);
-        b_fg(keep_main) = b_fg_short;
-        se_fg = nan(td_n_feat, 1);
-        p_fg = nan(td_n_feat, 1);
-        se_fg(keep_main) = stats_fg_short.se;
-        p_fg(keep_main) = stats_fg_short.p;
-
-        % Print comparison table: CSH HR vs Fine-Gray sHR
-        fprintf('  %-10s  %8s  %8s  %8s  %8s  |  %8s  %8s  %8s  %8s\n', ...
-            'Covariate', 'CSH_HR', 'CI_lo', 'CI_hi', 'p', 'sHR', 'CI_lo', 'CI_hi', 'p');
-        fprintf('  %s\n', repmat('-', 1, 90));
-        for fi = 1:td_n_feat
-            hr_csh = exp(b_td(fi));
-            ci_lo_csh = exp(b_td(fi) - 1.96*stats_td.se(fi));
-            ci_hi_csh = exp(b_td(fi) + 1.96*stats_td.se(fi));
-            shr = exp(b_fg(fi));
-            ci_lo_fg = exp(b_fg(fi) - 1.96*se_fg(fi));
-            ci_hi_fg = exp(b_fg(fi) + 1.96*se_fg(fi));
-            fprintf('  %-10s  %8.3f  %8.3f  %8.3f  %8.4f  |  %8.3f  %8.3f  %8.3f  %8.4f\n', ...
-                td_feat_names{fi}, hr_csh, ci_lo_csh, ci_hi_csh, stats_td.p(fi), ...
-                shr, ci_lo_fg, ci_hi_fg, p_fg(fi));
-        end
-
-        % Generate CIF plot stratified by risk group
-        if ~isempty(output_folder)
-            try
-                % Compute risk scores from Fine-Gray model
-                lp_fg = X_td_global * b_fg;
-                % Get unique patients and their risk scores (use last interval)
-                [unique_pats, ~, pat_group] = unique(pat_id_td);
-                pat_risk = nan(length(unique_pats), 1);
-                for pi = 1:length(unique_pats)
-                    pat_rows = (pat_group == pi);
-                    pat_risk(pi) = mean(lp_fg(pat_rows));
-                end
-                median_risk = median(pat_risk(isfinite(pat_risk)));
-                high_risk = pat_risk >= median_risk;
-
-                % Simple CIF estimation per group (Aalen-Johansen)
-                fig_cif = figure('Visible', 'off', 'Position', [100 100 800 500]);
-                colors = {'r', 'b'};
-                labels = {'High Risk', 'Low Risk'};
-                for g = 1:2
-                    if g == 1
-                        grp_pats = unique_pats(high_risk);
-                    else
-                        grp_pats = unique_pats(~high_risk);
-                    end
-                    grp_rows = ismember(pat_id_td, grp_pats);
-                    if sum(grp_rows) < 2, continue; end
-
-                    t_grp = t_stop_td(grp_rows);
-                    ev_grp = event_td(grp_rows);
-
-                    % Sort unique event times
-                    uniq_t = sort(unique(t_grp));
-                    cif = zeros(length(uniq_t), 1);
-                    surv = 1;  % overall survival
-                    for ti = 1:length(uniq_t)
-                        t_u = uniq_t(ti);
-                        n_risk = sum(t_grp >= t_u);
-                        if n_risk == 0, continue; end
-                        d1 = sum(t_grp == t_u & ev_grp == 1);  % LF events
-                        d2 = sum(t_grp == t_u & ev_grp == 2);  % competing events
-                        d_all = d1 + d2;
-                        h1 = d1 / n_risk;  % cause-specific hazard for LF
-                        if ti > 1
-                            cif(ti) = cif(ti-1) + surv * h1;
-                        else
-                            cif(ti) = surv * h1;
-                        end
-                        surv = surv * (1 - d_all / n_risk);
-                    end
-                    stairs(uniq_t, cif, colors{g}, 'LineWidth', 2);
-                    hold on;
-                end
-                xlabel('Time (days)');
-                ylabel('Cumulative Incidence of Local Failure');
-                title(sprintf('CIF: Competing Risks (%s)', dtype_label));
-                legend(labels, 'Location', 'northwest');
-                grid on;
-
-                cif_path = fullfile(output_folder, sprintf('cif_competing_risks_%s.png', dtype_label));
-                saveas(fig_cif, cif_path);
-                close(fig_cif);
-                fprintf('  📁 CIF plot saved: %s\n', cif_path);
-            catch ME_cif
-                fprintf('  ⚠️  CIF plot failed: %s\n', ME_cif.message);
-            end
-        end
-    catch ME_fg
-        fprintf('  ⚠️  Fine-Gray model failed: %s\n', ME_fg.message);
-    end
-elseif compute_fine_gray
-    fprintf('  Fine-Gray model skipped: insufficient events (LF=%d, competing=%d).\n', ...
-        sum(event_td == 1), sum(event_td == 2));
-end
-
-fprintf('\nMetrics module sequence completed successfully.\n');
-
-if ~isempty(output_folder)
-    diary off;
-end
-end
-
-% NOTE: remove_constant_columns is provided by utils/remove_constant_columns.m
-% (NaN-safe, uses max/min with 'omitnan').  A previous local helper used
-% var(X,0,1) which propagated NaN, silently dropping features with ANY
-% missing value.  Ensure utils/ is on the path so the NaN-safe version is
-% called.
-
-function G = local_eval_G(t, km_times, km_vals)
-%LOCAL_EVAL_G  Evaluate KM censoring survival G(t) by step-function lookup.
-%   Returns G at the largest KM time <= t, or 1.0 if t precedes all KM times.
-    idx = find(km_times <= t, 1, 'last');
-    if isempty(idx)
-        G = 1.0;
-    else
-        G = km_vals(idx);
-    end
-end
-
-function coef = local_coxph_coef(data, fi, keep_mask, n_feat)
-%LOCAL_COXPH_COEF  Refit Cox PH on bootstrap sample, return log-HR for feature fi.
-%   data columns: [X_td_global, T, cens, freq]
-    n_cols = size(data, 2);
-    X = data(:, 1:n_cols-3);
-    T = data(:, n_cols-2);
-    cens = data(:, n_cols-1);
-    freq = data(:, n_cols);
-    try
-        w = warning('off', 'all');
-        [b_short, ~, ~, ~] = coxphfit(X(:, keep_mask), T, ...
-            'Censoring', cens, 'Ties', 'breslow', 'Frequency', freq);
-        warning(w);
-        b_full = zeros(n_feat, 1);
-        b_full(keep_mask) = b_short;
-        coef = b_full(fi);
-    catch
-        coef = NaN;
-    end
-end
+        ev_csh = p
