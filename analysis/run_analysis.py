@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
+import re
 import subprocess
 import sys
 import time
@@ -145,6 +147,29 @@ def _run_tests() -> bool:
         return False
 
 
+def _mask_api_keys(text: str) -> str:
+    """Redact API key values that may appear in subprocess output.
+
+    Catches common patterns like ``GEMINI_API_KEY=sk-...`` and bearer tokens.
+    Keys shorter than 8 characters are left untouched (unlikely to be real).
+    """
+    # Mask KEY=value patterns (e.g. from verbose env dumps)
+    text = re.sub(
+        r'((?:API_KEY|SECRET|TOKEN)\s*[=:]\s*)["\']?([A-Za-z0-9_\-]{8,})["\']?',
+        lambda m: m.group(1) + m.group(2)[:4] + "****",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Mask Bearer tokens in HTTP headers
+    text = re.sub(
+        r'(Bearer\s+)([A-Za-z0-9_\-]{8,})',
+        lambda m: m.group(1) + m.group(2)[:4] + "****",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
 def _run_script(
     name: str,
     folder: Path,
@@ -201,12 +226,14 @@ def _run_script(
         return False
     elapsed = time.time() - t0
 
-    # Emit captured output to terminal and log file.
+    # Emit captured output to terminal and log file, masking any API keys
+    # that may have leaked into stdout/stderr (e.g., verbose HTTP logging).
     for stream_output in (result.stdout, result.stderr):
         if stream_output:
-            sys.stdout.write(stream_output)
+            masked = _mask_api_keys(stream_output)
+            sys.stdout.write(masked)
             if log_file is not None:
-                log_file.write(stream_output)  # type: ignore
+                log_file.write(masked)  # type: ignore
 
     if result.returncode == 0:
         print(f"  Done: {name} ({elapsed:.1f}s)")
@@ -244,11 +271,22 @@ def _ensure_env_key(key_name: str, display_name: str, get_url: str) -> None:
             with open(env_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
-                    if line.startswith(f"{key_name}="):
-                        key = line.split("=", 1)[1].strip(" '\"")
-                        if key:
-                            os.environ[key_name] = key
-                            return
+                    # Skip comments and blank lines
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    env_key, _, env_val = line.partition("=")
+                    env_key = env_key.strip()
+                    if env_key != key_name:
+                        continue
+                    # Strip surrounding quotes (single or double)
+                    env_val = env_val.strip()
+                    if len(env_val) >= 2 and env_val[0] == env_val[-1] and env_val[0] in ("'", '"'):
+                        env_val = env_val[1:-1]
+                    if env_val:
+                        os.environ[key_name] = env_val
+                        return
         except Exception as e:
             print(f"  [WARN] Failed to read .env file: {e}")
 
