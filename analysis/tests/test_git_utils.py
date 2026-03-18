@@ -132,6 +132,22 @@ class TestCheckout:
 
 
 # ---------------------------------------------------------------------------
+# switch_branch — alias for checkout
+# ---------------------------------------------------------------------------
+
+class TestSwitchBranch:
+    def test_is_alias_for_checkout(self):
+        assert git_utils.switch_branch is git_utils.checkout
+
+    def test_calls_git_checkout(self):
+        with mock.patch("git_utils.branch_exists", return_value=True):
+            with mock.patch("git_utils._run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess([], 0)
+                git_utils.switch_branch("my-branch")
+                mock_run.assert_called_once_with(["git", "checkout", "my-branch"])
+
+
+# ---------------------------------------------------------------------------
 # merge_branch — mocked
 # ---------------------------------------------------------------------------
 
