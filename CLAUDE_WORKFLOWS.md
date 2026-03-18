@@ -209,6 +209,10 @@ After **every feature implementation** (adding a new file, adding a config field
 
 # Pipeline Improvement Loop
 
+> **Canonical driver:** `orchestrator_v1.py` is the programmatic loop driver.
+> Run it with `python orchestrator_v1.py [--max-iterations N] [--dry-run] [--single-iteration]`.
+> The manual phase instructions below are retained as the fallback reference for manual operation only.
+
 ## Tracking infrastructure
 
 The loop is tracked by two scripts in the repository root:
