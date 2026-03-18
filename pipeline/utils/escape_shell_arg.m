@@ -64,6 +64,19 @@ function escaped_arg = escape_shell_arg(arg, style)
         % literal percent character rather than a variable delimiter.
         escaped_arg = strrep(escaped_arg, '%', '%%');
 
+        % --- Caret (^) Hazard ---
+        % The caret is cmd.exe's general escape character. Inside double
+        % quotes it is mostly inert, but it can still cause problems with
+        % piped commands or when the string is re-parsed. Escape it by
+        % doubling so it is always treated as a literal caret.
+        escaped_arg = strrep(escaped_arg, '^', '^^');
+
+        % --- Exclamation Mark (!) Hazard ---
+        % When delayed expansion is enabled (common in batch scripts and
+        % some CI environments), ! triggers variable expansion (!VAR!).
+        % Escape with ^ so it is treated as a literal character.
+        escaped_arg = strrep(escaped_arg, '!', '^!');
+
         % --- Trailing Backslash Hazard ---
         % On Windows, a trailing backslash immediately before the closing double
         % quote (e.g., "C:\data\") would be interpreted as escaping the quote

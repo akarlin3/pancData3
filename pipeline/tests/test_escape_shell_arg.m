@@ -158,6 +158,32 @@ classdef test_escape_shell_arg < matlab.unittest.TestCase
             testCase.verifyEqual(actual, expected);
         end
 
+        function test_pc_caret(testCase)
+            % The caret (^) is cmd.exe's escape character. It must be
+            % doubled so it is treated as a literal caret.
+            arg = 'file^name';
+            actual = escape_shell_arg(arg, 'pc');
+            expected = '"file^^name"';
+            testCase.verifyEqual(actual, expected);
+        end
+
+        function test_pc_exclamation(testCase)
+            % When delayed expansion is enabled, ! triggers variable
+            % expansion. It must be escaped with ^ to be literal.
+            arg = 'hello!world';
+            actual = escape_shell_arg(arg, 'pc');
+            expected = '"hello^!world"';
+            testCase.verifyEqual(actual, expected);
+        end
+
+        function test_pc_caret_and_exclamation(testCase)
+            % Combined test: both ^ and ! in same string.
+            arg = 'a^b!c';
+            actual = escape_shell_arg(arg, 'pc');
+            expected = '"a^^b^!c"';
+            testCase.verifyEqual(actual, expected);
+        end
+
     end
 
 end
