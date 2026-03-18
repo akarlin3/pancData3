@@ -113,6 +113,10 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         f_vec = reshape(ivim_out_flat(1:n_valid, 3), [n_valid, 1]);
         dstar_vec = reshape(ivim_out_flat(1:n_valid, 4), [n_valid, 1]);
 
+        % Release large intermediate arrays no longer needed to reduce
+        % peak memory during parfor (each worker holds its own copy).
+        clear dwi_flat dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
+
         % Replace zero-fit voxels with NaN (failed fits).
         % The segmented IVIM fitter returns D=0 when the log-linear
         % regression yields a non-positive slope (physically impossible for
