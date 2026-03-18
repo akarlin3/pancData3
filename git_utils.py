@@ -66,6 +66,10 @@ def checkout(branch_name: str) -> None:
     _run(["git", "checkout", branch_name])
 
 
+# Alias used by orchestrator_v1.py
+switch_branch = checkout
+
+
 def merge_branch(
     source: str, target: str = "v2.1-dev", delete_after: bool = True
 ) -> None:
