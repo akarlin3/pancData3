@@ -40,12 +40,11 @@ def get_current_iteration(log: list) -> int:
 def log_iteration(
     audit_output: str,
     findings: List[Finding],
-    branches_created: list,
-    branches_merged: list,
     tests_passed: bool
 ) -> dict:
     """
     Log one complete loop iteration.
+    Derives branches_created and branches_merged from findings.
     Returns the entry so the caller can inspect it.
     """
     log = load_log()
@@ -67,6 +66,10 @@ def log_iteration(
         if len(set(score_vals)) == 1 and score_vals[0] == 5.0:
             print("WARNING: All audit dimension scores are exactly 5.0 — "
                   "evaluator may have returned defaults without flagging.")
+
+    # Derive branch lists from findings
+    branches_created = [f.branch_name for f in findings]
+    branches_merged = [f.branch_name for f in findings if f.status == "merged"]
 
     # Tag each finding with a unique ID and iteration number
     tagged_findings = []
@@ -174,6 +177,53 @@ def check_score_drift(log: list) -> bool:
     return False
 
 
+def get_pending_branches() -> list:
+    """Return branch names from the most recent iteration where status != 'merged'."""
+    log = load_log()
+    if not log:
+        return []
+    latest = log[-1]
+    return [
+        f["branch_name"]
+        for f in latest["findings"]
+        if f.get("status") != "merged" and "branch_name" in f
+    ]
+
+
+def mark_finding_merged(iteration: int, finding_id: str) -> None:
+    """Update a specific finding's status to 'merged' in the log file."""
+    log = load_log()
+    for entry in log:
+        if entry["iteration"] != iteration:
+            continue
+        for finding in entry["findings"]:
+            if finding["id"] == finding_id:
+                finding["status"] = "merged"
+                # Update branches_merged to stay consistent
+                entry["branches_merged"] = [
+                    f["branch_name"]
+                    for f in entry["findings"]
+                    if f.get("status") == "merged" and "branch_name" in f
+                ]
+                save_log(log)
+                return
+    raise ValueError(
+        f"Finding '{finding_id}' not found in iteration {iteration}"
+    )
+
+
+def get_unmerged_findings(iteration: int) -> list:
+    """Return all findings from a given iteration where status is not 'merged'."""
+    log = load_log()
+    for entry in log:
+        if entry["iteration"] == iteration:
+            return [
+                f for f in entry["findings"]
+                if f.get("status") != "merged"
+            ]
+    return []
+
+
 def get_all_findings_by_dimension() -> dict:
     """Return all findings grouped by dimension across all iterations."""
     log = load_log()
@@ -197,6 +247,16 @@ def _print_iteration_summary(entry: dict) -> None:
           f"{entry['high_priority_findings']} high priority")
     print(f"Branches created:  {len(entry['branches_created'])}")
     print(f"Branches merged:   {len(entry['branches_merged'])}")
+    # Show unmerged branches if any exist
+    unmerged = [
+        f["branch_name"]
+        for f in entry["findings"]
+        if f.get("status") != "merged" and "branch_name" in f
+    ]
+    if unmerged:
+        print(f"Unmerged branches: {len(unmerged)}")
+        for branch in unmerged:
+            print(f"  - {branch}")
     print(f"Tests passed:      {entry['tests_passed']}")
     print(f"Exit condition:    {'YES — stopping' if entry['exit_condition_met'] else 'NO — continuing'}")
     if entry['audit_scores']['flags']:
@@ -254,8 +314,6 @@ if __name__ == "__main__":
     log_parser = subparsers.add_parser("log", help="Log a completed iteration")
     log_parser.add_argument("--audit", required=True)
     log_parser.add_argument("--findings", required=True)
-    log_parser.add_argument("--branches-created", required=True, dest="branches_created")
-    log_parser.add_argument("--branches-merged", required=True, dest="branches_merged")
     log_parser.add_argument("--tests-passed", required=True, dest="tests_passed")
 
     # summary
@@ -268,15 +326,11 @@ if __name__ == "__main__":
 
     elif args.command == "log":
         findings = json.loads(args.findings)
-        branches_created = json.loads(args.branches_created)
-        branches_merged = json.loads(args.branches_merged)
         tests_passed = args.tests_passed.lower() == "true"
 
         entry = log_iteration(
             audit_output=args.audit,
             findings=findings,
-            branches_created=branches_created,
-            branches_merged=branches_merged,
             tests_passed=tests_passed
         )
 
