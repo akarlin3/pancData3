@@ -1,9 +1,91 @@
 # evaluator.py
 import anthropic  # type: ignore
 import json
+import re
 import time
 import os
-from typing import Optional
+from typing import List, Literal, Optional
+
+from pydantic import BaseModel, field_validator
+
+
+VALID_DIMENSIONS = (
+    "performance", "correctness", "error_handling", "modularity",
+    "memory", "code_quality", "test_coverage", "security", "cross_platform",
+)
+
+VALID_STATUSES = ("pending", "implemented", "merged")
+
+# Characters forbidden in git branch names (see git-check-ref-format)
+_GIT_BRANCH_INVALID_RE = re.compile(
+    r"[\x00-\x1f\x7f ~^:?*\[\\]"  # control chars + special chars
+    r"|\.\.+"                        # consecutive dots
+    r"|@\{"                          # @{ sequence
+    r"|\.$"                          # trailing dot
+    r"|\.lock$"                      # .lock suffix
+)
+
+
+class Finding(BaseModel):
+    """Typed schema for a single codebase improvement finding."""
+
+    dimension: Literal[
+        "performance", "correctness", "error_handling", "modularity",
+        "memory", "code_quality", "test_coverage", "security", "cross_platform",
+    ]
+    file: str
+    function_name: Optional[str] = None
+    description: str
+    fix: str
+    importance: int
+    branch_name: str
+    status: Optional[Literal["pending", "implemented", "merged"]] = None
+
+    @field_validator("importance")
+    @classmethod
+    def _importance_range(cls, v: int) -> int:
+        if not (1 <= v <= 10):
+            raise ValueError("importance must be between 1 and 10 inclusive")
+        return v
+
+    @field_validator("branch_name")
+    @classmethod
+    def _valid_branch_name(cls, v: str) -> str:
+        if not v.startswith("improvement/"):
+            raise ValueError("branch_name must start with 'improvement/'")
+        slug = v[len("improvement/"):]
+        if not slug:
+            raise ValueError("branch_name slug must not be empty")
+        if len(slug) > 50:
+            raise ValueError("branch_name slug must be at most 50 characters")
+        if " " in v:
+            raise ValueError("branch_name must not contain spaces")
+        # No extra slashes beyond the leading "improvement/"
+        if "/" in slug:
+            raise ValueError(
+                "branch_name must not contain slashes after 'improvement/'"
+            )
+        if _GIT_BRANCH_INVALID_RE.search(v):
+            raise ValueError(
+                "branch_name contains characters invalid in git branch names"
+            )
+        return v
+
+    def to_log_dict(self) -> dict:
+        """Serialize to the dict format used by loop_tracker's JSON log."""
+        d: dict = {
+            "dimension": self.dimension,
+            "file": self.file,
+            "description": self.description,
+            "fix": self.fix,
+            "importance": self.importance,
+            "branch_name": self.branch_name,
+        }
+        if self.function_name is not None:
+            d["function_name"] = self.function_name
+        if self.status is not None:
+            d["status"] = self.status
+        return d
 
 client = anthropic.Anthropic()
 
@@ -188,13 +270,13 @@ def score_audit(audit_output: str) -> dict:
     }
 
 
-def should_continue_loop(scores: dict, findings: list) -> bool:
+def should_continue_loop(scores: dict, findings: List[Finding]) -> bool:
     """
     Returns True if the loop should continue, False if it should exit.
     Combines test results with judge scores.
     """
     # Any finding above threshold — keep going
-    high_priority = [f for f in findings if f.get("importance", 0) >= 2]
+    high_priority = [f for f in findings if f.importance >= 2]
     if high_priority:
         print(f"Continuing — {len(high_priority)} findings at importance >= 2")
         return True

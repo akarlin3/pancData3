@@ -4,8 +4,8 @@ import json
 import os
 import sys
 from datetime import datetime
-from typing import Optional  # noqa: F401 — used by callers via import
-from evaluator import score_audit, should_continue_loop  # type: ignore
+from typing import List, Optional  # noqa: F401 — used by callers via import
+from evaluator import Finding, score_audit, should_continue_loop  # type: ignore
 
 LOG_FILE = "improvement_loop_log.json"
 
@@ -39,7 +39,7 @@ def get_current_iteration(log: list) -> int:
 
 def log_iteration(
     audit_output: str,
-    findings: list,
+    findings: List[Finding],
     branches_created: list,
     branches_merged: list,
     tests_passed: bool
@@ -74,7 +74,7 @@ def log_iteration(
         tagged_findings.append({
             "id": f"iter{iteration}_{i+1:03d}",
             "iteration": iteration,
-            **finding
+            **finding.to_log_dict()
         })
 
     # Determine exit condition
@@ -87,7 +87,7 @@ def log_iteration(
         "findings": tagged_findings,
         "findings_count": len(findings),
         "high_priority_findings": len(
-            [f for f in findings if f.get("importance", 0) >= 2]
+            [f for f in findings if f.importance >= 2]
         ),
         "branches_created": branches_created,
         "branches_merged": branches_merged,
