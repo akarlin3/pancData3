@@ -64,6 +64,21 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;
 
+    % Identify columns that need imputation (sparse analysis)
+    % Only compute standardization and distance metrics for columns that have missing values
+    has_missing_tr = any(isnan(X_tr), 1);
+    has_missing_te = false(1, p);
+    if ~isempty(X_te)
+        has_missing_te = any(isnan(X_te), 1);
+    end
+    cols_need_imputation = has_missing_tr | has_missing_te;
+    
+    % If no columns need imputation, return original data
+    if ~any(cols_need_imputation)
+        X_te_imp = X_te;
+        return;
+    end
+
     % Z-score standardize features based on training fold to compute
     % distances.  Without standardization, features with large absolute
     % values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the Euclidean
@@ -107,12 +122,26 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
+            % Sparse optimization: only consider features that are relevant for distance computation
+            % Features that have no missing values anywhere don't need to be included in distance
+            % calculations for rows that don't have missing values in those features
+            distance_feat = valid_feat;
+            if ~isempty(target_cols)
+                distance_feat(target_cols) = false;
+            end
+            
+            % Further optimization: only use features that actually vary and contribute to distances
+            % Skip features that are constant or have very low variance
+            nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+            
+            if sum(nonzero_var_feat) == 0
+                continue;
+            end
+            
             % Vectorized finding of valid reference indices
-            % A row is valid if it doesn't have any NaNs in the valid_feat columns
-            % This means valid_mask(:, valid_feat) must be all true.
-            % sum(valid_mask(:, valid_feat), 2) == sum(valid_feat)
-            num_valid = sum(valid_feat);
-            is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
+            % A row is valid if it doesn't have any NaNs in the nonzero_var_feat columns
+            num_valid = sum(nonzero_var_feat);
+            is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
             
             % Apply self/patient exclusions.  When patient IDs are provided,
             % ALL rows from the same patient are excluded — not just the
@@ -137,9 +166,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
-            % Extract pure coordinates
-            Y_coords = search_space(ref_idx, valid_feat);
-            X_coord = query_pt(valid_feat);
+            % Extract pure coordinates using only features that contribute to distance
+            Y_coords = search_space(ref_idx, nonzero_var_feat);
+            X_coord = query_pt(nonzero_var_feat);
             
             % Calculate squared Euclidean distances.  Squared distances
             % preserve the rank ordering needed for KNN selection while
@@ -203,8 +232,20 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     continue;
                 end
                 
-                num_valid = sum(valid_feat);
-                is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
+                % Apply same sparse optimization for test set
+                distance_feat = valid_feat;
+                if ~isempty(target_cols)
+                    distance_feat(target_cols) = false;
+                end
+                
+                nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+                
+                if sum(nonzero_var_feat) == 0
+                    continue;
+                end
+                
+                num_valid = sum(nonzero_var_feat);
+                is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
                 
                 % Exclude training rows from the same patient as this test
                 % row.  Although patient-grouped CV (make_grouped_folds)
@@ -231,8 +272,8 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 % Use training search_space for reference coordinates
                 % (neighbors are always training rows), but compute
                 % distances in the shared Z-score space.
-                Y_coords = search_space(ref_idx, valid_feat);
-                X_coord = search_space_te(i, valid_feat);
+                Y_coords = search_space(ref_idx, nonzero_var_feat);
+                X_coord = search_space_te(i, nonzero_var_feat);
 
                 dists = sum((Y_coords - X_coord).^2, 2);
                 [~, sort_idx] = sort(dists);
