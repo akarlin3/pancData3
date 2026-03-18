@@ -52,6 +52,14 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     end
     if nargin < 5, pat_id_te = []; end
     if nargin < 6, target_cols = []; end
+
+    % Validate that patient ID types are consistent (both cell or both numeric)
+    if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
+        if iscell(pat_id_tr) ~= iscell(pat_id_te)
+            error('knn_impute_train_test:typeMismatch', ...
+                'pat_id_tr and pat_id_te must be the same type (both cell or both numeric).');
+        end
+    end
     
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;

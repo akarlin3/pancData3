@@ -423,24 +423,24 @@ parfor j = 1:length(mrn_list)
     bad_dwi_idx_j = 0;
 
     % Localized output variables for this patient iteration
+    n_fx = size(dwi_locations, 2);
+    n_rp = size(dwi_locations, 3);
     pat_data_vectors_gtvp = struct;
     pat_data_vectors_gtvn = struct;
-    pat_dmean_gtvp = nan(1, size(dwi_locations, 2));
-    pat_dmean_gtvn = nan(1, size(dwi_locations, 2));
-    pat_d95_gtvp = nan(1, size(dwi_locations, 2));
-    pat_d95_gtvn = nan(1, size(dwi_locations, 2));
-    pat_v50gy_gtvp = nan(1, size(dwi_locations, 2));
-    pat_v50gy_gtvn = nan(1, size(dwi_locations, 2));
-    pat_adc_mean = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
-    pat_adc_kurtosis = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
-    pat_d_mean = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
-    pat_d_kurtosis = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
-    pat_d_mean_dncnn = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
-    pat_d_mean_ivimnet = nan(1, size(dwi_locations, 2), size(dwi_locations, 3));
+    pat_dmean_gtvp = nan(1, n_fx);
+    pat_dmean_gtvn = nan(1, n_fx);
+    pat_d95_gtvp = nan(1, n_fx);
+    pat_d95_gtvn = nan(1, n_fx);
+    pat_v50gy_gtvp = nan(1, n_fx);
+    pat_v50gy_gtvn = nan(1, n_fx);
+    pat_adc_mean = nan(1, n_fx, n_rp);
+    pat_adc_kurtosis = nan(1, n_fx, n_rp);
+    pat_d_mean = nan(1, n_fx, n_rp);
+    pat_d_kurtosis = nan(1, n_fx, n_rp);
+    pat_d_mean_dncnn = nan(1, n_fx, n_rp);
+    pat_d_mean_ivimnet = nan(1, n_fx, n_rp);
 
     % Initialize potential fields to ensure struct consistency
-    n_fx = size(dwi_locations,2);
-    n_rp = size(dwi_locations,3);
     [pat_data_vectors_gtvp, pat_data_vectors_gtvn] = init_scan_structs(n_fx, n_rp);
 
     % Per-patient DIR (Deformable Image Registration) reference volumes.

@@ -217,6 +217,9 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
                     % Pre-allocate queue to the number of GTV voxels (upper
                     % bound on reachable voxels) to avoid dynamic growth
                     % inside the loop, which causes O(n^2) memory copies.
+                    % Safety invariant: each voxel is enqueued at most once
+                    % because rg_mask is set true before enqueue, so
+                    % q_tail <= n_gtv_vox is guaranteed.
                     rg_mask = false(size(adc_map_3d));
                     rg_mask(sx, sy, sz) = true;
                     n_gtv_vox = sum(gtv_mask_3d(:));
