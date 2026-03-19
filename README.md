@@ -25,6 +25,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 - [Pipeline Steps](#pipeline-steps)
 - [Running Tests](#running-tests)
 - [Post-Hoc Analysis Scripts](#post-hoc-analysis-scripts)
+- [Improvement Loop](#improvement-loop)
 - [Repository Structure](#repository-structure)
 - [Contributing](#contributing)
 - [Citation](#citation)
@@ -570,6 +571,59 @@ cd analysis/tests && python -m pytest -v
 
 ---
 
+## Improvement Loop
+
+The `improvement_loop/` package provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase. It audits source files, parses structured findings, applies fixes on isolated git branches, runs tests, and logs each iteration to a persistent JSON log.
+
+### Requirements
+
+- `ANTHROPIC_API_KEY` environment variable set
+- Python packages: `anthropic`, `pydantic` (already in `analysis/requirements.txt`)
+
+### Usage
+
+All commands must be run from the repository root (`pancData3/`), since the package uses relative imports:
+
+```bash
+# Live run — audits codebase, applies fixes on branches, runs tests
+python -m improvement_loop.orchestrator_v1
+
+# Dry run — no API calls, no code changes, validates plumbing
+python -m improvement_loop.orchestrator_v1 --dry-run
+
+# Limit to 3 audit/fix cycles
+python -m improvement_loop.orchestrator_v1 --max-iterations 3
+
+# View iteration history
+python -m improvement_loop.loop_tracker summary
+
+# Print context for the next iteration (what's already been done)
+python -m improvement_loop.loop_tracker context
+```
+
+### How It Works
+
+Each iteration of the loop:
+
+1. **Audit** — Collects key pipeline and analysis source files, sends them to Claude Sonnet with context from prior iterations, and receives a JSON array of structured findings (dimension, file, description, fix, importance, branch name).
+2. **Parse** — Validates each finding against a Pydantic schema (`Finding` model in `evaluator.py`). Malformed findings are skipped with a warning.
+3. **Fix** — For each finding, creates a git branch (`improvement/<slug>`), calls Claude to generate the updated file, commits, and runs the Python test suite. Findings are tagged as `implemented` (tests pass) or `pending` (tests fail).
+4. **Evaluate** — Sends the raw audit output to a judge model (`evaluator.score_audit`) that scores it on 6 dimensions (specificity, accuracy, coverage, prioritization, domain appropriateness, overall). Flags like `LEAKAGE_RISK` or `PHI_RISK` are surfaced.
+5. **Exit check** — The loop stops when no findings have importance >= 2, audit coverage is adequate (>= 6/10), and no critical flags are raised.
+
+All iterations are logged to `improvement_loop_log.json` (gitignored). The log tracks audit scores, findings with unique IDs, branch status, and exit conditions.
+
+### Package Structure
+
+| File | Purpose |
+|---|---|
+| `orchestrator_v1.py` | Main loop: audit → parse → fix → evaluate → exit check |
+| `evaluator.py` | `Finding` schema, Claude-based audit scoring, exit condition logic |
+| `loop_tracker.py` | Persistent JSON logging, iteration context generation, CLI interface |
+| `git_utils.py` | Branch management, test runners, commit helpers |
+
+---
+
 ## Repository Structure
 
 ```
@@ -627,6 +681,11 @@ pancData3/
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
 │   └── tests/                      #   Python test suite (32 test files, 1482 tests)
+├── improvement_loop/               # Automated audit-fix-evaluate loop
+│   ├── orchestrator_v1.py          #   Main loop orchestrator
+│   ├── evaluator.py                #   Finding schema & audit scoring
+│   ├── loop_tracker.py             #   Persistent JSON logging & CLI
+│   └── git_utils.py                #   Branch management & test runners
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
