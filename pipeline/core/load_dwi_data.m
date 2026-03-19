@@ -411,6 +411,21 @@ if ~exist('OCTAVE_VERSION', 'builtin') && n_to_process > 0
     afterEach(dq_progress, parfor_progress(n_to_process, 'Processing patients'));
 end
 
+% Pre-create memory-mapped file objects for patient data sharing
+memmap_files = cell(length(mrn_list), 1);
+for j = 1:length(mrn_list)
+    if ~patient_completed(j)
+        patient_id = id_list{j};
+        memmap_file = fullfile(dataloc, 'memmap', sprintf('patient_%03d_%s.dat', j, patient_id));
+        memmap_files{j} = memmap_file;
+        % Ensure memmap directory exists
+        memmap_dir = fileparts(memmap_file);
+        if ~isfolder(memmap_dir)
+            mkdir(memmap_dir);
+        end
+    end
+end
+
 parfor j = 1:length(mrn_list)
     mrn = mrn_list{j};
     patient_id = id_list{j};
@@ -509,15 +524,4 @@ parfor j = 1:length(mrn_list)
                 fprintf('%s, no %s folder\n',id_list{j},fx_search{fi});
             end
 
-            % Retrieve previously discovered file paths for this combination
-            dicomloc = dwi_locations{j,fi,rpi};
-            struct_file = gtv_locations{j,fi,rpi};
-            struct_file_gtvn = gtvn_locations{j,fi,rpi};
-            if fi<=size(rtdose_locations,2)
-                dicomdoseloc = rtdose_locations{j,fi};  % RT dose only for Fx1–Fx5
-            else
-                dicomdoseloc = [];  % no dose for post-treatment scan
-            end
-
-            % Check memory requirements before processing this scan
-            if ~isempty(dicomloc) && exist(dicomloc, 'dir')
+            % Retrieve previously discovered file paths
