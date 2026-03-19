@@ -1,8 +1,9 @@
-function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed)
+function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed, varargin)
 % apply_dir_mask_propagation  Propagates a GTV mask from a reference scan to
 %   a follow-up scan using Deformable Image Registration (Demons algorithm).
 %
 %   gtv_mask_warped = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed)
+%   [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fixed, b0_moving, gtv_mask_fixed, 'Name', Value, ...)
 %
 %   Inputs:
 %     b0_fixed       - 3D double array: b=0 DWI image at baseline (Fx1). Used
@@ -11,6 +12,14 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 %                      Must be the SAME spatial dimensions as b0_fixed.
 %     gtv_mask_fixed - 3D logical/binary array: GTV mask at baseline (Fx1),
 %                      same dimensions as b0_fixed.
+%
+%   Optional Name-Value Arguments:
+%     'FixedPixelSpacing'    - [1x3] double: voxel spacing of fixed image [x y z] in mm
+%     'MovingPixelSpacing'   - [1x3] double: voxel spacing of moving image [x y z] in mm
+%     'FixedOrientation'     - [3x3] double: orientation matrix of fixed image
+%     'MovingOrientation'    - [3x3] double: orientation matrix of moving image
+%     'SpacingTolerance'     - double: tolerance for voxel spacing compatibility (default: 0.1 mm)
+%     'OrientationTolerance' - double: tolerance for orientation matrix compatibility (default: 0.1)
 %
 %   Output:
 %     gtv_mask_warped - 3D logical array: GTV mask propagated to the moving
@@ -27,15 +36,37 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 %     ref3d           - imref3d spatial reference object matching b0_moving.
 %
 %   Algorithm:
-%     1. Normalise both b=0 images to [0, 1] for numerically stable Demons.
-%     2. Run imregdemons with a 3-level multi-resolution pyramid (coarse-to-
+%     1. Validate voxel spacing and orientation compatibility between images.
+%     2. Normalise both b=0 images to [0, 1] for numerically stable Demons.
+%     3. Run imregdemons with a 3-level multi-resolution pyramid (coarse-to-
 %        fine), which handles large inter-fraction deformations.
-%     3. Apply the displacement field to the baseline mask using imwarp with
+%     4. Apply the displacement field to the baseline mask using imwarp with
 %        linear interpolation to generate a probability map.
-%     4. Threshold the continuous map at 0.5 to binarize, ensuring smooth
+%     5. Threshold the continuous map at 0.5 to binarize, ensuring smooth
 %        scaling of the mask boundary.
 %
 %   Requires: Image Processing Toolbox (imregdemons, imwarp, imref3d).
+
+    % Parse input arguments
+    p = inputParser;
+    addRequired(p, 'b0_fixed', @(x) isnumeric(x) && ndims(x) == 3);
+    addRequired(p, 'b0_moving', @(x) isnumeric(x) && ndims(x) == 3);
+    addRequired(p, 'gtv_mask_fixed', @(x) (isnumeric(x) || islogical(x)) && ndims(x) == 3);
+    addParameter(p, 'FixedPixelSpacing', [], @(x) isnumeric(x) && length(x) == 3);
+    addParameter(p, 'MovingPixelSpacing', [], @(x) isnumeric(x) && length(x) == 3);
+    addParameter(p, 'FixedOrientation', [], @(x) isnumeric(x) && isequal(size(x), [3 3]));
+    addParameter(p, 'MovingOrientation', [], @(x) isnumeric(x) && isequal(size(x), [3 3]));
+    addParameter(p, 'SpacingTolerance', 0.1, @(x) isnumeric(x) && isscalar(x) && x > 0);
+    addParameter(p, 'OrientationTolerance', 0.1, @(x) isnumeric(x) && isscalar(x) && x > 0);
+    
+    parse(p, b0_fixed, b0_moving, gtv_mask_fixed, varargin{:});
+    
+    fixed_spacing = p.Results.FixedPixelSpacing;
+    moving_spacing = p.Results.MovingPixelSpacing;
+    fixed_orientation = p.Results.FixedOrientation;
+    moving_orientation = p.Results.MovingOrientation;
+    spacing_tol = p.Results.SpacingTolerance;
+    orientation_tol = p.Results.OrientationTolerance;
 
     gtv_mask_warped = [];
     D_forward       = [];
@@ -55,15 +86,41 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
         return;
     end
 
-    % NOTE: imregdemons operates in voxel coordinates, so anisotropic or
-    % mismatched voxel spacing between fixed and moving images will silently
-    % distort the displacement field.  Callers must ensure inputs are
-    % resampled to a matching voxel grid before calling this function.
-
     if ~isequal(size(b0_fixed), size(gtv_mask_fixed))
         warning('apply_dir_mask_propagation:sizeMismatch', ...
             'b0_fixed and gtv_mask_fixed have different sizes. Cannot apply mask.');
         return;
+    end
+
+    % --- Voxel spacing and orientation validation ---
+    if ~isempty(fixed_spacing) && ~isempty(moving_spacing)
+        spacing_diff = abs(fixed_spacing - moving_spacing);
+        if any(spacing_diff > spacing_tol)
+            warning('apply_dir_mask_propagation:spacingMismatch', ...
+                'Voxel spacing mismatch exceeds tolerance. Fixed: [%.3f %.3f %.3f] mm, Moving: [%.3f %.3f %.3f] mm, Max diff: %.3f mm > %.3f mm tolerance.', ...
+                fixed_spacing(1), fixed_spacing(2), fixed_spacing(3), ...
+                moving_spacing(1), moving_spacing(2), moving_spacing(3), ...
+                max(spacing_diff), spacing_tol);
+            return;
+        end
+    end
+
+    if ~isempty(fixed_orientation) && ~isempty(moving_orientation)
+        orientation_diff = abs(fixed_orientation - moving_orientation);
+        if any(orientation_diff(:) > orientation_tol)
+            warning('apply_dir_mask_propagation:orientationMismatch', ...
+                'Orientation matrix mismatch exceeds tolerance. Max difference: %.3f > %.3f tolerance.', ...
+                max(orientation_diff(:)), orientation_tol);
+            return;
+        end
+        
+        % Additional check for orthogonality of orientation matrices
+        if ~is_orthogonal_matrix(fixed_orientation, orientation_tol) || ...
+           ~is_orthogonal_matrix(moving_orientation, orientation_tol)
+            warning('apply_dir_mask_propagation:nonOrthogonalOrientation', ...
+                'One or both orientation matrices are not orthogonal within tolerance.');
+            return;
+        end
     end
 
     % --- Robust percentile-based normalisation to [0, 1] ---
@@ -331,4 +388,27 @@ function is_valid = validate_displacement_field(D)
     end
     
     is_valid = true;
+end
+
+function is_orthogonal = is_orthogonal_matrix(M, tolerance)
+% is_orthogonal_matrix  Check if a matrix is orthogonal within tolerance.
+%   An orthogonal matrix satisfies M * M' = I (identity matrix).
+%
+%   Input:
+%     M         - [3x3] double: matrix to test
+%     tolerance - double: tolerance for identity check
+%
+%   Output:
+%     is_orthogonal - logical scalar, true if matrix is orthogonal
+
+    if ~isequal(size(M), [3 3])
+        is_orthogonal = false;
+        return;
+    end
+    
+    % Check if M * M' is close to identity matrix
+    product = M * M';
+    identity_diff = abs(product - eye(3));
+    
+    is_orthogonal = all(identity_diff(:) <= tolerance);
 end
