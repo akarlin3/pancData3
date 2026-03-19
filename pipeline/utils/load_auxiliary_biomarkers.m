@@ -33,6 +33,28 @@ function aux_data = load_auxiliary_biomarkers(csv_path, id_list)
         return;
     end
 
+    % Sanitize and validate header columns
+    header_parts = strsplit(header_line, ',');
+    sanitized_header = cell(size(header_parts));
+    for i = 1:numel(header_parts)
+        col_name = strtrim(header_parts{i});
+        % Sanitize column name: alphanumeric + underscore only
+        col_name = regexprep(col_name, '[^a-zA-Z0-9_]', '');
+        if isempty(col_name)
+            fclose(fid);
+            error('load_auxiliary_biomarkers:invalidColumnName', ...
+                'Column %d has invalid name after sanitization', i);
+        end
+        sanitized_header{i} = col_name;
+    end
+    
+    % Validate expected column structure
+    if numel(sanitized_header) < 4
+        fclose(fid);
+        error('load_auxiliary_biomarkers:invalidHeader', ...
+            'CSV must have at least 4 columns: patient_id, biomarker_name, timepoint, value');
+    end
+
     % Count data lines for pre-allocation (avoids repeated array growing)
     file_pos = ftell(fid);
     n_lines_est = 0;
@@ -64,11 +86,57 @@ function aux_data = load_auxiliary_biomarkers(csv_path, id_list)
             continue;
         end
 
+        % Sanitize string data
+        patient_id = strtrim(parts{1});
+        biomarker_name = strtrim(parts{2});
+        
+        % Sanitize patient ID and biomarker name
+        patient_id = regexprep(patient_id, '[^a-zA-Z0-9_]', '');
+        biomarker_name = regexprep(biomarker_name, '[^a-zA-Z0-9_]', '');
+        
+        if isempty(patient_id) || isempty(biomarker_name)
+            warning('load_auxiliary_biomarkers:invalidData', ...
+                'Skipping line %d: invalid patient_id or biomarker_name after sanitization', line_num);
+            continue;
+        end
+
+        % Strict data type validation for numeric columns
+        timepoint_str = strtrim(parts{3});
+        value_str = strtrim(parts{4});
+        
+        % Validate timepoint is numeric and positive integer
+        if ~isempty(regexp(timepoint_str, '^[0-9]+$', 'once'))
+            timepoint_val = str2double(timepoint_str);
+            if timepoint_val <= 0 || timepoint_val ~= floor(timepoint_val)
+                warning('load_auxiliary_biomarkers:invalidTimepoint', ...
+                    'Skipping line %d: timepoint must be positive integer', line_num);
+                continue;
+            end
+        else
+            warning('load_auxiliary_biomarkers:invalidTimepoint', ...
+                'Skipping line %d: timepoint contains non-numeric characters', line_num);
+            continue;
+        end
+        
+        % Validate value is numeric (allow decimal, negative, scientific notation)
+        if ~isempty(regexp(value_str, '^[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?$', 'once'))
+            value_val = str2double(value_str);
+            if isnan(value_val) || isinf(value_val)
+                warning('load_auxiliary_biomarkers:invalidValue', ...
+                    'Skipping line %d: value is NaN or Inf', line_num);
+                continue;
+            end
+        else
+            warning('load_auxiliary_biomarkers:invalidValue', ...
+                'Skipping line %d: value is not a valid number', line_num);
+            continue;
+        end
+
         row_count = row_count + 1;
-        raw_ids{row_count} = strtrim(parts{1});
-        raw_biomarkers{row_count} = strtrim(parts{2});
-        raw_timepoints(row_count) = str2double(strtrim(parts{3}));
-        raw_values(row_count) = str2double(strtrim(parts{4}));
+        raw_ids{row_count} = patient_id;
+        raw_biomarkers{row_count} = biomarker_name;
+        raw_timepoints(row_count) = timepoint_val;
+        raw_values(row_count) = value_val;
     end
     fclose(fid);
 
