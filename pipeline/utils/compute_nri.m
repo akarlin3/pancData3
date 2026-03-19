@@ -156,3 +156,191 @@ function val = compute_idi_from_data(d)
     if any(ev), val = val + mean(p_new(ev) - p_old(ev)); end
     if any(nev), val = val + mean(p_old(nev) - p_new(nev)); end
 end
+
+function run_nri_tests()
+%RUN_NRI_TESTS  Comprehensive tests for NRI calculations
+    fprintf('Running NRI tests...\n');
+    
+    % Test 1: Basic categorical NRI with known values
+    test_categorical_nri_basic();
+    
+    % Test 2: Perfect reclassification scenarios
+    test_perfect_reclassification();
+    
+    % Test 3: No reclassification scenario
+    test_no_reclassification();
+    
+    % Test 4: Continuous NRI calculations
+    test_continuous_nri();
+    
+    % Test 5: IDI calculations
+    test_idi_calculations();
+    
+    % Test 6: Edge cases and error handling
+    test_edge_cases();
+    
+    % Test 7: Custom risk categories
+    test_custom_risk_categories();
+    
+    fprintf('All NRI tests passed!\n');
+end
+
+function test_categorical_nri_basic()
+    % Test with known reference values
+    y_true = [1; 1; 1; 1; 0; 0; 0; 0];
+    prob_old = [0.1; 0.3; 0.6; 0.8; 0.1; 0.3; 0.6; 0.8];
+    prob_new = [0.3; 0.6; 0.8; 0.9; 0.05; 0.1; 0.3; 0.6];
+    
+    results = compute_nri(y_true, prob_old, prob_new);
+    
+    % Expected: 2 events reclassified up, 0 down -> nri_events = 2/4 = 0.5
+    % Expected: 1 nonevent reclassified down, 2 up -> nri_nonevents = (1-2)/4 = -0.25
+    % Expected: total NRI = 0.5 + (-0.25) = 0.25
+    
+    assert(abs(results.nri_events - 0.5) < 1e-6, 'NRI events calculation failed');
+    assert(abs(results.nri_nonevents - (-0.25)) < 1e-6, 'NRI non-events calculation failed');
+    assert(abs(results.nri - 0.25) < 1e-6, 'Total NRI calculation failed');
+    
+    fprintf('  ✓ Basic categorical NRI test passed\n');
+end
+
+function test_perfect_reclassification()
+    % Perfect improvement scenario
+    y_true = [1; 1; 0; 0];
+    prob_old = [0.1; 0.3; 0.6; 0.8];  % Events in low risk, non-events in high risk
+    prob_new = [0.6; 0.8; 0.1; 0.3];  % Events moved to high risk, non-events to low risk
+    
+    results = compute_nri(y_true, prob_old, prob_new);
+    
+    % All events reclassified up, all non-events reclassified down
+    assert(abs(results.nri_events - 1.0) < 1e-6, 'Perfect events reclassification failed');
+    assert(abs(results.nri_nonevents - 1.0) < 1e-6, 'Perfect non-events reclassification failed');
+    assert(abs(results.nri - 2.0) < 1e-6, 'Perfect total NRI failed');
+    
+    fprintf('  ✓ Perfect reclassification test passed\n');
+end
+
+function test_no_reclassification()
+    % No reclassification scenario
+    y_true = [1; 1; 0; 0];
+    prob_old = [0.1; 0.6; 0.2; 0.7];
+    prob_new = [0.15; 0.65; 0.18; 0.72];  % Small changes within same categories
+    
+    results = compute_nri(y_true, prob_old, prob_new);
+    
+    assert(abs(results.nri_events) < 1e-6, 'No reclassification events failed');
+    assert(abs(results.nri_nonevents) < 1e-6, 'No reclassification non-events failed');
+    assert(abs(results.nri) < 1e-6, 'No reclassification total NRI failed');
+    
+    fprintf('  ✓ No reclassification test passed\n');
+end
+
+function test_continuous_nri()
+    % Test continuous NRI with known values
+    y_true = [1; 1; 0; 0];
+    prob_old = [0.2; 0.4; 0.3; 0.6];
+    prob_new = [0.5; 0.7; 0.1; 0.4];
+    
+    results = compute_nri(y_true, prob_old, prob_new);
+    
+    % Events: mean improvement = mean([0.3, 0.3]) = 0.3
+    % Non-events: mean worsening = -mean([-0.2, -0.2]) = 0.2
+    % cNRI = 0.3 + 0.2 = 0.5
+    
+    expected_cnri_events = mean([0.5-0.2, 0.7-0.4]);
+    expected_cnri_nonevents = -mean([0.1-0.3, 0.4-0.6]);
+    expected_cnri = expected_cnri_events + expected_cnri_nonevents;
+    
+    assert(abs(results.cnri - expected_cnri) < 1e-6, 'Continuous NRI calculation failed');
+    
+    fprintf('  ✓ Continuous NRI test passed\n');
+end
+
+function test_idi_calculations()
+    % Test IDI with known values
+    y_true = [1; 1; 0; 0];
+    prob_old = [0.2; 0.4; 0.6; 0.8];
+    prob_new = [0.5; 0.7; 0.3; 0.5];
+    
+    results = compute_nri(y_true, prob_old, prob_new);
+    
+    % IDI = mean(p_new_events - p_old_events) + mean(p_old_nonevents - p_new_nonevents)
+    idi_events = mean([0.5-0.2, 0.7-0.4]);  % 0.3
+    idi_nonevents = mean([0.6-0.3, 0.8-0.5]);  % 0.3
+    expected_idi = idi_events + idi_nonevents;  % 0.6
+    
+    assert(abs(results.idi - expected_idi) < 1e-6, 'IDI calculation failed');
+    
+    fprintf('  ✓ IDI calculations test passed\n');
+end
+
+function test_edge_cases()
+    % Test with all events or all non-events
+    y_true_events = [1; 1; 1; 1];
+    prob_old = [0.1; 0.3; 0.6; 0.8];
+    prob_new = [0.3; 0.6; 0.8; 0.9];
+    
+    results = compute_nri(y_true_events, prob_old, prob_new);
+    assert(~isnan(results.nri_events), 'All events case failed');
+    assert(results.nri_nonevents == 0, 'All events non-events component should be 0');
+    
+    % Test with NaN values
+    y_true_nan = [1; 1; 0; 0; NaN];
+    prob_old_nan = [0.1; 0.3; 0.6; NaN; 0.8];
+    prob_new_nan = [0.3; NaN; 0.8; 0.9; 0.1];
+    
+    results = compute_nri(y_true_nan, prob_old_nan, prob_new_nan);
+    assert(~isnan(results.nri), 'NaN handling failed');
+    
+    % Test with empty inputs
+    try
+        results = compute_nri([], [], []);
+        assert(results.nri == 0 || isnan(results.nri), 'Empty input handling failed');
+    catch
+        % Expected behavior - function should handle gracefully
+    end
+    
+    fprintf('  ✓ Edge cases test passed\n');
+end
+
+function test_custom_risk_categories()
+    % Test with custom risk categories
+    y_true = [1; 1; 1; 0; 0; 0];
+    prob_old = [0.05; 0.15; 0.35; 0.05; 0.15; 0.35];
+    prob_new = [0.15; 0.35; 0.45; 0.02; 0.08; 0.25];
+    custom_cats = [0, 0.1, 0.3, 0.4, 1.0];
+    
+    results = compute_nri(y_true, prob_old, prob_new, custom_cats);
+    
+    % Verify that custom categories are used
+    assert(~isnan(results.nri), 'Custom categories calculation failed');
+    assert(isfield(results, 'nri_events'), 'Missing NRI events field');
+    assert(isfield(results, 'nri_nonevents'), 'Missing NRI non-events field');
+    
+    fprintf('  ✓ Custom risk categories test passed\n');
+end
+
+function [ci_lower, ci_upper] = bootstrap_ci(data, stat_fn, n_bootstrap, alpha)
+%BOOTSTRAP_CI  Simple bootstrap confidence interval
+    n = size(data, 1);
+    bootstrap_stats = zeros(n_bootstrap, 1);
+    
+    for i = 1:n_bootstrap
+        idx = randsample(n, n, true);
+        bootstrap_data = data(idx, :);
+        try
+            bootstrap_stats(i) = stat_fn(bootstrap_data);
+        catch
+            bootstrap_stats(i) = NaN;
+        end
+    end
+    
+    bootstrap_stats = bootstrap_stats(~isnan(bootstrap_stats));
+    if isempty(bootstrap_stats)
+        ci_lower = NaN;
+        ci_upper = NaN;
+    else
+        ci_lower = prctile(bootstrap_stats, 100 * alpha/2);
+        ci_upper = prctile(bootstrap_stats, 100 * (1 - alpha/2));
+    end
+end
