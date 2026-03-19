@@ -96,17 +96,17 @@ def lins_ccc(x: np.ndarray, y: np.ndarray) -> dict:
 
     ccc = r * cb
 
-    # 95% CI via Fisher z-transform
-    if abs(ccc) < 1.0:
+    # 95% CI via Fisher z-transform (requires n > 3 for valid SE)
+    if abs(ccc) < 1.0 and n > 3:
         z = 0.5 * math.log((1 + ccc) / (1 - ccc))
-        se_z = 1 / math.sqrt(n - 3) if n > 3 else float("inf")
+        se_z = 1 / math.sqrt(n - 3)
         z_lo = z - 1.96 * se_z
         z_hi = z + 1.96 * se_z
-        ci_lo = (math.exp(2 * z_lo) - 1) / (math.exp(2 * z_lo) + 1)
-        ci_hi = (math.exp(2 * z_hi) - 1) / (math.exp(2 * z_hi) + 1)
+        ci_lo = math.tanh(z_lo)
+        ci_hi = math.tanh(z_hi)
     else:
-        ci_lo = ccc
-        ci_hi = ccc
+        ci_lo = float("nan") if n <= 3 else ccc
+        ci_hi = float("nan") if n <= 3 else ccc
 
     return {
         "ccc": float(ccc),
