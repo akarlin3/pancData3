@@ -225,11 +225,19 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                 % 3D GLRLM: validate and quantize the full 3D volume
                 param_map_clean = validate_and_clean_image_3d(param_map, mask);
                 
-                if strcmpi(quantization_method, 'fixed_bin_width')
-                    all_vals = double(param_map_clean(mask > 0));
-                    all_vals = all_vals(isfinite(all_vals));
-                    min_val_3d = min(all_vals);
-                    max_val_3d = max(all_vals);
+                all_vals = double(param_map_clean(mask > 0));
+                all_vals = all_vals(isfinite(all_vals));
+                min_val_3d = min(all_vals);
+                max_val_3d = max(all_vals);
+
+                if isempty(all_vals) || min_val_3d == max_val_3d
+                    % Constant or empty image: GLRLM is undefined
+                    features.glrlm_sre = NaN;
+                    features.glrlm_lre = NaN;
+                    features.glrlm_gln = NaN;
+                    features.glrlm_rln = NaN;
+                    features.glrlm_rp  = NaN;
+                elseif strcmpi(quantization_method, 'fixed_bin_width')
                     bw = (max_val_3d - min_val_3d) / n_levels;
                     quantized_3d = floor((double(param_map_clean) - min_val_3d) / bw) + 1;
                     quantized_3d(~mask) = 0;
@@ -237,17 +245,15 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                     quantized_3d = max(1, min(actual_n_3d, quantized_3d));
                     n_levels_3d = actual_n_3d;
                 else
-                    all_vals = double(param_map_clean(mask > 0));
-                    all_vals = all_vals(isfinite(all_vals));
-                    min_val_3d = min(all_vals);
-                    max_val_3d = max(all_vals);
                     quantized_3d = round((double(param_map_clean) - min_val_3d) / (max_val_3d - min_val_3d) * (n_levels - 1)) + 1;
                     quantized_3d(~mask) = 0;
                     quantized_3d = max(1, min(n_levels, quantized_3d));
                     n_levels_3d = n_levels;
                 end
-                [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
-                    features.glrlm_rln, features.glrlm_rp] = compute_glrlm_3d(quantized_3d, mask, n_levels_3d);
+                if exist('quantized_3d', 'var')
+                    [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
+                        features.glrlm_rln, features.glrlm_rp] = compute_glrlm_3d(quantized_3d, mask, n_levels_3d);
+                end
             else
                 [features.glrlm_sre, features.glrlm_lre, features.glrlm_gln, ...
                     features.glrlm_rln, features.glrlm_rp] = compute_glrlm(quantized, mask_2d, n_levels_glcm);

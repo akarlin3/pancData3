@@ -53,18 +53,26 @@ function results = compute_nri(y_true, prob_old, prob_new, risk_categories)
 
     nri = nri_events + nri_nonevents;
 
-    % Z-test for NRI
-    if n_events > 0 && n_nonevents > 0
+    % Z-test for NRI — require minimum 3 per group for reliable variance
+    if n_events >= 3 && n_nonevents >= 3
         var_nri = (up_events + down_events) / n_events^2 + ...
                   (up_nonevents + down_nonevents) / n_nonevents^2;
-        if var_nri > 0
+        if var_nri > 0 && isfinite(var_nri)
             z_nri = nri / sqrt(var_nri);
-            nri_p = 2 * (1 - normcdf(abs(z_nri)));
+            if isfinite(z_nri)
+                nri_p = 2 * (1 - normcdf(abs(z_nri)));
+            else
+                nri_p = NaN;
+            end
         else
             nri_p = NaN;
         end
     else
         nri_p = NaN;
+        if n_events > 0 || n_nonevents > 0
+            fprintf('  💡 compute_nri: sample too small for z-test (n_events=%d, n_nonevents=%d).\n', ...
+                n_events, n_nonevents);
+        end
     end
 
     % --- Continuous NRI (cNRI) ---

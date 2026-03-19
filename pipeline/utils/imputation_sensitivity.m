@@ -240,7 +240,7 @@ classdef LOCFImputation < AbstractImputation
             unique_pats = unique(patient_ids, 'stable');
             
             for p = 1:numel(unique_pats)
-                rows = strcmp(patient_ids, unique_pats{p});
+                rows = strcmpi(patient_ids, unique_pats{p});
                 row_idx = find(rows);
                 
                 for c = 1:size(X_out, 2)
@@ -295,7 +295,7 @@ classdef LinearImputation < AbstractImputation
             unique_pats = unique(patient_ids, 'stable');
             
             for p = 1:numel(unique_pats)
-                rows = strcmp(patient_ids, unique_pats{p});
+                rows = strcmpi(patient_ids, unique_pats{p});
                 row_idx = find(rows);
                 
                 for c = 1:size(X_out, 2)
