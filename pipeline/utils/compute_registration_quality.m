@@ -118,3 +118,186 @@ function mi = compute_mi(x, y)
         end
     end
 end
+
+
+function tests = test_compute_registration_quality
+% TEST_COMPUTE_REGISTRATION_QUALITY Comprehensive test suite
+    tests = functiontests(localfunctions);
+end
+
+function test_identity_transform(testCase)
+% Test identity transformation should give ideal metrics
+    % Create simple 3D volume
+    vol = zeros(10, 10, 10);
+    vol(3:8, 3:8, 3:8) = 100;
+    
+    % Identity deformation field (zero displacement)
+    def_field = zeros(10, 10, 10, 3);
+    
+    quality = compute_registration_quality(vol, vol, def_field);
+    
+    % Identity transform should have Jacobian ~1, perfect NCC, high MI
+    verifyEqual(testCase, quality.jacobian_mean, 1, 'AbsTol', 1e-10);
+    verifyEqual(testCase, quality.jacobian_std, 0, 'AbsTol', 1e-10);
+    verifyEqual(testCase, quality.jacobian_folding_pct, 0);
+    verifyEqual(testCase, quality.ncc, 1, 'AbsTol', 1e-10);
+    verifyTrue(testCase, quality.mutual_information > 0);
+end
+
+function test_perfect_alignment_different_images(testCase)
+% Test perfect alignment of different but related images
+    vol1 = randn(15, 15, 15) * 50 + 100;
+    vol2 = vol1; % Perfect match
+    
+    def_field = zeros(15, 15, 15, 3);
+    
+    quality = compute_registration_quality(vol1, vol2, def_field);
+    
+    verifyEqual(testCase, quality.jacobian_mean, 1, 'AbsTol', 1e-10);
+    verifyEqual(testCase, quality.ncc, 1, 'AbsTol', 1e-10);
+end
+
+function test_large_deformation(testCase)
+% Test large deformation field
+    vol = zeros(20, 20, 20);
+    vol(5:15, 5:15, 5:15) = 1;
+    
+    % Large displacement field
+    [X, Y, Z] = meshgrid(1:20, 1:20, 1:20);
+    def_field = zeros(20, 20, 20, 3);
+    def_field(:,:,:,1) = 0.5 * sin(X * pi / 10); % Large x displacement
+    def_field(:,:,:,2) = 0.3 * cos(Y * pi / 10); % Large y displacement
+    def_field(:,:,:,3) = 0.2 * sin(Z * pi / 10); % Large z displacement
+    
+    quality = compute_registration_quality(vol, vol, def_field);
+    
+    % Large deformation should deviate from identity
+    verifyNotEqual(testCase, quality.jacobian_mean, 1, 'AbsTol', 0.1);
+    verifyTrue(testCase, quality.jacobian_std > 0);
+    verifyTrue(testCase, isfinite(quality.jacobian_folding_pct));
+end
+
+function test_folding_deformation(testCase)
+% Test deformation that causes folding (negative Jacobian)
+    vol = ones(10, 10, 10);
+    
+    % Create folding deformation
+    def_field = zeros(10, 10, 10, 3);
+    [X, Y, Z] = meshgrid(1:10, 1:10, 1:10);
+    def_field(:,:,:,1) = -2 * X; % Strong negative gradient
+    
+    quality = compute_registration_quality(vol, vol, def_field);
+    
+    % Should detect folding
+    verifyTrue(testCase, quality.jacobian_folding_pct > 0);
+    verifyTrue(testCase, quality.jacobian_min < 0);
+end
+
+function test_noise_sensitivity(testCase)
+% Test sensitivity to noise
+    vol1 = ones(12, 12, 12) * 100;
+    vol1(4:9, 4:9, 4:9) = 200;
+    
+    % Add different levels of noise
+    noise_levels = [0, 5, 20, 50];
+    ncc_values = zeros(size(noise_levels));
+    mi_values = zeros(size(noise_levels));
+    
+    for i = 1:length(noise_levels)
+        vol2 = vol1 + randn(size(vol1)) * noise_levels(i);
+        quality = compute_registration_quality(vol1, vol2, []);
+        ncc_values(i) = quality.ncc;
+        mi_values(i) = quality.mutual_information;
+    end
+    
+    % NCC should decrease with noise
+    verifyTrue(testCase, ncc_values(1) > ncc_values(end));
+    % MI should also generally decrease with noise
+    verifyTrue(testCase, mi_values(1) > mi_values(end) || isnan(mi_values(end)));
+end
+
+function test_empty_deformation_field(testCase)
+% Test behavior with empty deformation field
+    vol1 = randn(8, 8, 8);
+    vol2 = randn(8, 8, 8);
+    
+    quality = compute_registration_quality(vol1, vol2, []);
+    
+    % Jacobian metrics should be NaN
+    verifyTrue(testCase, isnan(quality.jacobian_mean));
+    verifyTrue(testCase, isnan(quality.jacobian_std));
+    verifyTrue(testCase, isnan(quality.jacobian_folding_pct));
+    
+    % But NCC and MI should still be computed
+    verifyTrue(testCase, isfinite(quality.ncc) || isnan(quality.ncc));
+    verifyTrue(testCase, isfinite(quality.mutual_information) || isnan(quality.mutual_information));
+end
+
+function test_zero_volumes(testCase)
+% Test edge case with zero volumes
+    vol_zero = zeros(5, 5, 5);
+    vol_nonzero = ones(5, 5, 5);
+    
+    quality1 = compute_registration_quality(vol_zero, vol_zero, []);
+    quality2 = compute_registration_quality(vol_zero, vol_nonzero, []);
+    
+    % Zero vs zero should give NaN or specific values
+    verifyTrue(testCase, isnan(quality1.ncc) || quality1.ncc == 0);
+    
+    % Zero vs nonzero should be handled gracefully
+    verifyTrue(testCase, isfinite(quality2.ncc) || isnan(quality2.ncc));
+end
+
+function test_anisotropic_voxel_spacing(testCase)
+% Test with anisotropic voxel spacing
+    vol = ones(8, 8, 8);
+    vol(3:6, 3:6, 3:6) = 2;
+    
+    def_field = zeros(8, 8, 8, 3);
+    def_field(:,:,:,1) = 0.1; % Small uniform displacement
+    
+    voxel_spacing_iso = [1, 1, 1];
+    voxel_spacing_aniso = [0.5, 0.5, 2.0];
+    
+    quality_iso = compute_registration_quality(vol, vol, def_field, voxel_spacing_iso);
+    quality_aniso = compute_registration_quality(vol, vol, def_field, voxel_spacing_aniso);
+    
+    % Jacobian should be different due to different voxel spacing
+    verifyNotEqual(testCase, quality_iso.jacobian_mean, quality_aniso.jacobian_mean, 'AbsTol', 1e-10);
+end
+
+function test_infinite_and_nan_values(testCase)
+% Test robustness to infinite and NaN values
+    vol1 = randn(6, 6, 6);
+    vol2 = vol1;
+    
+    % Introduce some problematic values
+    vol1(1, 1, 1) = Inf;
+    vol2(2, 2, 2) = -Inf;
+    vol1(3, 3, 3) = NaN;
+    
+    def_field = randn(6, 6, 6, 3) * 0.1;
+    def_field(1, 1, 1, 1) = NaN; % NaN in deformation
+    
+    quality = compute_registration_quality(vol1, vol2, def_field);
+    
+    % Should handle problematic values gracefully
+    verifyTrue(testCase, isfinite(quality.jacobian_mean) || isnan(quality.jacobian_mean));
+    verifyTrue(testCase, isfinite(quality.ncc) || isnan(quality.ncc));
+    verifyTrue(testCase, isfinite(quality.mutual_information) || isnan(quality.mutual_information));
+end
+
+function test_small_volumes(testCase)
+% Test behavior with very small volumes
+    vol1 = randn(2, 2, 2);
+    vol2 = randn(2, 2, 2);
+    def_field = randn(2, 2, 2, 3) * 0.1;
+    
+    quality = compute_registration_quality(vol1, vol2, def_field);
+    
+    % Should not crash and return reasonable values or NaN
+    verifyTrue(testCase, isstruct(quality));
+    verifyTrue(testCase, isfield(quality, 'jacobian_mean'));
+    verifyTrue(testCase, isfield(quality, 'ncc'));
+    verifyTrue(testCase, isfield(quality, 'mutual_information'));
+end

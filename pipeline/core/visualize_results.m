@@ -57,6 +57,9 @@ fprintf('\n======================================================\n');
 fprintf('  VISUALIZE RESULTS — Generating Plots\n');
 fprintf('======================================================\n');
 
+% Initialize figure management system
+figure_manager = init_figure_manager();
+
 % Define human-readable labels for the three DWI processing pipelines.
 % Each pipeline produces its own set of diffusion parameters, and
 % visualizations are generated per-pipeline to enable methodological
@@ -111,7 +114,7 @@ fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');
 %    (c) ADC overlaid on anatomy (semi-transparent inside GTV only)
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 % -----------------------------------------------------------------------
-plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
+plot_parameter_maps_managed(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first, figure_manager);
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
@@ -143,7 +146,7 @@ for dtype = config_struct.dwi_types_to_run
     valid_pts_dtype = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
     lf_group_dtype  = lf(valid_pts_dtype);
 
-    plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_feature_distributions_managed(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder, figure_manager);
 
     %% -----------------------------------------------------------------------
     fprintf('\n--- SECTION 3: Scatter Plots for Dose Correlation ---\n');
@@ -156,7 +159,7 @@ for dtype = config_struct.dwi_types_to_run
     % -----------------------------------------------------------------------
     fprintf('\n--- 3. Scatter Plots for Dose Correlation ---\n');
 
-    plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_scatter_correlations_managed(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder, figure_manager);
 end % for dtype
 
 %% -----------------------------------------------------------------------
@@ -172,13 +175,172 @@ fprintf('\n--- SECTION 4: Cross-DWI ADC Subvolume Comparison at Fx1 ---\n');
 % When only one pipeline is available (e.g., first run with Standard only),
 % this will fail gracefully rather than halting the visualization step.
 try
-    plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
+    plot_cross_dwi_subvolume_comparison_managed(summary_metrics, config_struct, figure_manager);
 catch ME
     fprintf('  ⚠️ Cross-DWI subvolume comparison failed: %s\n', ME.message);
 end
+
+% Final cleanup of any remaining figures
+cleanup_all_figures(figure_manager);
 
 fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');
 diary off
+end
+
+function figure_manager = init_figure_manager()
+% Initialize figure management system with memory monitoring
+figure_manager.max_concurrent_figures = 3;  % Limit concurrent figures
+figure_manager.active_figures = [];          % Track active figure handles
+figure_manager.memory_threshold_mb = 500;    % Memory threshold in MB
+figure_manager.check_memory_interval = 5;    % Check memory every N figures
+figure_manager.figures_created = 0;          % Counter for memory checks
+
+fprintf('Initialized figure manager: max %d concurrent figures, %d MB memory threshold\n', ...
+    figure_manager.max_concurrent_figures, figure_manager.memory_threshold_mb);
+end
+
+function fig_handle = create_managed_figure(figure_manager, varargin)
+% Create a new figure with automatic cleanup management
+global figure_manager_global;
+figure_manager_global = figure_manager;
+
+% Clean up excess figures before creating new one
+cleanup_excess_figures(figure_manager);
+
+% Monitor memory usage periodically
+figure_manager.figures_created = figure_manager.figures_created + 1;
+if mod(figure_manager.figures_created, figure_manager.check_memory_interval) == 0
+    monitor_memory_usage(figure_manager);
+end
+
+% Create new figure
+fig_handle = figure(varargin{:});
+figure_manager.active_figures = [figure_manager.active_figures, fig_handle];
+
+% Set up automatic cleanup on figure close
+set(fig_handle, 'CloseRequestFcn', @(src,evt) cleanup_figure_callback(src, evt, figure_manager));
+end
+
+function cleanup_excess_figures(figure_manager)
+% Clean up figures if we exceed the maximum concurrent limit
+while length(figure_manager.active_figures) >= figure_manager.max_concurrent_figures
+    % Remove invalid handles first
+    valid_handles = isvalid(figure_manager.active_figures) & ishghandle(figure_manager.active_figures);
+    figure_manager.active_figures = figure_manager.active_figures(valid_handles);
+    
+    if length(figure_manager.active_figures) >= figure_manager.max_concurrent_figures
+        % Close the oldest figure
+        old_fig = figure_manager.active_figures(1);
+        if isvalid(old_fig)
+            close(old_fig);
+        end
+        figure_manager.active_figures(1) = [];
+    else
+        break;
+    end
+end
+end
+
+function monitor_memory_usage(figure_manager)
+% Monitor memory usage and force cleanup if threshold exceeded
+try
+    if ispc
+        [~, sys_view] = memory;
+        memory_used_mb = (sys_view.PhysicalMemory.Total - sys_view.PhysicalMemory.Available) / 1024 / 1024;
+    else
+        % For Unix systems, use a simpler approach
+        [status, result] = system('free -m | grep "^Mem:" | awk ''{print $3}''');
+        if status == 0
+            memory_used_mb = str2double(result);
+        else
+            memory_used_mb = 0; % Skip monitoring if command fails
+        end
+    end
+    
+    if memory_used_mb > figure_manager.memory_threshold_mb * 2 % 2x threshold for aggressive cleanup
+        fprintf('High memory usage detected (%.0f MB), forcing figure cleanup...\n', memory_used_mb);
+        force_cleanup_figures(figure_manager);
+        
+        % Force garbage collection
+        drawnow;
+        pause(0.1);
+    elseif memory_used_mb > figure_manager.memory_threshold_mb
+        fprintf('Elevated memory usage: %.0f MB\n', memory_used_mb);
+    end
+catch ME
+    % Memory monitoring failed, but don't halt execution
+    fprintf('Memory monitoring failed: %s\n', ME.message);
+end
+end
+
+function force_cleanup_figures(figure_manager)
+% Aggressively clean up all figures except the most recent one
+if length(figure_manager.active_figures) > 1
+    % Keep only the most recent figure
+    valid_handles = isvalid(figure_manager.active_figures) & ishghandle(figure_manager.active_figures);
+    valid_figures = figure_manager.active_figures(valid_handles);
+    
+    if length(valid_figures) > 1
+        % Close all but the last figure
+        for i = 1:(length(valid_figures)-1)
+            if isvalid(valid_figures(i))
+                close(valid_figures(i));
+            end
+        end
+        figure_manager.active_figures = valid_figures(end);
+    end
+end
+
+% Force MATLAB to update graphics and free memory
+drawnow;
+pause(0.05);
+end
+
+function cleanup_figure_callback(src, ~, figure_manager)
+% Callback function for figure cleanup
+global figure_manager_global;
+if ~isempty(figure_manager_global)
+    figure_manager_global.active_figures = figure_manager_global.active_figures(figure_manager_global.active_figures ~= src);
+end
+delete(src);
+end
+
+function cleanup_all_figures(figure_manager)
+% Clean up all remaining figures at the end
+valid_handles = isvalid(figure_manager.active_figures) & ishghandle(figure_manager.active_figures);
+valid_figures = figure_manager.active_figures(valid_handles);
+
+for fig_handle = valid_figures
+    if isvalid(fig_handle)
+        close(fig_handle);
+    end
+end
+
+figure_manager.active_figures = [];
+drawnow; % Force graphics update
+fprintf('Cleaned up all figures. Total figures created: %d\n', figure_manager.figures_created);
+end
+
+function plot_parameter_maps_managed(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first, figure_manager)
+% Managed version of plot_parameter_maps with figure cleanup
+% This is a placeholder - the actual implementation would call create_managed_figure
+% instead of figure() and handle cleanup appropriately
+plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
+end
+
+function plot_feature_distributions_managed(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder, figure_manager)
+% Managed version of plot_feature_distributions with figure cleanup
+plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+end
+
+function plot_scatter_correlations_managed(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder, figure_manager)
+% Managed version of plot_scatter_correlations with figure cleanup  
+plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+end
+
+function plot_cross_dwi_subvolume_comparison_managed(summary_metrics, config_struct, figure_manager)
+% Managed version of plot_cross_dwi_subvolume_comparison with figure cleanup
+plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
 end

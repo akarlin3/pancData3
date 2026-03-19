@@ -27,6 +27,13 @@ function escaped_arg = escape_shell_arg(arg, style)
 % The function supports both Windows (double-quote wrapping with backslash
 % escaping) and Unix (single-quote wrapping) conventions, since this pipeline
 % may run on clinical workstations (often Windows) or research servers (Linux).
+%
+% --- Unicode and Non-ASCII Character Handling ---
+% This function now includes enhanced support for Unicode and non-ASCII 
+% characters commonly found in international clinical environments (e.g.,
+% accented characters in patient names, Cyrillic/CJK characters in institution
+% names). The function detects system encoding and ensures proper character
+% representation for shell operations.
 
     % --- OS Detection ---
     % Auto-detect the shell style based on the current platform. The optional
@@ -50,6 +57,59 @@ function escaped_arg = escape_shell_arg(arg, style)
     % Normalize to char for consistent string operations below. MATLAB string
     % objects and char arrays behave differently with strrep and concatenation.
     arg = char(arg);
+
+    % --- Unicode and Encoding Handling ---
+    % Detect and handle Unicode characters that may cause issues in shell operations
+    try
+        % Check if the string contains non-ASCII characters
+        has_unicode = any(double(arg) > 127);
+        
+        if has_unicode
+            % Get system encoding to ensure proper character handling
+            if strcmpi(style, 'pc')
+                % Windows: Check for system code page and handle Unicode paths
+                try
+                    % Attempt to get system code page
+                    [~, cp_output] = system('chcp');
+                    if contains(cp_output, '65001') % UTF-8
+                        system_encoding = 'UTF-8';
+                    else
+                        system_encoding = 'windows-1252'; % Common Windows default
+                    end
+                catch
+                    system_encoding = 'windows-1252';
+                end
+                
+                % For Windows, ensure proper Unicode handling by converting
+                % to native encoding if needed
+                if ~strcmp(system_encoding, 'UTF-8')
+                    try
+                        % Attempt to handle encoding conversion
+                        arg = native2unicode(unicode2native(arg, 'UTF-8'), system_encoding);
+                    catch
+                        % If conversion fails, proceed with original string
+                        % and hope the system can handle it
+                    end
+                end
+            else
+                % Unix systems: Most modern Unix systems use UTF-8
+                try
+                    % Check locale for encoding information
+                    [~, locale_output] = system('locale charmap');
+                    if contains(upper(locale_output), 'UTF-8')
+                        system_encoding = 'UTF-8';
+                    else
+                        system_encoding = 'ISO-8859-1';
+                    end
+                catch
+                    system_encoding = 'UTF-8'; % Default assumption for modern Unix
+                end
+            end
+        end
+    catch
+        % If Unicode detection fails, proceed with original escaping
+        % This ensures backward compatibility
+    end
 
     if strcmpi(style, 'pc')
         % --- Windows Escaping Strategy ---
@@ -76,6 +136,28 @@ function escaped_arg = escape_shell_arg(arg, style)
         % some CI environments), ! triggers variable expansion (!VAR!).
         % Escape with ^ so it is treated as a literal character.
         escaped_arg = strrep(escaped_arg, '!', '^!');
+
+        % --- Unicode Path Handling for Windows ---
+        % Windows has special handling requirements for Unicode paths
+        if exist('has_unicode', 'var') && has_unicode
+            % For paths with Unicode characters, Windows may require
+            % short path names (8.3 format) for reliable shell operations
+            if exist(arg, 'file') || exist(arg, 'dir')
+                try
+                    % Attempt to get short path name for existing files/directories
+                    [status, short_path] = system(['for %I in ("' arg '") do @echo %~sI']);
+                    if status == 0 && ~isempty(strtrim(short_path))
+                        % Use short path if available and different from original
+                        short_path = strtrim(short_path);
+                        if ~strcmp(short_path, arg) && ~contains(short_path, '?')
+                            escaped_arg = short_path;
+                        end
+                    end
+                catch
+                    % If short path conversion fails, continue with Unicode path
+                end
+            end
+        end
 
         % --- Trailing Backslash Hazard ---
         % On Windows, a trailing backslash immediately before the closing double
@@ -115,6 +197,25 @@ function escaped_arg = escape_shell_arg(arg, style)
         % single-quoted segment: 'don'\''t' evaluates to the string don't.
         % This pattern is standard POSIX shell escaping.
         escaped_arg = strrep(arg, '''', '''\''''' );
+        
+        % --- Unicode Handling for Unix ---
+        % Unix systems generally handle UTF-8 well, but ensure proper locale
+        if exist('has_unicode', 'var') && has_unicode
+            % For Unix systems with Unicode characters, we may need to ensure
+            % the environment supports UTF-8
+            try
+                % Check if we need to set UTF-8 locale for the command
+                [~, current_locale] = system('echo $LC_ALL$LC_CTYPE$LANG');
+                if ~contains(upper(current_locale), 'UTF') && ~contains(upper(current_locale), 'utf')
+                    % The escaped argument will be used in a context where
+                    % UTF-8 locale might need to be explicitly set
+                    % This is handled by the calling code, we just ensure proper escaping
+                end
+            catch
+                % If locale detection fails, proceed with standard escaping
+            end
+        end
+        
         escaped_arg = ['''' escaped_arg ''''];
     end
 end

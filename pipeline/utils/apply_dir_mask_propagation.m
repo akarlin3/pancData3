@@ -111,6 +111,14 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
             D_moving_to_mid = imregdemons(moving_norm, mid_img, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+                
+            % Validate transformation matrices
+            if ~validate_displacement_field(D_fixed_to_mid) || ~validate_displacement_field(D_moving_to_mid)
+                warning('apply_dir_mask_propagation:invalidTransformation', ...
+                    'Registration to midpoint produced invalid displacement fields.');
+                return;
+            end
+            
             % Step 3: Refine the midpoint using the warped images
             fixed_warped = imwarp(fixed_norm, D_fixed_to_mid);
             moving_warped = imwarp(moving_norm, D_moving_to_mid);
@@ -120,12 +128,28 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
             D_backward_mid = imregdemons(moving_norm, mid_img_refined, [100 50 25], ...
                 'AccumulatedFieldSmoothing', 1.5, 'DisplayWaitBar', false);
+                
+            % Validate final transformation matrices
+            if ~validate_displacement_field(D_forward_mid) || ~validate_displacement_field(D_backward_mid)
+                warning('apply_dir_mask_propagation:invalidTransformation', ...
+                    'Final registration produced invalid displacement fields.');
+                return;
+            end
+                
             % Compose displacement fields: D_forward(x) = D_fwd(x) + (-D_bwd)(x + D_fwd(x))
             % Simple subtraction is a linear approximation that degrades for
             % the several-mm inter-fraction deformations common in pancreas.
             % Proper composition (via trilinear interpolation of D2 at
             % displaced coordinates) is more accurate for deformations > 1 voxel.
             D_forward = compose_displacement_fields(D_forward_mid, -D_backward_mid);
+            
+            % Validate composed displacement field
+            if ~validate_displacement_field(D_forward)
+                warning('apply_dir_mask_propagation:invalidTransformation', ...
+                    'Composed displacement field is invalid.');
+                return;
+            end
+            
             ref3d = imref3d(size(b0_moving));
             % Warp the GTV mask using linear interpolation (not nearest-
             % neighbor) to produce a continuous probability map.  This
@@ -209,4 +233,102 @@ function D_out = compose_displacement_fields(D1, D2)
         D_out(:,:,:,dim) = D1(:,:,:,dim) + ...
             interpn(D2(:,:,:,dim), R1, C1, S1, 'linear', 0);
     end
+end
+
+function is_valid = validate_displacement_field(D)
+% validate_displacement_field  Validate that a displacement field represents
+%   an invertible transformation by checking local Jacobian determinants and
+%   condition numbers.
+%
+%   Input:
+%     D - 4D displacement field array (sz(1) x sz(2) x sz(3) x 3)
+%
+%   Output:
+%     is_valid - logical scalar, true if transformation is valid
+
+    is_valid = false;
+    
+    if isempty(D) || size(D, 4) ~= 3
+        return;
+    end
+    
+    sz = size(D);
+    
+    % Sample points for validation (every 4th voxel to balance accuracy vs. speed)
+    sample_step = 4;
+    [r_idx, c_idx, s_idx] = ndgrid(2:sample_step:sz(1)-1, ...
+                                   2:sample_step:sz(2)-1, ...
+                                   2:sample_step:sz(3)-1);
+    
+    n_samples = numel(r_idx);
+    determinants = zeros(n_samples, 1);
+    condition_numbers = zeros(n_samples, 1);
+    
+    for i = 1:n_samples
+        r = r_idx(i);
+        c = c_idx(i);
+        s = s_idx(i);
+        
+        % Compute local Jacobian matrix using central differences
+        % J = I + grad(D), where I is identity and grad(D) is displacement gradient
+        J = eye(3);
+        
+        % X component gradients
+        J(1,1) = J(1,1) + (D(r, c+1, s, 1) - D(r, c-1, s, 1)) / 2;  % dDx/dx
+        J(2,1) = J(2,1) + (D(r+1, c, s, 1) - D(r-1, c, s, 1)) / 2;  % dDx/dy
+        J(3,1) = J(3,1) + (D(r, c, s+1, 1) - D(r, c, s-1, 1)) / 2;  % dDx/dz
+        
+        % Y component gradients
+        J(1,2) = J(1,2) + (D(r, c+1, s, 2) - D(r, c-1, s, 2)) / 2;  % dDy/dx
+        J(2,2) = J(2,2) + (D(r+1, c, s, 2) - D(r-1, c, s, 2)) / 2;  % dDy/dy
+        J(3,2) = J(3,2) + (D(r, c, s+1, 2) - D(r, c, s-1, 2)) / 2;  % dDy/dz
+        
+        % Z component gradients
+        J(1,3) = J(1,3) + (D(r, c+1, s, 3) - D(r, c-1, s, 3)) / 2;  % dDz/dx
+        J(2,3) = J(2,3) + (D(r+1, c, s, 3) - D(r-1, c, s, 3)) / 2;  % dDz/dy
+        J(3,3) = J(3,3) + (D(r, c, s+1, 3) - D(r, c, s-1, 3)) / 2;  % dDz/dz
+        
+        determinants(i) = det(J);
+        condition_numbers(i) = cond(J);
+    end
+    
+    % Check validation criteria
+    min_det = min(determinants);
+    max_cond = max(condition_numbers);
+    
+    % Transformation is invalid if:
+    % 1. Any Jacobian determinant <= 0 (indicates folding/non-invertible regions)
+    % 2. Any condition number > 1000 (indicates severe ill-conditioning)
+    % 3. More than 5% of sampled points have determinant < 0.1 (excessive compression)
+    
+    fold_threshold = 0.0;
+    compression_threshold = 0.1;
+    condition_threshold = 1000;
+    compression_fraction_limit = 0.05;
+    
+    has_folding = min_det <= fold_threshold;
+    is_poorly_conditioned = max_cond > condition_threshold;
+    compression_fraction = sum(determinants < compression_threshold) / n_samples;
+    has_excessive_compression = compression_fraction > compression_fraction_limit;
+    
+    if has_folding
+        warning('apply_dir_mask_propagation:transformation_folding', ...
+            'Displacement field contains folding (min determinant: %.3f)', min_det);
+        return;
+    end
+    
+    if is_poorly_conditioned
+        warning('apply_dir_mask_propagation:transformation_conditioning', ...
+            'Displacement field is poorly conditioned (max condition number: %.1f)', max_cond);
+        return;
+    end
+    
+    if has_excessive_compression
+        warning('apply_dir_mask_propagation:transformation_compression', ...
+            'Displacement field has excessive compression (%.1f%% of points with det < %.2f)', ...
+            compression_fraction * 100, compression_threshold);
+        return;
+    end
+    
+    is_valid = true;
 end
