@@ -197,42 +197,14 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                 n_levels_glcm = n_levels;
             end
 
-            % Compute GLCM at 4 angles and average
-            offsets = [0 1; -1 1; -1 0; -1 -1];
-            contrast_vals = zeros(4, 1);
-            correlation_vals = zeros(4, 1);
-            energy_vals = zeros(4, 1);
-            homogeneity_vals = zeros(4, 1);
-            valid_angles = false(4, 1);
-
-            for a = 1:size(offsets, 1)
-                try
-                    glcm = graycomatrix(quantized, 'Offset', offsets(a,:), ...
-                        'NumLevels', n_levels_glcm, 'GrayLimits', [1 n_levels_glcm], ...
-                        'Symmetric', true);
-                    props = graycoprops(glcm, {'Contrast', 'Correlation', 'Energy', 'Homogeneity'});
-                    contrast_vals(a) = props.Contrast;
-                    correlation_vals(a) = props.Correlation;
-                    energy_vals(a) = props.Energy;
-                    homogeneity_vals(a) = props.Homogeneity;
-                    valid_angles(a) = true;
-                catch ME_glcm
-                    warning('compute_texture_features:glcmFailed', ...
-                        'GLCM computation failed for angle %d: %s', a, ME_glcm.message);
-                end
-            end
-
-            if any(valid_angles)
-                features.glcm_contrast = mean(contrast_vals(valid_angles));
-                features.glcm_correlation = mean(correlation_vals(valid_angles));
-                features.glcm_energy = mean(energy_vals(valid_angles));
-                features.glcm_homogeneity = mean(homogeneity_vals(valid_angles));
-            else
-                features.glcm_contrast = NaN;
-                features.glcm_correlation = NaN;
-                features.glcm_energy = NaN;
-                features.glcm_homogeneity = NaN;
-            end
+            % Compute GLCM at 4 angles and average using built-in functions
+            [glcm_contrast_val, glcm_correlation_val, glcm_energy_val, glcm_homogeneity_val] = ...
+                compute_glcm_features(quantized, n_levels_glcm);
+            
+            features.glcm_contrast = glcm_contrast_val;
+            features.glcm_correlation = glcm_correlation_val;
+            features.glcm_energy = glcm_energy_val;
+            features.glcm_homogeneity = glcm_homogeneity_val;
 
             % --- GLRLM features ---
             if use_3d_glrlm
@@ -280,6 +252,145 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
     % --- Shape features from binary mask ---
     [features.shape_volume, features.shape_surface_area, features.shape_sphericity, ...
         features.shape_elongation, features.shape_compactness] = compute_shape_features(mask, voxel_spacing);
+end
+
+
+%% ===== GLCM computation with built-in functions and fallback =====
+
+function [contrast_val, correlation_val, energy_val, homogeneity_val] = compute_glcm_features(quantized, n_levels)
+%COMPUTE_GLCM_FEATURES  Compute GLCM features using built-in graycomatrix/graycoprops with fallback.
+
+    % Check if Image Processing Toolbox is available
+    has_ipt = license('test', 'image_toolbox') && exist('graycomatrix', 'file') == 2 && exist('graycoprops', 'file') == 2;
+    
+    if has_ipt
+        % Use vectorized built-in functions
+        try
+            offsets = [0 1; -1 1; -1 0; -1 -1];
+            contrast_vals = zeros(4, 1);
+            correlation_vals = zeros(4, 1);
+            energy_vals = zeros(4, 1);
+            homogeneity_vals = zeros(4, 1);
+            valid_angles = false(4, 1);
+
+            for a = 1:size(offsets, 1)
+                try
+                    glcm = graycomatrix(quantized, 'Offset', offsets(a,:), ...
+                        'NumLevels', n_levels, 'GrayLimits', [1 n_levels], ...
+                        'Symmetric', true);
+                    props = graycoprops(glcm, {'Contrast', 'Correlation', 'Energy', 'Homogeneity'});
+                    contrast_vals(a) = props.Contrast;
+                    correlation_vals(a) = props.Correlation;
+                    energy_vals(a) = props.Energy;
+                    homogeneity_vals(a) = props.Homogeneity;
+                    valid_angles(a) = true;
+                catch ME_glcm
+                    warning('compute_texture_features:glcmFailed', ...
+                        'GLCM computation failed for angle %d: %s', a, ME_glcm.message);
+                end
+            end
+
+            if any(valid_angles)
+                contrast_val = mean(contrast_vals(valid_angles));
+                correlation_val = mean(correlation_vals(valid_angles));
+                energy_val = mean(energy_vals(valid_angles));
+                homogeneity_val = mean(homogeneity_vals(valid_angles));
+                return;
+            end
+        catch ME_ipt
+            warning('compute_texture_features:iptFallback', ...
+                'Image Processing Toolbox functions failed (%s), using manual implementation', ME_ipt.message);
+        end
+    end
+    
+    % Fallback: manual GLCM computation
+    [contrast_val, correlation_val, energy_val, homogeneity_val] = compute_glcm_manual(quantized, n_levels);
+end
+
+
+%% ===== Manual GLCM computation (fallback) =====
+
+function [contrast_val, correlation_val, energy_val, homogeneity_val] = compute_glcm_manual(quantized, n_levels)
+%COMPUTE_GLCM_MANUAL  Manual GLCM computation for systems without Image Processing Toolbox.
+
+    [nrows, ncols] = size(quantized);
+    offsets = [0 1; -1 1; -1 0; -1 -1];
+    
+    contrast_vals = zeros(4, 1);
+    correlation_vals = zeros(4, 1);
+    energy_vals = zeros(4, 1);
+    homogeneity_vals = zeros(4, 1);
+    valid_angles = false(4, 1);
+
+    for a = 1:size(offsets, 1)
+        dr = offsets(a, 1);
+        dc = offsets(a, 2);
+        
+        % Initialize GLCM matrix
+        glcm = zeros(n_levels, n_levels);
+        
+        % Compute co-occurrences
+        for r = 1:nrows
+            for c = 1:ncols
+                if quantized(r, c) == 0, continue; end
+                
+                r2 = r + dr;
+                c2 = c + dc;
+                
+                if r2 >= 1 && r2 <= nrows && c2 >= 1 && c2 <= ncols && quantized(r2, c2) > 0
+                    i = quantized(r, c);
+                    j = quantized(r2, c2);
+                    glcm(i, j) = glcm(i, j) + 1;
+                    glcm(j, i) = glcm(j, i) + 1; % Symmetric
+                end
+            end
+        end
+        
+        % Normalize GLCM
+        total = sum(glcm(:));
+        if total == 0
+            continue;
+        end
+        valid_angles(a) = true;
+        
+        glcm_norm = glcm / total;
+        
+        % Compute features
+        [i_idx, j_idx] = meshgrid(1:n_levels, 1:n_levels);
+        
+        % Contrast: sum of |i-j|^2 * P(i,j)
+        contrast_vals(a) = sum(sum((i_idx - j_idx).^2 .* glcm_norm));
+        
+        % Energy: sum of P(i,j)^2
+        energy_vals(a) = sum(sum(glcm_norm.^2));
+        
+        % Homogeneity: sum of P(i,j) / (1 + |i-j|)
+        homogeneity_vals(a) = sum(sum(glcm_norm ./ (1 + abs(i_idx - j_idx))));
+        
+        % Correlation: more complex computation
+        mu_i = sum(sum(i_idx .* glcm_norm));
+        mu_j = sum(sum(j_idx .* glcm_norm));
+        sigma_i = sqrt(sum(sum((i_idx - mu_i).^2 .* glcm_norm)));
+        sigma_j = sqrt(sum(sum((j_idx - mu_j).^2 .* glcm_norm)));
+        
+        if sigma_i > 0 && sigma_j > 0
+            correlation_vals(a) = sum(sum((i_idx - mu_i) .* (j_idx - mu_j) .* glcm_norm)) / (sigma_i * sigma_j);
+        else
+            correlation_vals(a) = NaN;
+        end
+    end
+
+    if any(valid_angles)
+        contrast_val = mean(contrast_vals(valid_angles));
+        correlation_val = mean(correlation_vals(valid_angles));
+        energy_val = mean(energy_vals(valid_angles));
+        homogeneity_val = mean(homogeneity_vals(valid_angles));
+    else
+        contrast_val = NaN;
+        correlation_val = NaN;
+        energy_val = NaN;
+        homogeneity_val = NaN;
+    end
 end
 
 
@@ -478,121 +589,4 @@ function starts = find_3d_starts_vectorized(nrows, ncols, nslices, dr, dc, ds)
         if dr > 0
             r_vals = r_vals(r_vals ~= 1);
         elseif dr < 0
-            r_vals = r_vals(r_vals ~= nrows);
-        end
-        if dc > 0
-            c_vals = c_vals(c_vals ~= 1);
-        elseif dc < 0
-            c_vals = c_vals(c_vals ~= ncols);
-        end
-        if ~isempty(r_vals) && ~isempty(c_vals)
-            [R, C] = meshgrid(r_vals, c_vals);
-            starts_cell{3} = [R(:), C(:), ones(numel(R), 1)];
-            count_total = count_total + numel(R);
-        end
-    elseif ds < 0
-        % Entry face: s = nslices
-        r_vals = 1:nrows;
-        c_vals = 1:ncols;
-        if dr > 0
-            r_vals = r_vals(r_vals ~= 1);
-        elseif dr < 0
-            r_vals = r_vals(r_vals ~= nrows);
-        end
-        if dc > 0
-            c_vals = c_vals(c_vals ~= 1);
-        elseif dc < 0
-            c_vals = c_vals(c_vals ~= ncols);
-        end
-        if ~isempty(r_vals) && ~isempty(c_vals)
-            [R, C] = meshgrid(r_vals, c_vals);
-            starts_cell{3} = [R(:), C(:), nslices*ones(numel(R), 1)];
-            count_total = count_total + numel(R);
-        end
-    end
-
-    % Concatenate all starts
-    starts = zeros(count_total, 3);
-    idx = 1;
-    for i = 1:3
-        if ~isempty(starts_cell{i})
-            n = size(starts_cell{i}, 1);
-            starts(idx:idx+n-1, :) = starts_cell{i};
-            idx = idx + n;
-        end
-    end
-    starts = starts(1:idx-1, :);
-end
-
-
-%% ===== GLRLM computation (vectorized) =====
-
-function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask_2d, n_levels)
-%COMPUTE_GLRLM  Gray-Level Run-Length Matrix features at 4 angles, averaged (vectorized).
-
-    [nrows, ncols] = size(quantized);
-    max_run = max(nrows, ncols);
-
-    % Directions: [row_step, col_step] for scanning
-    directions = [0 1; 1 0; 1 1; 1 -1];  % 0, 90, 45, 135 degrees
-
-    % Pre-allocate feature arrays
-    sre_vals = zeros(4, 1);
-    lre_vals = zeros(4, 1);
-    gln_vals = zeros(4, 1);
-    rln_vals = zeros(4, 1);
-    rp_vals = zeros(4, 1);
-    valid_dirs = false(4, 1);
-    
-    n_pixels = sum(mask_2d(:));
-
-    for d = 1:size(directions, 1)
-        dr = directions(d, 1);
-        dc = directions(d, 2);
-
-        % Pre-allocate GLRLM matrix
-        rlm = zeros(n_levels, max_run);
-        total_runs = 0;
-
-        % Vectorized starting position generation
-        if dr == 0 && dc == 1
-            % Horizontal: start from each row, col 1
-            starts_r = (1:nrows)'; starts_c = ones(nrows, 1);
-        elseif dr == 1 && dc == 0
-            % Vertical: start from row 1, each col
-            starts_r = ones(ncols, 1); starts_c = (1:ncols)';
-        elseif dr == 1 && dc == 1
-            % 45 degrees: start from left column and top row
-            starts_r = [1:nrows, ones(1, ncols-1)]';
-            starts_c = [ones(1, nrows), 2:ncols]';
-        elseif dr == 1 && dc == -1
-            % 135 degrees: start from right column and top row
-            starts_r = [1:nrows, ones(1, ncols-1)]';
-            starts_c = [ncols*ones(1, nrows), (ncols-1):-1:1]';
-        end
-
-        for si = 1:numel(starts_r)
-            r = starts_r(si);
-            c = starts_c(si);
-            run_len = 0;
-            run_val = 0;
-
-            while r >= 1 && r <= nrows && c >= 1 && c <= ncols
-                pix = quantized(r, c);
-                in_mask = mask_2d(r, c);
-
-                if in_mask && pix > 0
-                    if pix == run_val
-                        run_len = run_len + 1;
-                    else
-                        if run_len > 0 && run_val > 0
-                            rl = min(run_len, max_run);
-                            rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                            total_runs = total_runs + 1;
-                        end
-                        run_val = pix;
-                        run_len = 1;
-                    end
-                else
-                    if run_len > 0 && run_val > 0
-                        rl = min(run_len, max_run);
+            r_vals = r_vals(r_vals ~= n
