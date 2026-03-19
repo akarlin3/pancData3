@@ -35,11 +35,11 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
 
     fprintf('\n  --- Imputation Sensitivity Analysis ---\n');
 
-    method_names = {'KNN', 'LOCF', 'Mean', 'Linear_Interp'};
-    n_methods = 4;
-    n_obs = size(td_panel_raw, 1);
-    n_feat = size(td_panel_raw, 2);
-
+    % Define available imputation strategies
+    strategies = get_imputation_strategies();
+    method_names = {strategies.name};
+    n_methods = length(strategies);
+    
     nan_mask = isnan(td_panel_raw);
     total_missing = sum(nan_mask(:));
 
@@ -48,37 +48,27 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
     risk_scores_all = nan(numel(y_clean), n_methods);
     selected_features = cell(1, n_methods);
 
-    % --- Method 1: KNN (use existing pipeline function) ---
-    fprintf('  [1/4] KNN imputation...\n');
-    X_knn = impute_knn_wrapper(td_panel_raw, patient_ids);
-    n_imputed(1) = total_missing;
-    [auc_values(1), risk_scores_all(:,1), selected_features{1}] = evaluate_imputed( ...
-        X_knn, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
-        use_firth, feature_names, 'KNN');
-
-    % --- Method 2: LOCF ---
-    fprintf('  [2/4] LOCF imputation...\n');
-    X_locf = impute_locf(td_panel_raw, patient_ids);
-    n_imputed(2) = sum(~isnan(X_locf(:)) & nan_mask(:));
-    [auc_values(2), risk_scores_all(:,2), selected_features{2}] = evaluate_imputed( ...
-        X_locf, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
-        use_firth, feature_names, 'LOCF');
-
-    % --- Method 3: Mean ---
-    fprintf('  [3/4] Mean imputation...\n');
-    X_mean = impute_mean(td_panel_raw);
-    n_imputed(3) = sum(~isnan(X_mean(:)) & nan_mask(:));
-    [auc_values(3), risk_scores_all(:,3), selected_features{3}] = evaluate_imputed( ...
-        X_mean, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
-        use_firth, feature_names, 'Mean');
-
-    % --- Method 4: Linear Interpolation ---
-    fprintf('  [4/4] Linear interpolation...\n');
-    X_interp = impute_linear(td_panel_raw, patient_ids);
-    n_imputed(4) = sum(~isnan(X_interp(:)) & nan_mask(:));
-    [auc_values(4), risk_scores_all(:,4), selected_features{4}] = evaluate_imputed( ...
-        X_interp, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
-        use_firth, feature_names, 'Linear_Interp');
+    % Execute each imputation strategy
+    for i = 1:n_methods
+        strategy = strategies(i);
+        fprintf('  [%d/%d] %s imputation...\n', i, n_methods, strategy.name);
+        
+        % Apply imputation strategy
+        X_imputed = strategy.impute_func(td_panel_raw, patient_ids);
+        
+        % Count imputed values
+        if strcmp(strategy.name, 'KNN')
+            % For KNN, all missing values are imputed
+            n_imputed(i) = total_missing;
+        else
+            n_imputed(i) = sum(~isnan(X_imputed(:)) & nan_mask(:));
+        end
+        
+        % Evaluate imputed data
+        [auc_values(i), risk_scores_all(:,i), selected_features{i}] = evaluate_imputed( ...
+            X_imputed, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, ...
+            use_firth, feature_names, strategy.name);
+    end
 
     % --- Concordance matrix (pairwise Spearman) ---
     concordance = eye(n_methods);
@@ -148,30 +138,45 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
 end
 
 
-%% ===== Local helper functions =====
+%% ===== Imputation Strategy Registry =====
 
-function X_out = impute_knn_wrapper(X_raw, patient_ids)
-%IMPUTE_KNN_WRAPPER  KNN imputation using existing pipeline function.
-    n = size(X_raw, 1);
+function strategies = get_imputation_strategies()
+%GET_IMPUTATION_STRATEGIES  Returns array of available imputation strategies.
+%
+%   Each strategy is a struct with fields:
+%     name        - String identifier for the strategy
+%     impute_func - Function handle that takes (X_raw, patient_ids) and returns X_imputed
+%
+%   This centralized registry makes it easy to add new strategies or modify existing ones.
+
+    strategies = [
+        struct('name', 'KNN', 'impute_func', @impute_knn_strategy),
+        struct('name', 'LOCF', 'impute_func', @impute_locf_strategy),
+        struct('name', 'Mean', 'impute_func', @impute_mean_strategy),
+        struct('name', 'Linear_Interp', 'impute_func', @impute_linear_strategy)
+    ];
+end
+
+
+%% ===== Individual Imputation Strategies =====
+
+function X_out = impute_knn_strategy(X_raw, patient_ids)
+%IMPUTE_KNN_STRATEGY  KNN imputation using existing pipeline function.
     % Use all rows as both train and test for consistency
     [X_out, ~] = knn_impute_train_test(X_raw, zeros(0, size(X_raw, 2)), 5, patient_ids, {});
     % Fill any remaining NaN with column mean
-    for c = 1:size(X_out, 2)
-        col = X_out(:, c);
-        if any(isnan(col))
-            col(isnan(col)) = nanmean_safe(col);
-            X_out(:, c) = col;
-        end
-    end
+    X_out = fill_remaining_nan_with_mean(X_out);
 end
 
-function X_out = impute_locf(X_raw, patient_ids)
-%IMPUTE_LOCF  Last observation carried forward per patient.
+function X_out = impute_locf_strategy(X_raw, patient_ids)
+%IMPUTE_LOCF_STRATEGY  Last observation carried forward per patient.
     X_out = X_raw;
     unique_pats = unique(patient_ids, 'stable');
+    
     for p = 1:numel(unique_pats)
         rows = strcmp(patient_ids, unique_pats{p});
         row_idx = find(rows);
+        
         for c = 1:size(X_out, 2)
             last_val = NaN;
             for r = 1:numel(row_idx)
@@ -184,18 +189,13 @@ function X_out = impute_locf(X_raw, patient_ids)
             end
         end
     end
+    
     % Fill remaining NaN with column mean
-    for c = 1:size(X_out, 2)
-        col = X_out(:, c);
-        if any(isnan(col))
-            col(isnan(col)) = nanmean_safe(col);
-            X_out(:, c) = col;
-        end
-    end
+    X_out = fill_remaining_nan_with_mean(X_out);
 end
 
-function X_out = impute_mean(X_raw)
-%IMPUTE_MEAN  Per-feature mean from non-missing values.
+function X_out = impute_mean_strategy(X_raw, ~)
+%IMPUTE_MEAN_STRATEGY  Per-feature mean from non-missing values.
     X_out = X_raw;
     for c = 1:size(X_out, 2)
         col = X_out(:, c);
@@ -205,16 +205,19 @@ function X_out = impute_mean(X_raw)
     end
 end
 
-function X_out = impute_linear(X_raw, patient_ids)
-%IMPUTE_LINEAR  Linear interpolation between adjacent observed timepoints.
+function X_out = impute_linear_strategy(X_raw, patient_ids)
+%IMPUTE_LINEAR_STRATEGY  Linear interpolation between adjacent observed timepoints.
     X_out = X_raw;
     unique_pats = unique(patient_ids, 'stable');
+    
     for p = 1:numel(unique_pats)
         rows = strcmp(patient_ids, unique_pats{p});
         row_idx = find(rows);
+        
         for c = 1:size(X_out, 2)
             vals = X_out(row_idx, c);
             observed = find(~isnan(vals));
+            
             if numel(observed) >= 2
                 % Interpolate between observed values
                 interp_vals = interp1(observed, vals(observed), 1:numel(vals), 'linear', NaN);
@@ -225,7 +228,17 @@ function X_out = impute_linear(X_raw, patient_ids)
             end
         end
     end
+    
     % Fill remaining NaN with column mean
+    X_out = fill_remaining_nan_with_mean(X_out);
+end
+
+
+%% ===== Utility Functions =====
+
+function X_out = fill_remaining_nan_with_mean(X_in)
+%FILL_REMAINING_NAN_WITH_MEAN  Fill any remaining NaN values with column means.
+    X_out = X_in;
     for c = 1:size(X_out, 2)
         col = X_out(:, c);
         if any(isnan(col))
