@@ -68,6 +68,28 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             length(bvalues));
     end
 
+    %% ---- Optimized solver configuration for IVIM fitting ----
+    % Configure optimized solver options for lsqnonlin used in IVIM fitting
+    % Improved settings for better convergence speed and robustness
+    optimized_opts = optimoptions('lsqnonlin', ...
+        'UseParallel', true, ...                 % Enable parallel gradient computation
+        'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
+        'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
+        'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
+        'MaxIterations', 400, ...               % Increased max iterations
+        'MaxFunctionEvaluations', 800, ...      % Increased max function evaluations
+        'Display', 'off');                      % Suppress individual fit output
+    
+    % Store original options to restore later if needed
+    if isfield(opts, 'optimoptions')
+        original_opts = opts.optimoptions;
+    else
+        original_opts = [];
+    end
+    
+    % Apply optimized options
+    opts.optimoptions = optimized_opts;
+
     %% ---- IVIM MODEL FITTING (Segmented Biexponential) ----
     % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
     % Flatten 3D volume to a 1D array of strictly non-zero mask voxels
@@ -94,13 +116,54 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % protocols use b = [0, 30, 100, 150, 550] which gives 3 high-b and
     % 2 low-b values — sufficient for segmented fitting.
     has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2 && sum(bvalues < opts.bthr) >= 1;
+    
+    % Pre-compute ADC-derived initial guess for D parameter to improve convergence
+    adc_initial_guess = [];
+    if has_sufficient_bvalues && n_valid > 0
+        fprintf('  [Stage 3 Opt] Computing ADC warm start for IVIM D parameter...\n');
+        
+        % Extract 1D signal decay curves for valid voxels for initial ADC estimation
+        dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+        dwi_valid = dwi_flat(valid_voxels_idx, :);
+        
+        % Quick ADC estimation for warm start using high-b values only
+        % This provides better initial guess for D parameter than default values
+        high_b_idx = bvalues >= opts.bthr;
+        if sum(high_b_idx) >= 2
+            % Use only high b-values for more accurate D initial guess
+            b_high = bvalues(high_b_idx);
+            s_high = dwi_valid(:, high_b_idx);
+            s0_valid = dwi_valid(:, 1); % b=0 signal
+            
+            % Simple linear regression on log data for initial D estimate
+            valid_signal_idx = all(s_high > 0, 2) & s0_valid > 0;
+            if any(valid_signal_idx)
+                s_ratio = s_high(valid_signal_idx, :) ./ s0_valid(valid_signal_idx);
+                log_s = log(s_ratio);
+                
+                % Linear regression: log(S/S0) = -b*D
+                A_matrix = [-b_high(:), ones(length(b_high), 1)];
+                adc_coeffs = (A_matrix' * A_matrix) \ (A_matrix' * log_s');
+                adc_initial_guess = max(adc_coeffs(1, :), 1e-5); % Ensure positive values
+                adc_initial_guess = min(adc_initial_guess, 3e-3); % Cap at reasonable upper limit
+            end
+        end
+        
+        if ~isempty(adc_initial_guess)
+            fprintf('  [Warm Start] Using ADC-derived initial D values (mean: %.2e mm²/s)\n', mean(adc_initial_guess));
+            % Store initial guess in opts for IVIMmodelfit to use
+            opts.d_initial = adc_initial_guess;
+        end
+    end
+    
     if has_sufficient_bvalues && n_valid > 0
         fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
 
-        % Extract 1D signal decay curves for valid voxels
-        % Reshape DWI to (voxels x bvalues)
-        dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-        dwi_valid = dwi_flat(valid_voxels_idx, :);
+        % Extract 1D signal decay curves for valid voxels (reuse if already computed)
+        if ~exist('dwi_valid', 'var')
+            dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+            dwi_valid = dwi_flat(valid_voxels_idx, :);
+        end
 
         % [MODULARIZATION STAGE 3]: Masked 1D Flattening
         % The IVIMmodelfit dependency expects a 4D volume (x,y,z,b) as input.
@@ -122,7 +185,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 
         % Execute the segmented IVIM fit on the flattened masked array.
         % "seg" = segmented fitting strategy:
-        %   Stage 1: High-b log-linear fit to isolate D
+        %   Stage 1: High-b log-linear fit to isolate D (now with ADC warm start)
         %   Stage 2: Full-model fit with D fixed to estimate f and D*
         % This avoids the ill-conditioning of simultaneous 3-parameter
         % nonlinear fitting, which is especially problematic for D* because
@@ -155,6 +218,13 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         dstar_vec(zero_mask) = nan;
     elseif ~has_sufficient_bvalues
         fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
+    end
+
+    % Restore original optimization options if they existed
+    if ~isempty(original_opts)
+        opts.optimoptions = original_opts;
+    elseif isfield(opts, 'optimoptions')
+        opts = rmfield(opts, 'optimoptions');
     end
 
     % Reconstruct 1D fitted parameters back into 3D volume geometry.
