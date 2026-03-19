@@ -67,13 +67,36 @@ function quality = compute_registration_quality(reference_volume, warped_volume,
     % Compute within overlapping non-zero regions
     valid = isfinite(ref) & isfinite(wrp) & (ref ~= 0 | wrp ~= 0);
     if sum(valid(:)) > 1
-        r = ref(valid) - mean(ref(valid));
-        w = wrp(valid) - mean(wrp(valid));
-        denom = sqrt(sum(r.^2) * sum(w.^2));
-        if denom > 0
-            quality.ncc = sum(r .* w) / denom;
+        ref_valid = ref(valid);
+        wrp_valid = wrp(valid);
+        
+        % Check for zero variance before NCC calculation
+        ref_var = var(ref_valid);
+        wrp_var = var(wrp_valid);
+        
+        if ref_var == 0 || wrp_var == 0
+            % Handle zero variance cases
+            if ref_var == 0 && wrp_var == 0
+                % Both images are constant
+                if all(ref_valid == wrp_valid)
+                    quality.ncc = 1; % Perfect correlation for identical constant images
+                else
+                    quality.ncc = 0; % No correlation for different constant images
+                end
+            else
+                % One image is constant, the other varies
+                quality.ncc = 0; % No correlation possible
+            end
         else
-            quality.ncc = NaN;
+            % Standard NCC calculation
+            r = ref_valid - mean(ref_valid);
+            w = wrp_valid - mean(wrp_valid);
+            denom = sqrt(sum(r.^2) * sum(w.^2));
+            if denom > 0
+                quality.ncc = sum(r .* w) / denom;
+            else
+                quality.ncc = NaN;
+            end
         end
     else
         quality.ncc = NaN;
@@ -347,4 +370,27 @@ function test_zero_variance_images(testCase)
     % Test variable vs constant
     quality4 = compute_registration_quality(vol_variable, vol_constant, []);
     verifyEqual(testCase, quality4.mutual_information, 0);
+end
+
+function test_zero_variance_ncc(testCase)
+% Test NCC calculation with zero variance images
+    vol_constant = ones(8, 8, 8) * 100;  % Zero variance
+    vol_variable = randn(8, 8, 8) * 50 + 100;  % Non-zero variance
+    vol_constant2 = ones(8, 8, 8) * 200;  % Different constant value
+    
+    % Test constant vs constant (same value)
+    quality1 = compute_registration_quality(vol_constant, vol_constant, []);
+    verifyEqual(testCase, quality1.ncc, 1);
+    
+    % Test constant vs constant (different values)
+    quality2 = compute_registration_quality(vol_constant, vol_constant2, []);
+    verifyEqual(testCase, quality2.ncc, 0);
+    
+    % Test constant vs variable
+    quality3 = compute_registration_quality(vol_constant, vol_variable, []);
+    verifyEqual(testCase, quality3.ncc, 0);
+    
+    % Test variable vs constant
+    quality4 = compute_registration_quality(vol_variable, vol_constant, []);
+    verifyEqual(testCase, quality4.ncc, 0);
 end
