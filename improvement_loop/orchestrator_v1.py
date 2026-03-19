@@ -267,19 +267,36 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
 
     Returns the list of log entries produced during this run.
     """
+    mode = "DRY RUN" if dry_run else "LIVE"
+    print(f"\n{'='*60}")
+    print(f"  Improvement Loop — {mode} (max {max_iterations} iterations)")
+    print(f"{'='*60}\n")
+
     entries: list = []
 
     for i in range(1, max_iterations + 1):
+        print(f"\n{'─'*60}")
+        print(f"  ITERATION {i}/{max_iterations}")
+        print(f"{'─'*60}")
+
+        print(f"\n[1/5] Gathering context from prior iterations...")
         context = loop_tracker.get_context_for_next_iteration()
 
-        # Phase 1-3: audit
+        print(f"[2/5] Running code audit via Claude API...")
         audit_output = _run_audit(i, context, dry_run)
+        print(f"       Audit response: {len(audit_output)} chars")
 
-        # Phase 4: parse findings & apply fixes
+        print(f"[3/5] Parsing findings...")
         findings = _parse_findings(audit_output, dry_run)
+        print(f"       Found {len(findings)} valid finding(s)")
+        for j, f in enumerate(findings, 1):
+            print(f"       {j}. [{f.dimension}] {f.description[:80]}"
+                  f" (importance={f.importance})")
+
+        print(f"[4/5] Applying fixes and running tests...")
         tests_passed = _apply_fixes(findings, dry_run)
 
-        # Phase 5: log iteration and evaluate exit condition
+        print(f"\n[5/5] Logging iteration and evaluating exit condition...")
         entry = loop_tracker.log_iteration(
             audit_output=audit_output,
             findings=findings,
@@ -289,7 +306,12 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
         entries.append(entry)
 
         if entry["exit_condition_met"]:
+            print(f"\n  Loop complete after {i} iteration(s).")
             break
+
+    print(f"\n{'='*60}")
+    print(f"  DONE — {len(entries)} iteration(s) logged")
+    print(f"{'='*60}\n")
 
     return entries
 
