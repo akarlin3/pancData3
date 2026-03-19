@@ -19,6 +19,7 @@ from typing import List
 
 MAX_API_RETRIES = 3
 RETRY_BASE_DELAY = 30.0  # seconds — rate limit window is per-minute
+MAX_SELF_HEAL_ATTEMPTS = 2  # max retries when a fix causes test failures
 
 # Repo root is one level up from this file's directory
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

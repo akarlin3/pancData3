@@ -97,10 +97,12 @@ def merge_branch(
 # Test runners
 # ---------------------------------------------------------------------------
 
-def run_python_tests() -> bool:
+def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
     """Run the Python test suite via pytest.
 
-    Returns True if exit code 0, False otherwise.  Streams output to stdout.
+    If *capture_output* is False (default), streams to stdout and returns bool.
+    If *capture_output* is True, returns ``(passed, output_text)`` so callers
+    can inspect failure details for self-healing.
     """
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "analysis/tests/", "-q", "--tb=short",
@@ -109,7 +111,12 @@ def run_python_tests() -> bool:
             "--ignore=analysis/tests/test_loop_tracker.py",
             "--ignore=analysis/tests/test_orchestrator.py"],
         check=False,
+        capture_output=capture_output,
+        text=capture_output,
     )
+    if capture_output:
+        combined = (result.stdout or "") + "\n" + (result.stderr or "")
+        return result.returncode == 0, combined
     return result.returncode == 0
 
 

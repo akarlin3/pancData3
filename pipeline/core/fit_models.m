@@ -117,113 +117,136 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % 2 low-b values — sufficient for segmented fitting.
     has_sufficient_bvalues = sum(bvalues >= opts.bthr) >= 2 && sum(bvalues < opts.bthr) >= 1;
     
-    % Pre-compute ADC-derived initial guess for D parameter to improve convergence
-    adc_initial_guess = [];
-    if has_sufficient_bvalues && n_valid > 0
-        fprintf('  [Stage 3 Opt] Computing ADC warm start for IVIM D parameter...\n');
-        
-        % Extract 1D signal decay curves for valid voxels for initial ADC estimation
-        dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-        dwi_valid = dwi_flat(valid_voxels_idx, :);
-        
-        % Quick ADC estimation for warm start using high-b values only
-        % This provides better initial guess for D parameter than default values
-        high_b_idx = bvalues >= opts.bthr;
-        if sum(high_b_idx) >= 2
-            % Use only high b-values for more accurate D initial guess
-            b_high = bvalues(high_b_idx);
-            s_high = dwi_valid(:, high_b_idx);
-            s0_valid = dwi_valid(:, 1); % b=0 signal
+    if ~has_sufficient_bvalues
+        fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
+        % Early return for IVIM parameters - ADC can still be computed
+        d_map = nan(sz3);
+        f_map = nan(sz3);
+        dstar_map = nan(sz3);
+    else
+        % Pre-compute ADC-derived initial guess for D parameter to improve convergence
+        adc_initial_guess = [];
+        if n_valid > 0
+            fprintf('  [Stage 3 Opt] Computing ADC warm start for IVIM D parameter...\n');
             
-            % Simple linear regression on log data for initial D estimate
-            valid_signal_idx = all(s_high > 0, 2) & s0_valid > 0;
-            if any(valid_signal_idx)
-                s_ratio = s_high(valid_signal_idx, :) ./ s0_valid(valid_signal_idx);
-                log_s = log(s_ratio);
+            % Extract 1D signal decay curves for valid voxels for initial ADC estimation
+            dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+            dwi_valid = dwi_flat(valid_voxels_idx, :);
+            
+            % Quick ADC estimation for warm start using high-b values only
+            % This provides better initial guess for D parameter than default values
+            high_b_idx = bvalues >= opts.bthr;
+            if sum(high_b_idx) >= 2
+                % Use only high b-values for more accurate D initial guess
+                b_high = bvalues(high_b_idx);
+                s_high = dwi_valid(:, high_b_idx);
+                s0_valid = dwi_valid(:, 1); % b=0 signal
                 
-                % Linear regression: log(S/S0) = -b*D
-                A_matrix = [-b_high(:), ones(length(b_high), 1)];
-                ATA = A_matrix' * A_matrix;
-                if rcond(ATA) < eps
-                    % Singular or near-singular (e.g., identical b-values); skip warm start
-                    adc_initial_guess = [];
-                else
-                    adc_coeffs = ATA \ (A_matrix' * log_s');
-                    adc_initial_guess = max(adc_coeffs(1, :), 1e-5); % Ensure positive values
+                % Simple linear regression on log data for initial D estimate
+                valid_signal_idx = all(s_high > 0, 2) & s0_valid > 0;
+                if any(valid_signal_idx)
+                    s_ratio = s_high(valid_signal_idx, :) ./ s0_valid(valid_signal_idx);
+                    log_s = log(s_ratio);
+                    
+                    % Linear regression: log(S/S0) = -b*D
+                    A_matrix = [-b_high(:), ones(length(b_high), 1)];
+                    ATA = A_matrix' * A_matrix;
+                    if rcond(ATA) < eps
+                        % Singular or near-singular (e.g., identical b-values); skip warm start
+                        adc_initial_guess = [];
+                    else
+                        adc_coeffs = ATA \ (A_matrix' * log_s');
+                        adc_initial_guess = max(adc_coeffs(1, :), 1e-5); % Ensure positive values
+                    end
+                    adc_initial_guess = min(adc_initial_guess, 3e-3); % Cap at reasonable upper limit
                 end
-                adc_initial_guess = min(adc_initial_guess, 3e-3); % Cap at reasonable upper limit
+            end
+            
+            if ~isempty(adc_initial_guess)
+                fprintf('  [Warm Start] Using ADC-derived initial D values (mean: %.2e mm²/s)\n', mean(adc_initial_guess));
+                % Store initial guess in opts for IVIMmodelfit to use
+                opts.d_initial = adc_initial_guess;
             end
         end
         
-        if ~isempty(adc_initial_guess)
-            fprintf('  [Warm Start] Using ADC-derived initial D values (mean: %.2e mm²/s)\n', mean(adc_initial_guess));
-            % Store initial guess in opts for IVIMmodelfit to use
-            opts.d_initial = adc_initial_guess;
+        if n_valid > 0
+            fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
+
+            % Extract 1D signal decay curves for valid voxels (reuse if already computed)
+            if ~exist('dwi_valid', 'var')
+                dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
+                dwi_valid = dwi_flat(valid_voxels_idx, :);
+            end
+
+            % [MODULARIZATION STAGE 3]: Masked 1D Flattening
+            % The IVIMmodelfit dependency expects a 4D volume (x,y,z,b) as input.
+            % We reshape our 1D valid-voxel array into a minimal 3D volume with
+            % shape [N/2, 1, 2] to satisfy the dependency's dimensionality checks.
+            % Padding to even length ensures the 3rd dimension is exactly 2;
+            % MATLAB's size() would drop a trailing singleton dimension of 1,
+            % causing the dependency to misinterpret the data layout.
+            pad_len = mod(2 - mod(n_valid, 2), 2);
+            dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
+            n_padded = n_valid + pad_len;
+
+            % Reshape into a pseudo-3D volume for the dependency interface
+            dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
+            mask_1d_vol = true(n_padded/2, 1, 2);
+            if pad_len > 0
+                mask_1d_vol(n_padded/2, 1, 2) = false;  % exclude padded voxel from fit
+            end
+
+            % Execute the segmented IVIM fit on the flattened masked array.
+            % "seg" = segmented fitting strategy:
+            %   Stage 1: High-b log-linear fit to isolate D (now with ADC warm start)
+            %   Stage 2: Full-model fit with D fixed to estimate f and D*
+            % This avoids the ill-conditioning of simultaneous 3-parameter
+            % nonlinear fitting, which is especially problematic for D* because
+            % the pseudo-diffusion signal decays rapidly and has low SNR.
+            ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+
+            % Restructure output back to strictly 1D and snip padding.
+            % IVIMmodelfit returns a 4-column output: [D, S0, f, D*].
+            % Column 2 (S0) is discarded — it is the signal at b=0, which is
+            % already available from the raw DWI data and not a diffusion parameter.
+            ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
+            d_vec = reshape(ivim_out_flat(1:n_valid, 1), [n_valid, 1]);
+            f_vec = reshape(ivim_out_flat(1:n_valid, 3), [n_valid, 1]);
+            dstar_vec = reshape(ivim_out_flat(1:n_valid, 4), [n_valid, 1]);
+
+            % Release large intermediate arrays no longer needed to reduce
+            % peak memory during parfor (each worker holds its own copy).
+            clear dwi_flat dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
+
+            % Replace zero-fit voxels with NaN (failed fits).
+            % The segmented IVIM fitter returns D=0 when the log-linear
+            % regression yields a non-positive slope (physically impossible for
+            % diffusion). These represent voxels where noise dominates the
+            % signal decay — common in low-SNR regions of pancreatic DWI.
+            % Setting to NaN ensures they are excluded from nanmean-based
+            % summary statistics rather than biasing the mean downward.
+            zero_mask = (d_vec == 0);
+            d_vec(zero_mask) = nan;
+            f_vec(zero_mask) = nan;
+            dstar_vec(zero_mask) = nan;
         end
-    end
-    
-    if has_sufficient_bvalues && n_valid > 0
-        fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
 
-        % Extract 1D signal decay curves for valid voxels (reuse if already computed)
-        if ~exist('dwi_valid', 'var')
-            dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-            dwi_valid = dwi_flat(valid_voxels_idx, :);
+        % Reconstruct 1D fitted parameters back into 3D volume geometry.
+        % Background voxels (outside GTV mask) remain NaN, creating parameter
+        % maps where only tumor voxels carry fitted values. This spatial
+        % correspondence between mask and parameter maps is essential for
+        % subsequent overlay visualization and voxel-level dose-response analysis.
+        d_map = nan(sz3);
+        f_map = nan(sz3);
+        dstar_map = nan(sz3);
+
+        if n_valid > 0
+            % Place fitted 1D parameter values back into their original 3D
+            % spatial positions using the linear indices from the GTV mask.
+            d_map(valid_voxels_idx) = d_vec;
+            f_map(valid_voxels_idx) = f_vec;
+            dstar_map(valid_voxels_idx) = dstar_vec;
         end
-
-        % [MODULARIZATION STAGE 3]: Masked 1D Flattening
-        % The IVIMmodelfit dependency expects a 4D volume (x,y,z,b) as input.
-        % We reshape our 1D valid-voxel array into a minimal 3D volume with
-        % shape [N/2, 1, 2] to satisfy the dependency's dimensionality checks.
-        % Padding to even length ensures the 3rd dimension is exactly 2;
-        % MATLAB's size() would drop a trailing singleton dimension of 1,
-        % causing the dependency to misinterpret the data layout.
-        pad_len = mod(2 - mod(n_valid, 2), 2);
-        dwi_valid_padded = [dwi_valid; zeros(pad_len, length(bvalues))];
-        n_padded = n_valid + pad_len;
-
-        % Reshape into a pseudo-3D volume for the dependency interface
-        dwi_1d_vol = reshape(dwi_valid_padded, [n_padded/2, 1, 2, length(bvalues)]);
-        mask_1d_vol = true(n_padded/2, 1, 2);
-        if pad_len > 0
-            mask_1d_vol(n_padded/2, 1, 2) = false;  % exclude padded voxel from fit
-        end
-
-        % Execute the segmented IVIM fit on the flattened masked array.
-        % "seg" = segmented fitting strategy:
-        %   Stage 1: High-b log-linear fit to isolate D (now with ADC warm start)
-        %   Stage 2: Full-model fit with D fixed to estimate f and D*
-        % This avoids the ill-conditioning of simultaneous 3-parameter
-        % nonlinear fitting, which is especially problematic for D* because
-        % the pseudo-diffusion signal decays rapidly and has low SNR.
-        ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
-
-        % Restructure output back to strictly 1D and snip padding.
-        % IVIMmodelfit returns a 4-column output: [D, S0, f, D*].
-        % Column 2 (S0) is discarded — it is the signal at b=0, which is
-        % already available from the raw DWI data and not a diffusion parameter.
-        ivim_out_flat = reshape(ivim_fit_1d, [n_padded, 4]);
-        d_vec = reshape(ivim_out_flat(1:n_valid, 1), [n_valid, 1]);
-        f_vec = reshape(ivim_out_flat(1:n_valid, 3), [n_valid, 1]);
-        dstar_vec = reshape(ivim_out_flat(1:n_valid, 4), [n_valid, 1]);
-
-        % Release large intermediate arrays no longer needed to reduce
-        % peak memory during parfor (each worker holds its own copy).
-        clear dwi_flat dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
-
-        % Replace zero-fit voxels with NaN (failed fits).
-        % The segmented IVIM fitter returns D=0 when the log-linear
-        % regression yields a non-positive slope (physically impossible for
-        % diffusion). These represent voxels where noise dominates the
-        % signal decay — common in low-SNR regions of pancreatic DWI.
-        % Setting to NaN ensures they are excluded from nanmean-based
-        % summary statistics rather than biasing the mean downward.
-        zero_mask = (d_vec == 0);
-        d_vec(zero_mask) = nan;
-        f_vec(zero_mask) = nan;
-        dstar_vec(zero_mask) = nan;
-    elseif ~has_sufficient_bvalues
-        fprintf('Insufficient b-values >= %d for IVIM fit; skipping IVIM (maps set to NaN)\n', opts.bthr);
     end
 
     % Restore original optimization options if they existed
@@ -231,23 +254,6 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         opts.optimoptions = original_opts;
     elseif isfield(opts, 'optimoptions')
         opts = rmfield(opts, 'optimoptions');
-    end
-
-    % Reconstruct 1D fitted parameters back into 3D volume geometry.
-    % Background voxels (outside GTV mask) remain NaN, creating parameter
-    % maps where only tumor voxels carry fitted values. This spatial
-    % correspondence between mask and parameter maps is essential for
-    % subsequent overlay visualization and voxel-level dose-response analysis.
-    d_map = nan(sz3);
-    f_map = nan(sz3);
-    dstar_map = nan(sz3);
-
-    if n_valid > 0
-        % Place fitted 1D parameter values back into their original 3D
-        % spatial positions using the linear indices from the GTV mask.
-        d_map(valid_voxels_idx) = d_vec;
-        f_map(valid_voxels_idx) = f_vec;
-        dstar_map(valid_voxels_idx) = dstar_vec;
     end
 
     % Monoexponential ADC fit — weighted log-linear regression on active voxels.
