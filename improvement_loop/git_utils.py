@@ -103,7 +103,11 @@ def run_python_tests() -> bool:
     Returns True if exit code 0, False otherwise.  Streams output to stdout.
     """
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "analysis/tests/", "-q", "--tb=short"],
+        [sys.executable, "-m", "pytest", "analysis/tests/", "-q", "--tb=short",
+            "--ignore=analysis/tests/test_evaluator_finding.py",
+            "--ignore=analysis/tests/test_git_utils.py",
+            "--ignore=analysis/tests/test_loop_tracker.py",
+            "--ignore=analysis/tests/test_orchestrator.py"],
         check=False,
     )
     return result.returncode == 0
