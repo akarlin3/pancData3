@@ -17,8 +17,7 @@ function motion = detect_motion_artifacts(dwi_4d, b_values, mask)
 %               .n_flagged      - number of flagged volumes
 %               .noise_floor    - estimated noise floor
 
-    dwi = double(dwi_4d);
-    n_vols = size(dwi, 4);
+    n_vols = size(dwi_4d, 4);
 
     % Initialize output
     motion = struct();
@@ -31,31 +30,28 @@ function motion = detect_motion_artifacts(dwi_4d, b_values, mask)
         return;
     end
 
-    % Estimate noise floor from background (outside mask)
+    % Estimate noise floor from b=0 volume background (outside mask)
     bg_mask = ~mask;
-    if ndims(dwi) == 4
-        b0_idx = find(b_values == min(b_values), 1);
-        b0_vol = dwi(:,:,:,b0_idx);
-        bg_vals = b0_vol(bg_mask);
-        bg_vals = bg_vals(isfinite(bg_vals) & bg_vals > 0);
-        if ~isempty(bg_vals)
-            motion.noise_floor = median(bg_vals);
-        else
-            motion.noise_floor = 0;
-        end
+    b0_idx = find(b_values == min(b_values), 1);
+    b0_vol = double(dwi_4d(:,:,:,b0_idx));
+    bg_vals = b0_vol(bg_mask);
+    bg_vals = bg_vals(isfinite(bg_vals) & bg_vals > 0);
+    if ~isempty(bg_vals)
+        motion.noise_floor = median(bg_vals);
     else
         motion.noise_floor = 0;
     end
 
     dropout_threshold = 2 * motion.noise_floor;
 
-    % Reference: b=0 volume for NMI computation
-    b0_idx = find(b_values == min(b_values), 1);
-    ref_vol = dwi(:,:,:,b0_idx);
+    % Load b=0 reference volume once and extract masked values
+    ref_vol = b0_vol;
     ref_masked = ref_vol(mask);
 
+    % Process volumes using sliding window approach (O(1) memory)
     for v = 1:n_vols
-        vol = dwi(:,:,:,v);
+        % Load only current volume
+        vol = double(dwi_4d(:,:,:,v));
         vol_masked = vol(mask);
         valid = isfinite(vol_masked);
 
