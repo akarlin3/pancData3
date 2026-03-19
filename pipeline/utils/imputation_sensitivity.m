@@ -35,14 +35,21 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
 
     fprintf('\n  --- Imputation Sensitivity Analysis ---\n');
 
-    % Define available imputation strategies
-    strategies = get_imputation_strategies();
+    % Common validation
+    validation_result = validate_inputs(td_panel_raw, patient_ids, y_clean, id_list_impute);
+    if ~validation_result.valid
+        error('Input validation failed: %s', validation_result.message);
+    end
+
+    % Missing data pattern analysis
+    missing_pattern = analyze_missing_pattern(td_panel_raw, patient_ids);
+    
+    % Get imputation strategies
+    strategies = ImputationRegistry.get_all_strategies();
     method_names = {strategies.name};
     n_methods = length(strategies);
-    
-    nan_mask = isnan(td_panel_raw);
-    total_missing = sum(nan_mask(:));
 
+    % Initialize results
     auc_values = nan(1, n_methods);
     n_imputed = zeros(1, n_methods);
     risk_scores_all = nan(numel(y_clean), n_methods);
@@ -54,15 +61,10 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
         fprintf('  [%d/%d] %s imputation...\n', i, n_methods, strategy.name);
         
         % Apply imputation strategy
-        X_imputed = strategy.impute_func(td_panel_raw, patient_ids);
+        X_imputed = strategy.impute(td_panel_raw, patient_ids);
         
         % Count imputed values
-        if strcmp(strategy.name, 'KNN')
-            % For KNN, all missing values are imputed
-            n_imputed(i) = total_missing;
-        else
-            n_imputed(i) = sum(~isnan(X_imputed(:)) & nan_mask(:));
-        end
+        n_imputed(i) = count_imputed_values(td_panel_raw, X_imputed, strategy.name, missing_pattern);
         
         % Evaluate imputed data
         [auc_values(i), risk_scores_all(:,i), selected_features{i}] = evaluate_imputed( ...
@@ -70,8 +72,261 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
             use_firth, feature_names, strategy.name);
     end
 
-    % --- Concordance matrix (pairwise Spearman) ---
+    % Compute concordance matrix
+    concordance = compute_concordance_matrix(risk_scores_all, method_names);
+
+    % Print results
+    print_results_table(method_names, auc_values, n_imputed, concordance);
+
+    % Generate visualization
+    if ~isempty(output_folder)
+        create_sensitivity_plot(auc_values, method_names, dtype_label, output_folder);
+    end
+
+    % Build output struct
+    results = struct();
+    results.method_names = method_names;
+    results.auc_values = auc_values;
+    results.n_imputed_per_method = n_imputed;
+    results.concordance = concordance;
+    results.selected_features = selected_features;
+end
+
+
+%% ===== Validation Functions =====
+
+function result = validate_inputs(td_panel_raw, patient_ids, y_clean, id_list_impute)
+%VALIDATE_INPUTS  Common input validation logic.
+    result = struct('valid', true, 'message', '');
+    
+    if isempty(td_panel_raw) || isempty(patient_ids)
+        result.valid = false;
+        result.message = 'Input data or patient IDs are empty';
+        return;
+    end
+    
+    if size(td_panel_raw, 1) ~= numel(patient_ids)
+        result.valid = false;
+        result.message = 'Data rows must match patient ID count';
+        return;
+    end
+    
+    if numel(y_clean) ~= numel(id_list_impute)
+        result.valid = false;
+        result.message = 'Outcome vector must match patient list length';
+        return;
+    end
+    
+    if sum(~isnan(y_clean)) < 5
+        result.valid = false;
+        result.message = 'Insufficient non-missing outcomes for analysis';
+        return;
+    end
+end
+
+function pattern = analyze_missing_pattern(td_panel_raw, patient_ids)
+%ANALYZE_MISSING_PATTERN  Analyze missing data patterns.
+    nan_mask = isnan(td_panel_raw);
+    
+    pattern = struct();
+    pattern.total_missing = sum(nan_mask(:));
+    pattern.missing_by_feature = sum(nan_mask, 1);
+    pattern.missing_by_patient = containers.Map();
+    
+    unique_pats = unique(patient_ids, 'stable');
+    for p = 1:numel(unique_pats)
+        rows = strcmp(patient_ids, unique_pats{p});
+        pattern.missing_by_patient(unique_pats{p}) = sum(nan_mask(rows, :), 'all');
+    end
+end
+
+function n_imputed = count_imputed_values(td_panel_raw, X_imputed, method_name, missing_pattern)
+%COUNT_IMPUTED_VALUES  Count number of values imputed by strategy.
+    if strcmp(method_name, 'KNN')
+        % For KNN, all missing values are imputed
+        n_imputed = missing_pattern.total_missing;
+    else
+        nan_mask_original = isnan(td_panel_raw);
+        n_imputed = sum(~isnan(X_imputed(:)) & nan_mask_original(:));
+    end
+end
+
+
+%% ===== Imputation Strategy Registry =====
+
+classdef ImputationRegistry < handle
+%IMPUTATIONREGISTRY  Central registry for imputation strategies.
+    
+    methods (Static)
+        function strategies = get_all_strategies()
+        %GET_ALL_STRATEGIES  Returns array of available imputation strategies.
+            strategies = [
+                KNNImputation(),
+                LOCFImputation(),
+                MeanImputation(),
+                LinearImputation()
+            ];
+        end
+    end
+end
+
+
+%% ===== Abstract Imputation Interface =====
+
+classdef (Abstract) AbstractImputation < handle
+%ABSTRACTIMPUTATION  Abstract base class for imputation strategies.
+    
+    properties (Abstract, Constant)
+        name  % String identifier for the strategy
+    end
+    
+    methods (Abstract)
+        X_out = impute(obj, X_raw, patient_ids)
+        % IMPUTE  Apply imputation strategy to raw data.
+        %
+        % Inputs:
+        %   X_raw       - [n_obs x n_feat] raw data with NaN for missing values
+        %   patient_ids - [n_obs x 1] cell array of patient IDs per row
+        %
+        % Outputs:
+        %   X_out       - [n_obs x n_feat] imputed data
+    end
+    
+    methods (Access = protected)
+        function X_out = fill_remaining_nan_with_mean(~, X_in)
+        %FILL_REMAINING_NAN_WITH_MEAN  Fill any remaining NaN values with column means.
+            X_out = X_in;
+            for c = 1:size(X_out, 2)
+                col = X_out(:, c);
+                if any(isnan(col))
+                    col(isnan(col)) = nanmean_safe(col);
+                    X_out(:, c) = col;
+                end
+            end
+        end
+    end
+end
+
+
+%% ===== Concrete Imputation Implementations =====
+
+classdef KNNImputation < AbstractImputation
+%KNNIMPUTATION  KNN imputation using existing pipeline function.
+    
+    properties (Constant)
+        name = 'KNN'
+    end
+    
+    methods
+        function X_out = impute(obj, X_raw, patient_ids)
+            % Use all rows as both train and test for consistency
+            [X_out, ~] = knn_impute_train_test(X_raw, zeros(0, size(X_raw, 2)), 5, patient_ids, {});
+            % Fill any remaining NaN with column mean
+            X_out = obj.fill_remaining_nan_with_mean(X_out);
+        end
+    end
+end
+
+classdef LOCFImputation < AbstractImputation
+%LOCFIMPUTATION  Last observation carried forward per patient.
+    
+    properties (Constant)
+        name = 'LOCF'
+    end
+    
+    methods
+        function X_out = impute(obj, X_raw, patient_ids)
+            X_out = X_raw;
+            unique_pats = unique(patient_ids, 'stable');
+            
+            for p = 1:numel(unique_pats)
+                rows = strcmp(patient_ids, unique_pats{p});
+                row_idx = find(rows);
+                
+                for c = 1:size(X_out, 2)
+                    last_val = NaN;
+                    for r = 1:numel(row_idx)
+                        ri = row_idx(r);
+                        if ~isnan(X_out(ri, c))
+                            last_val = X_out(ri, c);
+                        elseif ~isnan(last_val)
+                            X_out(ri, c) = last_val;
+                        end
+                    end
+                end
+            end
+            
+            % Fill remaining NaN with column mean
+            X_out = obj.fill_remaining_nan_with_mean(X_out);
+        end
+    end
+end
+
+classdef MeanImputation < AbstractImputation
+%MEANIMPUTATION  Per-feature mean from non-missing values.
+    
+    properties (Constant)
+        name = 'Mean'
+    end
+    
+    methods
+        function X_out = impute(~, X_raw, ~)
+            X_out = X_raw;
+            for c = 1:size(X_out, 2)
+                col = X_out(:, c);
+                col_mean = nanmean_safe(col);
+                col(isnan(col)) = col_mean;
+                X_out(:, c) = col;
+            end
+        end
+    end
+end
+
+classdef LinearImputation < AbstractImputation
+%LINEARIMPUTATION  Linear interpolation between adjacent observed timepoints.
+    
+    properties (Constant)
+        name = 'Linear_Interp'
+    end
+    
+    methods
+        function X_out = impute(obj, X_raw, patient_ids)
+            X_out = X_raw;
+            unique_pats = unique(patient_ids, 'stable');
+            
+            for p = 1:numel(unique_pats)
+                rows = strcmp(patient_ids, unique_pats{p});
+                row_idx = find(rows);
+                
+                for c = 1:size(X_out, 2)
+                    vals = X_out(row_idx, c);
+                    observed = find(~isnan(vals));
+                    
+                    if numel(observed) >= 2
+                        % Interpolate between observed values
+                        interp_vals = interp1(observed, vals(observed), 1:numel(vals), 'linear', NaN);
+                        X_out(row_idx, c) = interp_vals(:);
+                    elseif numel(observed) == 1
+                        % Only one observation: fill with that value
+                        X_out(row_idx, c) = vals(observed);
+                    end
+                end
+            end
+            
+            % Fill remaining NaN with column mean
+            X_out = obj.fill_remaining_nan_with_mean(X_out);
+        end
+    end
+end
+
+
+%% ===== Analysis Functions =====
+
+function concordance = compute_concordance_matrix(risk_scores_all, method_names)
+%COMPUTE_CONCORDANCE_MATRIX  Compute pairwise Spearman correlation of risk scores.
+    n_methods = size(risk_scores_all, 2);
     concordance = eye(n_methods);
+    
     for i = 1:n_methods
         for j = (i+1):n_methods
             valid = ~isnan(risk_scores_all(:,i)) & ~isnan(risk_scores_all(:,j));
@@ -82,8 +337,12 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
             end
         end
     end
+end
 
-    % --- Print comparison table ---
+function print_results_table(method_names, auc_values, n_imputed, concordance)
+%PRINT_RESULTS_TABLE  Print comparison table and concordance matrix.
+    n_methods = length(method_names);
+    
     fprintf('\n  Imputation Sensitivity Results:\n');
     fprintf('  %-20s  %8s  %12s\n', 'Method', 'AUC', 'N_Imputed');
     fprintf('  %s\n', repmat('-', 1, 44));
@@ -104,147 +363,30 @@ function results = imputation_sensitivity(td_panel_raw, patient_ids, feature_nam
         end
         fprintf('\n');
     end
-
-    % --- Bar chart ---
-    if ~isempty(output_folder)
-        try
-            fig = figure('Visible', 'off', 'Position', [100 100 600 400]);
-            bar(auc_values);
-            set(gca, 'XTickLabel', method_names, 'XTick', 1:n_methods);
-            ylabel('AUC');
-            title(sprintf('Imputation Sensitivity (%s)', dtype_label));
-            ylim([0 1]);
-            grid on;
-            for m = 1:n_methods
-                text(m, auc_values(m) + 0.02, sprintf('%.3f', auc_values(m)), ...
-                    'HorizontalAlignment', 'center', 'FontWeight', 'bold');
-            end
-            fig_path = fullfile(output_folder, sprintf('imputation_sensitivity_%s.png', dtype_label));
-            saveas(fig, fig_path);
-            close(fig);
-            fprintf('  📁 Imputation sensitivity plot saved: %s\n', fig_path);
-        catch ME_fig
-            fprintf('  ⚠️  Imputation sensitivity plot failed: %s\n', ME_fig.message);
-        end
-    end
-
-    % --- Output struct ---
-    results = struct();
-    results.method_names = method_names;
-    results.auc_values = auc_values;
-    results.n_imputed_per_method = n_imputed;
-    results.concordance = concordance;
-    results.selected_features = selected_features;
 end
 
-
-%% ===== Imputation Strategy Registry =====
-
-function strategies = get_imputation_strategies()
-%GET_IMPUTATION_STRATEGIES  Returns array of available imputation strategies.
-%
-%   Each strategy is a struct with fields:
-%     name        - String identifier for the strategy
-%     impute_func - Function handle that takes (X_raw, patient_ids) and returns X_imputed
-%
-%   This centralized registry makes it easy to add new strategies or modify existing ones.
-
-    strategies = [
-        struct('name', 'KNN', 'impute_func', @impute_knn_strategy),
-        struct('name', 'LOCF', 'impute_func', @impute_locf_strategy),
-        struct('name', 'Mean', 'impute_func', @impute_mean_strategy),
-        struct('name', 'Linear_Interp', 'impute_func', @impute_linear_strategy)
-    ];
-end
-
-
-%% ===== Individual Imputation Strategies =====
-
-function X_out = impute_knn_strategy(X_raw, patient_ids)
-%IMPUTE_KNN_STRATEGY  KNN imputation using existing pipeline function.
-    % Use all rows as both train and test for consistency
-    [X_out, ~] = knn_impute_train_test(X_raw, zeros(0, size(X_raw, 2)), 5, patient_ids, {});
-    % Fill any remaining NaN with column mean
-    X_out = fill_remaining_nan_with_mean(X_out);
-end
-
-function X_out = impute_locf_strategy(X_raw, patient_ids)
-%IMPUTE_LOCF_STRATEGY  Last observation carried forward per patient.
-    X_out = X_raw;
-    unique_pats = unique(patient_ids, 'stable');
-    
-    for p = 1:numel(unique_pats)
-        rows = strcmp(patient_ids, unique_pats{p});
-        row_idx = find(rows);
+function create_sensitivity_plot(auc_values, method_names, dtype_label, output_folder)
+%CREATE_SENSITIVITY_PLOT  Generate bar chart visualization.
+    try
+        fig = figure('Visible', 'off', 'Position', [100 100 600 400]);
+        bar(auc_values);
+        set(gca, 'XTickLabel', method_names, 'XTick', 1:length(method_names));
+        ylabel('AUC');
+        title(sprintf('Imputation Sensitivity (%s)', dtype_label));
+        ylim([0 1]);
+        grid on;
         
-        for c = 1:size(X_out, 2)
-            last_val = NaN;
-            for r = 1:numel(row_idx)
-                ri = row_idx(r);
-                if ~isnan(X_out(ri, c))
-                    last_val = X_out(ri, c);
-                elseif ~isnan(last_val)
-                    X_out(ri, c) = last_val;
-                end
-            end
+        for m = 1:length(method_names)
+            text(m, auc_values(m) + 0.02, sprintf('%.3f', auc_values(m)), ...
+                'HorizontalAlignment', 'center', 'FontWeight', 'bold');
         end
-    end
-    
-    % Fill remaining NaN with column mean
-    X_out = fill_remaining_nan_with_mean(X_out);
-end
-
-function X_out = impute_mean_strategy(X_raw, ~)
-%IMPUTE_MEAN_STRATEGY  Per-feature mean from non-missing values.
-    X_out = X_raw;
-    for c = 1:size(X_out, 2)
-        col = X_out(:, c);
-        col_mean = nanmean_safe(col);
-        col(isnan(col)) = col_mean;
-        X_out(:, c) = col;
-    end
-end
-
-function X_out = impute_linear_strategy(X_raw, patient_ids)
-%IMPUTE_LINEAR_STRATEGY  Linear interpolation between adjacent observed timepoints.
-    X_out = X_raw;
-    unique_pats = unique(patient_ids, 'stable');
-    
-    for p = 1:numel(unique_pats)
-        rows = strcmp(patient_ids, unique_pats{p});
-        row_idx = find(rows);
         
-        for c = 1:size(X_out, 2)
-            vals = X_out(row_idx, c);
-            observed = find(~isnan(vals));
-            
-            if numel(observed) >= 2
-                % Interpolate between observed values
-                interp_vals = interp1(observed, vals(observed), 1:numel(vals), 'linear', NaN);
-                X_out(row_idx, c) = interp_vals(:);
-            elseif numel(observed) == 1
-                % Only one observation: fill with that value
-                X_out(row_idx, c) = vals(observed);
-            end
-        end
-    end
-    
-    % Fill remaining NaN with column mean
-    X_out = fill_remaining_nan_with_mean(X_out);
-end
-
-
-%% ===== Utility Functions =====
-
-function X_out = fill_remaining_nan_with_mean(X_in)
-%FILL_REMAINING_NAN_WITH_MEAN  Fill any remaining NaN values with column means.
-    X_out = X_in;
-    for c = 1:size(X_out, 2)
-        col = X_out(:, c);
-        if any(isnan(col))
-            col(isnan(col)) = nanmean_safe(col);
-            X_out(:, c) = col;
-        end
+        fig_path = fullfile(output_folder, sprintf('imputation_sensitivity_%s.png', dtype_label));
+        saveas(fig, fig_path);
+        close(fig);
+        fprintf('  📁 Imputation sensitivity plot saved: %s\n', fig_path);
+    catch ME_fig
+        fprintf('  ⚠️  Imputation sensitivity plot failed: %s\n', ME_fig.message);
     end
 end
 
