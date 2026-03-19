@@ -43,6 +43,55 @@ setup_utf8_stdout()
 ANALYSIS_DIR = Path(__file__).resolve().parent
 
 
+def _handle_windows_path(path: Path) -> Path:
+    """Handle Windows-specific path issues including UNC paths and long paths.
+    
+    On Windows, applies pathlib.Path.resolve() and handles:
+    - Long path prefix (\\?\) for paths longer than 260 characters
+    - UNC path detection and appropriate handling
+    - Network path normalization
+    
+    Parameters
+    ----------
+    path : Path
+        The path to handle
+        
+    Returns
+    -------
+    Path
+        The processed path with Windows-specific handling applied
+    """
+    if os.name != 'nt':
+        return path.resolve()
+    
+    try:
+        # First resolve the path normally
+        resolved = path.resolve()
+        path_str = str(resolved)
+        
+        # Check if this is already a UNC path
+        is_unc = path_str.startswith('\\\\')
+        
+        # Check if this is a network path that needs UNC handling
+        if is_unc and not path_str.startswith('\\\\?\\UNC\\'):
+            # Convert \\server\share to \\?\UNC\server\share for long path support
+            if len(path_str) > 260:
+                path_str = '\\\\?\\UNC\\' + path_str[2:]
+                return Path(path_str)
+        elif not is_unc and len(path_str) > 260:
+            # Add long path prefix for local paths
+            if not path_str.startswith('\\\\?\\'):
+                path_str = '\\\\?\\' + path_str
+                return Path(path_str)
+        
+        return resolved
+        
+    except (OSError, ValueError) as e:
+        print(f"  [WARN] Path handling issue: {e}")
+        # Fall back to the original path if resolution fails
+        return path
+
+
 class TeeWriter:
     """Write to both a terminal stream and a log file simultaneously.
 
@@ -207,9 +256,12 @@ def _run_script(
     print(f"\n  Running {name} ...")
     t0 = time.time()
     # Run the child script using the same Python interpreter as this process.
+    # Apply Windows path handling to the folder path
+    folder_handled = _handle_windows_path(folder)
+    
     try:
         result = subprocess.run(
-            [sys.executable, str(script), str(folder)],
+            [sys.executable, str(script), str(folder_handled)],
             cwd=str(ANALYSIS_DIR),
             capture_output=True,
             text=True,
@@ -433,11 +485,15 @@ def main():
     # ── Resolve output folder ──
     if args.folder:
         folder = Path(args.folder)
+        # Apply Windows path handling
+        folder = _handle_windows_path(folder)
         if not folder.is_dir():
             sys.exit(f"ERROR: Folder does not exist: {folder}")
     else:
         # Auto-detect the most recent saved_files_* directory.
         folder = find_latest_saved_folder()
+        # Apply Windows path handling
+        folder = _handle_windows_path(folder)
 
     # ── Open log file and tee all output ──
     log_path = folder / "run_analysis_output.log"
