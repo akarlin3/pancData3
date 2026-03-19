@@ -3,16 +3,16 @@ function per_method = compute_multi_core_metrics(per_method, config_struct, ...
     has_3d_iter, gtv_mask_3d, core_opts, ...
     j, k, dwi_type, vox_vol, min_vox_hist, ...
     f_thresh, d_thresh, finite_vol, store_masks)
-% COMPUTE_MULTI_CORE_METRICS — Computes sub-volume metrics for all 11 core methods
+% COMPUTE_MULTI_CORE_METRICS — Computes sub-volume metrics for configurable core methods
 %
-% Loops over all core delineation methods, calls extract_tumor_core for
+% Loops over all core delineation methods specified in config, calls extract_tumor_core for
 % each, and computes per-method ADC/D/f sub-volume metrics plus optional
 % fDM volume fractions. Optionally stores core masks.
 %
 % Inputs:
 %   per_method       - Struct of pre-allocated per-method metric arrays (modified in-place)
 %   config_struct    - Configuration struct with thresholds and settings
-%   ALL_CORE_METHODS - Cell array of all 11 method name strings
+%   ALL_CORE_METHODS - Cell array of all method name strings (kept for backward compatibility)
 %   adc_vec          - ADC voxel vector for this patient/timepoint
 %   d_vec            - D voxel vector (may be empty)
 %   f_vec            - f voxel vector (may be empty)
@@ -33,7 +33,14 @@ function per_method = compute_multi_core_metrics(per_method, config_struct, ...
 % Outputs:
 %   per_method       - Updated struct with per-method metrics filled in for (j,k,dwi_type)
 
-n_all_methods = numel(ALL_CORE_METHODS);
+% Get core methods from config, with fallback to ALL_CORE_METHODS for backward compatibility
+if isfield(config_struct, 'core_methods') && ~isempty(config_struct.core_methods)
+    core_methods = config_struct.core_methods;
+else
+    core_methods = ALL_CORE_METHODS;
+end
+
+n_all_methods = numel(core_methods);
 % "Unified" methods produce a single core mask applied to all parameters,
 % as opposed to parameter-specific thresholding (where D, f, D* each get
 % independent sub-volumes). This matters for computing D/f sub-volume
@@ -57,7 +64,7 @@ warning('off', 'extract_tumor_core:noIVIMValues');
 warning('off', 'extract_tumor_core:noSpectralCluster');
 
 for m_idx = 1:n_all_methods
-    mname = ALL_CORE_METHODS{m_idx};
+    mname = core_methods{m_idx};
     % Create a temporary config with this method name so extract_tumor_core
     % uses the correct delineation algorithm while preserving all other settings
     temp_cfg = config_struct;
