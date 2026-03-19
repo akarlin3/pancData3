@@ -146,21 +146,6 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     % that violate the Cox model likelihood assumptions.
     assert(all(diff(scan_days) > 0), 'build_td_panel:scanDays', 'scan_days must be strictly increasing');
 
-    % --- Vectorized Generation of General Intervals ---
-    % Preallocate arrays with an upper bound of n_pts * nTp rows.  In
-    % practice, most patients contribute fewer rows because: (a) their
-    % event/censoring time falls before the last scan, and (b) some
-    % timepoints have all-NaN covariates (missed scans).  Over-allocation
-    % followed by trimming is faster than dynamic resizing for typical
-    % cohort sizes (50-200 patients x 6 timepoints).
-    max_rows = n_pts * nTp;
-    X_buf       = nan(max_rows, n_feat);
-    t_start_buf = nan(max_rows, 1);
-    t_stop_buf  = nan(max_rows, 1);
-    event_buf   = zeros(max_rows, 1);
-    pat_buf     = zeros(max_rows, 1);
-    frac_buf    = nan(max_rows, 1);
-
     % ================================================================
     % EXPONENTIAL DECAY IMPUTATION
     %
@@ -207,163 +192,188 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     % introduce undefined terms in the risk set computation.
     valid_pts = find(~isnan(total_time_vec) & ~isnan(lf_vec));
 
-    row = 0;
-    for p_idx = 1:length(valid_pts)
-        j = valid_pts(p_idx);
-        T_j   = total_time_vec(j);
-        lf_j  = lf_vec(j);
-
-        % Track original (non-imputed) observations and their times for
-        % decay imputation.  Using the already-imputed last_X would cause
-        % compounding decay across consecutive missing scans, making values
-        % decay faster than the intended biological half-life.  By always
-        % decaying from the last *actually observed* value, we ensure the
-        % imputed trajectory follows a single exponential from each real
-        % measurement — matching the biological model of monotonic recovery
-        % from radiation-induced changes.
-        orig_X = nan(1, n_feat);   % last observed (non-NaN) value per feature
-        orig_t = zeros(1, n_feat); % day of that observation
-        baseline_X = nan(1, n_feat);  % patient's baseline (tp=1) values for decay target
-
-        for tp = 1:nTp
-            day_tp = scan_days(tp);
-            % A patient can only contribute intervals while they are still
-            % at risk (alive and uncensored).  Once scan_day >= event/
-            % censoring time, no further intervals are generated — the
-            % patient has already exited the risk set.
-            if day_tp >= T_j
-                break;
-            end
-
-            % Extract covariates for this patient at this timepoint
-            % tp_map translates the scan_days index back to the
-            % original feature-array column (handles NaN-dropped fractions).
-            orig_tp = tp_map(tp);
-            cov_row = nan(1, n_feat);
-            for fi = 1:n_feat
-                arr = feat_arrays{fi};
-                if orig_tp <= size(arr, 2)
-                    cov_row(fi) = arr(j, orig_tp);
+    % --- Vectorized Generation of Intervals ---
+    % Pre-compute all patient-timepoint combinations and filter valid intervals
+    n_valid_pts = length(valid_pts);
+    
+    % Generate all patient-timepoint combinations
+    [tp_grid, pat_grid] = meshgrid(1:nTp, 1:n_valid_pts);
+    tp_vec = tp_grid(:);
+    pat_idx_vec = pat_grid(:);
+    
+    % Map to actual patient indices
+    actual_pat_vec = valid_pts(pat_idx_vec);
+    
+    % Get scan days for all combinations
+    scan_day_vec = scan_days(tp_vec);
+    
+    % Get event times for all combinations
+    event_time_vec = total_time_vec(actual_pat_vec);
+    
+    % Filter for valid intervals (scan_day < event_time)
+    valid_intervals = scan_day_vec < event_time_vec;
+    
+    tp_vec = tp_vec(valid_intervals);
+    actual_pat_vec = actual_pat_vec(valid_intervals);
+    scan_day_vec = scan_day_vec(valid_intervals);
+    event_time_vec = event_time_vec(valid_intervals);
+    
+    n_intervals = length(tp_vec);
+    
+    if n_intervals == 0
+        warning('build_td_panel:noData', 'No valid intervals were generated. Check inputs.');
+        X_td = []; t_start = []; t_stop = []; event_td = []; pat_id_td = []; frac_td = [];
+        return;
+    end
+    
+    % Pre-allocate output arrays
+    X_td = nan(n_intervals, n_feat);
+    t_start = scan_day_vec;
+    t_stop = nan(n_intervals, 1);
+    event_td = zeros(n_intervals, 1);
+    pat_id_td = actual_pat_vec;
+    frac_td = tp_map(tp_vec);
+    
+    % --- Vectorized Covariate Extraction ---
+    % Extract all covariates at once using logical indexing
+    for fi = 1:n_feat
+        arr = feat_arrays{fi};
+        linear_idx = sub2ind(size(arr), actual_pat_vec, tp_map(tp_vec));
+        X_td(:, fi) = arr(linear_idx);
+    end
+    
+    % Store original (non-imputed) values for decay computation
+    X_td_raw = X_td;
+    
+    % --- Vectorized Decay Imputation ---
+    if use_decay
+        % Get unique patients and their indices
+        [unique_pats, ~, pat_group] = unique(actual_pat_vec);
+        
+        for p_idx = 1:length(unique_pats)
+            j = unique_pats(p_idx);
+            pat_mask = (pat_group == p_idx);
+            pat_intervals = find(pat_mask);
+            pat_tps = tp_vec(pat_mask);
+            pat_days = scan_day_vec(pat_mask);
+            
+            % Sort by timepoint to ensure proper temporal ordering
+            [pat_tps_sorted, sort_idx] = sort(pat_tps);
+            pat_intervals_sorted = pat_intervals(sort_idx);
+            pat_days_sorted = pat_days(sort_idx);
+            
+            % Get baseline values (first timepoint) for this patient
+            baseline_X = nan(1, n_feat);
+            if ~isempty(pat_tps_sorted)
+                first_tp = pat_tps_sorted(1);
+                for fi = 1:n_feat
+                    arr = feat_arrays{fi};
+                    baseline_X(fi) = arr(j, tp_map(first_tp));
                 end
             end
-
-            % Save the raw (pre-imputation) covariate row so we can track
-            % which features were genuinely observed at this timepoint.
-            cov_row_raw = cov_row;
-
-            % Record baseline values at the first timepoint for use as
-            % the decay asymptote.
-            if tp == 1
-                baseline_X = cov_row;
-            end
-
-            % Apply exponential decay imputation for missing covariates.
-            % Decay from the *original* observed value toward the patient's
-            % baseline (not zero) to avoid artificially low imputed values
-            % for parameters with physiological floor values (ADC, D).
-            if use_decay && any(isnan(cov_row))
+            
+            % Track last observed values and times for decay
+            orig_X = nan(1, n_feat);
+            orig_t = zeros(1, n_feat);
+            
+            for k = 1:length(pat_intervals_sorted)
+                interval_idx = pat_intervals_sorted(k);
+                day_tp = pat_days_sorted(k);
+                cov_row = X_td_raw(interval_idx, :);
+                cov_row_imputed = cov_row;
+                
+                % Update baseline if this is first timepoint
+                if k == 1
+                    baseline_X = cov_row;
+                end
+                
+                % Apply decay imputation for missing values
                 decay_mask = isnan(cov_row) & ~isnan(orig_X);
-                dt_per_feat = day_tp - orig_t;
-                if any(dt_per_feat(decay_mask) < 0)
-                    warning('build_td_panel:nonMonotonicTime', ...
-                        'Negative time delta detected (patient %d, tp %d). Clamping affected features to zero.', j, tp);
-                    dt_per_feat(decay_mask) = max(dt_per_feat(decay_mask), 0);
+                if any(decay_mask)
+                    dt_per_feat = day_tp - orig_t;
+                    dt_per_feat = max(dt_per_feat, 0); % Clamp negative times
+                    
+                    bl = baseline_X(decay_mask);
+                    bl(isnan(bl)) = orig_X(decay_mask & isnan(baseline_X));
+                    
+                    decay_factor = exp(-lambda_decay(decay_mask) .* dt_per_feat(decay_mask));
+                    cov_row_imputed(decay_mask) = bl + (orig_X(decay_mask) - bl) .* decay_factor;
                 end
-                % Decay toward baseline: baseline + (last_obs - baseline) * exp(-lambda * dt)
-                bl = baseline_X(decay_mask);
-                % When baseline is NaN (patient missing first scan for this
-                % feature), fall back to the last observed value itself
-                % (LOCF — no decay).  The previous fallback to 0 produced
-                % non-physiological imputed values for parameters like ADC
-                % and D which have positive physiological floor values.
-                bl(isnan(bl)) = orig_X(decay_mask & isnan(baseline_X));
-                % If both baseline and last-observed are NaN (no data ever
-                % recorded for this feature), bl remains NaN and the decay
-                % formula propagates NaN correctly — the feature is truly
-                % missing and cannot be imputed from temporal context.
-                decay_factor = exp(-lambda_decay(decay_mask) .* dt_per_feat(decay_mask));
-                cov_row(decay_mask) = bl + (orig_X(decay_mask) - bl) .* decay_factor;
+                
+                % Update imputed values
+                X_td(interval_idx, :) = cov_row_imputed;
+                
+                % Update tracking for next iteration (only for observed values)
+                observed = ~isnan(cov_row);
+                orig_X(observed) = cov_row(observed);
+                orig_t(observed) = day_tp;
             end
-
-            if all(isnan(cov_row))
-                continue;
-            end
-
-            % Compute interval end: the interval extends from the current scan
-            % day to the next scan day (or event/censoring time, whichever
-            % comes first).  The covariates are held constant throughout
-            % this interval — the piecewise-constant assumption.  We look
-            % ahead for the next *non-missing* timepoint because extending
-            % an interval across a gap (missed scan) is more appropriate
-            % than creating a zero-length interval for the missing scan.
-            if tp < nTp
-                % Look ahead for the next non-missing timepoint
-                day_next = T_j;
-                for t_next = (tp+1):nTp
-                    orig_t_next = tp_map(t_next);
-                    next_row = nan(1, n_feat);
-                    for fi = 1:n_feat
-                        arr = feat_arrays{fi};
-                        if orig_t_next <= size(arr, 2)
-                            next_row(fi) = arr(j, orig_t_next);
-                        end
-                    end
-                    if ~all(isnan(next_row))
-                        day_next = min(scan_days(t_next), T_j);
+        end
+    end
+    
+    % --- Vectorized Interval End Times and Event Assignment ---
+    % For each interval, find the next valid timepoint or event time
+    for i = 1:n_intervals
+        j = actual_pat_vec(i);
+        tp = tp_vec(i);
+        T_j = event_time_vec(i);
+        
+        % Find next valid timepoint
+        if tp < nTp
+            % Look for next non-missing timepoint
+            next_day = T_j;
+            for t_next = (tp+1):nTp
+                orig_t_next = tp_map(t_next);
+                % Check if any feature has valid data at next timepoint
+                has_data = false;
+                for fi = 1:n_feat
+                    arr = feat_arrays{fi};
+                    if orig_t_next <= size(arr, 2) && ~isnan(arr(j, orig_t_next))
+                        has_data = true;
                         break;
                     end
                 end
-            else
-                day_next = T_j;
+                if has_data
+                    next_day = min(scan_days(t_next), T_j);
+                    break;
+                end
             end
-
-            if day_next <= day_tp
-                continue;
-            end
-
-            % A "terminal" interval is the patient's last interval, where
-            % the event/censoring occurs.  Only terminal intervals carry
-            % the event indicator; all preceding intervals are coded as
-            % censored (event = 0).  This is the counting-process convention:
-            % the event can only happen once, at the end of follow-up.
-            is_terminal = (day_next == T_j);
-
-            row = row + 1;
-            X_buf(row, :)       = cov_row;
-            t_start_buf(row)    = day_tp;
-            t_stop_buf(row)     = day_next;
-            pat_buf(row)        = j;
-            frac_buf(row)       = orig_tp;
-
-            if is_terminal
-                event_buf(row) = lf_j;
-            else
-                event_buf(row) = 0;
-            end
-
-            % Update per-feature original observation tracking: only for
-            % features that were actually observed (not decay-imputed).
-            observed = ~isnan(cov_row_raw);
-            orig_X(observed) = cov_row_raw(observed);
-            orig_t(observed) = day_tp;
-
-            if is_terminal, break; end
+            t_stop(i) = next_day;
+        else
+            t_stop(i) = T_j;
+        end
+        
+        % Assign event for terminal intervals
+        if t_stop(i) == T_j
+            event_td(i) = lf_vec(j);
         end
     end
-
-    % Trim to actual data
-    X_td      = X_buf(1:row, :);
-    t_start   = t_start_buf(1:row);
-    t_stop    = t_stop_buf(1:row);
-    event_td  = event_buf(1:row);
-    pat_id_td = pat_buf(1:row);
-    frac_td   = frac_buf(1:row);
-
-    if row == 0
-        warning('build_td_panel:noData', 'No valid intervals were generated. Check inputs.');
+    
+    % Remove intervals with invalid stop times
+    valid_intervals = (t_stop > t_start) & ~isnan(t_stop);
+    X_td = X_td(valid_intervals, :);
+    t_start = t_start(valid_intervals);
+    t_stop = t_stop(valid_intervals);
+    event_td = event_td(valid_intervals);
+    pat_id_td = pat_id_td(valid_intervals);
+    frac_td = frac_td(valid_intervals);
+    
+    % Remove intervals with all-NaN covariates
+    valid_cov = ~all(isnan(X_td), 2);
+    X_td = X_td(valid_cov, :);
+    t_start = t_start(valid_cov);
+    t_stop = t_stop(valid_cov);
+    event_td = event_td(valid_cov);
+    pat_id_td = pat_id_td(valid_cov);
+    frac_td = frac_td(valid_cov);
+    
+    n_final = length(t_start);
+    
+    if n_final == 0
+        warning('build_td_panel:noData', 'No valid intervals were generated after filtering. Check inputs.');
         return;
     end
 
     fprintf('  [TD Panel] %d patients → %d intervals (%d events of interest, %d competing)\n', ...
-        numel(unique(pat_id_td)), row, sum(event_td == 1), sum(event_td == 2));
+        numel(unique(pat_id_td)), n_final, sum(event_td == 1), sum(event_td == 2));
 end
