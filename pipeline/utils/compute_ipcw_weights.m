@@ -77,7 +77,10 @@ function ipcw_weights = compute_ipcw_weights(event_td, t_start_td, t_stop_td, X_
             at_risk_sub  = (t_start_sub < t_u) & (t_stop_sub >= t_u);
             events_u_sub = at_risk_sub & (t_stop_sub == t_u) & (is_admin_cens_subset == 1);
             if any(events_u_sub) && any(at_risk_sub)
-                h0_increments(ui) = sum(events_u_sub) / sum(exp(lp_cens_sub(at_risk_sub)));
+                risk_sum = sum(exp(lp_cens_sub(at_risk_sub)));
+                if risk_sum > 0
+                    h0_increments(ui) = sum(events_u_sub) / risk_sum;
+                end
             end
         end
         H0_cumulative = cumsum(h0_increments);

@@ -1484,7 +1484,8 @@ async def _run_worker_pool(
                 )
                 if pbar is not None:
                     pbar.update(1)
-            queue.task_done()
+            finally:
+                queue.task_done()
 
     workers = [asyncio.create_task(_worker(i)) for i in range(SEM_LIMIT)]
     await asyncio.gather(*workers)

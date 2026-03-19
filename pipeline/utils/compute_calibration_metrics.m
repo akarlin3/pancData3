@@ -345,10 +345,19 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, times, n_bins,
             end
             xlabel('Mean Predicted Probability');
             ylabel('Observed Frequency');
-            hl_p_str = isfinite(cal.hl_p) ? sprintf('%.3f', cal.hl_p) : 'N/A';
-            
-            brier_to_show = has_competing_risks ? cal.competing_risks_brier : cal.brier_score;
-            brier_label = has_competing_risks ? 'F-G Brier' : 'Brier';
+            if isfinite(cal.hl_p)
+                hl_p_str = sprintf('%.3f', cal.hl_p);
+            else
+                hl_p_str = 'N/A';
+            end
+
+            if has_competing_risks
+                brier_to_show = cal.competing_risks_brier;
+                brier_label = 'F-G Brier';
+            else
+                brier_to_show = cal.brier_score;
+                brier_label = 'Brier';
+            end
             title(sprintf('Calibration Plot (%s %s)\n%s=%.3f, H-L p=%s', ...
                 dtype_label, fx_label, brier_label, brier_to_show, hl_p_str));
             xlim([0 1]); ylim([0 1]);

@@ -268,8 +268,16 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
                 % --- Time-varying HR figure ---
                 if ~isempty(output_folder)
                     try
-                        max_time = sparse_periods ? stable_period_end : max(t_stop);
-                        min_time = left_truncated ? max(t_start_stable) : max(1, min(t_stop_stable));
+                        if sparse_periods
+                            max_time = stable_period_end;
+                        else
+                            max_time = max(t_stop);
+                        end
+                        if left_truncated
+                            min_time = max(t_start_stable);
+                        else
+                            min_time = max(1, min(t_stop_stable));
+                        end
                         t_grid = linspace(min_time, max_time, 200);
                         
                         % Adjust time grid for left-truncation

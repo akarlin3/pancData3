@@ -176,7 +176,11 @@ ipcw_weights = compute_ipcw_weights(survival_data.event, survival_data.t_start, 
 event_times = survival_data.t_stop(event_csh == 1);
 [unique_times, ~, time_idx] = unique(event_times);
 has_tied_times = any(arrayfun(@(i) sum(time_idx == i) > 1, 1:length(unique_times)));
-ties_method = has_tied_times ? 'efron' : 'breslow';
+if has_tied_times
+    ties_method = 'efron';
+else
+    ties_method = 'breslow';
+end
 
 if has_tied_times
     fprintf('  ⚠️  Detected tied event times. Using Efron approximation.\n');
