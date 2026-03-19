@@ -1,12 +1,14 @@
-function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output_folder, dtype_label, fx_label)
-% COMPUTE_CALIBRATION_METRICS  Calibration assessment for predictive models.
+function cal = compute_calibration_metrics(risk_scores, outcomes, times, n_bins, output_folder, dtype_label, fx_label)
+% COMPUTE_CALIBRATION_METRICS  Calibration assessment for predictive models with competing risks.
 %
-%   Computes calibration plot data, Hosmer-Lemeshow test, Brier score with
-%   decomposition, and calibration-in-the-large statistic.
+%   Computes calibration plot data, Hosmer-Lemeshow test, Fine-Gray competing 
+%   risks Brier score with decomposition, and calibration-in-the-large statistic.
 %
 % Inputs:
 %   risk_scores   - Predicted risk scores (continuous, n x 1)
-%   outcomes      - Binary outcomes (0 or 1, n x 1)
+%   outcomes      - Event outcomes: 0=censored, 1=event of interest, 2=competing (n x 1)
+%                   OR binary outcomes (0 or 1, n x 1) for backward compatibility
+%   times         - Time-to-event data (n x 1), optional for binary outcomes
 %   n_bins        - Number of quantile bins for calibration (default: 5)
 %   output_folder - Directory for saving calibration plot (optional)
 %   dtype_label   - DWI type label for file naming (optional)
@@ -15,13 +17,24 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
 % Outputs:
 %   cal           - Struct with calibration metrics
 
-    if nargin < 3 || isempty(n_bins), n_bins = 5; end
-    if nargin < 4, output_folder = ''; end
-    if nargin < 5, dtype_label = ''; end
-    if nargin < 6, fx_label = ''; end
+    % Handle input arguments for backward compatibility
+    if nargin < 7 && nargin >= 3 && (ischar(times) || isempty(times))
+        % Old interface: risk_scores, outcomes, n_bins, output_folder, dtype_label, fx_label
+        fx_label = dtype_label;
+        dtype_label = output_folder;
+        output_folder = n_bins;
+        n_bins = times;
+        times = [];
+    end
+    
+    if nargin < 4 || isempty(n_bins), n_bins = 5; end
+    if nargin < 5, output_folder = ''; end
+    if nargin < 6, dtype_label = ''; end
+    if nargin < 7, fx_label = ''; end
 
     cal = struct();
     cal.brier_score = NaN;
+    cal.competing_risks_brier = NaN;
     cal.hl_chi2 = NaN;
     cal.hl_p = NaN;
     cal.hl_df = NaN;
@@ -33,14 +46,30 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
     cal.resolution = NaN;
     cal.uncertainty = NaN;
     cal.hl_warning = '';
+    cal.competing_risks = false;
+
+    % Determine if this is competing risks scenario
+    has_competing_risks = ~isempty(times) && length(unique(outcomes(isfinite(outcomes)))) > 2;
+    cal.competing_risks = has_competing_risks;
 
     % Remove NaN
-    valid = isfinite(risk_scores) & isfinite(outcomes);
-    scores = risk_scores(valid);
-    y = outcomes(valid);
+    if has_competing_risks
+        valid = isfinite(risk_scores) & isfinite(outcomes) & isfinite(times);
+        scores = risk_scores(valid);
+        y = outcomes(valid);
+        t = times(valid);
+    else
+        valid = isfinite(risk_scores) & isfinite(outcomes);
+        scores = risk_scores(valid);
+        y = outcomes(valid);
+        if ~isempty(times)
+            t = times(valid);
+        end
+    end
+    
     n = length(scores);
 
-    if n < 10 || length(unique(y)) < 2
+    if n < 10 || (has_competing_risks && length(unique(y)) < 2) || (~has_competing_risks && length(unique(y)) < 2)
         fprintf('  Calibration: insufficient data (n=%d) or single class.\n', n);
         return;
     end
@@ -53,13 +82,27 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
     end
     probs = max(0.001, min(0.999, probs));
 
-    % --- Brier Score ---
-    cal.brier_score = mean((probs - y).^2);
+    % --- Brier Score Calculation ---
+    if has_competing_risks
+        % Fine-Gray competing risks Brier score
+        cal.brier_score = compute_standard_brier_score(probs, y == 1);
+        cal.competing_risks_brier = compute_finegray_brier_score(probs, y, t);
+        fprintf('  Using Fine-Gray competing risks Brier score\n');
+    else
+        % Standard binary Brier score
+        y_binary = (y == 1) | (y > 0); % Handle both 0/1 and multi-class as binary
+        cal.brier_score = mean((probs - y_binary).^2);
+        cal.competing_risks_brier = cal.brier_score;
+        y = y_binary; % Use binary outcomes for remaining calculations
+    end
 
     % Brier decomposition: reliability - resolution + uncertainty
     cal.mean_predicted = mean(probs);
-    cal.mean_observed = mean(y);
-    cal.uncertainty = mean(y) * (1 - mean(y));
+    cal.mean_observed = mean(y == 1);
+    cal.uncertainty = cal.mean_observed * (1 - cal.mean_observed);
+
+    % Use binary outcomes for calibration assessment
+    y_binary = (y == 1);
 
     % --- Hosmer-Lemeshow Test with frequency validation ---
     % Divide into n_bins quantile groups
@@ -82,7 +125,7 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
             idx_g = sort_idx((g-1)*bin_size + 1 : end);
         end
         ng = length(idx_g);
-        obs_g = sum(y(idx_g));
+        obs_g = sum(y_binary(idx_g));
         exp_g = sum(probs(idx_g));
         
         temp_bins(g).indices = idx_g;
@@ -153,7 +196,7 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
             
             bin_sizes(g) = ng;
             bin_means_pred(g) = mean(probs(idx_g));
-            bin_means_obs(g) = mean(y(idx_g));
+            bin_means_obs(g) = mean(y_binary(idx_g));
             
             % HL chi-squared contribution
             if exp_g > 0 && ng - exp_g > 0
@@ -162,7 +205,7 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
             
             % Brier decomposition
             reliability_sum = reliability_sum + ng * (bin_means_pred(g) - bin_means_obs(g))^2;
-            resolution_sum = resolution_sum + ng * (bin_means_obs(g) - mean(y))^2;
+            resolution_sum = resolution_sum + ng * (bin_means_obs(g) - cal.mean_observed)^2;
         end
         
         cal.hl_chi2 = hl_chi2;
@@ -182,12 +225,12 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
     if std(logit_pred) > 0
         X_cal = [ones(n, 1), logit_pred];
         try
-            b_cal = glmfit(logit_pred, y, 'binomial', 'link', 'logit');
+            b_cal = glmfit(logit_pred, y_binary, 'binomial', 'link', 'logit');
             cal.calibration_intercept = b_cal(1);
             cal.calibration_slope = b_cal(2);
         catch
             % Fallback to simple linear regression
-            b_cal = X_cal \ y;
+            b_cal = X_cal \ y_binary;
             cal.calibration_intercept = b_cal(1);
             cal.calibration_slope = b_cal(2);
         end
@@ -195,11 +238,17 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
 
     % --- Print calibration metrics ---
     fprintf('\n  --- Calibration Assessment (%s %s) ---\n', dtype_label, fx_label);
-    fprintf('  Brier Score:             %.4f', cal.brier_score);
-    if cal.brier_score < 0.25
-        fprintf(' (useful discrimination)\n');
+    if has_competing_risks
+        fprintf('  Standard Brier Score:    %.4f', cal.brier_score);
+        if cal.brier_score < 0.25, fprintf(' (useful discrimination)\n');
+        else, fprintf(' (poor discrimination)\n'); end
+        fprintf('  Fine-Gray Brier Score:   %.4f', cal.competing_risks_brier);
+        if cal.competing_risks_brier < 0.25, fprintf(' (useful discrimination)\n');
+        else, fprintf(' (poor discrimination)\n'); end
     else
-        fprintf(' (poor discrimination)\n');
+        fprintf('  Brier Score:             %.4f', cal.brier_score);
+        if cal.brier_score < 0.25, fprintf(' (useful discrimination)\n');
+        else, fprintf(' (poor discrimination)\n'); end
     end
     fprintf('    Reliability:           %.4f\n', cal.reliability);
     fprintf('    Resolution:            %.4f\n', cal.resolution);
@@ -244,8 +293,11 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
             xlabel('Mean Predicted Probability');
             ylabel('Observed Frequency');
             hl_p_str = isfinite(cal.hl_p) ? sprintf('%.3f', cal.hl_p) : 'N/A';
-            title(sprintf('Calibration Plot (%s %s)\nBrier=%.3f, H-L p=%s', ...
-                dtype_label, fx_label, cal.brier_score, hl_p_str));
+            
+            brier_to_show = has_competing_risks ? cal.competing_risks_brier : cal.brier_score;
+            brier_label = has_competing_risks ? 'F-G Brier' : 'Brier';
+            title(sprintf('Calibration Plot (%s %s)\n%s=%.3f, H-L p=%s', ...
+                dtype_label, fx_label, brier_label, brier_to_show, hl_p_str));
             xlim([0 1]); ylim([0 1]);
             grid on;
 
@@ -257,4 +309,162 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, n_bins, output
             fprintf('  ⚠️  Calibration plot failed: %s\n', ME_cal.message);
         end
     end
+end
+
+function brier = compute_standard_brier_score(probs, binary_outcomes)
+    % Standard Brier score for binary outcomes
+    brier = mean((probs - binary_outcomes).^2);
+end
+
+function fg_brier = compute_finegray_brier_score(probs, outcomes, times)
+    % Fine-Gray competing risks Brier score
+    % outcomes: 0=censored, 1=event of interest, 2=competing event
+    
+    if isempty(times)
+        % Fallback to standard Brier if no time information
+        fg_brier = compute_standard_brier_score(probs, outcomes == 1);
+        return;
+    end
+    
+    n = length(probs);
+    
+    % Estimate cumulative incidence function using Aalen-Johansen estimator
+    unique_times = sort(unique(times(outcomes > 0)));
+    if isempty(unique_times)
+        fg_brier = compute_standard_brier_score(probs, outcomes == 1);
+        return;
+    end
+    
+    % Use median follow-up time as evaluation time point
+    eval_time = median(times);
+    if eval_time <= 0 || eval_time > max(times)
+        eval_time = prctile(times, 75); % Use 75th percentile if median is problematic
+    end
+    
+    % Estimate weights using inverse probability of censoring weighting (IPCW)
+    weights = compute_ipcw_weights(times, outcomes, eval_time);
+    
+    % Compute observed cumulative incidence at evaluation time
+    obs_ci = zeros(n, 1);
+    for i = 1:n
+        if times(i) <= eval_time && outcomes(i) == 1
+            obs_ci(i) = 1; % Event of interest occurred before eval_time
+        elseif times(i) <= eval_time && outcomes(i) == 2
+            obs_ci(i) = 0; % Competing event occurred before eval_time
+        else
+            % Censored or event after eval_time - use cumulative incidence estimate
+            obs_ci(i) = estimate_cumulative_incidence(times, outcomes, eval_time, times(i));
+        end
+    end
+    
+    % Compute weighted Brier score
+    if sum(weights) > 0
+        fg_brier = sum(weights .* (probs - obs_ci).^2) / sum(weights);
+    else
+        % Fallback to unweighted if all weights are zero
+        fg_brier = mean((probs - obs_ci).^2);
+    end
+    
+    % Ensure reasonable bounds
+    if ~isfinite(fg_brier) || fg_brier < 0
+        fg_brier = compute_standard_brier_score(probs, outcomes == 1);
+    end
+end
+
+function weights = compute_ipcw_weights(times, outcomes, eval_time)
+    % Compute inverse probability of censoring weights
+    n = length(times);
+    weights = ones(n, 1);
+    
+    % Simple IPCW using Kaplan-Meier estimate of censoring distribution
+    censoring_indicator = (outcomes == 0);
+    
+    if sum(censoring_indicator) == 0
+        % No censoring, all weights = 1
+        return;
+    end
+    
+    % Estimate censoring survival function
+    cens_times = times(censoring_indicator);
+    if isempty(cens_times)
+        return;
+    end
+    
+    % Simple approximation: use exponential fit for censoring distribution
+    try
+        lambda_cens = 1 / mean(times(censoring_indicator | times >= eval_time));
+        
+        for i = 1:n
+            if times(i) <= eval_time && outcomes(i) > 0
+                % Event observed before eval_time
+                G_t = exp(-lambda_cens * times(i)); % P(C > t_i)
+                if G_t > 0.01 % Avoid extreme weights
+                    weights(i) = 1 / G_t;
+                else
+                    weights(i) = 1 / 0.01;
+                end
+            elseif times(i) > eval_time
+                % Observation extends beyond eval_time
+                G_tau = exp(-lambda_cens * eval_time); % P(C > eval_time)
+                if G_tau > 0.01
+                    weights(i) = 1 / G_tau;
+                else
+                    weights(i) = 1 / 0.01;
+                end
+            end
+        end
+        
+        % Cap extreme weights
+        weights = min(weights, 10);
+        
+    catch
+        % Fallback to uniform weights
+        weights = ones(n, 1);
+    end
+end
+
+function ci = estimate_cumulative_incidence(times, outcomes, eval_time, obs_time)
+    % Estimate cumulative incidence at eval_time for a subject observed until obs_time
+    
+    if obs_time >= eval_time
+        % Subject was observed beyond evaluation time
+        ci = 0; % No event of interest observed
+        return;
+    end
+    
+    % Use Aalen-Johansen estimator for subjects with events before eval_time
+    event_times = times(outcomes == 1 & times <= eval_time);
+    competing_times = times(outcomes == 2 & times <= eval_time);
+    
+    if isempty(event_times) && isempty(competing_times)
+        ci = 0;
+        return;
+    end
+    
+    all_event_times = sort([event_times; competing_times]);
+    n_at_risk = length(times);
+    
+    ci = 0;
+    survival_prob = 1;
+    
+    for t = all_event_times'
+        if t > eval_time
+            break;
+        end
+        
+        n_events_1 = sum(times == t & outcomes == 1);
+        n_events_2 = sum(times == t & outcomes == 2);
+        n_at_t = sum(times >= t);
+        
+        if n_at_t > 0
+            hazard_1 = n_events_1 / n_at_t;
+            hazard_total = (n_events_1 + n_events_2) / n_at_t;
+            
+            ci = ci + survival_prob * hazard_1;
+            survival_prob = survival_prob * (1 - hazard_total);
+        end
+    end
+    
+    % Ensure reasonable bounds
+    ci = max(0, min(1, ci));
 end
