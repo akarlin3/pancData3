@@ -43,6 +43,31 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             'First b-value is %g, not 0. Both IVIM and ADC fits require S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
     end
 
+    % Validate that b-values are monotonically increasing
+    if any(diff(bvalues) <= 0)
+        error('fit_models:nonMonotonicBValues', ...
+            'B-values must be monotonically increasing. Non-monotonic ordering can cause convergence failures in IVIM model fitting.');
+    end
+
+    % Validate sufficient dynamic range for IVIM parameter estimation
+    % Need adequate separation between low-b and high-b values to distinguish
+    % perfusion and diffusion components. Minimum b-value range of 200 s/mm²
+    % provides sufficient signal decay for reliable parameter estimation.
+    bvalue_range = bvalues(end) - bvalues(1);
+    min_bvalue_range = 200; % s/mm²
+    if bvalue_range < min_bvalue_range
+        warning('fit_models:insufficientBValueRange', ...
+            'B-value range (%.1f s/mm²) is less than recommended minimum (%.1f s/mm²). IVIM parameter estimation may be unreliable.', ...
+            bvalue_range, min_bvalue_range);
+    end
+
+    % Validate minimum number of b-values for model fitting
+    if length(bvalues) < 4
+        warning('fit_models:fewBValues', ...
+            'Only %d b-values provided. IVIM fitting requires at least 4 b-values for reliable parameter estimation.', ...
+            length(bvalues));
+    end
+
     %% ---- IVIM MODEL FITTING (Segmented Biexponential) ----
     % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
     % Flatten 3D volume to a 1D array of strictly non-zero mask voxels
