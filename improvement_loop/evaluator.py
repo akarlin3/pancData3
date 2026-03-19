@@ -239,7 +239,15 @@ def parse_and_validate(raw_text: str) -> Optional[dict]:
     return data
 
 
-def score_audit(audit_output: str) -> dict:
+def score_audit(audit_output: str, dry_run: bool = False) -> dict:
+    if dry_run:
+        return {
+            "specificity": 5.0, "accuracy": 5.0, "coverage": 5.0,
+            "prioritization": 5.0, "domain_appropriateness": 5.0,
+            "overall": 5.0,
+            "flags": [],
+            "reasoning": "Dry-run mode — skipped API evaluation."
+        }
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = client.messages.create(
@@ -270,26 +278,30 @@ def score_audit(audit_output: str) -> dict:
     }
 
 
-def should_continue_loop(scores: dict, findings: List[Finding]) -> bool:
+def should_continue_loop(scores: dict, findings: List[Finding], dry_run: bool = False) -> bool:
     """
     Returns True if the loop should continue, False if it should exit.
     Combines test results with judge scores.
     """
+    if dry_run:
+        print("Exit condition met — dry-run mode")
+        return False
+
     # Any finding above threshold — keep going
     high_priority = [f for f in findings if f.importance >= 2]
     if high_priority:
         print(f"Continuing — {len(high_priority)} findings at importance >= 2")
         return True
-    
+
     # Judge thinks coverage is poor — keep going
     if scores["coverage"] < 6:
         print(f"Continuing — audit coverage score {scores['coverage']}/10 is too low")
         return True
-    
+
     # Flag critical issues
     if scores["flags"] and "EVALUATION_FAILED" not in scores["flags"]:
         print(f"Continuing — judge flagged issues: {scores['flags']}")
         return True
-    
+
     print("Exit condition met — no findings above threshold and audit quality sufficient")
     return False

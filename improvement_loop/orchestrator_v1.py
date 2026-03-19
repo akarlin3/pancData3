@@ -5,8 +5,8 @@ Runs repeated audit → fix → evaluate cycles, stopping when the evaluator
 signals that no further improvements are warranted.
 """
 
-import loop_tracker
-from evaluator import Finding
+from . import loop_tracker
+from .evaluator import Finding
 from typing import List
 
 
@@ -57,6 +57,7 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
             audit_output=audit_output,
             findings=findings,
             tests_passed=tests_passed,
+            dry_run=dry_run,
         )
         entries.append(entry)
 
@@ -64,3 +65,9 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
             break
 
     return entries
+
+
+if __name__ == "__main__":
+    entries = run_loop(dry_run=True)
+    for e in entries:
+        print(e)

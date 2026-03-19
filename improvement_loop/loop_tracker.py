@@ -5,9 +5,9 @@ import os
 import sys
 from datetime import datetime
 from typing import List, Optional  # noqa: F401 — used by callers via import
-from evaluator import Finding, score_audit, should_continue_loop  # type: ignore
+from .evaluator import Finding, score_audit, should_continue_loop
 
-LOG_FILE = "improvement_loop_log.json"
+LOG_FILE = os.path.join(os.path.dirname(__file__), os.pardir, "improvement_loop_log.json")
 
 
 # ── I/O helpers ──────────────────────────────────────────────────────────────
@@ -17,7 +17,10 @@ def load_log() -> list:
     if not os.path.exists(LOG_FILE):
         return []
     with open(LOG_FILE, "r") as f:
-        return json.load(f)
+        content = f.read().strip()
+    if not content:
+        return []
+    return json.loads(content)
 
 
 def save_log(log: list) -> None:
@@ -40,7 +43,8 @@ def get_current_iteration(log: list) -> int:
 def log_iteration(
     audit_output: str,
     findings: List[Finding],
-    tests_passed: bool
+    tests_passed: bool,
+    dry_run: bool = False
 ) -> dict:
     """
     Log one complete loop iteration.
@@ -51,21 +55,22 @@ def log_iteration(
     iteration = get_current_iteration(log)
 
     # Score the audit
-    scores = score_audit(audit_output)
+    scores = score_audit(audit_output, dry_run=dry_run)
 
     # Surface evaluator failures so the loop doesn't silently proceed
     # on default fallback scores
-    if "EVALUATION_FAILED" in scores.get("flags", []):
-        print("WARNING: Evaluator failed after max retries — using fallback "
-              "scores (all 5.0). Audit quality assessment is unreliable.")
-    else:
-        # Check for suspiciously uniform scores (sign of malfunction)
-        score_vals = [scores.get(k, 0) for k in
-                      ["specificity", "accuracy", "coverage",
-                       "prioritization", "domain_appropriateness"]]
-        if len(set(score_vals)) == 1 and score_vals[0] == 5.0:
-            print("WARNING: All audit dimension scores are exactly 5.0 — "
-                  "evaluator may have returned defaults without flagging.")
+    if not dry_run:
+        if "EVALUATION_FAILED" in scores.get("flags", []):
+            print("WARNING: Evaluator failed after max retries — using fallback "
+                  "scores (all 5.0). Audit quality assessment is unreliable.")
+        else:
+            # Check for suspiciously uniform scores (sign of malfunction)
+            score_vals = [scores.get(k, 0) for k in
+                          ["specificity", "accuracy", "coverage",
+                           "prioritization", "domain_appropriateness"]]
+            if len(set(score_vals)) == 1 and score_vals[0] == 5.0:
+                print("WARNING: All audit dimension scores are exactly 5.0 — "
+                      "evaluator may have returned defaults without flagging.")
 
     # Derive branch lists from findings
     branches_created = [f.branch_name for f in findings]
@@ -81,7 +86,7 @@ def log_iteration(
         })
 
     # Determine exit condition
-    exit_condition_met = not should_continue_loop(scores, findings)
+    exit_condition_met = not should_continue_loop(scores, findings, dry_run=dry_run)
 
     entry = {
         "iteration": iteration,
