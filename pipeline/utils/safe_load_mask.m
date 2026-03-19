@@ -1,14 +1,15 @@
-function mask = safe_load_mask(filepath, varname)
+function mask = safe_load_mask(filepath, varname, max_file_size_mb)
 % SAFE_LOAD_MASK Safely loads a mask variable from a .mat file.
 %
-%   mask = SAFE_LOAD_MASK(filepath, varname)
+%   mask = SAFE_LOAD_MASK(filepath, varname, max_file_size_mb)
 %
 %   INPUTS:
-%       filepath - Path to the .mat file.
-%       varname  - (Optional) Name of the variable to load. Defaults to 'Stvol3d'.
+%       filepath        - Path to the .mat file.
+%       varname         - (Optional) Name of the variable to load. Defaults to 'Stvol3d'.
+%       max_file_size_mb- (Optional) Maximum file size in MB. Defaults to 100 MB.
 %
 %   OUTPUTS:
-%       mask     - The loaded variable content if safe, or [] if unsafe/missing.
+%       mask            - The loaded variable content if safe, or [] if unsafe/missing.
 %
 %   SECURITY:
 %       This function inspects the .mat file content using 'whos' without
@@ -16,6 +17,8 @@ function mask = safe_load_mask(filepath, varname)
 %       1. Exists in the file.
 %       2. Is of a safe class (numeric, logical).
 %       3. Is not a complex object or script that could execute code.
+%       4. The file size is within acceptable limits.
+%       5. The file has a valid .mat structure.
 %
 %   Analytical Rationale — Why Safe Loading is Critical:
 %   ----------------------------------------------------
@@ -33,16 +36,35 @@ function mask = safe_load_mask(filepath, varname)
 %   structure volume variable produced by the contouring pipeline.
 %
 %   EXAMPLE:
-%       mask = safe_load_mask('patient_data.mat', 'Stvol3d');
+%       mask = safe_load_mask('patient_data.mat', 'Stvol3d', 200);
 
     if nargin < 2
         varname = 'Stvol3d';
+    end
+    
+    if nargin < 3
+        max_file_size_mb = 100;  % Default 100 MB limit
     end
 
     mask = [];
 
     if ~exist(filepath, 'file')
         warning('safe_load_mask:FileNotFound', 'File not found: %s', filepath);
+        return;
+    end
+
+    % Check file size first to prevent loading oversized files
+    file_info_sys = dir(filepath);
+    if isempty(file_info_sys)
+        warning('safe_load_mask:FileAccessError', 'Cannot access file: %s', filepath);
+        return;
+    end
+    
+    file_size_mb = file_info_sys.bytes / (1024 * 1024);
+    if file_size_mb > max_file_size_mb
+        warning('safe_load_mask:FileTooLarge', ...
+            'File size (%.1f MB) exceeds maximum allowed size (%.1f MB)', ...
+            file_size_mb, max_file_size_mb);
         return;
     end
 
@@ -53,7 +75,15 @@ function mask = safe_load_mask(filepath, varname)
     try
         file_info = whos('-file', filepath);
     catch ME
-        warning('safe_load_mask:FileReadError', 'Could not read file info: %s', ME.message);
+        warning('safe_load_mask:FileReadError', ...
+            'Could not read file info (possibly corrupted .mat file): %s', ME.message);
+        return;
+    end
+    
+    % Validate .mat file structure - should have at least one variable
+    if isempty(file_info)
+        warning('safe_load_mask:InvalidStructure', ...
+            'File appears to be empty or not a valid .mat file: %s', filepath);
         return;
     end
 
@@ -67,6 +97,19 @@ function mask = safe_load_mask(filepath, varname)
     end
 
     target_info = file_info(idx);
+    
+    % Additional validation: check if variable size is reasonable
+    var_bytes = target_info.bytes;
+    var_size_mb = var_bytes / (1024 * 1024);
+    
+    % Variable size should not exceed 80% of the maximum file size limit
+    max_var_size_mb = max_file_size_mb * 0.8;
+    if var_size_mb > max_var_size_mb
+        warning('safe_load_mask:VariableTooLarge', ...
+            'Variable ''%s'' size (%.1f MB) exceeds safety limit (%.1f MB)', ...
+            varname, var_size_mb, max_var_size_mb);
+        return;
+    end
 
     % Define safe classes — only primitive numeric and logical types are
     % permitted.  These types have no custom deserialization behavior and
@@ -85,6 +128,18 @@ function mask = safe_load_mask(filepath, varname)
             'Security Risk: Variable ''%s'' is of unsafe class ''%s''. skipping.', ...
             varname, target_info.class);
         return;
+    end
+    
+    % Additional structure validation: check for suspicious variables
+    % that might indicate a malicious file
+    suspicious_classes = {'function_handle', 'onCleanup', 'timer', 'java'};
+    for i = 1:length(file_info)
+        if any(contains(file_info(i).class, suspicious_classes))
+            warning('safe_load_mask:SuspiciousContent', ...
+                'File contains suspicious variable of class ''%s''. Aborting load for security.', ...
+                file_info(i).class);
+            return;
+        end
     end
 
     % Load only the specific variable by name to minimize memory usage
