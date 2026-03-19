@@ -184,7 +184,11 @@ def phase3_implement(
         try:
             # Switch back to base branch before creating a new one
             git_utils.switch_branch(base_branch)
-            git_utils.create_branch(finding.branch_name)
+            if git_utils.branch_exists(finding.branch_name):
+                print(f"      ⚠️  Branch already exists, checking out existing branch: {finding.branch_name}")
+                git_utils.checkout(finding.branch_name)
+            else:
+                git_utils.create_branch(finding.branch_name)
 
             # Read the relevant file
             file_content = _read_file_content(finding.file) or "(file not found)"

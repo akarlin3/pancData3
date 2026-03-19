@@ -165,6 +165,81 @@ class TestOrchestratorDryRun:
         assert mock_tracker.log_iteration.call_count == 1
 
 
+class TestPhase3BranchExists:
+    """Phase 3 should checkout existing branches instead of failing."""
+
+    @patch("orchestrator_v1.anthropic.Anthropic")
+    @patch("orchestrator_v1.git_utils")
+    def test_checks_out_existing_branch(self, mock_git, mock_anthropic_cls):
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        # Simulate the implementation response
+        block = MagicMock()
+        block.text = "% updated file content"
+        resp = MagicMock()
+        resp.content = [block]
+        mock_client.messages.create.return_value = resp
+
+        mock_git.branch_exists.return_value = True
+        mock_git.switch_branch = MagicMock()
+        mock_git.checkout = MagicMock()
+        mock_git.create_branch = MagicMock()
+        mock_git.commit_all = MagicMock()
+
+        finding = Finding(
+            dimension="correctness",
+            file="pipeline/core/fit_models.m",
+            description="Fix something",
+            fix="Add guard",
+            importance=5,
+            branch_name="improvement/existing-branch",
+        )
+
+        with patch("orchestrator_v1._read_file_content", return_value="% old"):
+            orchestrator_v1.phase3_implement(
+                mock_client, [finding], dry_run=False, base_branch="main"
+            )
+
+        mock_git.create_branch.assert_not_called()
+        mock_git.checkout.assert_called_once_with("improvement/existing-branch")
+
+    @patch("orchestrator_v1.anthropic.Anthropic")
+    @patch("orchestrator_v1.git_utils")
+    def test_creates_new_branch_when_not_exists(self, mock_git, mock_anthropic_cls):
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+
+        block = MagicMock()
+        block.text = "% updated file content"
+        resp = MagicMock()
+        resp.content = [block]
+        mock_client.messages.create.return_value = resp
+
+        mock_git.branch_exists.return_value = False
+        mock_git.switch_branch = MagicMock()
+        mock_git.checkout = MagicMock()
+        mock_git.create_branch = MagicMock()
+        mock_git.commit_all = MagicMock()
+
+        finding = Finding(
+            dimension="correctness",
+            file="pipeline/core/fit_models.m",
+            description="Fix something",
+            fix="Add guard",
+            importance=5,
+            branch_name="improvement/new-branch",
+        )
+
+        with patch("orchestrator_v1._read_file_content", return_value="% old"):
+            orchestrator_v1.phase3_implement(
+                mock_client, [finding], dry_run=False, base_branch="main"
+            )
+
+        mock_git.create_branch.assert_called_once_with("improvement/new-branch")
+        mock_git.checkout.assert_not_called()
+
+
 class TestDependenciesGuard:
     """Findings targeting pipeline/dependencies/ must be rejected."""
 

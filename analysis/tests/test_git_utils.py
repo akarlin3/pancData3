@@ -106,11 +106,46 @@ class TestCreateBranch:
     def test_calls_checkout_b(self):
         with mock.patch("git_utils.branch_exists", return_value=False):
             with mock.patch("git_utils._run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess([], 0)
-                git_utils.create_branch("new-branch", base="main")
-                mock_run.assert_called_once_with(
-                    ["git", "checkout", "-b", "new-branch", "main"]
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
                 )
+                git_utils.create_branch("new-branch", base="main")
+                calls = [c.args[0] for c in mock_run.call_args_list]
+                assert ["git", "status", "--porcelain"] in calls
+                assert ["git", "checkout", "-b", "new-branch", "main"] in calls
+
+    def test_stashes_when_dirty(self):
+        call_seq = []
+
+        def side_effect(args, *, check=True):
+            call_seq.append(args)
+            if args[:2] == ["git", "status"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="M dirty.txt\n", stderr=""
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with mock.patch("git_utils.branch_exists", return_value=False):
+            with mock.patch("git_utils._run", side_effect=side_effect):
+                git_utils.create_branch("new-branch", base="main")
+
+        assert ["git", "stash"] in call_seq
+        assert ["git", "stash", "pop"] in call_seq
+        stash_idx = call_seq.index(["git", "stash"])
+        checkout_idx = call_seq.index(["git", "checkout", "-b", "new-branch", "main"])
+        pop_idx = call_seq.index(["git", "stash", "pop"])
+        assert stash_idx < checkout_idx < pop_idx
+
+    def test_no_stash_when_clean(self):
+        with mock.patch("git_utils.branch_exists", return_value=False):
+            with mock.patch("git_utils._run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
+                )
+                git_utils.create_branch("new-branch", base="main")
+                calls = [c.args[0] for c in mock_run.call_args_list]
+                assert ["git", "stash"] not in calls
+                assert ["git", "stash", "pop"] not in calls
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +161,46 @@ class TestCheckout:
     def test_calls_git_checkout(self):
         with mock.patch("git_utils.branch_exists", return_value=True):
             with mock.patch("git_utils._run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess([], 0)
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
+                )
                 git_utils.checkout("my-branch")
-                mock_run.assert_called_once_with(["git", "checkout", "my-branch"])
+                calls = [c.args[0] for c in mock_run.call_args_list]
+                assert ["git", "status", "--porcelain"] in calls
+                assert ["git", "checkout", "my-branch"] in calls
+
+    def test_stashes_when_dirty(self):
+        call_seq = []
+
+        def side_effect(args, *, check=True):
+            call_seq.append(args)
+            if args[:2] == ["git", "status"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="M dirty.txt\n", stderr=""
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with mock.patch("git_utils.branch_exists", return_value=True):
+            with mock.patch("git_utils._run", side_effect=side_effect):
+                git_utils.checkout("my-branch")
+
+        assert ["git", "stash"] in call_seq
+        assert ["git", "stash", "pop"] in call_seq
+        stash_idx = call_seq.index(["git", "stash"])
+        checkout_idx = call_seq.index(["git", "checkout", "my-branch"])
+        pop_idx = call_seq.index(["git", "stash", "pop"])
+        assert stash_idx < checkout_idx < pop_idx
+
+    def test_no_stash_when_clean(self):
+        with mock.patch("git_utils.branch_exists", return_value=True):
+            with mock.patch("git_utils._run") as mock_run:
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
+                )
+                git_utils.checkout("my-branch")
+                calls = [c.args[0] for c in mock_run.call_args_list]
+                assert ["git", "stash"] not in calls
+                assert ["git", "stash", "pop"] not in calls
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +214,12 @@ class TestSwitchBranch:
     def test_calls_git_checkout(self):
         with mock.patch("git_utils.branch_exists", return_value=True):
             with mock.patch("git_utils._run") as mock_run:
-                mock_run.return_value = subprocess.CompletedProcess([], 0)
+                mock_run.return_value = subprocess.CompletedProcess(
+                    [], 0, stdout="", stderr=""
+                )
                 git_utils.switch_branch("my-branch")
-                mock_run.assert_called_once_with(["git", "checkout", "my-branch"])
+                calls = [c.args[0] for c in mock_run.call_args_list]
+                assert ["git", "checkout", "my-branch"] in calls
 
 
 # ---------------------------------------------------------------------------

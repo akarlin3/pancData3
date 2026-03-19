@@ -46,24 +46,48 @@ def branch_exists(branch_name: str) -> bool:
     return remote.returncode == 0
 
 
+def _stash_if_dirty() -> bool:
+    """Stash uncommitted changes if the working tree is dirty.
+
+    Returns True if changes were stashed, False otherwise.
+    """
+    status = _run(["git", "status", "--porcelain"])
+    if status.stdout.strip():
+        _run(["git", "stash"])
+        return True
+    return False
+
+
+def _stash_pop_if_needed(stashed: bool) -> None:
+    """Pop the most recent stash entry if *stashed* is True."""
+    if stashed:
+        _run(["git", "stash", "pop"])
+
+
 def create_branch(branch_name: str, base: str = "v2.1-dev") -> None:
     """Create and checkout a new branch off *base*.
 
+    Stashes uncommitted changes before switching and restores them after.
     Raises RuntimeError if the branch already exists.
     """
     if branch_exists(branch_name):
         raise RuntimeError(f"Branch '{branch_name}' already exists.")
+    stashed = _stash_if_dirty()
     _run(["git", "checkout", "-b", branch_name, base])
+    _stash_pop_if_needed(stashed)
 
 
 def checkout(branch_name: str) -> None:
     """Checkout an existing branch.
 
+    Stashes uncommitted changes before switching and restores them after.
     Raises RuntimeError if the branch does not exist.
     """
     if not branch_exists(branch_name):
         raise RuntimeError(f"Branch '{branch_name}' does not exist.")
+    stashed = _stash_if_dirty()
     _run(["git", "checkout", branch_name])
+    _stash_pop_if_needed(stashed)
 
 
 # Alias used by orchestrator_v1.py
