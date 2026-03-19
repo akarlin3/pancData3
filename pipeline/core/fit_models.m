@@ -143,8 +143,14 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
                 
                 % Linear regression: log(S/S0) = -b*D
                 A_matrix = [-b_high(:), ones(length(b_high), 1)];
-                adc_coeffs = (A_matrix' * A_matrix) \ (A_matrix' * log_s');
-                adc_initial_guess = max(adc_coeffs(1, :), 1e-5); % Ensure positive values
+                ATA = A_matrix' * A_matrix;
+                if rcond(ATA) < eps
+                    % Singular or near-singular (e.g., identical b-values); skip warm start
+                    adc_initial_guess = [];
+                else
+                    adc_coeffs = ATA \ (A_matrix' * log_s');
+                    adc_initial_guess = max(adc_coeffs(1, :), 1e-5); % Ensure positive values
+                end
                 adc_initial_guess = min(adc_initial_guess, 3e-3); % Cap at reasonable upper limit
             end
         end

@@ -77,7 +77,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     % NIfTI output directory: all converted volumes for this patient are stored
     % in a flat 'nii' subdirectory within the patient folder.
     outloc = fullfile(ctx.basefolder, 'nii');
-    if ~isfolder(outloc), mkdir(outloc); end
+    if ~isfolder(outloc)
+        [mk_status, mk_msg] = mkdir(outloc);
+        if mk_status ~= 1
+            error('process_single_scan:mkdirFailed', ...
+                'Cannot create output folder %s: %s', outloc, mk_msg);
+        end
+    end
 
     bad_dwi_found = 0;  % flag: set to 1 if any conversion/loading error occurs
     bad_list = {};       % accumulates DICOM paths that failed

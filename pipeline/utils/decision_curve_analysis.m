@@ -43,8 +43,8 @@ function results = decision_curve_analysis(y_true, y_pred_prob, thresholds, outp
     for i = 1:n_thresh
         pt = thresholds(i);
 
-        % Treat-all strategy
-        if pt < 1
+        % Treat-all strategy (guard floating-point near-unity thresholds)
+        if pt < 1 - eps
             net_benefit_treat_all(i) = prevalence - (1 - prevalence) * pt / (1 - pt);
         else
             net_benefit_treat_all(i) = 0;
@@ -54,7 +54,7 @@ function results = decision_curve_analysis(y_true, y_pred_prob, thresholds, outp
         pred_pos = y_pred_prob >= pt;
         tp = sum(pred_pos & y_true == 1);
         fp = sum(pred_pos & y_true == 0);
-        if pt < 1
+        if pt < 1 - eps
             net_benefit_model(i) = tp / n - fp / n * pt / (1 - pt);
         else
             net_benefit_model(i) = 0;
