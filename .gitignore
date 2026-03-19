@@ -70,4 +70,5 @@ unrelated
 
 # Configuration (contains local paths)
 config.json
+improvement_loop_log.json
 octave-workspace
