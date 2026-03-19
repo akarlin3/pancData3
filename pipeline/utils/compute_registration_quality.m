@@ -92,6 +92,30 @@ function mi = compute_mi(x, y)
         return;
     end
 
+    % Check variance to avoid undefined logarithms
+    if var(x) == 0 || var(y) == 0
+        if var(x) == 0 && var(y) == 0
+            % Both constant: perfect match if same value, no information otherwise
+            if all(x == y)
+                mi = Inf; % Perfect mutual information
+            else
+                mi = 0; % No mutual information
+            end
+        else
+            % One constant, one variable: no mutual information
+            mi = 0;
+        end
+        return;
+    end
+
+    % Check for sufficient dynamic range
+    x_range = max(x) - min(x);
+    y_range = max(y) - min(y);
+    if x_range < eps || y_range < eps
+        mi = NaN;
+        return;
+    end
+
     % Joint histogram
     x_edges = linspace(min(x), max(x) + eps, n_bins + 1);
     y_edges = linspace(min(y), max(y) + eps, n_bins + 1);
@@ -300,4 +324,27 @@ function test_small_volumes(testCase)
     verifyTrue(testCase, isfield(quality, 'jacobian_mean'));
     verifyTrue(testCase, isfield(quality, 'ncc'));
     verifyTrue(testCase, isfield(quality, 'mutual_information'));
+end
+
+function test_zero_variance_images(testCase)
+% Test mutual information calculation with zero variance images
+    vol_constant = ones(8, 8, 8) * 100;  % Zero variance
+    vol_variable = randn(8, 8, 8) * 50 + 100;  % Non-zero variance
+    vol_constant2 = ones(8, 8, 8) * 200;  % Different constant value
+    
+    % Test constant vs constant (same value)
+    quality1 = compute_registration_quality(vol_constant, vol_constant, []);
+    verifyTrue(testCase, isinf(quality1.mutual_information) || quality1.mutual_information > 0);
+    
+    % Test constant vs constant (different values)
+    quality2 = compute_registration_quality(vol_constant, vol_constant2, []);
+    verifyEqual(testCase, quality2.mutual_information, 0);
+    
+    % Test constant vs variable
+    quality3 = compute_registration_quality(vol_constant, vol_variable, []);
+    verifyEqual(testCase, quality3.mutual_information, 0);
+    
+    % Test variable vs constant
+    quality4 = compute_registration_quality(vol_variable, vol_constant, []);
+    verifyEqual(testCase, quality4.mutual_information, 0);
 end
