@@ -20,6 +20,8 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 %                    .baseline_adc_vec   - Baseline ADC voxel vector (for fDM)
 %                    .baseline_d_vec     - Baseline D voxel vector (for fDM)
 %                    .repeatability_cor  - Coefficient of Reproducibility (for fDM)
+%                    .voxel_dims         - [x,y,z] voxel dimensions in mm
+%                    .tumor_volume_mm3   - Total tumor volume in mm³
 %
 % Outputs:
 %   core_mask      - A 1D logical mask (same size as input vectors) where
@@ -28,7 +30,7 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
     if nargin < 8, opts = struct(); end
 
     % Validate inputs and get method-specific parameters
-    [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec);
+    [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec, gtv_mask_3d, opts);
     if valid_params.should_return_fallback
         core_mask = fallback_mask;
         return;
@@ -53,7 +55,7 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
     core_mask = handler(valid_params, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts);
 end
 
-function [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec)
+function [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec, gtv_mask_3d, opts)
     % Common parameter validation and preparation
     
     % Validate required config field
@@ -97,6 +99,97 @@ function [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc
     if isfield(config_struct, 'spectral_min_voxels'), valid_params.spectral_min_voxels = config_struct.spectral_min_voxels; end
     if isfield(config_struct, 'fdm_parameter'), valid_params.fdm_parameter = config_struct.fdm_parameter; end
     if isfield(config_struct, 'fdm_thresh'), valid_params.fdm_thresh = config_struct.fdm_thresh; end
+    
+    % Load morphological processing parameters with adaptive sizing
+    valid_params.morphology = get_morphology_params(config_struct, gtv_mask_3d, opts);
+end
+
+function morphology_params = get_morphology_params(config_struct, gtv_mask_3d, opts)
+    % Extract morphological processing parameters with adaptive sizing
+    
+    % Default configuration parameters
+    defaults = struct();
+    defaults.erosion_disk_radius = 2;
+    defaults.min_region_size = 50;
+    defaults.active_contour_iterations = 50;
+    defaults.region_growing_std_multiplier = 2.0;
+    defaults.enable_adaptive_sizing = true;
+    defaults.base_voxel_size_mm = 1.0;  % Reference voxel size for scaling
+    defaults.base_tumor_volume_mm3 = 8000;  % Reference tumor volume for scaling
+    
+    % Override with config values
+    morphology_params = defaults;
+    if isfield(config_struct, 'erosion_disk_radius')
+        morphology_params.erosion_disk_radius = config_struct.erosion_disk_radius;
+    end
+    if isfield(config_struct, 'min_region_size')
+        morphology_params.min_region_size = config_struct.min_region_size;
+    end
+    if isfield(config_struct, 'active_contour_iterations')
+        morphology_params.active_contour_iterations = config_struct.active_contour_iterations;
+    end
+    if isfield(config_struct, 'region_growing_std_multiplier')
+        morphology_params.region_growing_std_multiplier = config_struct.region_growing_std_multiplier;
+    end
+    if isfield(config_struct, 'enable_adaptive_sizing')
+        morphology_params.enable_adaptive_sizing = config_struct.enable_adaptive_sizing;
+    end
+    if isfield(config_struct, 'base_voxel_size_mm')
+        morphology_params.base_voxel_size_mm = config_struct.base_voxel_size_mm;
+    end
+    if isfield(config_struct, 'base_tumor_volume_mm3')
+        morphology_params.base_tumor_volume_mm3 = config_struct.base_tumor_volume_mm3;
+    end
+    
+    % Apply adaptive sizing if enabled
+    if morphology_params.enable_adaptive_sizing
+        morphology_params = apply_adaptive_sizing(morphology_params, gtv_mask_3d, opts);
+    end
+end
+
+function morphology_params = apply_adaptive_sizing(morphology_params, gtv_mask_3d, opts)
+    % Apply adaptive sizing based on voxel dimensions and tumor volume
+    
+    % Get voxel dimensions
+    voxel_dims = [1.0, 1.0, 1.0];  % Default 1mm isotropic
+    if isfield(opts, 'voxel_dims') && ~isempty(opts.voxel_dims)
+        voxel_dims = opts.voxel_dims;
+    end
+    
+    % Calculate effective voxel size (geometric mean of dimensions)
+    effective_voxel_size = (voxel_dims(1) * voxel_dims(2) * voxel_dims(3))^(1/3);
+    
+    % Get tumor volume
+    tumor_volume_mm3 = morphology_params.base_tumor_volume_mm3;  % Default
+    if isfield(opts, 'tumor_volume_mm3') && ~isempty(opts.tumor_volume_mm3)
+        tumor_volume_mm3 = opts.tumor_volume_mm3;
+    elseif ~isempty(gtv_mask_3d)
+        % Estimate volume from mask if not provided
+        voxel_volume = prod(voxel_dims);
+        tumor_volume_mm3 = sum(gtv_mask_3d(:)) * voxel_volume;
+    end
+    
+    % Calculate scaling factors
+    voxel_scale_factor = effective_voxel_size / morphology_params.base_voxel_size_mm;
+    volume_scale_factor = (tumor_volume_mm3 / morphology_params.base_tumor_volume_mm3)^(1/3);
+    
+    % Combined scaling factor (geometric mean)
+    combined_scale_factor = sqrt(voxel_scale_factor * volume_scale_factor);
+    
+    % Apply scaling with reasonable bounds
+    min_scale = 0.5;
+    max_scale = 3.0;
+    combined_scale_factor = max(min_scale, min(max_scale, combined_scale_factor));
+    
+    % Scale parameters
+    morphology_params.erosion_disk_radius = max(1, round(morphology_params.erosion_disk_radius * combined_scale_factor));
+    morphology_params.min_region_size = max(10, round(morphology_params.min_region_size * combined_scale_factor^3));
+    morphology_params.active_contour_iterations = max(10, round(morphology_params.active_contour_iterations * combined_scale_factor));
+    
+    % Store scaling info for debugging
+    morphology_params.applied_scale_factor = combined_scale_factor;
+    morphology_params.voxel_scale_factor = voxel_scale_factor;
+    morphology_params.volume_scale_factor = volume_scale_factor;
 end
 
 function core_mask = apply_fallback_threshold(valid_params, adc_vec)
@@ -231,7 +324,7 @@ function core_mask = handle_region_growing(valid_params, adc_vec, ~, ~, ~, has_3
         sorted_adc = sort(adc_vec(valid_idx));
         bot_10_idx = max(1, round(0.1 * length(sorted_adc)));
         bot_10 = sorted_adc(1:bot_10_idx);
-        tol_upper = mean(bot_10) + std(bot_10) * 2;
+        tol_upper = mean(bot_10) + std(bot_10) * valid_params.morphology.region_growing_std_multiplier;
         if isnan(tol_upper) || tol_upper == 0
             tol_upper = valid_params.adc_thresh;
         end
@@ -273,6 +366,11 @@ function core_mask = handle_region_growing(valid_params, adc_vec, ~, ~, ~, has_3
             end
         end
         
+        % Apply morphological post-processing to remove small regions
+        if sum(rg_mask(:)) > valid_params.morphology.min_region_size
+            rg_mask = apply_morphological_cleanup(rg_mask, valid_params.morphology);
+        end
+        
         % Map 3D region-grown mask back to 1D voxel vector
         core_mask = rg_mask(gtv_mask_3d == 1);
     end
@@ -312,7 +410,11 @@ function core_mask = handle_active_contours(valid_params, adc_vec, ~, ~, ~, has_
         norm_img = norm_img / max(norm_img(:));
 
         try
-            ac_mask = activecontour(norm_img, init_mask, 50, 'Chan-Vese');
+            ac_mask = activecontour(norm_img, init_mask, valid_params.morphology.active_contour_iterations, 'Chan-Vese');
+            
+            % Apply morphological post-processing
+            ac_mask = apply_morphological_cleanup(ac_mask, valid_params.morphology);
+            
             core_mask = ac_mask(gtv_mask_3d == 1);
         catch
             warning('extract_tumor_core:activeContourFailed', 'Active contour failed. Falling back to ADC threshold.');
@@ -453,3 +555,36 @@ function core_mask = handle_fdm(valid_params, adc_vec, d_vec, ~, ~, ~, ~, opts)
     delta = current_vec - baseline_vec;
     core_mask = delta <= -fdm_significance;
 end
+
+function clean_mask = apply_morphological_cleanup(input_mask, morphology_params)
+    % Apply morphological operations to clean up the mask
+    
+    clean_mask = input_mask;
+    
+    % Skip processing if mask is too small
+    if sum(clean_mask(:)) < morphology_params.min_region_size
+        return;
+    end
+    
+    % Create structuring element for morphological operations
+    se_radius = morphology_params.erosion_disk_radius;
+    if ndims(input_mask) == 3
+        se = strel('sphere', se_radius);
+    else
+        se = strel('disk', se_radius);
+    end
+    
+    try
+        % Light erosion followed by dilation to remove small connections
+        clean_mask = imerode(clean_mask, se);
+        clean_mask = imdilate(clean_mask, se);
+        
+        % Remove small connected components
+        if ndims(input_mask) == 3
+            cc = bwconncomp(clean_mask, 26);
+        else
+            cc = bwconncomp(clean_mask, 8);
+        end
+        
+        % Keep only regions above minimum size
+        for i = 1:cc.NumObjects
