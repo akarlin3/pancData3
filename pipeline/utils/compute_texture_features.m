@@ -265,9 +265,9 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
         features.glrlm_rp = NaN;
     end
 
-    % --- Shape features from binary mask ---
+    % --- Shape features from binary mask using regionprops3 ---
     [features.shape_volume, features.shape_surface_area, features.shape_sphericity, ...
-        features.shape_elongation, features.shape_compactness] = compute_shape_features(mask, voxel_spacing);
+        features.shape_elongation, features.shape_compactness] = compute_shape_features_optimized(mask, voxel_spacing);
 end
 
 
@@ -477,120 +477,119 @@ function [contrast_val, correlation_val, energy_val, homogeneity_val] = compute_
 end
 
 
-%% ===== 3D GLRLM computation (13 directions) =====
+%% ===== Optimized shape features using regionprops3 and vectorized methods =====
 
-function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
-%COMPUTE_GLRLM_3D  Gray-Level Run-Length Matrix features in 13 3D directions, averaged.
+function [volume, surface_area, sphericity, elongation, compactness] = compute_shape_features_optimized(mask, voxel_spacing)
+%COMPUTE_SHAPE_FEATURES_OPTIMIZED  Optimized shape features using regionprops3 and gradient-based surface area.
 %
-%   Scans lines through the 3D quantized volume for each of 13 unique
-%   directions: 3 axis-aligned, 6 face-diagonal, 4 body-diagonal.
-%   For each direction, records run lengths per gray level and computes
-%   SRE, LRE, GLN, RLN, RP.  Features are averaged across valid directions.
+%   Uses built-in regionprops3 for volume calculation and vectorized gradient-based
+%   method for surface area calculation to avoid O(n³) pixel iteration.
 
-    sz = size(quantized);
-    nrows = sz(1); ncols = sz(2); nslices = sz(3);
-    max_run = max([nrows, ncols, nslices]);
-
-    % 13 unique 3D directions: [dr, dc, ds]
-    directions = [
-        0  0  1;   % z-axis
-        0  1  0;   % y-axis
-        1  0  0;   % x-axis
-        0  1  1;   % yz face-diagonal
-        0  1 -1;   % yz face-diagonal
-        1  0  1;   % xz face-diagonal
-        1  0 -1;   % xz face-diagonal
-        1  1  0;   % xy face-diagonal
-        1 -1  0;   % xy face-diagonal
-        1  1  1;   % body diagonal
-        1  1 -1;   % body diagonal
-        1 -1  1;   % body diagonal
-        1 -1 -1;   % body diagonal
-    ];
-
-    % Pre-allocate feature arrays
-    sre_vals = zeros(13, 1);
-    lre_vals = zeros(13, 1);
-    gln_vals = zeros(13, 1);
-    rln_vals = zeros(13, 1);
-    rp_vals = zeros(13, 1);
-    valid_dirs = false(13, 1);
+    % Initialize default values
+    volume = NaN;
+    surface_area = NaN;
+    sphericity = NaN;
+    elongation = NaN;
+    compactness = NaN;
     
-    n_pixels = sum(mask(:));
-
-    for d = 1:size(directions, 1)
-        dr = directions(d, 1);
-        dc = directions(d, 2);
-        ds = directions(d, 3);
-
-        % Pre-allocate GLRLM matrix
-        rlm = zeros(n_levels, max_run);
-        total_runs = 0;
-
-        % Find starting positions using vectorized approach
-        starts = find_3d_starts_vectorized(nrows, ncols, nslices, dr, dc, ds);
-
-        for si = 1:size(starts, 1)
-            r = starts(si, 1);
-            c = starts(si, 2);
-            s = starts(si, 3);
-            run_len = 0;
-            run_val = 0;
-
-            while r >= 1 && r <= nrows && c >= 1 && c <= ncols && s >= 1 && s <= nslices
-                pix = quantized(r, c, s);
-                in_mask = mask(r, c, s);
-
-                if in_mask && pix > 0
-                    if pix == run_val
-                        run_len = run_len + 1;
-                    else
-                        if run_len > 0 && run_val > 0
-                            rl = min(run_len, max_run);
-                            rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                            total_runs = total_runs + 1;
-                        end
-                        run_val = pix;
-                        run_len = 1;
-                    end
-                else
-                    if run_len > 0 && run_val > 0
-                        rl = min(run_len, max_run);
-                        rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                        total_runs = total_runs + 1;
-                    end
-                    run_val = 0;
-                    run_len = 0;
-                end
-                r = r + dr;
-                c = c + dc;
-                s = s + ds;
+    % Check if mask is empty or all zeros
+    if ~any(mask(:))
+        return;
+    end
+    
+    % Ensure mask is logical
+    mask = logical(mask);
+    
+    % Handle 2D vs 3D cases
+    is_3d = ndims(mask) == 3 && size(mask, 3) > 1;
+    
+    if is_3d
+        dx = voxel_spacing(1);
+        dy = voxel_spacing(2);
+        dz = voxel_spacing(3);
+        voxel_volume = dx * dy * dz;
+    else
+        dx = voxel_spacing(1);
+        dy = voxel_spacing(2);
+        voxel_area = dx * dy;
+    end
+    
+    % Try using regionprops3 for 3D volumes or regionprops for 2D
+    if is_3d && license('test', 'image_toolbox') && exist('regionprops3', 'file') == 2
+        try
+            % Use regionprops3 for efficient volume calculation
+            props = regionprops3(mask, 'Volume');
+            if ~isempty(props) && height(props) >= 1
+                volume = props.Volume(1) * voxel_volume;
+            else
+                volume = sum(mask(:)) * voxel_volume;
             end
-            % End of line: record final run
-            if run_len > 0 && run_val > 0
-                rl = min(run_len, max_run);
-                rlm(run_val, rl) = rlm(run_val, rl) + 1;
-                total_runs = total_runs + 1;
+            
+            % Compute surface area using gradient-based edge detection
+            surface_area = compute_surface_area_gradient(mask, voxel_spacing);
+            
+        catch ME_regionprops3
+            warning('compute_texture_features:regionprops3Failed', ...
+                'regionprops3 failed (%s), using manual calculation', ME_regionprops3.message);
+            % Fallback to manual calculation
+            volume = sum(mask(:)) * voxel_volume;
+            surface_area = compute_surface_area_gradient(mask, voxel_spacing);
+        end
+    elseif ~is_3d && license('test', 'image_toolbox') && exist('regionprops', 'file') == 2
+        try
+            % Use regionprops for 2D area calculation
+            props = regionprops(mask, 'Area');
+            if ~isempty(props)
+                volume = props(1).Area * voxel_area; % 2D "volume" is area
+            else
+                volume = sum(mask(:)) * voxel_area;
             end
+            
+            % For 2D, "surface area" is perimeter
+            perim_props = regionprops(mask, 'Perimeter');
+            if ~isempty(perim_props)
+                surface_area = perim_props(1).Perimeter * sqrt(dx * dy);
+            else
+                surface_area = compute_perimeter_2d(mask, dx, dy);
+            end
+            
+        catch ME_regionprops
+            warning('compute_texture_features:regionpropsFailed', ...
+                'regionprops failed (%s), using manual calculation', ME_regionprops.message);
+            % Fallback to manual calculation
+            volume = sum(mask(:)) * voxel_area;
+            surface_area = compute_perimeter_2d(mask, dx, dy);
         end
-
-        if total_runs == 0
-            continue;
+    else
+        % Manual calculation for systems without Image Processing Toolbox
+        if is_3d
+            volume = sum(mask(:)) * voxel_volume;
+            surface_area = compute_surface_area_gradient(mask, voxel_spacing);
+        else
+            volume = sum(mask(:)) * voxel_area;
+            surface_area = compute_perimeter_2d(mask, dx, dy);
         end
-        valid_dirs(d) = true;
+    end
+    
+    % Calculate sphericity and compactness
+    if ~isnan(volume) && ~isnan(surface_area) && volume > 0 && surface_area > 0
+        if is_3d
+            % 3D sphericity: (36π * V²)^(1/3) / A
+            sphericity = ((36 * pi * volume^2)^(1/3)) / surface_area;
+            % 3D compactness: A³ / (36π * V²)
+            compactness = (surface_area^3) / (36 * pi * volume^2);
+        else
+            % 2D sphericity: 2√(π * A) / P
+            sphericity = (2 * sqrt(pi * volume)) / surface_area;
+            % 2D compactness: P² / (4π * A)
+            compactness = (surface_area^2) / (4 * pi * volume);
+        end
+    end
+    
+    % Calculate elongation using covariance matrix eigenvalues
+    elongation = compute_elongation_optimized(mask, voxel_spacing);
+end
 
-        % Vectorized GLRLM feature computation
-        n_r = total_runs;
-        run_lengths = 1:max_run;
-        
-        % Short Run Emphasis - vectorized
-        run_weights = 1 ./ (run_lengths.^2);
-        col_sums = sum(rlm, 1);
-        sre_vals(d) = sum(col_sums .* run_weights) / n_r;
 
-        % Long Run Emphasis - vectorized
-        run_weights_lre = run_lengths.^2;
-        lre_vals(d) = sum(col_sums .* run_weights_lre) / n_r;
-
-        % Gray-Level Non-Uniformity - vectorized
-        gi_sums = sum(rlm, 2
+function surface_area = compute_surface_area_gradient(mask, voxel_spacing)
+%COMPUTE_
