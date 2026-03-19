@@ -9,7 +9,7 @@ from pydantic import ValidationError
 # Ensure the repo root is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from evaluator import Finding, should_continue_loop  # type: ignore
+from improvement_loop.evaluator import Finding, should_continue_loop  # type: ignore
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

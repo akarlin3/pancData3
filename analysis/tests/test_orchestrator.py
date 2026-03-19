@@ -8,8 +8,8 @@ from unittest.mock import patch, MagicMock
 # Add repo root so orchestrator_v1 and loop_tracker are importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-import loop_tracker  # noqa: E402
-import orchestrator_v1  # noqa: E402
+from improvement_loop import loop_tracker  # noqa: E402
+from improvement_loop import orchestrator_v1  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

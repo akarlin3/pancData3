@@ -9,7 +9,7 @@ import pytest
 # Ensure repo root is importable
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 
-import git_utils  # noqa: E402
+from improvement_loop import git_utils  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +89,10 @@ class TestRunPythonTests:
             mock_run.return_value = subprocess.CompletedProcess([], 0)
             git_utils.run_python_tests()
             args = mock_run.call_args[0][0]
-            assert "pytest" in args[-4]
-            assert args[-3:] == ["analysis/tests/", "-q", "--tb=short"]
+            assert any("pytest" in a for a in args)
+            assert "analysis/tests/" in args
+            assert "-q" in args
+            assert "--tb=short" in args
 
 
 # ---------------------------------------------------------------------------
@@ -99,13 +101,13 @@ class TestRunPythonTests:
 
 class TestCreateBranch:
     def test_raises_if_branch_exists(self):
-        with mock.patch("git_utils.branch_exists", return_value=True):
+        with mock.patch("improvement_loop.git_utils.branch_exists", return_value=True):
             with pytest.raises(RuntimeError, match="already exists"):
                 git_utils.create_branch("existing-branch")
 
     def test_calls_checkout_b(self):
-        with mock.patch("git_utils.branch_exists", return_value=False):
-            with mock.patch("git_utils._run") as mock_run:
+        with mock.patch("improvement_loop.git_utils.branch_exists", return_value=False):
+            with mock.patch("improvement_loop.git_utils._run") as mock_run:
                 mock_run.return_value = subprocess.CompletedProcess([], 0)
                 git_utils.create_branch("new-branch", base="main")
                 mock_run.assert_called_once_with(
@@ -119,13 +121,13 @@ class TestCreateBranch:
 
 class TestCheckout:
     def test_raises_if_branch_missing(self):
-        with mock.patch("git_utils.branch_exists", return_value=False):
+        with mock.patch("improvement_loop.git_utils.branch_exists", return_value=False):
             with pytest.raises(RuntimeError, match="does not exist"):
                 git_utils.checkout("nonexistent")
 
     def test_calls_git_checkout(self):
-        with mock.patch("git_utils.branch_exists", return_value=True):
-            with mock.patch("git_utils._run") as mock_run:
+        with mock.patch("improvement_loop.git_utils.branch_exists", return_value=True):
+            with mock.patch("improvement_loop.git_utils._run") as mock_run:
                 mock_run.return_value = subprocess.CompletedProcess([], 0)
                 git_utils.checkout("my-branch")
                 mock_run.assert_called_once_with(["git", "checkout", "my-branch"])
@@ -140,8 +142,8 @@ class TestSwitchBranch:
         assert git_utils.switch_branch is git_utils.checkout
 
     def test_calls_git_checkout(self):
-        with mock.patch("git_utils.branch_exists", return_value=True):
-            with mock.patch("git_utils._run") as mock_run:
+        with mock.patch("improvement_loop.git_utils.branch_exists", return_value=True):
+            with mock.patch("improvement_loop.git_utils._run") as mock_run:
                 mock_run.return_value = subprocess.CompletedProcess([], 0)
                 git_utils.switch_branch("my-branch")
                 mock_run.assert_called_once_with(["git", "checkout", "my-branch"])
@@ -160,12 +162,12 @@ class TestMergeBranch:
                 )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        with mock.patch("git_utils._run", side_effect=side_effect):
+        with mock.patch("improvement_loop.git_utils._run", side_effect=side_effect):
             with pytest.raises(RuntimeError, match="Merge conflict"):
                 git_utils.merge_branch("feat", target="main")
 
     def test_deletes_source_by_default(self):
-        with mock.patch("git_utils._run") as mock_run:
+        with mock.patch("improvement_loop.git_utils._run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 [], 0, stdout="", stderr=""
             )
@@ -174,7 +176,7 @@ class TestMergeBranch:
             assert ["git", "branch", "-d", "feat"] in calls
 
     def test_skips_delete_when_false(self):
-        with mock.patch("git_utils._run") as mock_run:
+        with mock.patch("improvement_loop.git_utils._run") as mock_run:
             mock_run.return_value = subprocess.CompletedProcess(
                 [], 0, stdout="", stderr=""
             )
@@ -192,7 +194,7 @@ class TestCommitAll:
         def side_effect(args, *, check=True):
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        with mock.patch("git_utils._run", side_effect=side_effect) as mock_run:
+        with mock.patch("improvement_loop.git_utils._run", side_effect=side_effect) as mock_run:
             git_utils.commit_all("msg")
             calls = [c.args[0] for c in mock_run.call_args_list]
             assert ["git", "commit", "-m", "msg"] not in calls
@@ -205,7 +207,7 @@ class TestCommitAll:
                 )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        with mock.patch("git_utils._run", side_effect=side_effect) as mock_run:
+        with mock.patch("improvement_loop.git_utils._run", side_effect=side_effect) as mock_run:
             git_utils.commit_all("my message")
             calls = [c.args[0] for c in mock_run.call_args_list]
             assert ["git", "commit", "-m", "my message"] in calls
