@@ -127,6 +127,10 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     end
     % Trim scan_days to the number of timepoints actually available in the
     % data.  Some cohorts may have fewer scans than the full schedule.
+    if length(scan_days) > nTp
+        fprintf('  💡 build_td_panel: trimming scan_days from %d to %d entries (nTp).\n', ...
+            length(scan_days), nTp);
+    end
     scan_days = scan_days(1:nTp);
 
     % Remove NaN entries (fractions with no valid scan dates) while

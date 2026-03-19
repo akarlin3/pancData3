@@ -324,7 +324,11 @@ function core_mask = handle_region_growing(valid_params, adc_vec, ~, ~, ~, has_3
         sorted_adc = sort(adc_vec(valid_idx));
         bot_10_idx = max(1, round(0.1 * length(sorted_adc)));
         bot_10 = sorted_adc(1:bot_10_idx);
-        tol_upper = mean(bot_10) + std(bot_10) * valid_params.morphology.region_growing_std_multiplier;
+        if length(bot_10) < 2
+            tol_upper = valid_params.adc_thresh;
+        else
+            tol_upper = mean(bot_10) + std(bot_10) * valid_params.morphology.region_growing_std_multiplier;
+        end
         if isnan(tol_upper) || tol_upper == 0
             tol_upper = valid_params.adc_thresh;
         end
@@ -405,9 +409,20 @@ function core_mask = handle_active_contours(valid_params, adc_vec, ~, ~, ~, has_
         init_mask(adc_map_3d <= valid_params.adc_thresh) = true;
         
         max_adc = max(adc_vec);
+        if isnan(max_adc) || max_adc == 0
+            warning('extract_tumor_core:nanMaxAdc', 'All-NaN or zero ADC values. Falling back to ADC threshold.');
+            core_mask = apply_fallback_threshold(valid_params, adc_vec);
+            return;
+        end
         norm_img = zeros(size(gtv_mask_3d));
         norm_img(gtv_mask_3d == 1) = max_adc - adc_vec;
-        norm_img = norm_img / max(norm_img(:));
+        norm_max = max(norm_img(:));
+        if norm_max == 0 || isnan(norm_max)
+            warning('extract_tumor_core:constantAdc', 'Constant ADC within GTV. Falling back to ADC threshold.');
+            core_mask = apply_fallback_threshold(valid_params, adc_vec);
+            return;
+        end
+        norm_img = norm_img / norm_max;
 
         try
             ac_mask = activecontour(norm_img, init_mask, valid_params.morphology.active_contour_iterations, 'Chan-Vese');

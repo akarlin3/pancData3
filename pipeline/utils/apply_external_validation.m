@@ -79,12 +79,19 @@ function results = apply_external_validation(model_path, external_data_path, con
     for f = 1:n_feat
         if sigma(f) > 0
             X_scaled(:, f) = (X_scaled(:, f) - mu(f)) / sigma(f);
+        else
+            % Zero-variance feature: center only (matches training behavior)
+            X_scaled(:, f) = X_scaled(:, f) - mu(f);
         end
     end
 
-    % Handle missing features
+    % Handle missing features — use zero (= training mean in z-score space)
+    % rather than raw zeros, which is correct since features are already scaled
     if n_feat < n_expected
         X_scaled = [X_scaled, zeros(size(X_scaled, 1), n_expected - n_feat)];
+        warning('apply_external_validation:paddedFeatures', ...
+            'Padded %d missing features with zeros (training mean in z-score space).', ...
+            n_expected - n_feat);
     end
 
     % Apply model

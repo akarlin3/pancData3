@@ -81,7 +81,13 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     % Use the first violating covariate as the stratification variable
     strat_idx = violated_idx(1);
     strat_vals = X_td(:, strat_idx);
-    med_val = median(strat_vals(isfinite(strat_vals)));
+    finite_strat = strat_vals(isfinite(strat_vals));
+    if isempty(finite_strat)
+        fprintf('  ⚠️  No finite values for stratification variable %s. Skipping.\n', ...
+            covariate_names{strat_idx});
+        return;
+    end
+    med_val = median(finite_strat);
     strat_group = double(strat_vals >= med_val);  % 0=below, 1=above median
 
     % Covariates: all except the stratified one
@@ -169,7 +175,7 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
         else
             t_mid = (t_start_stable + t_stop_stable) / 2;
         end
-        t_mid(t_mid <= 0) = 0.5;  % avoid log(0)
+        t_mid(t_mid <= 0) = 1;  % avoid log(0); use 1 day as minimum
         log_time = log(t_mid);
         interaction_term = X_stable(:, cov_idx) .* log_time;
 
@@ -397,7 +403,7 @@ function t_adj = calculate_truncation_adjusted_time(t_start, t_stop)
     
     % For left-truncated data, adjust the time scale to account for
     % conditional survival (surviving to entry time)
-    entry_weight = t_start ./ (t_stop + eps);  % Relative entry delay
+    entry_weight = t_start ./ max(t_stop, 1);  % Relative entry delay
     t_adj = t_mid .* (1 + 0.5 * entry_weight);  % Upweight later entries
     
     % Ensure positive times

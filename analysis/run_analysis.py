@@ -119,8 +119,16 @@ class TeeWriter:
         return hasattr(self.terminal, "isatty") and self.terminal.isatty()
 
     def fileno(self) -> int:
-        """Delegate fileno to the terminal stream (for subprocess piping)."""
-        return self.terminal.fileno()
+        """Delegate fileno to the terminal stream (for subprocess piping).
+
+        Raises OSError when the terminal stream lacks a file descriptor
+        (e.g., StringIO during pytest capture), matching the standard
+        io.UnsupportedOperation behavior.
+        """
+        try:
+            return self.terminal.fileno()
+        except (AttributeError, OSError):
+            raise OSError("TeeWriter: underlying stream has no fileno")
 
 
 def _check_requirements() -> bool:

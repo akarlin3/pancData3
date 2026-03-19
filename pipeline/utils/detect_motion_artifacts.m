@@ -42,6 +42,17 @@ function motion = detect_motion_artifacts(dwi_4d, b_values, mask)
         motion.noise_floor = 0;
     end
 
+    % Guard: zero noise floor (empty background) makes dropout_threshold = 0,
+    % which flags all voxels as dropout. Use a small positive floor instead.
+    if motion.noise_floor == 0
+        % Estimate from masked signal as fallback
+        b0_masked = b0_vol(mask);
+        b0_finite = b0_masked(isfinite(b0_masked) & b0_masked > 0);
+        if ~isempty(b0_finite)
+            motion.noise_floor = 0.01 * median(b0_finite);
+        end
+    end
+
     dropout_threshold = 2 * motion.noise_floor;
 
     % Load b=0 reference volume once and extract masked values

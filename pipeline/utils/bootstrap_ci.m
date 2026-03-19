@@ -103,18 +103,6 @@ function [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, metric_fn, n_boot, alpha
         return;
     end
 
-    % Check if statistic is constant across all bootstrap samples
-    if all(boot_valid == boot_valid(1))
-        % Fall back to percentile method when statistic is constant
-        boot_sorted = sort(boot_valid);
-        n_valid = length(boot_sorted);
-        p_lo = alpha / 2;
-        p_hi = 1 - alpha / 2;
-        ci_lo = boot_sorted(max(1, round(p_lo * n_valid)));
-        ci_hi = boot_sorted(min(n_valid, round(p_hi * n_valid)));
-        return;
-    end
-
     % --- BCa correction ---
 
     % Bias correction factor z0
@@ -149,34 +137,22 @@ function [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, metric_fn, n_boot, alpha
     z_alpha_lo = norminv(alpha / 2);
     z_alpha_hi = norminv(1 - alpha / 2);
 
-    % Lower percentile
+    % BCa adjusted percentiles — fall back to simple percentile if either
+    % denominator is zero (degenerate acceleration parameter).
     num_lo = z0 + z_alpha_lo;
     den_lo = 1 - a_hat * num_lo;
-    if den_lo == 0
-        % Fall back to percentile method when BCa parameters cannot be computed
+    num_hi = z0 + z_alpha_hi;
+    den_hi = 1 - a_hat * num_hi;
+    if den_lo == 0 || den_hi == 0
         boot_sorted = sort(boot_valid);
         n_valid = length(boot_sorted);
         p_lo = alpha / 2;
         p_hi = 1 - alpha / 2;
-        ci_lo = boot_sorted(max(1, round(p_lo * n_valid)));
-        ci_hi = boot_sorted(min(n_valid, round(p_hi * n_valid)));
+        ci_lo = boot_sorted(max(1, min(n_valid, round(p_lo * n_valid))));
+        ci_hi = boot_sorted(max(1, min(n_valid, round(p_hi * n_valid))));
         return;
     end
     adj_lo = normcdf(z0 + num_lo / den_lo);
-    
-    % Upper percentile
-    num_hi = z0 + z_alpha_hi;
-    den_hi = 1 - a_hat * num_hi;
-    if den_hi == 0
-        % Fall back to percentile method when BCa parameters cannot be computed
-        boot_sorted = sort(boot_valid);
-        n_valid = length(boot_sorted);
-        p_lo = alpha / 2;
-        p_hi = 1 - alpha / 2;
-        ci_lo = boot_sorted(max(1, round(p_lo * n_valid)));
-        ci_hi = boot_sorted(min(n_valid, round(p_hi * n_valid)));
-        return;
-    end
     adj_hi = normcdf(z0 + num_hi / den_hi);
 
     % Clamp to [0.005, 0.995] to avoid extreme quantiles
@@ -185,6 +161,6 @@ function [ci_lo, ci_hi, boot_dist] = bootstrap_ci(data, metric_fn, n_boot, alpha
 
     boot_sorted = sort(boot_valid);
     n_valid = length(boot_sorted);
-    ci_lo = boot_sorted(max(1, round(adj_lo * n_valid)));
-    ci_hi = boot_sorted(min(n_valid, round(adj_hi * n_valid)));
+    ci_lo = boot_sorted(max(1, min(n_valid, round(adj_lo * n_valid))));
+    ci_hi = boot_sorted(max(1, min(n_valid, round(adj_hi * n_valid))));
 end
