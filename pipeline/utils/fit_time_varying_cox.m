@@ -57,6 +57,27 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
 
     fprintf('  PH violations detected for: %s\n', strjoin(violated_names, ', '));
 
+    % --- Validate time-dependent covariate alignment ---
+    fprintf('  📊 Validating time-dependent covariate alignment...\n');
+    [X_td_validated, validation_report] = validate_time_dependent_covariates(X_td, ...
+        t_start, t_stop, event_csh, covariate_names);
+    
+    if validation_report.has_issues
+        fprintf('  ⚠️  Time-dependent covariate issues detected:\n');
+        for i = 1:length(validation_report.issues)
+            fprintf('     - %s\n', validation_report.issues{i});
+        end
+        if validation_report.severe_issues
+            fprintf('  ❌ Severe issues prevent reliable model fitting. Aborting.\n');
+            return;
+        end
+    else
+        fprintf('  ✓ Time-dependent covariates properly aligned.\n');
+    end
+    
+    % Use validated covariates for subsequent analysis
+    X_td = X_td_validated;
+
     % --- Set minimum event threshold per time period ---
     min_events_per_period = 10;
     if isfield(config_struct, 'min_events_per_period') && ~isempty(config_struct.min_events_per_period)
@@ -362,6 +383,245 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     end
 end
 
+function [X_validated, report] = validate_time_dependent_covariates(X_td, t_start, t_stop, ...
+    event_csh, covariate_names)
+% Validate time-dependent covariate alignment and handle missing data
+
+    [n_intervals, n_feat] = size(X_td);
+    X_validated = X_td;
+    
+    report = struct();
+    report.has_issues = false;
+    report.severe_issues = false;
+    report.issues = {};
+    
+    % Check for missing covariate values
+    missing_mask = isnan(X_td) | isinf(X_td);
+    missing_prop = sum(missing_mask, 1) / n_intervals;
+    
+    % Flag variables with excessive missing data
+    severe_missing_threshold = 0.2;  % 20% missing
+    moderate_missing_threshold = 0.05; % 5% missing
+    
+    severe_missing_vars = find(missing_prop > severe_missing_threshold);
+    moderate_missing_vars = find(missing_prop > moderate_missing_threshold & ...
+                                missing_prop <= severe_missing_threshold);
+    
+    if ~isempty(severe_missing_vars)
+        report.has_issues = true;
+        report.severe_issues = true;
+        for i = 1:length(severe_missing_vars)
+            var_idx = severe_missing_vars(i);
+            issue_msg = sprintf('Covariate "%s" has %.1f%% missing values (> %.1f%% threshold)', ...
+                covariate_names{var_idx}, missing_prop(var_idx)*100, ...
+                severe_missing_threshold*100);
+            report.issues{end+1} = issue_msg;
+        end
+        return; % Cannot proceed with severe missing data
+    end
+    
+    if ~isempty(moderate_missing_vars)
+        report.has_issues = true;
+        for i = 1:length(moderate_missing_vars)
+            var_idx = moderate_missing_vars(i);
+            issue_msg = sprintf('Covariate "%s" has %.1f%% missing values (> %.1f%% threshold)', ...
+                covariate_names{var_idx}, missing_prop(var_idx)*100, ...
+                moderate_missing_threshold*100);
+            report.issues{end+1} = issue_msg;
+        end
+    end
+    
+    % Check temporal alignment - ensure covariate values are available at event times
+    unique_event_times = unique(t_stop(event_csh == 1));
+    n_events = length(unique_event_times);
+    
+    if n_events > 0
+        % Check if covariate values are available at event times
+        for i = 1:n_feat
+            event_time_coverage = 0;
+            for j = 1:n_events
+                event_time = unique_event_times(j);
+                
+                % Find intervals that cover this event time
+                covering_intervals = (t_start <= event_time) & (t_stop >= event_time);
+                
+                % Check if covariate is available in covering intervals
+                if any(covering_intervals)
+                    available_values = ~missing_mask(covering_intervals, i);
+                    if any(available_values)
+                        event_time_coverage = event_time_coverage + 1;
+                    end
+                end
+            end
+            
+            coverage_prop = event_time_coverage / n_events;
+            if coverage_prop < 0.8  % 80% coverage threshold
+                report.has_issues = true;
+                if coverage_prop < 0.5  % Severe: <50% coverage
+                    report.severe_issues = true;
+                end
+                issue_msg = sprintf('Covariate "%s" available at only %.1f%% of event times', ...
+                    covariate_names{i}, coverage_prop*100);
+                report.issues{end+1} = issue_msg;
+            end
+        end
+    end
+    
+    % Handle missing covariate data appropriately
+    if any(missing_mask(:))
+        X_validated = handle_missing_covariate_data(X_td, t_start, t_stop, ...
+            event_csh, missing_mask);
+        
+        if ~report.has_issues
+            report.has_issues = true;
+        end
+        report.issues{end+1} = sprintf('Applied missing data imputation to %d values', ...
+            sum(missing_mask(:)));
+    end
+    
+    % Check for temporal consistency in time-varying covariates
+    temporal_consistency_issues = check_temporal_consistency(X_validated, t_start, t_stop, ...
+        covariate_names);
+    
+    if ~isempty(temporal_consistency_issues)
+        report.has_issues = true;
+        report.issues = [report.issues, temporal_consistency_issues];
+    end
+    
+    % Validate covariate ranges and detect outliers at event times
+    outlier_issues = check_event_time_outliers(X_validated, t_start, t_stop, ...
+        event_csh, covariate_names);
+    
+    if ~isempty(outlier_issues)
+        report.has_issues = true;
+        report.issues = [report.issues, outlier_issues];
+    end
+end
+
+function X_imputed = handle_missing_covariate_data(X_td, t_start, t_stop, ...
+    event_csh, missing_mask)
+% Handle missing covariate data using temporal interpolation and forward fill
+
+    [n_intervals, n_feat] = size(X_td);
+    X_imputed = X_td;
+    
+    for feat_idx = 1:n_feat
+        if any(missing_mask(:, feat_idx))
+            % Strategy 1: Forward fill within subjects (if subject IDs available)
+            % For now, use temporal interpolation across intervals
+            
+            missing_indices = find(missing_mask(:, feat_idx));
+            available_indices = find(~missing_mask(:, feat_idx));
+            
+            if ~isempty(available_indices)
+                % Use temporal interpolation based on interval mid-points
+                available_times = (t_start(available_indices) + t_stop(available_indices)) / 2;
+                available_values = X_td(available_indices, feat_idx);
+                missing_times = (t_start(missing_indices) + t_stop(missing_indices)) / 2;
+                
+                % Interpolate/extrapolate missing values
+                if length(available_values) >= 2
+                    % Use linear interpolation/extrapolation
+                    imputed_values = interp1(available_times, available_values, ...
+                        missing_times, 'linear', 'extrap');
+                else
+                    % Single value: use for all missing
+                    imputed_values = repmat(available_values(1), length(missing_indices), 1);
+                end
+                
+                X_imputed(missing_indices, feat_idx) = imputed_values;
+            else
+                % No available values - use median imputation
+                overall_median = median(X_td(:, feat_idx), 'omitnan');
+                if isnan(overall_median)
+                    overall_median = 0;  % Last resort
+                end
+                X_imputed(missing_indices, feat_idx) = overall_median;
+            end
+        end
+    end
+end
+
+function issues = check_temporal_consistency(X_td, t_start, t_stop, covariate_names)
+% Check for temporal consistency in covariate values
+
+    issues = {};
+    [n_intervals, n_feat] = size(X_td);
+    
+    for feat_idx = 1:n_feat
+        values = X_td(:, feat_idx);
+        
+        % Check for extreme jumps in covariate values over time
+        % Sort by time and check for discontinuities
+        [~, time_order] = sort((t_start + t_stop) / 2);
+        sorted_values = values(time_order);
+        
+        % Calculate differences between consecutive time points
+        if length(sorted_values) > 1
+            value_diffs = diff(sorted_values);
+            value_range = range(sorted_values);
+            
+            if value_range > 0
+                % Flag jumps larger than 50% of the total range
+                large_jumps = abs(value_diffs) > 0.5 * value_range;
+                
+                if any(large_jumps)
+                    n_jumps = sum(large_jumps);
+                    jump_prop = n_jumps / (length(sorted_values) - 1);
+                    
+                    if jump_prop > 0.1  % More than 10% of transitions are large jumps
+                        issue_msg = sprintf('Covariate "%s" shows %d large temporal jumps (%.1f%% of transitions)', ...
+                            covariate_names{feat_idx}, n_jumps, jump_prop*100);
+                        issues{end+1} = issue_msg;
+                    end
+                end
+            end
+        end
+    end
+end
+
+function issues = check_event_time_outliers(X_td, t_start, t_stop, event_csh, covariate_names)
+% Check for outliers specifically at event times
+
+    issues = {};
+    [n_intervals, n_feat] = size(X_td);
+    
+    % Get event intervals
+    event_intervals = find(event_csh == 1);
+    
+    if isempty(event_intervals)
+        return;
+    end
+    
+    for feat_idx = 1:n_feat
+        all_values = X_td(:, feat_idx);
+        event_values = all_values(event_intervals);
+        
+        % Calculate outlier bounds using IQR method
+        q25 = prctile(all_values, 25);
+        q75 = prctile(all_values, 75);
+        iqr = q75 - q25;
+        
+        if iqr > 0
+            lower_bound = q25 - 3 * iqr;  % 3x IQR for extreme outliers
+            upper_bound = q75 + 3 * iqr;
+            
+            outlier_mask = (event_values < lower_bound) | (event_values > upper_bound);
+            n_outliers = sum(outlier_mask);
+            
+            if n_outliers > 0
+                outlier_prop = n_outliers / length(event_values);
+                
+                if outlier_prop > 0.05  % More than 5% outliers at event times
+                    issue_msg = sprintf('Covariate "%s" has %d extreme outliers at event times (%.1f%%)', ...
+                        covariate_names{feat_idx}, n_outliers, outlier_prop*100);
+                    issues{end+1} = issue_msg;
+                end
+            end
+        end
+    end
+end
+
 function is_left_truncated = check_left_truncation(t_start, t_stop)
     % Check if data has meaningful left-truncation (delayed entry)
     
@@ -396,203 +656,3 @@ function t_adj = calculate_truncation_adjusted_time(t_start, t_stop)
     t_mid = (t_start + t_stop) / 2;
     
     % For left-truncated data, adjust the time scale to account for
-    % conditional survival (surviving to entry time)
-    entry_weight = t_start ./ (t_stop + eps);  % Relative entry delay
-    t_adj = t_mid .* (1 + 0.5 * entry_weight);  % Upweight later entries
-    
-    % Ensure positive times
-    t_adj = max(t_adj, 0.1);
-end
-
-function t_grid_adj = calculate_truncation_adjusted_time_grid(t_grid, t_start)
-    % Adjust time grid for plotting with left-truncation
-    
-    mean_entry = mean(t_start);
-    if mean_entry > 0
-        % Adjust grid to reflect conditional time scale
-        t_grid_adj = t_grid + 0.1 * mean_entry;
-    else
-        t_grid_adj = t_grid;
-    end
-end
-
-function [b, logl, H, stats] = fit_left_truncated_cox(X, time_intervals, event, strat_group, is_interaction)
-    % Fit Cox model with proper left-truncation handling
-    
-    t_start = time_intervals(:, 1);
-    t_stop = time_intervals(:, 2);
-    
-    try
-        % Adjust likelihood for left-truncation using counting process approach
-        % This is an approximation - full implementation would require custom likelihood
-        
-        % Weight observations by inverse of entry probability
-        entry_weights = calculate_left_truncation_weights(t_start, t_stop);
-        
-        if ~isempty(strat_group)
-            % Stratified model
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group, 'Frequency', entry_weights);
-        else
-            % Standard model with weights
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Frequency', entry_weights);
-        end
-        
-        % Adjust standard errors for left-truncation
-        if is_interaction && isfield(stats, 'se')
-            % Inflate SEs to account for truncation uncertainty
-            truncation_inflation = 1 + 0.2 * (std(t_start) / (mean(t_stop) + eps));
-            stats.se = stats.se * truncation_inflation;
-            
-            % Recalculate p-values with adjusted SEs
-            z_stats = abs(b ./ stats.se);
-            stats.p = 2 * (1 - normcdf(z_stats));
-        end
-        
-    catch ME
-        % Fallback to standard Cox if left-truncation adjustment fails
-        warning('Left-truncation adjustment failed: %s. Using standard Cox.', ME.message);
-        if ~isempty(strat_group)
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group);
-        else
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow');
-        end
-    end
-end
-
-function weights = calculate_left_truncation_weights(t_start, t_stop)
-    % Calculate weights to adjust for left-truncation bias
-    % Higher weights for observations with later entry times
-    
-    % Base weight: inverse probability of surviving to entry
-    max_start = max(t_start);
-    if max_start > 0
-        % Simple approximation: exponential survival to entry
-        entry_survival_prob = exp(-0.1 * t_start / max_start);
-        weights = 1 ./ (entry_survival_prob + 0.1);  % Avoid extreme weights
-    else
-        weights = ones(size(t_start));
-    end
-    
-    % Normalize weights
-    weights = weights / mean(weights);
-    
-    % Cap extreme weights
-    weights = min(weights, 5);  % Maximum weight = 5
-    weights = max(weights, 0.2); % Minimum weight = 0.2
-end
-
-function [b, logl, H, stats] = fit_penalized_left_truncated_cox(X, time_intervals, event, penalty_weight)
-    % Penalized Cox regression with left-truncation handling
-    
-    try
-        % First fit with left-truncation adjustment
-        [b_init, logl_init, H_init, stats_init] = fit_left_truncated_cox(X, time_intervals, event, [], true);
-        
-        % Apply penalization
-        n_coef = length(b_init);
-        penalty_matrix = penalty_weight * eye(n_coef);
-        
-        % Adjust coefficient estimates (simple shrinkage)
-        shrinkage_factor = 1 / (1 + penalty_weight);
-        b = b_init * shrinkage_factor;
-        
-        % Inflate standard errors for both penalization and truncation
-        stats = stats_init;
-        stats.se = stats_init.se * (1.5 / shrinkage_factor);  % Combined adjustment
-        
-        % Recalculate p-values
-        z_stats = abs(b ./ stats.se);
-        stats.p = 2 * (1 - normcdf(z_stats));
-        
-        % Approximate penalized likelihood
-        penalty_term = penalty_weight * sum(b.^2) / 2;
-        logl = logl_init - penalty_term;
-        H = H_init;
-        
-    catch
-        % Fallback to standard penalized Cox
-        [b, logl, H, stats] = fit_penalized_cox(X, time_intervals, event, penalty_weight);
-        % Additional inflation for truncation uncertainty
-        stats.se = stats.se * 1.3;
-        z_stats = abs(b ./ stats.se);
-        stats.p = 2 * (1 - normcdf(z_stats));
-    end
-end
-
-function [sparse_periods, stable_end] = check_event_density(t_stop, event_csh, min_events)
-    % Check for sparse events in later time periods
-    
-    max_time = max(t_stop);
-    n_periods = 10;  % Divide timeline into periods
-    period_bounds = linspace(0, max_time, n_periods + 1);
-    
-    sparse_periods = false;
-    stable_end = max_time;
-    
-    for i = 2:numel(period_bounds)
-        period_mask = t_stop > period_bounds(i-1) & t_stop <= period_bounds(i);
-        period_events = sum(event_csh(period_mask));
-        
-        if period_events < min_events
-            sparse_periods = true;
-            stable_end = period_bounds(i-1);
-            break;
-        end
-    end
-end
-
-function [b, logl, H, stats] = fit_penalized_cox(X, time_intervals, event, penalty_weight)
-    % Simple penalized Cox regression using iterative reweighting
-    
-    try
-        % Start with unpenalized fit
-        [b_init, logl_init, H_init, stats_init] = coxphfit(X, time_intervals, ...
-            'Censoring', event == 0, 'Ties', 'breslow');
-        
-        % Apply L2 penalty to coefficients
-        n_coef = length(b_init);
-        penalty_matrix = penalty_weight * eye(n_coef);
-        
-        % Adjust coefficient estimates (simple shrinkage)
-        shrinkage_factor = 1 / (1 + penalty_weight);
-        b = b_init * shrinkage_factor;
-        
-        % Inflate standard errors to reflect penalization
-        stats = stats_init;
-        stats.se = stats_init.se / shrinkage_factor;
-        
-        % Approximate penalized likelihood
-        penalty_term = penalty_weight * sum(b.^2) / 2;
-        logl = logl_init - penalty_term;
-        H = H_init;
-        
-    catch
-        % Fallback: use original estimates with inflated SEs
-        [b, logl, H, stats] = coxphfit(X, time_intervals, ...
-            'Censoring', event == 0, 'Ties', 'breslow');
-        stats.se = stats.se * 1.5;  % Conservative inflation
-    end
-end
-
-function [int_coef_smooth, base_coef_smooth] = apply_smoothing_constraint(int_coef, base_coef, ...
-    t_start, t_stop, event)
-    % Apply smoothing constraint to time-varying coefficients
-    
-    % Simple approach: shrink towards zero for interaction term
-    shrinkage_factor = 0.8;
-    int_coef_smooth = int_coef * shrinkage_factor;
-    
-    % Keep base coefficient less affected
-    base_coef_smooth = base_coef * 0.95;
-    
-    % Ensure reasonable bounds
-    int_coef_smooth = max(-2, min(2, int_coef_smooth));
-    base_coef_smooth = max(-3, min(3, base_coef_smooth));
-end
