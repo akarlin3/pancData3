@@ -8,12 +8,17 @@ signals that no further improvements are warranted.
 import argparse
 import json
 import os
+import time
+
 import anthropic  # type: ignore
 
 from . import loop_tracker
 from . import git_utils
 from .evaluator import Finding
 from typing import List
+
+MAX_API_RETRIES = 3
+RETRY_BASE_DELAY = 30.0  # seconds — rate limit window is per-minute
 
 # Repo root is one level up from this file's directory
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,28 +61,41 @@ cross-timepoint imputation, etc.).
 """
 
 
+def _api_call_with_retry(create_kwargs: dict) -> str:
+    """Call client.messages.create with rate-limit retry. Returns response text."""
+    for attempt in range(1, MAX_API_RETRIES + 1):
+        try:
+            response = client.messages.create(**create_kwargs)
+            return response.content[0].text
+        except anthropic.RateLimitError as e:
+            delay = RETRY_BASE_DELAY * attempt
+            print(f"    Rate limited (attempt {attempt}/{MAX_API_RETRIES}), "
+                  f"waiting {delay:.0f}s...")
+            time.sleep(delay)
+            if attempt == MAX_API_RETRIES:
+                raise
+        except anthropic.APIError:
+            raise
+    return ""  # unreachable
+
+
+# Max chars per file — keeps total prompt under ~20k tokens
+_MAX_FILE_CHARS = 8000
+
 def _collect_source_files() -> str:
     """Collect key source files as context for the audit."""
+    # Smaller focused set to stay under rate limits
     key_files = [
         "pipeline/run_dwi_pipeline.m",
-        "pipeline/execute_all_workflows.m",
-        "pipeline/core/load_dwi_data.m",
-        "pipeline/core/sanity_checks.m",
-        "pipeline/core/compute_summary_metrics.m",
-        "pipeline/core/metrics_baseline.m",
+        "pipeline/core/fit_models.m",
         "pipeline/core/metrics_survival.m",
         "pipeline/core/metrics_stats_predictive.m",
-        "pipeline/core/fit_models.m",
         "pipeline/utils/parse_config.m",
         "pipeline/utils/knn_impute_train_test.m",
-        "pipeline/utils/extract_tumor_core.m",
         "pipeline/utils/safe_load_mask.m",
         "pipeline/utils/escape_shell_arg.m",
-        "pipeline/utils/build_td_panel.m",
         "analysis/run_analysis.py",
         "analysis/shared.py",
-        "analysis/parsers/batch_graph_analysis.py",
-        "analysis/report/generate_report.py",
     ]
 
     parts = []
@@ -88,9 +106,8 @@ def _collect_source_files() -> str:
         try:
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            # Truncate very large files to avoid token limits
-            if len(content) > 15000:
-                content = content[:15000] + "\n... [truncated]"
+            if len(content) > _MAX_FILE_CHARS:
+                content = content[:_MAX_FILE_CHARS] + "\n... [truncated]"
             parts.append(f"=== {rel_path} ===\n{content}")
         except OSError:
             continue
@@ -109,13 +126,12 @@ def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
         "Return your findings as a JSON array."
     )
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
-        system=AUDIT_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
-    return response.content[0].text
+    return _api_call_with_retry({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 4096,
+        "system": AUDIT_SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": user_message}],
+    })
 
 
 def _parse_findings(audit_output: str, dry_run: bool) -> List[Finding]:
@@ -220,15 +236,15 @@ def _apply_single_fix(finding: Finding) -> None:
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         original_content = f.read()
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
-        system=(
+    new_content = _api_call_with_retry({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 8192,
+        "system": (
             "You are a code fixer. Given the original file and a description of the fix, "
             "return ONLY the complete updated file content. No markdown fences, no commentary, "
             "no explanation — just the raw file content ready to be written to disk."
         ),
-        messages=[{
+        "messages": [{
             "role": "user",
             "content": (
                 f"File: {finding.file}\n"
@@ -237,9 +253,7 @@ def _apply_single_fix(finding: Finding) -> None:
                 f"Original file content:\n{original_content}"
             ),
         }],
-    )
-
-    new_content = response.content[0].text
+    })
     with open(file_path, "w", encoding="utf-8", newline="") as f:
         f.write(new_content)
     print(f"    Updated {finding.file}")
