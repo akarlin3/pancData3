@@ -119,3 +119,156 @@ function results = decision_curve_analysis(y_true, y_pred_prob, thresholds, outp
         end
     end
 end
+
+function tests = test_decision_curve_analysis()
+    tests = functiontests(localfunctions);
+end
+
+function test_perfect_classifier(testCase)
+    % Test with perfect classifier - all positives have high probability, all negatives low
+    n_pos = 30;
+    n_neg = 70;
+    y_true = [ones(n_pos, 1); zeros(n_neg, 1)];
+    y_pred_prob = [ones(n_pos, 1) * 0.9; ones(n_neg, 1) * 0.1];
+    
+    results = decision_curve_analysis(y_true, y_pred_prob, 0:0.1:1);
+    
+    % Verify output structure
+    verifyTrue(testCase, isstruct(results));
+    verifyTrue(testCase, all(isfield(results, {'thresholds', 'net_benefit_model', ...
+                                               'net_benefit_treat_all', 'net_benefit_treat_none'})));
+    
+    % Verify dimensions
+    verifyEqual(testCase, length(results.thresholds), 11);
+    verifyEqual(testCase, length(results.net_benefit_model), 11);
+    
+    % Perfect classifier should have very high net benefit at optimal threshold
+    [max_nb, max_idx] = max(results.net_benefit_model);
+    verifyGreaterThan(testCase, max_nb, 0.25);
+    
+    % Treat-none is always zero
+    verifyTrue(testCase, all(results.net_benefit_treat_none == 0));
+end
+
+function test_random_classifier(testCase)
+    % Test with random classifier
+    rng(42);  % For reproducibility
+    n = 100;
+    y_true = rand(n, 1) > 0.3;  % 30% prevalence
+    y_pred_prob = rand(n, 1);   % Random predictions
+    
+    results = decision_curve_analysis(y_true, y_pred_prob, 0:0.05:1);
+    
+    % Random classifier should not consistently beat treat-all strategy
+    prevalence = mean(y_true);
+    model_advantage_count = sum(results.net_benefit_model > results.net_benefit_treat_all);
+    
+    % Should not dominate across most thresholds
+    verifyLessThan(testCase, model_advantage_count, length(results.thresholds) * 0.7);
+    
+    % Net benefits should be reasonable (not extremely negative or positive)
+    verifyTrue(testCase, all(results.net_benefit_model >= -1));
+    verifyTrue(testCase, all(results.net_benefit_model <= 1));
+end
+
+function test_extreme_thresholds(testCase)
+    % Test behavior at extreme threshold values
+    n = 50;
+    y_true = [ones(20, 1); zeros(30, 1)];
+    y_pred_prob = linspace(0.1, 0.9, n)';
+    
+    % Include extreme thresholds
+    thresholds = [0, 0.001, 0.5, 0.999, 1.0];
+    results = decision_curve_analysis(y_true, y_pred_prob, thresholds);
+    
+    % At threshold = 0, everyone is classified as positive
+    verifyGreaterThan(testCase, results.net_benefit_model(1), 0);
+    
+    % At threshold = 1, no one is classified as positive
+    verifyEqual(testCase, results.net_benefit_model(end), 0);
+    verifyEqual(testCase, results.net_benefit_treat_all(end), 0);
+    
+    % All values should be finite
+    verifyTrue(testCase, all(isfinite(results.net_benefit_model)));
+    verifyTrue(testCase, all(isfinite(results.net_benefit_treat_all)));
+end
+
+function test_nan_handling(testCase)
+    % Test handling of NaN values
+    n = 60;
+    y_true = [ones(25, 1); zeros(25, 1); NaN(10, 1)];
+    y_pred_prob = [linspace(0.6, 0.9, 25)'; linspace(0.1, 0.4, 25)'; NaN(10, 1)];
+    
+    results = decision_curve_analysis(y_true, y_pred_prob, 0:0.2:1);
+    
+    % Should handle NaN values without error
+    verifyTrue(testCase, all(isfinite(results.net_benefit_model)));
+    verifyTrue(testCase, all(isfinite(results.net_benefit_treat_all)));
+    verifyTrue(testCase, all(isfinite(results.net_benefit_treat_none)));
+end
+
+function test_single_class_data(testCase)
+    % Test with all positive or all negative outcomes
+    n = 40;
+    
+    % All positive cases
+    y_true_pos = ones(n, 1);
+    y_pred_prob_pos = rand(n, 1);
+    results_pos = decision_curve_analysis(y_true_pos, y_pred_prob_pos, 0:0.25:1);
+    
+    % Should not crash and produce reasonable results
+    verifyTrue(testCase, all(isfinite(results_pos.net_benefit_model)));
+    
+    % All negative cases  
+    y_true_neg = zeros(n, 1);
+    y_pred_prob_neg = rand(n, 1);
+    results_neg = decision_curve_analysis(y_true_neg, y_pred_prob_neg, 0:0.25:1);
+    
+    % Should not crash and produce reasonable results
+    verifyTrue(testCase, all(isfinite(results_neg.net_benefit_model)));
+    
+    % Treat-all with all negatives should be very negative at high thresholds
+    verifyLessThan(testCase, results_neg.net_benefit_treat_all(end-1), 0);
+end
+
+function test_net_benefit_calculations(testCase)
+    % Test specific net benefit calculations with known values
+    y_true = [1; 1; 1; 0; 0; 0; 0; 0];  % 3 pos, 5 neg
+    y_pred_prob = [0.8; 0.7; 0.4; 0.6; 0.3; 0.2; 0.1; 0.05];
+    threshold = 0.5;
+    
+    results = decision_curve_analysis(y_true, y_pred_prob, threshold);
+    
+    % Manual calculation for verification
+    % At threshold 0.5: predictions >= 0.5 are [0.8, 0.7, 0.6] -> indices [1,2,4]
+    % True positives: indices 1,2 (both have y_true=1) -> TP = 2
+    % False positives: index 4 (has y_true=0) -> FP = 1
+    % Expected net benefit = TP/n - FP/n * pt/(1-pt) = 2/8 - 1/8 * 0.5/0.5 = 0.25 - 0.125 = 0.125
+    
+    expected_model_nb = 2/8 - 1/8 * (0.5/(1-0.5));
+    verifyEqual(testCase, results.net_benefit_model, expected_model_nb, 'AbsTol', 1e-10);
+    
+    % Treat-all net benefit = prevalence - (1-prevalence) * pt/(1-pt)
+    prevalence = 3/8;
+    expected_treat_all_nb = prevalence - (1-prevalence) * (0.5/(1-0.5));
+    verifyEqual(testCase, results.net_benefit_treat_all, expected_treat_all_nb, 'AbsTol', 1e-10);
+end
+
+function test_empty_input(testCase)
+    % Test with empty inputs
+    verifyError(testCase, @() decision_curve_analysis([], []), 'MATLAB:badsubscript');
+end
+
+function test_default_thresholds(testCase)
+    % Test that default thresholds are used when not provided
+    n = 30;
+    y_true = rand(n, 1) > 0.5;
+    y_pred_prob = rand(n, 1);
+    
+    results = decision_curve_analysis(y_true, y_pred_prob);
+    
+    % Default should be 0:0.01:1 (101 points)
+    expected_thresholds = 0:0.01:1;
+    verifyEqual(testCase, results.thresholds, expected_thresholds);
+    verifyEqual(testCase, length(results.net_benefit_model), 101);
+end
