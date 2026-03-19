@@ -95,7 +95,6 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero for constant features
     Z_tr = (X_tr - mu_tr) ./ sd_tr;
     
-    % --- 1. Impute Training Set (X_tr) ---
     % Create a boolean mask of valid search space coordinates.
     % Target columns (e.g., the outcome variable or derived response
     % features) are masked out of the distance metric to prevent
@@ -110,6 +109,26 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % Pre-compute validity mask for vectorized operations
     valid_mask = ~isnan(search_space);
 
+    % --- PRE-COMPUTE PATIENT BLOCKING MATRIX ---
+    % Cache patient-blocking distance matrix to avoid repeated distance calculations
+    patient_blocking_mask = [];
+    if ~isempty(pat_id_tr)
+        patient_blocking_mask = false(n_tr, n_tr);
+        if iscell(pat_id_tr)
+            for i = 1:n_tr
+                patient_blocking_mask(i, :) = strcmp(pat_id_tr, pat_id_tr{i});
+            end
+        else
+            for i = 1:n_tr
+                patient_blocking_mask(i, :) = (pat_id_tr == pat_id_tr(i));
+            end
+        end
+    else
+        % Create identity matrix for self-exclusion only
+        patient_blocking_mask = eye(n_tr, 'logical');
+    end
+
+    % --- 1. Impute Training Set (X_tr) ---
     for i = 1:n_tr
         missing_idx = isnan(X_tr(i, :));
         if any(missing_idx)
@@ -143,22 +162,8 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             num_valid = sum(nonzero_var_feat);
             is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
             
-            % Apply self/patient exclusions.  When patient IDs are provided,
-            % ALL rows from the same patient are excluded — not just the
-            % current row.  This prevents both (a) trivial self-imputation
-            % and (b) temporal leakage where a patient's fraction-5 data
-            % informs imputation of their fraction-2 missing values.
-            % The exclusion is bidirectional: patient A's data cannot
-            % inform patient A's imputation at any timepoint.
-            if ~isempty(pat_id_tr)
-                if iscell(pat_id_tr)
-                    is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_tr{i});
-                else
-                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
-                end
-            else
-                is_valid_ref(i) = false; % remove self (minimal protection without IDs)
-            end
+            % Apply cached patient blocking exclusions
+            is_valid_ref = is_valid_ref & ~patient_blocking_mask(i, :)';
             
             ref_idx = find(is_valid_ref);
 
@@ -222,6 +227,21 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             search_space_te(:, target_cols) = nan;
         end
         
+        % Pre-compute cross-patient blocking mask for test-train exclusions
+        cross_patient_blocking_mask = [];
+        if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
+            cross_patient_blocking_mask = false(n_te, n_tr);
+            if iscell(pat_id_tr)
+                for i = 1:n_te
+                    cross_patient_blocking_mask(i, :) = strcmp(pat_id_tr, pat_id_te{i});
+                end
+            else
+                for i = 1:n_te
+                    cross_patient_blocking_mask(i, :) = (pat_id_tr == pat_id_te(i));
+                end
+            end
+        end
+        
         for i = 1:n_te
             missing_idx = isnan(X_te(i, :));
             if any(missing_idx)
@@ -247,20 +267,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 num_valid = sum(nonzero_var_feat);
                 is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
                 
-                % Exclude training rows from the same patient as this test
-                % row.  Although patient-grouped CV (make_grouped_folds)
-                % should already prevent the same patient from appearing
-                % in both train and test, this guard handles edge cases
-                % (e.g., manual fold assignments, or when this function is
-                % called outside the standard CV pipeline).  It also
-                % prevents temporal leakage if a patient's data somehow
-                % spans both folds due to data entry errors.
-                if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-                    if iscell(pat_id_tr)
-                        is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_te{i});
-                    else
-                        is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
-                    end
+                % Apply cached cross-patient blocking exclusions
+                if ~isempty(cross_patient_blocking_mask)
+                    is_valid_ref = is_valid_ref & ~cross_patient_blocking_mask(i, :)';
                 end
                 
                 ref_idx = find(is_valid_ref);
