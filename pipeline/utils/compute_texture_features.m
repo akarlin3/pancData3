@@ -87,9 +87,20 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
     if nargin < 5 || isempty(quantization_method), quantization_method = 'fixed_bin_number'; end
     if nargin < 6 || isempty(texture_3d), texture_3d = true; end
 
-    % Extract masked voxels
+    % Extract masked voxels and validate input data
     vals = double(param_map(mask > 0));
+    
+    % Remove NaN/Inf values and handle negative values
     vals = vals(isfinite(vals));
+    if isempty(vals)
+        % Handle case where all values are NaN/Inf
+        features = initialize_nan_features();
+        return;
+    end
+    
+    % Handle negative values by taking absolute value for GLRLM quantization
+    has_negative = any(vals < 0);
+    vals_abs = abs(vals);
 
     % Initialize output struct
     features = struct();
@@ -102,14 +113,14 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
         'shape_volume', 'shape_surface_area', 'shape_sphericity', ...
         'shape_elongation', 'shape_compactness'};
 
-    if isempty(vals) || length(vals) < 2
+    if length(vals) < 2
         for fi = 1:numel(nan_fields)
             features.(nan_fields{fi}) = NaN;
         end
         return;
     end
 
-    % --- First-order features ---
+    % --- First-order features (use original values including negative) ---
     features.energy = sum(vals.^2);
     features.kurtosis = kurtosis(vals);
     features.skewness = skewness(vals);
@@ -156,8 +167,11 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
         mask_2d = mask;
     end
 
+    % Validate and clean the 2D image data
+    img_2d_clean = validate_and_clean_image(img_2d, mask_2d);
+    
     % Quantize to n_levels within mask
-    masked_img = img_2d;
+    masked_img = img_2d_clean;
     masked_img(~mask_2d) = NaN;
     valid_pixels = masked_img(isfinite(masked_img));
 
@@ -184,14 +198,14 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
                 % Fixed bin width: bin_width = (max - min) / n_levels
                 % Number of occupied bins may be <= n_levels
                 bin_width = (max_val - min_val) / n_levels;
-                quantized = floor((img_2d - min_val) / bin_width) + 1;
+                quantized = floor((img_2d_clean - min_val) / bin_width) + 1;
                 quantized(~mask_2d) = 0;
                 actual_n_levels = max(quantized(mask_2d));
                 quantized = max(1, min(actual_n_levels, quantized));
                 n_levels_glcm = actual_n_levels;
             else
                 % Fixed bin number (default): rescale to [1, n_levels]
-                quantized = round((img_2d - min_val) / (max_val - min_val) * (n_levels - 1)) + 1;
+                quantized = round((img_2d_clean - min_val) / (max_val - min_val) * (n_levels - 1)) + 1;
                 quantized(~mask_2d) = 0;
                 quantized = max(1, min(n_levels, quantized));
                 n_levels_glcm = n_levels;
@@ -208,24 +222,26 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
 
             % --- GLRLM features ---
             if use_3d_glrlm
-                % 3D GLRLM: quantize the full 3D volume, then use 13-direction scanner
+                % 3D GLRLM: validate and quantize the full 3D volume
+                param_map_clean = validate_and_clean_image_3d(param_map, mask);
+                
                 if strcmpi(quantization_method, 'fixed_bin_width')
-                    all_vals = double(param_map(mask > 0));
+                    all_vals = double(param_map_clean(mask > 0));
                     all_vals = all_vals(isfinite(all_vals));
                     min_val_3d = min(all_vals);
                     max_val_3d = max(all_vals);
                     bw = (max_val_3d - min_val_3d) / n_levels;
-                    quantized_3d = floor((double(param_map) - min_val_3d) / bw) + 1;
+                    quantized_3d = floor((double(param_map_clean) - min_val_3d) / bw) + 1;
                     quantized_3d(~mask) = 0;
                     actual_n_3d = max(quantized_3d(mask));
                     quantized_3d = max(1, min(actual_n_3d, quantized_3d));
                     n_levels_3d = actual_n_3d;
                 else
-                    all_vals = double(param_map(mask > 0));
+                    all_vals = double(param_map_clean(mask > 0));
                     all_vals = all_vals(isfinite(all_vals));
                     min_val_3d = min(all_vals);
                     max_val_3d = max(all_vals);
-                    quantized_3d = round((double(param_map) - min_val_3d) / (max_val_3d - min_val_3d) * (n_levels - 1)) + 1;
+                    quantized_3d = round((double(param_map_clean) - min_val_3d) / (max_val_3d - min_val_3d) * (n_levels - 1)) + 1;
                     quantized_3d(~mask) = 0;
                     quantized_3d = max(1, min(n_levels, quantized_3d));
                     n_levels_3d = n_levels;
@@ -252,6 +268,73 @@ function features = compute_texture_features(param_map, mask, n_levels, voxel_sp
     % --- Shape features from binary mask ---
     [features.shape_volume, features.shape_surface_area, features.shape_sphericity, ...
         features.shape_elongation, features.shape_compactness] = compute_shape_features(mask, voxel_spacing);
+end
+
+
+%% ===== Input validation and cleaning functions =====
+
+function features = initialize_nan_features()
+%INITIALIZE_NAN_FEATURES  Initialize feature struct with NaN values.
+    nan_fields = {'energy', 'uniformity', 'entropy', 'kurtosis', 'skewness', ...
+        'p10', 'p90', 'iqr', 'mad', 'rmad', ...
+        'glcm_contrast', 'glcm_correlation', 'glcm_energy', 'glcm_homogeneity', ...
+        'glrlm_sre', 'glrlm_lre', 'glrlm_gln', 'glrlm_rln', 'glrlm_rp', ...
+        'shape_volume', 'shape_surface_area', 'shape_sphericity', ...
+        'shape_elongation', 'shape_compactness'};
+    
+    features = struct();
+    for fi = 1:numel(nan_fields)
+        features.(nan_fields{fi}) = NaN;
+    end
+end
+
+
+function img_clean = validate_and_clean_image(img, mask)
+%VALIDATE_AND_CLEAN_IMAGE  Remove NaN/Inf values and handle negative values for 2D image.
+    img_clean = double(img);
+    
+    % Replace NaN/Inf values outside mask with 0
+    invalid_mask = ~isfinite(img_clean);
+    img_clean(invalid_mask & ~mask) = 0;
+    
+    % For values inside mask, replace NaN/Inf with median of valid values
+    if any(invalid_mask & mask)
+        valid_vals = img_clean(mask & isfinite(img_clean));
+        if ~isempty(valid_vals)
+            replacement_val = median(valid_vals);
+        else
+            replacement_val = 0;
+        end
+        img_clean(invalid_mask & mask) = replacement_val;
+    end
+    
+    % Handle negative values by taking absolute value for texture calculations
+    % (preserves original values for first-order features computed earlier)
+    img_clean = abs(img_clean);
+end
+
+
+function img_clean = validate_and_clean_image_3d(img, mask)
+%VALIDATE_AND_CLEAN_IMAGE_3D  Remove NaN/Inf values and handle negative values for 3D image.
+    img_clean = double(img);
+    
+    % Replace NaN/Inf values outside mask with 0
+    invalid_mask = ~isfinite(img_clean);
+    img_clean(invalid_mask & ~mask) = 0;
+    
+    % For values inside mask, replace NaN/Inf with median of valid values
+    if any(invalid_mask(:) & mask(:))
+        valid_vals = img_clean(mask & isfinite(img_clean));
+        if ~isempty(valid_vals)
+            replacement_val = median(valid_vals);
+        else
+            replacement_val = 0;
+        end
+        img_clean(invalid_mask & mask) = replacement_val;
+    end
+    
+    % Handle negative values by taking absolute value for texture calculations
+    img_clean = abs(img_clean);
 end
 
 
@@ -510,83 +593,4 @@ function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
         lre_vals(d) = sum(col_sums .* run_weights_lre) / n_r;
 
         % Gray-Level Non-Uniformity - vectorized
-        gi_sums = sum(rlm, 2);
-        gln_vals(d) = sum(gi_sums.^2) / n_r;
-
-        % Run-Length Non-Uniformity - vectorized (col_sums already computed)
-        rln_vals(d) = sum(col_sums.^2) / n_r;
-
-        % Run Percentage
-        rp_vals(d) = n_r / n_pixels;
-    end
-
-    if any(valid_dirs)
-        sre = mean(sre_vals(valid_dirs));
-        lre = mean(lre_vals(valid_dirs));
-        gln = mean(gln_vals(valid_dirs));
-        rln = mean(rln_vals(valid_dirs));
-        rp = mean(rp_vals(valid_dirs));
-    else
-        sre = NaN; lre = NaN; gln = NaN; rln = NaN; rp = NaN;
-    end
-end
-
-
-%% ===== Vectorized 3D line starting positions =====
-
-function starts = find_3d_starts_vectorized(nrows, ncols, nslices, dr, dc, ds)
-%FIND_3D_STARTS_VECTORIZED  Vectorized enumeration of starting voxels for line tracing.
-
-    starts_cell = cell(3, 1);
-    count_total = 0;
-
-    if dr > 0
-        % Entry face: r = 1
-        [C, S] = meshgrid(1:ncols, 1:nslices);
-        starts_cell{1} = [ones(numel(C), 1), C(:), S(:)];
-        count_total = count_total + numel(C);
-    elseif dr < 0
-        % Entry face: r = nrows
-        [C, S] = meshgrid(1:ncols, 1:nslices);
-        starts_cell{1} = [nrows*ones(numel(C), 1), C(:), S(:)];
-        count_total = count_total + numel(C);
-    end
-
-    if dc > 0
-        % Entry face: c = 1 (exclude already-counted voxels)
-        r_vals = 1:nrows;
-        s_vals = 1:nslices;
-        if dr > 0
-            r_vals = r_vals(r_vals ~= 1);
-        elseif dr < 0
-            r_vals = r_vals(r_vals ~= nrows);
-        end
-        if ~isempty(r_vals)
-            [R, S] = meshgrid(r_vals, s_vals);
-            starts_cell{2} = [R(:), ones(numel(R), 1), S(:)];
-            count_total = count_total + numel(R);
-        end
-    elseif dc < 0
-        % Entry face: c = ncols
-        r_vals = 1:nrows;
-        s_vals = 1:nslices;
-        if dr > 0
-            r_vals = r_vals(r_vals ~= 1);
-        elseif dr < 0
-            r_vals = r_vals(r_vals ~= nrows);
-        end
-        if ~isempty(r_vals)
-            [R, S] = meshgrid(r_vals, s_vals);
-            starts_cell{2} = [R(:), ncols*ones(numel(R), 1), S(:)];
-            count_total = count_total + numel(R);
-        end
-    end
-
-    if ds > 0
-        % Entry face: s = 1
-        r_vals = 1:nrows;
-        c_vals = 1:ncols;
-        if dr > 0
-            r_vals = r_vals(r_vals ~= 1);
-        elseif dr < 0
-            r_vals = r_vals(r_vals ~= n
+        gi_sums = sum(rlm, 2
