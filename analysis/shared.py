@@ -161,6 +161,62 @@ def _normalize_dwi_type(dwi_type: str, canonical_types: list[str]) -> str:
     return lower_map.get(dwi_type.lower(), dwi_type)
 
 
+def _strip_json_comments(text: str) -> str:
+    """Remove single-line (``//``) and block (``/* */``) comments from JSON
+    text while preserving string literals that may contain ``//``.
+
+    This is a token-aware stripper that tracks whether the current
+    position is inside a JSON string literal.  Content inside strings
+    (delimited by unescaped double quotes) is never modified, so URLs
+    like ``"https://example.com/tool"`` are preserved intact.
+
+    Block comments (``/* ... */``) are removed regardless of position
+    outside strings.  Single-line comments (``// ...``) are removed from
+    the current position to end-of-line when found outside strings.
+    """
+    result: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        # Check if we're entering a JSON string literal
+        if text[i] == '"':
+            # Consume the entire string literal, including escaped characters
+            result.append('"')
+            i += 1
+            while i < n:
+                if text[i] == '\\' and i + 1 < n:
+                    # Escaped character — consume both the backslash and
+                    # the following character unconditionally.
+                    result.append(text[i])
+                    result.append(text[i + 1])
+                    i += 2
+                elif text[i] == '"':
+                    result.append('"')
+                    i += 1
+                    break
+                else:
+                    result.append(text[i])
+                    i += 1
+        # Block comment outside a string
+        elif text[i] == '/' and i + 1 < n and text[i + 1] == '*':
+            # Skip until closing */
+            end = text.find('*/', i + 2)
+            if end == -1:
+                # Unterminated block comment — skip rest of text
+                break
+            i = end + 2
+        # Single-line comment outside a string
+        elif text[i] == '/' and i + 1 < n and text[i + 1] == '/':
+            # Skip until end of line
+            while i < n and text[i] != '\n':
+                i += 1
+            # Keep the newline itself to preserve line structure
+        else:
+            result.append(text[i])
+            i += 1
+    return ''.join(result)
+
+
 def _permissive_json_loads(text: str) -> dict:
     """Attempt to parse JSON text, stripping comments and trailing commas.
 
@@ -172,7 +228,9 @@ def _permissive_json_loads(text: str) -> dict:
     - Trailing commas before closing ``}`` or ``]``
 
     This helper strips those constructs and retries parsing when the
-    initial strict parse fails.
+    initial strict parse fails.  Importantly, comment stripping is
+    *token-aware*: ``//`` sequences inside JSON string values (e.g. URLs)
+    are preserved.
 
     Parameters
     ----------
@@ -196,14 +254,8 @@ def _permissive_json_loads(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Strip block comments (/* ... */)
-    sanitised = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    # Strip single-line comments (// ...) — but not inside strings.
-    # A simple heuristic: remove // comments only when they appear after
-    # the start of a line (possibly preceded by whitespace) or after a
-    # comma/brace.  This won't handle every edge case but covers the
-    # common patterns found in config files.
-    sanitised = re.sub(r'(?m)//[^\n]*$', '', sanitised)
+    # Use token-aware comment stripping that preserves string contents
+    sanitised = _strip_json_comments(text)
     # Strip trailing commas before } or ]
     sanitised = re.sub(r",\s*([}\]])", r"\1", sanitised)
 
