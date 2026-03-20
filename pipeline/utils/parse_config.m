@@ -37,10 +37,16 @@ function config_struct = parse_config(json_path)
         error('parse_config:fileNotFound', 'Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
-        % Check file size and warn about large config files
+        % Hard limit on config file size to prevent accidental memory
+        % exhaustion if a user mistakenly points config_path to a large
+        % data file.  A valid config.json should be well under 1 MB;
+        % anything larger is almost certainly a misconfigured path.
+        MAX_CONFIG_BYTES = 1e6;  % 1 MB hard limit
         file_info = dir(json_path);
-        if file_info.bytes > 1e6
-            warning('Large config file detected (%d bytes). Consider optimizing config structure.', file_info.bytes);
+        if file_info.bytes > MAX_CONFIG_BYTES
+            error('parse_config:fileTooLarge', ...
+                'Configuration file %s is too large (%d bytes, limit %d bytes). A valid config.json should be well under 1 MB. Check that config_path does not point to a data file.', ...
+                json_path, file_info.bytes, MAX_CONFIG_BYTES);
         end
         
         % Read and parse the JSON config.  jsondecode converts JSON objects
@@ -420,7 +426,7 @@ function config_struct = parse_config(json_path)
         % Otherwise, wrap any unexpected field-access or type error with
         % a descriptive message so callers can distinguish config parsing
         % failures from other errors in their try/catch blocks.
-        if strcmp(ME.identifier, 'parse_config:invalidJSON')
+        if strncmp(ME.identifier, 'parse_config:', 13)
             rethrow(ME);
         end
         error('parse_config:invalidJSON', 'Failed to parse JSON configuration file %s: %s', json_path, ME.message);
