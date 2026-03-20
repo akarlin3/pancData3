@@ -20,6 +20,8 @@ function test_knn_impute()
 %    16. Wide matrix (more columns than rows)
 %    17. Distance-weighted vs uniform-weighted imputation
 %    18. Scale invariance (standardization before distance computation)
+%    19. Inf values in training/test data
+%    20. Single non-NaN value in a training column
 %
 %   Usage:
 %     >> test_knn_impute   % runs all tests, prints PASS/FAIL summary
@@ -514,6 +516,4 @@ function test_knn_impute()
         % 3 training rows x 10 columns (wide matrix)
         X_tr = randn(3, 10);
         % Introduce a NaN in the last column of the test row
-        X_te = randn(1, 10);
-        X_te(1, 10) = NaN;
-        % Also introduce a NaN in training to test
+        X_te = randn(1, 10
