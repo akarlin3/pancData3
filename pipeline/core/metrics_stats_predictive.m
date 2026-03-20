@@ -134,6 +134,14 @@ for target_fx = 2:nTp
     X_impute = X_lasso_all(impute_mask, :);
     y_clean  = y_lasso_all(impute_mask);
 
+    % Validate that outcome labels are strictly binary after competing risk
+    % exclusion.  Any values other than 0 (LC) or 1 (LF) — e.g., -1 for
+    % unknown — would corrupt the elastic net logistic regression by
+    % introducing nonsensical outcome labels.
+    assert(all(y_clean == 0 | y_clean == 1), ...
+        'metrics_stats_predictive:unexpectedOutcome', ...
+        'Unexpected outcome values in lf_group after competing risk exclusion: values must be 0 (LC) or 1 (LF).');
+
     id_list_valid = id_list(valid_pts);
     id_list_impute = id_list_valid(impute_mask);
 
