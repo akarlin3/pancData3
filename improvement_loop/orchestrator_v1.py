@@ -140,7 +140,7 @@ def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
     cfg = _get_loop_config()
     return _api_call_with_retry({
         "model": cfg.audit_model,
-        "max_tokens": 4096,
+        "max_tokens": 8000,
         "system": AUDIT_SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": user_message}],
     })
@@ -158,6 +158,36 @@ def _parse_findings(audit_output: str, dry_run: bool) -> List[Finding]:
         if text.startswith("json"):
             text = text[4:]
         text = text.strip()
+
+    # Truncation guard: check if the JSON array appears complete
+    if not text.rstrip().endswith("]"):
+        print("⚠️  Audit response appears truncated — consider increasing max_tokens further")
+        # Attempt repair: find last complete finding object
+        last_brace = text.rfind("}")
+        if last_brace >= 0:
+            repaired = text[:last_brace + 1]
+            if not repaired.lstrip().startswith("["):
+                repaired = "[" + repaired
+            repaired = repaired + "]"
+            try:
+                raw_list = json.loads(repaired)
+                print(f"⚠️  Recovered {len(raw_list)} findings from truncated response")
+                if not isinstance(raw_list, list):
+                    return []
+                findings = []
+                for i, raw in enumerate(raw_list):
+                    try:
+                        finding = Finding(**raw)
+                        findings.append(finding)
+                    except Exception as e:
+                        print(f"WARNING: Skipping finding {i}: {e}")
+                return findings
+            except json.JSONDecodeError as e:
+                print(f"WARNING: Repair also failed: {e}")
+                return []
+        else:
+            print("WARNING: No complete finding object found in truncated response")
+            return []
 
     try:
         raw_list = json.loads(text)
@@ -395,6 +425,9 @@ if __name__ == "__main__":
                         help="Run without API calls or code changes")
     parser.add_argument("--max-iterations", type=int, default=10,
                         help="Maximum number of audit/fix cycles (default: 10)")
+    parser.add_argument("--single-iteration", action="store_true",
+                        help="Run exactly one iteration (shorthand for --max-iterations 1)")
     args = parser.parse_args()
 
-    run_loop(max_iterations=args.max_iterations, dry_run=args.dry_run)
+    max_iter = 1 if args.single_iteration else args.max_iterations
+    run_loop(max_iterations=max_iter, dry_run=args.dry_run)
