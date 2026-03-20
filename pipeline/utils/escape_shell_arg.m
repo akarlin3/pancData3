@@ -66,12 +66,14 @@ function escaped_arg = escape_shell_arg(arg, style)
     arg = char(arg);
 
     % --- Unicode and Encoding Handling ---
-    % Detect and handle Unicode characters that may cause issues in shell operations
-    try
-        % Check if the string contains non-ASCII characters
-        has_unicode = any(double(arg) > 127);
-        
-        if has_unicode
+    % Check if the string contains non-ASCII characters. For the common case
+    % of pure-ASCII paths (the vast majority in US clinical environments),
+    % we short-circuit here and skip all encoding detection and conversion
+    % overhead, including persistent variable checks and system() calls.
+    has_unicode = any(arg > 127);
+
+    if has_unicode
+        try
             % Get system encoding to ensure proper character handling
             if strcmpi(style, 'pc')
                 % Windows: Check for system code page and handle Unicode paths
@@ -116,12 +118,11 @@ function escaped_arg = escape_shell_arg(arg, style)
                         cached_unix_encoding = 'UTF-8'; % Default assumption for modern Unix
                     end
                 end
-                system_encoding = cached_unix_encoding; %#ok<NASGU>
             end
+        catch
+            % If Unicode detection/handling fails, proceed with original escaping
+            % This ensures backward compatibility
         end
-    catch
-        % If Unicode detection fails, proceed with original escaping
-        % This ensures backward compatibility
     end
 
     if strcmpi(style, 'pc')
@@ -157,7 +158,7 @@ function escaped_arg = escape_shell_arg(arg, style)
         % than 8.3 name lookup, which is often disabled on modern Windows
         % systems and would also require passing unescaped input to a
         % system() call, creating a shell injection vulnerability.
-        if exist('has_unicode', 'var') && has_unicode
+        if has_unicode
             if (exist(arg, 'file') || exist(arg, 'dir'))
                 try
                     % Convert to absolute path if not already
@@ -219,14 +220,6 @@ function escaped_arg = escape_shell_arg(arg, style)
         % single-quoted segment: 'don'\''t' evaluates to the string don't.
         % This pattern is standard POSIX shell escaping.
         escaped_arg = strrep(arg, '''', '''\''''' );
-        
-        % --- Unicode Handling for Unix ---
-        % Unix systems generally handle UTF-8 well, but ensure proper locale
-        if exist('has_unicode', 'var') && has_unicode
-            % For Unix systems with Unicode characters, we may need to ensure
-            % the environment supports UTF-8. The cached encoding is already
-            % available from above; no additional system calls needed here.
-        end
         
         escaped_arg = ['''' escaped_arg ''''];
     end
