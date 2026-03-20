@@ -104,6 +104,7 @@ if ~isempty(output_folder)
     diary_file = fullfile(output_folder, ['metrics_survival_output_' dtype_label '.txt']);
     if exist(diary_file, 'file'), delete(diary_file); end
     diary(diary_file);
+    cleanupDiary = onCleanup(@() diary('off'));
 end
 
 % Prepare common data structures
@@ -114,7 +115,6 @@ end
 % Check if we have sufficient data for analysis
 if ~survival_data.has_sufficient_data
     fprintf('  Insufficient data for survival analysis.\n');
-    if ~isempty(output_folder), diary off; end
     return;
 end
 
@@ -137,7 +137,6 @@ validation_results = validate_survival_model(survival_data, cox_results, config)
 % Output summary results
 print_survival_summary(cox_results, finegray_results, timevar_results, validation_results);
 
-if ~isempty(output_folder), diary off; end
 end
 
 function [survival_data, config] = prepare_survival_data(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
