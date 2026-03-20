@@ -15,6 +15,19 @@ function metrics_survival(varargin)
 %       .m_gtv_vol, .actual_scan_days
 %     opts — struct with configuration options (passed through as config).
 %            Any fields not present receive defaults.
+%            Recognized config fields:
+%              .td_halflife_days — Exponential decay half-life (in days) used
+%                  by build_td_panel to weight imaging features from prior
+%                  fractions. Controls how quickly older measurements lose
+%                  influence when constructing the time-dependent covariate
+%                  panel. Default: 18 days.
+%                  Clinical guidance: For a standard 5-fraction SBRT course
+%                  spanning ~20 days, 18 days means Fx1 features retain ~46%
+%                  weight at Fx5. Shorter half-lives (e.g., 6–12 days) are
+%                  appropriate when rapid biological changes are expected;
+%                  longer half-lives (e.g., 24–36 days) suit slowly evolving
+%                  responses. This parameter can be tuned via cross-validation
+%                  over the half_life_grid in the time-varying effects analysis.
 %
 % LEGACY INTERFACE (deprecated, preserved for backward compatibility):
 %   metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
@@ -184,9 +197,34 @@ td_tot_time(cens_mask_lc) = follow_up_valid(cens_mask_lc);
 % Using follow_up_time here would introduce immortal time bias by extending
 % their risk period beyond when they actually experienced the competing event.
 
-% Build time-dependent panel with default half-life
+% Read the time-dependent panel decay half-life from config, with a
+% documented default of 18 days.
+%
+% The half-life controls the exponential decay weight applied to imaging
+% features from prior fractions when constructing the time-dependent
+% covariate panel. A half-life of 18 days means that a feature measured at
+% a given fraction retains 50% of its weight 18 days later. For a typical
+% 5-fraction SBRT course spanning ~20 days:
+%   - 18 days: Fx1 features retain ~46% weight at Fx5 (default)
+%   -  6 days: Fx1 features retain ~10% weight at Fx5 (rapid decay)
+%   - 36 days: Fx1 features retain ~68% weight at Fx5 (slow decay)
+%
+% This parameter should be tuned based on the expected timescale of
+% biological response in the tissue of interest. It can also be optimized
+% via cross-validation over config.half_life_grid in the time-varying
+% effects analysis step.
+if isfield(config_struct_in, 'td_halflife_days') && ~isempty(config_struct_in.td_halflife_days)
+    td_halflife_days = config_struct_in.td_halflife_days;
+    fprintf('  Using configured td_halflife_days = %.1f (from config).\n', td_halflife_days);
+else
+    td_halflife_days = 18;
+    fprintf('  Using default td_halflife_days = %.1f.\n', td_halflife_days);
+    fprintf('      Set config.td_halflife_days to customize the decay half-life for time-dependent feature weighting.\n');
+end
+
+% Build time-dependent panel with configurable half-life
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
-    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
+    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, td_halflife_days);
 
 % Check data sufficiency
 td_n_feat = numel(td_feat_arrays);
@@ -253,6 +291,7 @@ config.half_life_grid = [3, 6, 12, 18, 24];
 config.n_bootstrap = 1000;
 config.output_folder = output_folder;
 config.dtype_label = dtype_label;
+config.td_halflife_days = td_halflife_days;
 end
 
 function cox_results = fit_cox_ph(survival_data, config)
@@ -557,66 +596,4 @@ try
         % Remove constant columns in bootstrap sample
         col_var = var(X_b, 0, 1);
         var_cols = col_var > eps;
-        if sum(var_cols) < p
-            % Skip this replicate if we lose columns
-            continue;
-        end
-        
-        try
-            ws_boot = warning('off', 'stats:coxphfit:FitWarning');
-            cleanupWarnBoot = onCleanup(@() warning(ws_boot));
-            [b_boot, ~, ~, ~] = coxphfit(X_b, T_b, ...
-                'Censoring', cens_b, 'Ties', ties_method, 'Frequency', freq_b);
-            boot_coefs(:, b) = b_boot;
-        catch
-            continue;
-        end
-    end
-    
-    % Compute SE from valid bootstrap replicates
-    valid_boots = all(isfinite(boot_coefs), 1);
-    n_valid = sum(valid_boots);
-    
-    if n_valid >= 50
-        bootstrap_se = std(boot_coefs(:, valid_boots), 0, 2);
-        fprintf('  Bootstrap: %d/%d valid replicates.\n', n_valid, n_boot_actual);
-    else
-        fprintf('  Bootstrap: only %d valid replicates (need >= 50).\n', n_valid);
-        bootstrap_se = [];
-    end
-    
-catch ME
-    fprintf('  Bootstrap SE error: %s\n', ME.message);
-    bootstrap_se = [];
-end
-end
-
-function finegray_results = fit_fine_gray(survival_data, config)
-% FIT_FINE_GRAY Fit Fine-Gray competing risks model with interval censoring support
-
-if ~survival_data.has_sufficient_data
-    finegray_results = struct('success', false, 'message', 'Insufficient data');
-    return;
-end
-
-fprintf('  Fine-Gray subdistribution hazard model with interval censoring support.\n');
-
-try
-    % Detect interval-censored observations
-    interval_censored = detect_interval_censoring(survival_data);
-    
-    if any(interval_censored)
-        fprintf('  Detected %d interval-censored observations.\n', sum(interval_censored));
-        
-        % Handle interval censoring using midpoint imputation as primary method
-        [t_start_adj, t_stop_adj, event_adj] = handle_interval_censoring(survival_data, interval_censored);
-        
-        % Optionally perform multiple imputation sensitivity analysis
-        if config.n_bootstrap > 100  % Only if sufficient bootstrap samples
-            mi_results = perform_multiple_imputation_fg(survival_data, interval_censored, config);
-            fprintf('  Multiple imputation completed for sensitivity analysis.\n');
-        else
-            mi_results = struct('performed', false);
-        end
-    else
-        t_start_adj = survival_data.t_start
+        if sum(
