@@ -186,17 +186,105 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         end
     end
 
+    % Validate that the variable name is a valid MATLAB identifier.
+    % whos('-file') can find variables with names that are not valid
+    % identifiers (e.g., names starting with a digit like '3d_mask', or
+    % containing spaces). Such variables can be created via matfile
+    % objects or HDF5 tools.  load() returns a struct, and dynamic field
+    % access via loaded_struct.(varname) would fail for non-identifier
+    % names.  We check isvarname() to choose the appropriate access
+    % strategy.
+    varname_is_valid_identifier = isvarname(varname);
+
     % Load only the specific variable by name to minimize memory usage
     % and avoid deserializing any other (potentially unsafe) variables
     % in the file.  The whos check above has already verified this
     % variable's class is safe, so the load is secure.
     try
-        tmp = load(filepath, varname);
-        if isfield(tmp, varname)
-            mask = tmp.(varname);
+        if varname_is_valid_identifier
+            % Standard path: load returns a struct and we access the
+            % field via dynamic field reference.
+            tmp = load(filepath, varname);
+            if isfield(tmp, varname)
+                mask = tmp.(varname);
+            else
+                % Unexpected: load succeeded but field not present.
+                % Fall back to matfile access.
+                warning('safe_load_mask:FieldMissing', ...
+                    'load() succeeded but struct field ''%s'' not found. Trying matfile fallback.', ...
+                    varname);
+                mask = safe_load_mask_via_matfile(filepath, varname);
+            end
+        else
+            % Non-standard variable name (not a valid MATLAB identifier).
+            % Dynamic struct field access would fail, so use matfile()
+            % which can handle arbitrary variable names.
+            warning('safe_load_mask:NonStandardVarName', ...
+                ['Variable name ''%s'' is not a valid MATLAB identifier. ' ...
+                 'Using matfile() for access.'], varname);
+            mask = safe_load_mask_via_matfile(filepath, varname);
         end
     catch ME
-        warning('safe_load_mask:LoadError', 'Error loading variable: %s', ME.message);
+        % If the primary method failed, attempt matfile fallback (only
+        % if we haven't already tried it).
+        if varname_is_valid_identifier
+            try
+                warning('safe_load_mask:LoadErrorFallback', ...
+                    'Primary load failed (%s). Attempting matfile() fallback.', ME.message);
+                mask = safe_load_mask_via_matfile(filepath, varname);
+            catch ME2
+                warning('safe_load_mask:LoadError', ...
+                    'Error loading variable via both methods: primary [%s], fallback [%s]', ...
+                    ME.message, ME2.message);
+                mask = [];
+            end
+        else
+            warning('safe_load_mask:LoadError', 'Error loading variable: %s', ME.message);
+            mask = [];
+        end
+    end
+
+end
+
+
+function data = safe_load_mask_via_matfile(filepath, varname)
+% SAFE_LOAD_MASK_VIA_MATFILE Loads a variable using matfile() object.
+%   This handles variable names that are not valid MATLAB identifiers,
+%   which cannot be accessed via dynamic struct field reference after
+%   a standard load() call.
+%
+%   matfile() uses partial loading (does not load the entire file) and
+%   supports arbitrary variable names through its parenthetical access
+%   syntax.
+
+    mf = matfile(filepath);
+    try
+        % matfile objects support dynamic property access for valid
+        % identifiers and subsref-based access for others.
+        % Use the who() method to confirm the variable is accessible.
+        vars_in_file = who(mf);
+        if ~ismember(varname, vars_in_file)
+            warning('safe_load_mask:MatfileVarNotFound', ...
+                'Variable ''%s'' not found via matfile access.', varname);
+            data = [];
+            return;
+        end
+
+        % Access the variable. For valid identifiers, dynamic property
+        % access works. For non-identifiers, we use subsref directly.
+        if isvarname(varname)
+            data = mf.(varname);
+        else
+            % Use subsref with '.' type referencing, which matfile
+            % supports even for non-standard variable names.
+            s.type = '.';
+            s.subs = varname;
+            data = subsref(mf, s);
+        end
+    catch ME
+        warning('safe_load_mask:MatfileAccessError', ...
+            'matfile() access failed for variable ''%s'': %s', varname, ME.message);
+        data = [];
     end
 
 end
