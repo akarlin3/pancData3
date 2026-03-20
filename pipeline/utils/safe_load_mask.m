@@ -98,16 +98,25 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
 
     target_info = file_info(idx);
     
-    % Additional validation: check if variable size is reasonable
+    % Additional validation: check if the reported in-memory variable
+    % size is reasonable.  We use the same threshold as the file-level
+    % check (max_file_size_mb).
+    %
+    % NOTE: For .mat v7.3 (HDF5-based) files, the 'bytes' field
+    % returned by whos('-file',...) reports the *uncompressed* in-memory
+    % size, NOT the on-disk size.  A compressed .mat file that passes the
+    % on-disk file size check above could therefore contain a variable
+    % whose reported bytes exceed the file's physical size on disk.  Using
+    % the same max_file_size_mb limit (rather than a fraction of it)
+    % avoids false rejections of legitimate high-resolution mask data
+    % stored in compressed .mat files.
     var_bytes = target_info.bytes;
     var_size_mb = var_bytes / (1024 * 1024);
     
-    % Variable size should not exceed 80% of the maximum file size limit
-    max_var_size_mb = max_file_size_mb * 0.8;
-    if var_size_mb > max_var_size_mb
+    if var_size_mb > max_file_size_mb
         warning('safe_load_mask:VariableTooLarge', ...
-            'Variable ''%s'' size (%.1f MB) exceeds safety limit (%.1f MB)', ...
-            varname, var_size_mb, max_var_size_mb);
+            'Variable ''%s'' in-memory size (%.1f MB) exceeds safety limit (%.1f MB)', ...
+            varname, var_size_mb, max_file_size_mb);
         return;
     end
 
