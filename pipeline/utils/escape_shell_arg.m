@@ -151,6 +151,28 @@ function escaped_arg = escape_shell_arg(arg, style)
         % Escape with ^ so it is treated as a literal character.
         escaped_arg = strrep(escaped_arg, '!', '^!');
 
+        % --- Ampersand (&) Hazard ---
+        % The ampersand is a command separator in cmd.exe (e.g., cmd1 & cmd2).
+        % While double quoting provides partial protection, the ampersand CAN
+        % break out of double-quoted context in certain cmd.exe parsing
+        % scenarios, especially when the escaped string is later concatenated
+        % with other strings before being passed to system(). Escape with ^
+        % for defense-in-depth.
+        escaped_arg = strrep(escaped_arg, '&', '^&');
+
+        % --- Pipe (|) Hazard ---
+        % The pipe character creates command pipelines in cmd.exe. Escape with
+        % ^ for defense-in-depth even though double quoting provides partial
+        % protection.
+        escaped_arg = strrep(escaped_arg, '|', '^|');
+
+        % --- Angle Bracket (<, >) Hazards ---
+        % Angle brackets perform I/O redirection in cmd.exe. Escape with ^
+        % for defense-in-depth to prevent redirection attacks from malicious
+        % DICOM metadata.
+        escaped_arg = strrep(escaped_arg, '<', '^<');
+        escaped_arg = strrep(escaped_arg, '>', '^>');
+
         % --- Unicode Path Handling for Windows ---
         % For paths with Unicode characters, use the \\?\ long path prefix
         % which allows the Windows API to handle extended characters and
@@ -173,6 +195,10 @@ function escaped_arg = escape_shell_arg(arg, style)
                         escaped_arg = strrep(escaped_arg, '%', '%%');
                         escaped_arg = strrep(escaped_arg, '^', '^^');
                         escaped_arg = strrep(escaped_arg, '!', '^!');
+                        escaped_arg = strrep(escaped_arg, '&', '^&');
+                        escaped_arg = strrep(escaped_arg, '|', '^|');
+                        escaped_arg = strrep(escaped_arg, '<', '^<');
+                        escaped_arg = strrep(escaped_arg, '>', '^>');
                         % Prepend \\?\ prefix for extended-length path handling
                         escaped_arg = ['\\?\' escaped_arg];
                     end
