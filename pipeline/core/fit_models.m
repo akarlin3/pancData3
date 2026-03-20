@@ -397,7 +397,7 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
             % linear after taking logarithms: ln(S/S0) = -b * ADC.
             % However, ln() transforms Gaussian noise into heteroscedastic
             % noise with variance ~ 1/S^2 (via delta method).  Weighted
-            % Least Squares with w = S^2 corrects for this heteroscedasticity,
+            % Least Squares (WLS) with w = S^2 corrects for this heteroscedasticity,
             % giving more weight to high-SNR (high-signal) measurements and
             % reducing the influence of noisy high-b-value data points.
             %
