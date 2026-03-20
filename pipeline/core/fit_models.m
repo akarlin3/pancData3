@@ -129,6 +129,26 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     sz3 = [size(dwi,1), size(dwi,2), size(dwi,3)];  % spatial dimensions of DWI volume
     valid_voxels_idx = find(mask_ivim);  % linear indices of tumor voxels within the GTV mask
     n_valid = length(valid_voxels_idx);  % number of voxels to fit (typically ~100-2000)
+    n_bvals = length(bvalues);
+
+    % Pre-extract voxel signals into a [n_valid x n_bvalues] matrix.
+    % This avoids broadcasting the entire 4D dwi array to each parfor
+    % worker — for a 256x256x20x6 double volume (~1.5 GB), broadcasting
+    % to 4 workers would require ~6 GB just for the copies. Instead, only
+    % the compact [n_valid x n_bvalues] matrix (typically <100 KB) is sent.
+    if n_valid > 0
+        dwi_valid = zeros(n_valid, n_bvals);
+        n_spatial = prod(sz3);
+        for b = 1:n_bvals
+            vol_b = dwi(:,:,:,b);
+            dwi_valid(:,b) = vol_b(valid_voxels_idx);
+        end
+    end
+
+    % Release the large 4D dwi array now that voxel signals are extracted.
+    % All subsequent code (IVIM fit + ADC fit) uses only dwi_valid.
+    % This can reclaim ~1.5 GB for a typical 256x256x20x6 double volume.
+    clear dwi;
 
     % Preallocate output 1D arrays with NaN so that voxels where fitting
     % fails (convergence failure, non-physical result) naturally propagate
@@ -158,16 +178,6 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         adc_initial_guess = [];
         if n_valid > 0
             fprintf('  [Stage 3 Opt] Computing ADC warm start for IVIM D parameter...\n');
-            
-            % Extract 1D signal decay curves for valid voxels for initial ADC estimation
-            % Avoid creating a full reshape of the 4D volume; instead index
-            % directly into each 3D sub-volume to save memory.
-            n_bvals = length(bvalues);
-            dwi_valid = zeros(n_valid, n_bvals);
-            for b = 1:n_bvals
-                vol_b = dwi(:,:,:,b);
-                dwi_valid(:,b) = vol_b(valid_voxels_idx);
-            end
             
             % Quick ADC estimation for warm start using high-b values only
             % This provides better initial guess for D parameter than default values
@@ -208,16 +218,6 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
         if n_valid > 0
             fprintf('  [Stage 3 Opt] Flattening %d valid voxels for accelerated IVIM fit...\n', n_valid);
 
-            % Extract 1D signal decay curves for valid voxels (reuse if already computed)
-            if ~exist('dwi_valid', 'var')
-                n_bvals = length(bvalues);
-                dwi_valid = zeros(n_valid, n_bvals);
-                for b = 1:n_bvals
-                    vol_b = dwi(:,:,:,b);
-                    dwi_valid(:,b) = vol_b(valid_voxels_idx);
-                end
-            end
-
             % [MODULARIZATION STAGE 3]: Masked 1D Flattening
             % The IVIMmodelfit dependency expects a 4D volume (x,y,z,b) as input.
             % We reshape our 1D valid-voxel array into a minimal 3D volume with
@@ -256,7 +256,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 
             % Release large intermediate arrays no longer needed to reduce
             % peak memory during parfor (each worker holds its own copy).
-            clear dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
+            clear dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
 
             % Replace zero-fit voxels with NaN (failed fits).
             % The segmented IVIM fitter returns D=0 when the log-linear
@@ -299,7 +299,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % weights = S^2 corrects for this heteroscedasticity, giving more weight
     % to high-SNR measurements.
 
-    adc_sz  = [size(dwi,1), size(dwi,2), size(dwi,3)];  % same as sz3 above
+    adc_sz  = sz3;  % same as sz3 above
     adc_map = nan(adc_sz);  % NaN background for non-tumor voxels
 
     % Determine whether to use GPU for the ADC WLS computation.
@@ -326,14 +326,11 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     end
 
     if n_valid > 0
-        % Extract 1D signal decay curves if not already computed
+        % dwi_valid was already extracted above as [n_valid x n_bvals].
+        % Re-extract only if it was cleared (should not happen in normal flow).
         if ~exist('dwi_valid', 'var')
-            n_bvals = length(bvalues);
-            dwi_valid = zeros(n_valid, n_bvals);
-            for b = 1:n_bvals
-                vol_b = dwi(:,:,:,b);
-                dwi_valid(:,b) = vol_b(valid_voxels_idx);
-            end
+            error('fit_models:internalError', ...
+                'dwi_valid was unexpectedly cleared. This is an internal logic error.');
         end
 
         % Filter to voxels with all-positive signal across ALL b-values.
@@ -419,4 +416,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             adc_map(valid_voxels_idx) = adc_vec_out;
         end
     end
+
+    % Release the pre-extracted voxel signals
+    clear dwi_valid;
 end
