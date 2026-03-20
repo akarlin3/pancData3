@@ -17,6 +17,9 @@ function test_knn_impute()
 %    13. Patient blocking changes imputed value (blocked vs unblocked)
 %    14. Constant column (zero variance) produces no NaN/Inf
 %    15. Negative feature values are correctly handled
+%    16. Wide matrix (more columns than rows)
+%    17. Distance-weighted vs uniform-weighted imputation
+%    18. Scale invariance (standardization before distance computation)
 %
 %   Usage:
 %     >> test_knn_impute   % runs all tests, prints PASS/FAIL summary
@@ -500,27 +503,17 @@ function test_knn_impute()
     end
 
     % =====================================================================
-    % Print Summary
+    % Test 16: Wide matrix (more columns than rows)
+    %   With 3 rows and 10 columns (common when assembling 22 features for
+    %   small cohorts of 5-10 patients), Euclidean distances can become
+    %   unreliable due to the curse of dimensionality.  The function should
+    %   still produce valid (no NaN, no Inf) imputed values.
     % =====================================================================
-    fprintf('\n========================================\n');
-    fprintf('  KNN Imputation Test Summary\n');
-    fprintf('========================================\n');
-    for t = 1:length(test_names)
-        if strcmp(test_results{t}, 'PASS')
-            fprintf('  [PASS] %s\n', test_names{t});
-        else
-            fprintf('  [FAIL] %s: %s\n', test_names{t}, test_results{t});
-        end
-    end
-    fprintf('----------------------------------------\n');
-    fprintf('  Total: %d passed, %d failed out of %d\n', n_pass, n_fail, n_pass + n_fail);
-    fprintf('========================================\n');
-
-    if n_fail > 0
-        warning('test_knn_impute:failures', '%d test(s) failed.', n_fail);
-    else
-        fprintf('  All tests passed.\n');
-    end
-
-    % --- Nested helper functions ---
-    
+    try
+        rng(42);  % reproducibility
+        % 3 training rows x 10 columns (wide matrix)
+        X_tr = randn(3, 10);
+        % Introduce a NaN in the last column of the test row
+        X_te = randn(1, 10);
+        X_te(1, 10) = NaN;
+        % Also introduce a NaN in training to test
