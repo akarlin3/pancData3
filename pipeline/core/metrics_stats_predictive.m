@@ -426,6 +426,21 @@ for target_fx = 2:nTp
     end
 end
 
+%% --- Handle case where no timepoint yielded significant features ---
+% If best_risk_fx remains Inf, no timepoint produced significant features
+% (possible with small cohorts or non-predictive biomarkers).  Return empty
+% outputs with appropriate messaging rather than letting Inf propagate as
+% an index into downstream arrays.
+if isinf(best_risk_fx)
+    fprintf('\n  ⚠️  WARNING: No timepoint yielded significant predictive features.\n');
+    fprintf('      Returning empty risk scores. Downstream survival analysis will be skipped.\n');
+    fprintf('      Possible causes: small cohort size, non-predictive biomarkers, or excessive missing data.\n');
+    risk_scores_all = [];
+    is_high_risk = [];
+    times_km = [];
+    events_km = [];
+end
+
 %% --- External Validation Model Export (optional) ---
 if isfield(config_struct, 'export_validation_model') && config_struct.export_validation_model
     if ~isempty(risk_scores_all) && exist('coefs_en', 'var') && exist('feat_names_lasso', 'var')
@@ -469,15 +484,3 @@ end
 % lastwarn after each module and logs it to error.log — clearing it here
 % prevents logging a warning that Firth has already resolved.
 % Perfect separation occurs when a linear combination of features perfectly
-% predicts the outcome (common with small N and many features), causing
-% standard MLE to diverge to infinity.  Firth's penalized likelihood
-% (Jeffreys prior) guarantees finite estimates in this scenario.
-if use_firth
-    [~, last_warn_id] = lastwarn;
-    if strcmp(last_warn_id, 'stats:lassoGlm:PerfectSeparation')
-        lastwarn('');
-    end
-end
-
-diary off;
-end
