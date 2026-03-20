@@ -111,17 +111,15 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 
     % --- PRE-COMPUTE PATIENT BLOCKING MATRIX ---
     % Cache patient-blocking distance matrix to avoid repeated distance calculations
+    % Vectorized construction eliminates O(n^2) loop iterations.
     patient_blocking_mask = [];
     if ~isempty(pat_id_tr)
-        patient_blocking_mask = false(n_tr, n_tr);
         if iscell(pat_id_tr)
-            for i = 1:n_tr
-                patient_blocking_mask(i, :) = strcmp(pat_id_tr, pat_id_tr{i});
-            end
+            % Convert cell array of patient IDs to numeric indices for vectorized comparison
+            [~, ~, id_num_tr] = unique(pat_id_tr);
+            patient_blocking_mask = (id_num_tr(:) == id_num_tr(:)');
         else
-            for i = 1:n_tr
-                patient_blocking_mask(i, :) = (pat_id_tr == pat_id_tr(i));
-            end
+            patient_blocking_mask = (pat_id_tr(:) == pat_id_tr(:)');
         end
     else
         % Create identity matrix for self-exclusion only
@@ -228,17 +226,17 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
         end
         
         % Pre-compute cross-patient blocking mask for test-train exclusions
+        % Vectorized construction eliminates O(n_te * n_tr) loop iterations.
         cross_patient_blocking_mask = [];
         if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-            cross_patient_blocking_mask = false(n_te, n_tr);
             if iscell(pat_id_tr)
-                for i = 1:n_te
-                    cross_patient_blocking_mask(i, :) = strcmp(pat_id_tr, pat_id_te{i});
-                end
+                % Convert both cell arrays to numeric indices using a shared label set
+                [~, ~, id_num_all] = unique([pat_id_tr(:); pat_id_te(:)]);
+                id_num_tr_cross = id_num_all(1:n_tr);
+                id_num_te_cross = id_num_all(n_tr+1:end);
+                cross_patient_blocking_mask = (id_num_te_cross(:) == id_num_tr_cross(:)');
             else
-                for i = 1:n_te
-                    cross_patient_blocking_mask(i, :) = (pat_id_tr == pat_id_te(i));
-                end
+                cross_patient_blocking_mask = (pat_id_te(:) == pat_id_tr(:)');
             end
         end
         
