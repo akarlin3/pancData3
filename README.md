@@ -260,10 +260,11 @@ docker build -t pancdata3:latest .
 
 ## Configuration
 
-Copy the example configuration and update paths for your environment:
+Copy the example configuration files and update paths for your environment:
 
 ```bash
 cp config.example.json config.json
+cp improvement_loop_config.example.json improvement_loop_config.json
 ```
 
 Edit `config.json` with your local paths:
@@ -312,6 +313,16 @@ Edit `config.json` with your local paths:
 | `use_auxiliary_biomarkers` | Include auxiliary biomarkers in the predictive modeling feature matrix (default: `false`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
+
+### Improvement Loop Configuration
+
+The automated improvement loop has its own config file. Copy the example and customize:
+
+```bash
+cp improvement_loop_config.example.json improvement_loop_config.json
+```
+
+Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`), and orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`). All fields have sensible defaults — the file is optional. See [`improvement_loop_config.example.json`](improvement_loop_config.example.json) for the full template.
 
 ---
 
@@ -488,7 +499,7 @@ You can also set defaults in `analysis/analysis_config.json` or via environment 
 ```bash
 export PANCDATA3_VISION_PROVIDER="both"
 export PANCDATA3_GEMINI_MODEL="gemini-2.5-flash"
-export PANCDATA3_CLAUDE_MODEL="claude-sonnet-4-6"
+export PANCDATA3_CLAUDE_MODEL="claude-opus-4-6"
 ```
 
 #### WeasyPrint System Dependencies (PDF report generation)
@@ -703,12 +714,14 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (32 test files, 1482 tests)
+│   └── tests/                      #   Python test suite (37 test files, 1576 tests)
 ├── improvement_loop/               # Automated audit-fix-evaluate loop
 │   ├── orchestrator_v1.py          #   Main loop orchestrator
 │   ├── evaluator.py                #   Finding schema & audit scoring
 │   ├── loop_tracker.py             #   Persistent JSON logging & CLI
+│   ├── loop_config.py              #   Centralised config (LoopConfig dataclass)
 │   └── git_utils.py                #   Branch management & test runners
+├── improvement_loop_config.example.json  # Loop config template
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

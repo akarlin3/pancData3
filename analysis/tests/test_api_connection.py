@@ -88,7 +88,7 @@ def test_claude_api_connection(tmp_path: Path):
     # Get the configured model from our shared config
     from shared import get_config
     cfg = get_config()
-    model = cfg["vision"].get("claude_model", "claude-sonnet-4-6")
+    model = cfg["vision"].get("claude_model", "claude-opus-4-6")
 
     client = anthropic.Anthropic(api_key=api_key)
 

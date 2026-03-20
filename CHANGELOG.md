@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0-beta.2] - 2026-03-20
+
+### Added
+
+#### Improvement Loop Configuration System
+- **`improvement_loop/loop_config.py`**: Centralised configuration for the improvement loop via `improvement_loop_config.json` — all tuneable knobs in a single `LoopConfig` dataclass with built-in defaults (same pattern as `parse_config.m` for the MATLAB pipeline)
+- **`improvement_loop_config.example.json`**: Committed template with all configurable fields
+- **Configurable exit strategy**: `exit_strategy` field selects `"classic"` (threshold-only), `"diminishing_returns"` (staleness detector), or `"both"` (default) for loop termination
+- **Configurable API settings**: `anthropic_api_key`, `audit_model`, `fix_model`, `judge_model` fields — API key can live in the config file instead of requiring an environment variable
+- **Configurable thresholds**: All classic exit thresholds (`importance_threshold`, `min_coverage_score`) and diminishing returns parameters (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`) are tuneable via config
+
+#### Diminishing Returns Detection
+- **`evaluator.py` — `check_diminishing_returns()`**: Detects stale loops by checking four simultaneous conditions over the last N iterations (configurable via `dr_window`): low merge rate, low average importance, repeated file targeting, and no high audit scores
+- **`should_continue_loop()`** updated to call the diminishing returns detector after classic checks, controlled by `exit_strategy` config
+
+#### JSON Parsing Robustness
+- **`orchestrator_v1.py` — `_sanitize_json_escapes()`**: Pre-sanitises raw API responses by escaping invalid backslash sequences (e.g. Windows paths like `C:\Users`) before JSON parsing
+- **`_parse_findings()`**: Three-layer fallback chain — sanitised `json.loads()`, then `unicode_escape` decoding, then regex extraction of the JSON array
+
+### Changed
+
+#### Model Upgrade to Claude Opus 4.6
+- **Improvement loop**: Default `audit_model`, `fix_model`, and `judge_model` switched from `claude-sonnet-4-20250514` to `claude-opus-4-6`
+- **Vision analysis**: Default `claude_model` switched from `claude-sonnet-4-6` to `claude-opus-4-6` in `analysis_config.json`, `shared.py`, `batch_graph_analysis.py`, and `run_analysis.py`
+- All hardcoded model strings replaced with config-driven values
+
+#### Evaluator & Orchestrator Refactoring
+- **`evaluator.py`**: `score_audit()` and `should_continue_loop()` now read model names and thresholds from `LoopConfig` instead of hardcoded constants; Anthropic client created lazily via `_get_client()` with config API key support
+- **`orchestrator_v1.py`**: `_api_call_with_retry()`, `_run_audit()`, `_apply_single_fix()`, and `_collect_source_files()` all use `LoopConfig` for retries, delays, models, and file size limits; client created via `_get_client()`
+
+#### Documentation
+- **`README.md`**: Configuration section updated to mention both `config.json` and `improvement_loop_config.json`; new "Improvement Loop Configuration" subsection; Claude model example updated to Opus 4.6
+- **`CLAUDE.md`**, **`CLAUDE_REFERENCE.md`**: Updated file counts, module tables, and test suite numbers
+
+### Fixed
+- `improvement_loop_config.json` added to `.gitignore` (may contain API keys)
+
+### Test Suite
+- Python test suite: 36 → 37 files (1559 → 1576 tests)
+- New tests in `test_evaluator_finding.py`: `TestCheckDiminishingReturns` (5 unit tests), `TestShouldContinueLoopDiminishingReturns` (5 integration tests), `TestLoopConfig` (6 config tests)
+- New test in `test_orchestrator.py`: `test_parse_findings_handles_windows_paths_in_json`
+
+---
+
 ## [2.1.0-beta.1] - 2026-03-19
 
 ### Added

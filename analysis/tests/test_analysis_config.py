@@ -191,7 +191,7 @@ class TestLoadAnalysisConfig:
             matlab_config_path=tmp_path / "nonexistent.json",
         )
         assert "claude_model" in cfg["vision"]
-        assert cfg["vision"]["claude_model"] == "claude-sonnet-4-6"
+        assert cfg["vision"]["claude_model"] == "claude-opus-4-6"
 
     def test_provider_default(self, tmp_path: Path):
         """Default provider is 'gemini'."""

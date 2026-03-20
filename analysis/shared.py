@@ -35,7 +35,7 @@ _DEFAULTS: dict = {
     "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
     "vision": {
         "gemini_model": "gemini-2.5-flash",
-        "claude_model": "claude-sonnet-4-6",
+        "claude_model": "claude-opus-4-6",
         "provider": "gemini",
         "max_concurrent_requests": 2,
         "max_retries": 4,

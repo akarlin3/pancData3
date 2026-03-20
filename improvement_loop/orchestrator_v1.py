@@ -17,6 +17,10 @@ from . import git_utils
 from .evaluator import Finding
 from typing import List
 
+from .loop_config import get_config as _get_loop_config
+
+# Legacy constants — kept as module-level for backward compat but
+# actual runtime values come from get_config().
 MAX_API_RETRIES = 3
 RETRY_BASE_DELAY = 30.0  # seconds — rate limit window is per-minute
 MAX_SELF_HEAL_ATTEMPTS = 2  # max retries when a fix causes test failures
@@ -24,7 +28,13 @@ MAX_SELF_HEAL_ATTEMPTS = 2  # max retries when a fix causes test failures
 # Repo root is one level up from this file's directory
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-client = anthropic.Anthropic()
+def _get_client() -> anthropic.Anthropic:
+    """Return an Anthropic client, using the config API key if set."""
+    cfg = _get_loop_config()
+    kwargs = {}
+    if cfg.anthropic_api_key:
+        kwargs["api_key"] = cfg.anthropic_api_key
+    return anthropic.Anthropic(**kwargs)
 
 AUDIT_SYSTEM_PROMPT = """\
 You are a senior code auditor for a MATLAB + Python medical-imaging research pipeline \
@@ -64,27 +74,27 @@ cross-timepoint imputation, etc.).
 
 def _api_call_with_retry(create_kwargs: dict) -> str:
     """Call client.messages.create with rate-limit retry. Returns response text."""
-    for attempt in range(1, MAX_API_RETRIES + 1):
+    cfg = _get_loop_config()
+    client = _get_client()
+    for attempt in range(1, cfg.max_api_retries + 1):
         try:
             response = client.messages.create(**create_kwargs)
             return response.content[0].text
         except anthropic.RateLimitError as e:
-            delay = RETRY_BASE_DELAY * attempt
-            print(f"    Rate limited (attempt {attempt}/{MAX_API_RETRIES}), "
+            delay = cfg.retry_base_delay * attempt
+            print(f"    Rate limited (attempt {attempt}/{cfg.max_api_retries}), "
                   f"waiting {delay:.0f}s...")
             time.sleep(delay)
-            if attempt == MAX_API_RETRIES:
+            if attempt == cfg.max_api_retries:
                 raise
         except anthropic.APIError:
             raise
     return ""  # unreachable
 
 
-# Max chars per file — keeps total prompt under ~20k tokens
-_MAX_FILE_CHARS = 8000
-
 def _collect_source_files() -> str:
     """Collect key source files as context for the audit."""
+    cfg = _get_loop_config()
     # Smaller focused set to stay under rate limits
     key_files = [
         "pipeline/run_dwi_pipeline.m",
@@ -107,8 +117,8 @@ def _collect_source_files() -> str:
         try:
             with open(full_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-            if len(content) > _MAX_FILE_CHARS:
-                content = content[:_MAX_FILE_CHARS] + "\n... [truncated]"
+            if len(content) > cfg.max_file_chars:
+                content = content[:cfg.max_file_chars] + "\n... [truncated]"
             parts.append(f"=== {rel_path} ===\n{content}")
         except OSError:
             continue
@@ -127,8 +137,9 @@ def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
         "Return your findings as a JSON array."
     )
 
+    cfg = _get_loop_config()
     return _api_call_with_retry({
-        "model": "claude-sonnet-4-20250514",
+        "model": cfg.audit_model,
         "max_tokens": 4096,
         "system": AUDIT_SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": user_message}],
@@ -237,8 +248,9 @@ def _apply_single_fix(finding: Finding) -> None:
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         original_content = f.read()
 
+    cfg = _get_loop_config()
     new_content = _api_call_with_retry({
-        "model": "claude-sonnet-4-20250514",
+        "model": cfg.fix_model,
         "max_tokens": 8192,
         "system": (
             "You are a code fixer. Given the original file and a description of the fix, "

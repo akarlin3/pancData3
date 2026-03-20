@@ -494,7 +494,7 @@ _vision_cfg = get_config()["vision"]
 
 # Model to use for vision analysis.
 GEMINI_MODEL = _vision_cfg["gemini_model"]
-CLAUDE_MODEL = _vision_cfg.get("claude_model", "claude-sonnet-4-6")
+CLAUDE_MODEL = _vision_cfg.get("claude_model", "claude-opus-4-6")
 VISION_PROVIDER = _vision_cfg.get("provider", "gemini")
 
 # ── Async API call ───────────────────────────────────────────────────────────

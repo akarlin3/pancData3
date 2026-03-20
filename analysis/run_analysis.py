@@ -441,7 +441,7 @@ def main():
         "--claude-model",
         type=str,
         default=None,
-        help="Override the Claude vision model (e.g. claude-sonnet-4-6)",
+        help="Override the Claude vision model (e.g. claude-opus-4-6)",
     )
     parser.add_argument(
         "--concurrency",
@@ -520,7 +520,7 @@ def main():
         print(f"  Skip checks:   {args.skip_checks}")
         print(f"  Provider:      {cfg['vision'].get('provider', 'gemini')}")
         print(f"  Gemini model:  {cfg['vision']['gemini_model']}")
-        print(f"  Claude model:  {cfg['vision'].get('claude_model', 'claude-sonnet-4-6')}")
+        print(f"  Claude model:  {cfg['vision'].get('claude_model', 'claude-opus-4-6')}")
         print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()

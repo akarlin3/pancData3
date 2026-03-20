@@ -224,7 +224,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-32 test files with 1482 tests. Run with `cd analysis/tests && python -m pytest -v`.
+37 test files with 1576 tests. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -261,6 +261,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
+| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic, diminishing returns detection, loop config loading |
+| `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
+| `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
+| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
 
 ---
 

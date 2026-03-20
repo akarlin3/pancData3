@@ -1,0 +1,24 @@
+{
+  "_comment": "Improvement loop configuration. Copy to improvement_loop_config.json to customize.",
+
+  "exit_strategy": "both",
+
+  "importance_threshold": 2,
+  "min_coverage_score": 6.0,
+
+  "dr_window": 4,
+  "dr_max_merge_rate": 0.15,
+  "dr_max_avg_importance": 3.5,
+  "dr_min_file_repeats": 3,
+  "dr_max_audit_score": 8.5,
+
+  "anthropic_api_key": "",
+  "audit_model": "claude-opus-4-6",
+  "fix_model": "claude-opus-4-6",
+  "judge_model": "claude-opus-4-6",
+
+  "max_api_retries": 3,
+  "retry_base_delay": 30.0,
+  "max_self_heal_attempts": 2,
+  "max_file_chars": 8000
+}

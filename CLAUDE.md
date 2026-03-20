@@ -79,7 +79,14 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (18 files)
-│   └── tests/                          # Python test suite — 36 test files, 1559 tests (pytest)
+│   └── tests/                          # Python test suite — 37 test files, 1576 tests (pytest)
+├── improvement_loop/                    # Automated audit/fix loop (6 files)
+│   ├── orchestrator_v1.py              #   Main loop driver
+│   ├── evaluator.py                    #   Finding schema + audit scoring + exit logic
+│   ├── loop_tracker.py                 #   Iteration logging + context generation
+│   ├── loop_config.py                  #   Centralised config (LoopConfig dataclass)
+│   └── git_utils.py                    #   Subprocess-based git operations
+├── improvement_loop_config.example.json # Improvement loop config template (committed)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -297,7 +304,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 36 test files with 1559 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 37 test files with 1576 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -334,11 +341,11 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
-| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic |
+| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic, diminishing returns detection, loop config loading |
 | `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
 | `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
-| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol |
-For the full list of 106 MATLAB test files and 36 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
+For the full list of 106 MATLAB test files and 37 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
