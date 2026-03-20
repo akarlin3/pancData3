@@ -8,16 +8,23 @@ signals that no further improvements are warranted.
 import argparse
 import json
 import os
+import sys
 import time
+
+# Allow direct invocation (python improvement_loop/orchestrator_v1.py)
+# by ensuring the repo root is on sys.path for absolute imports.
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 import anthropic  # type: ignore
 
-from . import loop_tracker
-from . import git_utils
-from .evaluator import Finding
+from improvement_loop import loop_tracker
+from improvement_loop import git_utils
+from improvement_loop.evaluator import Finding
 from typing import List
 
-from .loop_config import get_config as _get_loop_config
+from improvement_loop.loop_config import get_config as _get_loop_config
 
 # Legacy constants — kept as module-level for backward compat but
 # actual runtime values come from get_config().

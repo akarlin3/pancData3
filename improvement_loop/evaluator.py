@@ -1,10 +1,16 @@
 # evaluator.py
 import anthropic  # type: ignore
 import json
-import re
-import time
 import os
+import re
+import sys
+import time
 from typing import List, Literal, Optional
+
+# Allow direct invocation by ensuring the repo root is on sys.path.
+_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 from pydantic import BaseModel, field_validator
 
@@ -89,7 +95,7 @@ class Finding(BaseModel):
 
 def _get_client() -> anthropic.Anthropic:
     """Return an Anthropic client, using the config API key if set."""
-    from .loop_config import get_config
+    from improvement_loop.loop_config import get_config
     cfg = get_config()
     kwargs = {}
     if cfg.anthropic_api_key:
@@ -255,7 +261,7 @@ def score_audit(audit_output: str, dry_run: bool = False) -> dict:
             "flags": [],
             "reasoning": "Dry-run mode — skipped API evaluation."
         }
-    from .loop_config import get_config
+    from improvement_loop.loop_config import get_config
     cfg = get_config()
     client = _get_client()
     for attempt in range(1, MAX_RETRIES + 1):
@@ -303,7 +309,7 @@ def check_diminishing_returns(log: list, cfg=None) -> bool:
     cfg : LoopConfig, optional
         If *None*, the module-level cached config is used.
     """
-    from .loop_config import get_config
+    from improvement_loop.loop_config import get_config
     if cfg is None:
         cfg = get_config()
 
@@ -363,7 +369,7 @@ def should_continue_loop(scores: dict, findings: List[Finding], dry_run: bool = 
     - ``"diminishing_returns"`` — only the staleness detector
     - ``"both"`` (default) — classic first, then diminishing returns
     """
-    from .loop_config import get_config
+    from improvement_loop.loop_config import get_config
     cfg = get_config()
 
     if dry_run:
@@ -395,7 +401,7 @@ def should_continue_loop(scores: dict, findings: List[Finding], dry_run: bool = 
 
     # ── Diminishing returns check ────────────────────────────────────────
     if use_dr:
-        from .loop_tracker import load_log
+        from improvement_loop.loop_tracker import load_log
         if check_diminishing_returns(load_log(), cfg=cfg):
             print(f"⚠️  Diminishing returns detected over last {cfg.dr_window} iterations — stopping loop")
             return False
