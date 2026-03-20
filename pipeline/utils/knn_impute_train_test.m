@@ -22,6 +22,10 @@ function test_knn_impute()
 %    18. Scale invariance (standardization before distance computation)
 %    19. Inf values in training/test data
 %    20. Single non-NaN value in a training column
+%    21. Imputed training data preserves column-wise mean/variance
+%    22. Training imputation is independent of test data
+%    23. Deterministic / reproducible output
+%    24. Empty X_tr (zero training rows) graceful handling
 %
 %   Usage:
 %     >> test_knn_impute   % runs all tests, prints PASS/FAIL summary
@@ -513,7 +517,3 @@ function test_knn_impute()
     % =====================================================================
     try
         rng(42);  % reproducibility
-        % 3 training rows x 10 columns (wide matrix)
-        X_tr = randn(3, 10);
-        % Introduce a NaN in the last column of the test row
-        X_te = randn(1, 10
