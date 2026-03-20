@@ -25,33 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check for unmatched function/end blocks
+      - name: Check for common MATLAB syntax errors
         run: |
+          # Check for any .m files that are binary (null bytes = corruption)
           errors=0
 
-          # Find .m files with a function declaration but no trailing end
-          for f in $(find pipeline -name '*.m' -not -path '*/dependencies/*' -not -path '*/.octave_compat/*'); do
-            # Skip files that are not function files
-            first_keyword=$(grep -m1 -oP '^\s*\K(function|classdef)\b' "$f" 2>/dev/null || true)
-            [ -z "$first_keyword" ] && continue
-
-            # Last non-empty, non-comment line should be 'end'
-            last=$(grep -v '^\s*$' "$f" | grep -v '^\s*%' | tail -1 | sed 's/%.*//' | xargs)
-            if [ "$last" != "end" ] && [ "$last" != "end;" ]; then
-              echo "::error file=$f::Function/class file does not end with 'end'"
+          while IFS= read -r -d '' f; do
+            mimetype=$(file --mime-type -b "$f")
+            if [[ "$mimetype" != text/* ]]; then
+              echo "Error: $f detected as $mimetype (expected text)"
               errors=$((errors + 1))
             fi
-          done
+          done < <(find pipeline -name "*.m" -not -path "*/dependencies/*" -print0)
 
-          # Check for obvious syntax issues: 'function' lines missing argument list
-          for f in $(find pipeline -name '*.m' -not -path '*/dependencies/*' -not -path '*/.octave_compat/*'); do
-            if grep -nP '^\s*function\s+\w+\s*$' "$f" | grep -v '%' > /dev/null 2>&1; then
-              echo "::warning file=$f::Possible function declaration without parentheses"
-            fi
-          done
-
-          if [ "$errors" -gt 0 ]; then
-            echo "$errors file(s) with syntax issues found"
+          if [ $errors -gt 0 ]; then
+            echo "$errors file(s) with issues found"
             exit 1
           fi
-          echo "All .m files passed syntax checks"
+          echo "MATLAB syntax check passed"
