@@ -219,11 +219,17 @@ def _run_tests() -> bool:
 
 
 def _mask_key_value(key_value: str) -> str:
-    """Mask an API key value based on its length.
+    """Mask an API key value aggressively based on its length.
 
-    For keys longer than 20 characters, the entire value is masked (only
-    the first 4 characters are shown). For shorter keys (8-20 chars), the
-    first 4 characters are shown followed by ``****``.
+    For keys shorter than 12 characters, the entire value is fully masked
+    (no characters revealed) to prevent information leakage on short keys.
+    For longer keys, at most the first 2 characters are shown followed by
+    ``****`` and a bracketed character count indicating the total key
+    length, e.g. ``sk****[39 chars]``.
+
+    This avoids revealing well-known provider prefixes (e.g., ``sk-ant-``,
+    ``AIza``) and reduces the information available to an attacker for
+    keys of any length.
 
     Parameters
     ----------
@@ -235,9 +241,12 @@ def _mask_key_value(key_value: str) -> str:
     str
         The masked key string.
     """
-    if len(key_value) > 20:
-        return key_value[:4] + "*" * (len(key_value) - 4)
-    return key_value[:4] + "****"
+    key_len = len(key_value)
+    if key_len < 12:
+        # Fully mask short keys — showing any characters is too revealing
+        return f"****[{key_len} chars]"
+    # For longer keys, show at most the first 2 characters
+    return key_value[:2] + f"****[{key_len} chars]"
 
 
 def _mask_api_keys(text: str) -> str:
@@ -252,8 +261,9 @@ def _mask_api_keys(text: str) -> str:
       appearing as standalone values
 
     Keys shorter than 8 characters are left untouched (unlikely to be real).
-    Keys longer than 20 characters have their full value masked (only the
-    first 4 characters are preserved).
+    All matched keys are aggressively masked: keys shorter than 12 characters
+    are fully redacted, and longer keys show at most 2 leading characters
+    plus a length indicator.
     """
     # 1. Mask patterns where the field name ends with _KEY, _SECRET, _TOKEN
     #    (case-insensitive), covering both PREFIX_API_KEY and prefix_api_key
