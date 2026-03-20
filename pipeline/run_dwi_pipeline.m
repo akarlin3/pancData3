@@ -96,9 +96,13 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % to prepare_pipeline_session.  onCleanup guards remain here because
     % they must be scoped to this function (the caller).
     session = prepare_pipeline_session(pipeline_dir, config_path, master_output_folder, steps_to_run);
-    if session.abort, return; end
+    if session.abort
+        diary off;
+        return;
+    end
 
-    % onCleanup guards: restore figure visibility, close error log, close GUI
+    % onCleanup guards: restore figure visibility, close error log, close GUI, turn off diary
+    cleanup_diary   = onCleanup(@() diary('off')); %#ok<NASGU>
     cleanup_fig_vis = onCleanup(@() set(0, 'DefaultFigureVisible', session.prev_fig_vis)); %#ok<NASGU>
     cleanup_log = onCleanup(@() safe_fclose_log(session.log_fid)); %#ok<NASGU>
     cleanup_gui = onCleanup(@() closeIfValid(session.pipeGUI)); %#ok<NASGU>
