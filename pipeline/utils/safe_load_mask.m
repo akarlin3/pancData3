@@ -131,13 +131,23 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
     end
     
     % Additional structure validation: check for suspicious variables
-    % that might indicate a malicious file
-    suspicious_classes = {'function_handle', 'onCleanup', 'timer', 'java'};
+    % that might indicate a malicious file.
+    %
+    % We use exact matching (ismember) for known dangerous MATLAB class
+    % names and startsWith for Java classes (which always begin with a
+    % Java package prefix such as 'java.', 'javax.', 'com.', 'org.', 'net.').
+    % This avoids false positives from substring matching (e.g. a
+    % legitimate class named 'javascript_parser' would NOT be flagged).
+    exact_suspicious_classes = {'function_handle', 'onCleanup', 'timer'};
+    java_prefixes = {'java.', 'javax.', 'com.', 'org.', 'net.'};
     for i = 1:length(file_info)
-        if any(contains(file_info(i).class, suspicious_classes))
+        var_class = file_info(i).class;
+        is_exact_suspicious = ismember(var_class, exact_suspicious_classes);
+        is_java_class = any(startsWith(var_class, java_prefixes));
+        if is_exact_suspicious || is_java_class
             warning('safe_load_mask:SuspiciousContent', ...
                 'File contains suspicious variable of class ''%s''. Aborting load for security.', ...
-                file_info(i).class);
+                var_class);
             return;
         end
     end
