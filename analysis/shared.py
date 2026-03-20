@@ -143,8 +143,10 @@ def load_analysis_config(
             with open(config_path, encoding="utf-8") as f:
                 overrides = json.load(f)
             cfg = _deep_merge(cfg, overrides)
-        except (json.JSONDecodeError, OSError):
-            pass  # Silently fall back to defaults on bad JSON.
+        except json.JSONDecodeError as e:
+            print(f'[WARN] Invalid JSON in {config_path}: {e}')
+        except OSError as e:
+            print(f'[WARN] Cannot read {config_path}: {e}')
 
     # ── Layer 3: MATLAB config.json (dwi_type only) ──
     if matlab_config_path is None:
