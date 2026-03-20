@@ -215,9 +215,9 @@ try
     % We first fit the unweighted model, then compute the sandwich variance
     % using the IPCW weights and score residuals.
     
-    warning('off', 'all');
-    warning('error', 'stats:coxphfit:FitWarning');
-    warning('error', 'stats:coxphfit:IterationLimit');
+    % Suppress only the specific coxphfit warnings, with guaranteed restoration
+    ws = warning('off', 'stats:coxphfit:FitWarning');
+    cleanupWarn = onCleanup(@() warning(ws));
     
     % Apply IPCW via frequency weights for point estimation
     ipcw_scale = 100;
@@ -266,8 +266,6 @@ try
     se_full(keep_cols) = stats_short.se;
     p_full(keep_cols) = stats_short.p;
     
-    warning('on', 'all');
-    
     cox_results = struct();
     cox_results.success = true;
     cox_results.coefficients = b_full;
@@ -284,7 +282,6 @@ try
     print_cox_results(cox_results, survival_data.feat_names);
     
 catch ME
-    warning('on', 'all');
     if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit')
         fprintf('  ⚠️  Cox model convergence issue: %s\n', ME.message);
         cox_results = create_failed_cox_results(survival_data.n_feat);
@@ -477,13 +474,12 @@ try
         end
         
         try
-            warning('off', 'all');
+            ws_boot = warning('off', 'stats:coxphfit:FitWarning');
+            cleanupWarnBoot = onCleanup(@() warning(ws_boot));
             [b_boot, ~, ~, ~] = coxphfit(X_b, T_b, ...
                 'Censoring', cens_b, 'Ties', ties_method, 'Frequency', freq_b);
             boot_coefs(:, b) = b_boot;
-            warning('on', 'all');
         catch
-            warning('on', 'all');
             continue;
         end
     end
