@@ -109,6 +109,11 @@ def _deep_merge(base: dict, override: dict) -> dict:
     overriding only ``vision.gemini_model`` without touching the other
     vision keys).  Lists are shallow-copied to prevent mutation of the
     originals.
+
+    If *override* contains a ``None`` value for a key whose *base* value
+    is a dict, the ``None`` is skipped and the base dict is preserved.
+    This prevents downstream code from crashing with ``AttributeError``
+    when it does e.g. ``cfg.get('vision', {}).get(...)``.
     """
     import copy
     merged = {}
@@ -120,6 +125,10 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             merged[key] = val
     for key, val in override.items():
+        if val is None and key in merged and isinstance(merged[key], dict):
+            # Preserve the base dict — nullifying a section-level key is
+            # not allowed because downstream code expects a dict.
+            continue
         if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
             merged[key] = _deep_merge(merged[key], val)
         elif isinstance(val, list):
