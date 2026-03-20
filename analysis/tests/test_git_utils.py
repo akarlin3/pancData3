@@ -211,3 +211,52 @@ class TestCommitAll:
             git_utils.commit_all("my message")
             calls = [c.args[0] for c in mock_run.call_args_list]
             assert ["git", "commit", "-m", "my message"] in calls
+
+
+# ---------------------------------------------------------------------------
+# run_syntax_check
+# ---------------------------------------------------------------------------
+
+class TestRunSyntaxCheck:
+    def test_returns_false_on_syntax_error(self, tmp_path, capsys):
+        bad_file = tmp_path / "bad.py"
+        bad_file.write_text("for\n")
+
+        with mock.patch.object(git_utils, "REPO_ROOT", tmp_path):
+            # Create the analysis/ subdirectory that run_syntax_check globs
+            analysis_dir = tmp_path / "analysis"
+            analysis_dir.mkdir()
+            bad_analysis_file = analysis_dir / "broken.py"
+            bad_analysis_file.write_text("for\n")
+
+            result = git_utils.run_syntax_check()
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "broken.py" in captured.out
+        assert "Syntax error" in captured.out
+
+    def test_returns_true_when_all_valid(self, tmp_path, capsys):
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+        good_file = analysis_dir / "good.py"
+        good_file.write_text("x = 1\n")
+
+        with mock.patch.object(git_utils, "REPO_ROOT", tmp_path):
+            result = git_utils.run_syntax_check()
+
+        assert result is True
+        captured = capsys.readouterr()
+        assert "Syntax check passed" in captured.out
+        assert "1 files" in captured.out
+
+    def test_returns_true_when_no_files(self, tmp_path, capsys):
+        analysis_dir = tmp_path / "analysis"
+        analysis_dir.mkdir()
+
+        with mock.patch.object(git_utils, "REPO_ROOT", tmp_path):
+            result = git_utils.run_syntax_check()
+
+        assert result is True
+        captured = capsys.readouterr()
+        assert "0 files" in captured.out

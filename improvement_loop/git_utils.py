@@ -101,6 +101,31 @@ def merge_branch(
 # Test runners
 # ---------------------------------------------------------------------------
 
+def run_syntax_check() -> bool:
+    """Run py_compile on all .py files in analysis/ to catch syntax errors
+    before running the full test suite.
+
+    Returns True if all files compile, False on the first syntax error.
+    """
+    analysis_dir = REPO_ROOT / "analysis"
+    py_files = sorted(analysis_dir.rglob("*.py"))
+
+    for py_file in py_files:
+        result = subprocess.run(
+            [sys.executable, "-m", "py_compile", str(py_file)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"    ❌  Syntax error in {py_file.relative_to(REPO_ROOT)}:")
+            print(f"        {result.stderr.strip()}")
+            return False
+
+    print(f"    ✅  Syntax check passed ({len(py_files)} files)")
+    return True
+
+
 def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
     """Run the Python test suite via pytest.
 

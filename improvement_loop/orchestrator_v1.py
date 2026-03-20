@@ -277,6 +277,13 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
             )
 
             # Run tests
+            print("    Running syntax check...")
+            if not git_utils.run_syntax_check():
+                print("    ❌ Syntax error detected — skipping tests")
+                finding.status = "pending"
+                all_passed = False
+                continue
+
             print("    Running Python tests...")
             py_ok = git_utils.run_python_tests()
 
@@ -298,6 +305,10 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
                     print(f"    ⚙️  cwd after merge: {os.getcwd()}")
                     print(f"    ⚙️  Post-merge test run on {original_branch}")
                     print(f"    ⚙️  Post-merge cwd: {os.getcwd()}")
+                    if not git_utils.run_syntax_check():
+                        print(f"    ❌  Post-merge syntax error — merge may have introduced issues")
+                        all_passed = False
+                        continue
                     post_ok = git_utils.run_python_tests()
                     print(f"    ⚙️  Post-merge test result: {post_ok}")
                     if post_ok:
