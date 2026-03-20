@@ -262,7 +262,7 @@ def score_audit(audit_output: str, dry_run: bool = False) -> dict:
         try:
             response = client.messages.create(
                 model=cfg.judge_model,
-                max_tokens=1000,
+                max_tokens=cfg.judge_max_tokens,
                 system=FULL_SYSTEM_PROMPT,
                 messages=[
                     {

@@ -154,6 +154,7 @@ end
 
 function cox_results = fit_cox_ph(survival_data, config)
 % FIT_COX_PH Fit Cox Proportional Hazards model with time-dependent covariates
+% Uses robust sandwich (Huber-White) variance estimator for IPCW-weighted models.
 
 if ~survival_data.has_sufficient_data
     cox_results = struct('success', false, 'message', 'Insufficient data');
@@ -186,7 +187,7 @@ if has_tied_times
     fprintf('  ⚠️  Detected tied event times. Using Efron approximation.\n');
 end
 
-% Fit Cox model
+% Fit Cox model with robust sandwich variance estimation
 try
     T_matrix = [survival_data.t_start, survival_data.t_stop];
     is_censored = (event_csh == 0);
@@ -196,20 +197,51 @@ try
         error('Cox:NoVariableColumns', 'All covariate columns are constant.');
     end
     
-    % Apply IPCW via frequency weights
-    ipcw_scale = 100;
-    ipcw_freq = max(1, round(ipcw_weights * ipcw_scale));
+    % --- Step 1: Fit unweighted Cox model to get initial estimates ---
+    % We first fit the unweighted model, then compute the sandwich variance
+    % using the IPCW weights and score residuals.
     
     warning('off', 'all');
     warning('error', 'stats:coxphfit:FitWarning');
     warning('error', 'stats:coxphfit:IterationLimit');
     
-    [b_short, logl, ~, stats_short] = coxphfit(X_clean, T_matrix, ...
+    % Apply IPCW via frequency weights for point estimation
+    ipcw_scale = 100;
+    ipcw_freq = max(1, round(ipcw_weights * ipcw_scale));
+    
+    [b_short, logl, H_out, stats_short] = coxphfit(X_clean, T_matrix, ...
         'Censoring', is_censored, 'Ties', ties_method, 'Frequency', ipcw_freq);
     
-    % Correct for frequency scaling
-    eff_scale = mean(ipcw_freq);
-    stats_short.se = stats_short.se * sqrt(eff_scale);
+    % --- Step 2: Compute robust sandwich (Huber-White) standard errors ---
+    % The sandwich variance is: V_robust = A^{-1} B A^{-1}
+    % where A = negative Hessian (observed information), B = meat matrix
+    % B = sum over clusters (patients) of (score_i * w_i)' * (score_i * w_i)
+    
+    fprintf('  Computing robust sandwich variance estimator for IPCW weights.\n');
+    
+    sandwich_se = compute_sandwich_se_cox(b_short, X_clean, T_matrix, ...
+        is_censored, ipcw_weights, survival_data.pat_id, ties_method);
+    
+    if ~isempty(sandwich_se) && all(isfinite(sandwich_se)) && all(sandwich_se > 0)
+        % Use sandwich SE
+        stats_short.se = sandwich_se;
+        fprintf('  Using robust sandwich SE estimator.\n');
+    else
+        % Fallback: use clustered bootstrap SE stratified by patient ID
+        fprintf('  Sandwich SE computation failed; falling back to clustered bootstrap.\n');
+        bootstrap_se = compute_bootstrap_se_cox(X_clean, T_matrix, is_censored, ...
+            ipcw_weights, survival_data.pat_id, ties_method, config.n_bootstrap);
+        
+        if ~isempty(bootstrap_se) && all(isfinite(bootstrap_se)) && all(bootstrap_se > 0)
+            stats_short.se = bootstrap_se;
+            fprintf('  Using clustered bootstrap SE (%d replicates).\n', config.n_bootstrap);
+        else
+            % Last resort: keep model-based SE with a warning
+            fprintf('  ⚠️  Both sandwich and bootstrap SE failed; using model-based SE (interpret with caution).\n');
+        end
+    end
+    
+    % Recompute p-values with corrected SE
     stats_short.p = 2 * (1 - normcdf(abs(b_short ./ stats_short.se)));
     
     % Map back to full feature space
@@ -245,6 +277,218 @@ catch ME
     else
         rethrow(ME);
     end
+end
+end
+
+function sandwich_se = compute_sandwich_se_cox(beta, X, T_matrix, is_censored, ipcw_weights, pat_id, ties_method)
+% COMPUTE_SANDWICH_SE_COX Compute robust sandwich (Huber-White) SE for IPCW-weighted Cox model.
+%
+% The sandwich estimator accounts for the IPCW weighting by computing:
+%   V_sandwich = A^{-1} * B * A^{-1}
+% where A is the observed information (negative Hessian) and B is the "meat"
+% matrix formed from weighted score residuals clustered by patient.
+
+try
+    n = size(X, 1);
+    p = size(X, 2);
+    t_stop = T_matrix(:, 2);
+    event = double(~is_censored);  % 1 = event, 0 = censored
+    
+    % Compute linear predictor and risk scores
+    eta = X * beta;
+    risk = exp(eta);
+    w = ipcw_weights(:);  % per-observation IPCW weights
+    
+    % Get unique ordered event times
+    event_times = sort(unique(t_stop(event == 1)));
+    n_events = length(event_times);
+    
+    if n_events == 0
+        sandwich_se = [];
+        return;
+    end
+    
+    % --- Compute score residuals for each observation ---
+    % Score residual for observation i:
+    %   U_i = delta_i * w_i * (x_i - xbar(t_i)) 
+    %         - w_i * sum_{j: t_j <= t_i, delta_j=1} [ w_j * risk_i * (x_i - xbar(t_j)) / S0(t_j) ] * I(i in risk set at t_j)
+    % where S0(t) = sum_{k in R(t)} w_k * risk_k
+    %       xbar(t) = sum_{k in R(t)} w_k * risk_k * x_k / S0(t)
+    
+    score_resid = zeros(n, p);
+    
+    % Precompute risk set quantities at each event time
+    S0 = zeros(n_events, 1);
+    S1 = zeros(n_events, p);
+    
+    for j = 1:n_events
+        tj = event_times(j);
+        in_risk = (T_matrix(:, 1) < tj) & (t_stop >= tj);
+        if ~any(in_risk), continue; end
+        
+        w_risk = w(in_risk) .* risk(in_risk);
+        S0(j) = sum(w_risk);
+        S1(j, :) = sum(bsxfun(@times, X(in_risk, :), w_risk), 1);
+    end
+    
+    % Avoid division by zero
+    S0(S0 == 0) = eps;
+    xbar = bsxfun(@rdivide, S1, S0);  % n_events x p
+    
+    % For each observation, accumulate score residual contributions
+    for i = 1:n
+        ti = t_stop(i);
+        
+        % Event contribution (if this observation had an event)
+        if event(i) == 1
+            % Find which event time this corresponds to
+            eidx = find(event_times == ti, 1);
+            if ~isempty(eidx)
+                score_resid(i, :) = score_resid(i, :) + w(i) * (X(i, :) - xbar(eidx, :));
+            end
+        end
+        
+        % At-risk contribution: for each event time t_j where i is in the risk set
+        for j = 1:n_events
+            tj = event_times(j);
+            if T_matrix(i, 1) < tj && t_stop(i) >= tj
+                % Number of events at this time (for ties)
+                n_events_at_tj = sum(event == 1 & t_stop == tj);
+                
+                % Contribution from being in risk set
+                contrib = w(i) * risk(i) * n_events_at_tj * (X(i, :) - xbar(j, :)) / S0(j);
+                score_resid(i, :) = score_resid(i, :) - w(i) * contrib;
+            end
+        end
+    end
+    
+    % --- Compute the Hessian (observed information matrix A) ---
+    % A = sum over event times of [ S2(t)/S0(t) - (S1(t)/S0(t))' * (S1(t)/S0(t)) ]
+    % weighted by number of events at each time
+    A = zeros(p, p);
+    for j = 1:n_events
+        tj = event_times(j);
+        in_risk = (T_matrix(:, 1) < tj) & (t_stop >= tj);
+        if ~any(in_risk), continue; end
+        
+        w_risk = w(in_risk) .* risk(in_risk);
+        X_risk = X(in_risk, :);
+        
+        % S2 matrix
+        S2 = (bsxfun(@times, X_risk, w_risk))' * X_risk;
+        
+        n_events_at_tj = sum(event == 1 & t_stop == tj);
+        
+        A = A + n_events_at_tj * (S2 / S0(j) - xbar(j, :)' * xbar(j, :));
+    end
+    
+    % --- Compute meat matrix B, clustered by patient ---
+    unique_pats = unique(pat_id);
+    B = zeros(p, p);
+    for k = 1:length(unique_pats)
+        idx_k = (pat_id == unique_pats(k));
+        U_k = sum(score_resid(idx_k, :), 1);  % 1 x p: sum score residuals within cluster
+        B = B + U_k' * U_k;
+    end
+    
+    % --- Sandwich covariance: A^{-1} * B * A^{-1} ---
+    A_inv = pinv(A);  % Use pseudoinverse for numerical stability
+    V_sandwich = A_inv * B * A_inv;
+    
+    % Extract SE from diagonal
+    sandwich_var = diag(V_sandwich);
+    
+    if any(sandwich_var < 0)
+        fprintf('  ⚠️  Negative sandwich variance detected; attempting nearest PSD correction.\n');
+        % Force positive semi-definiteness
+        [V_eig, D_eig] = eig(V_sandwich);
+        D_eig = diag(max(diag(D_eig), 0));
+        V_sandwich = V_eig * D_eig * V_eig';
+        sandwich_var = diag(V_sandwich);
+    end
+    
+    sandwich_se = sqrt(sandwich_var);
+    
+    if any(~isfinite(sandwich_se))
+        sandwich_se = [];
+    end
+    
+catch ME
+    fprintf('  Sandwich SE computation error: %s\n', ME.message);
+    sandwich_se = [];
+end
+end
+
+function bootstrap_se = compute_bootstrap_se_cox(X, T_matrix, is_censored, ipcw_weights, pat_id, ties_method, n_boot)
+% COMPUTE_BOOTSTRAP_SE_COX Clustered bootstrap SE estimation stratified by patient ID.
+%
+% Resamples patients (with replacement), refits the IPCW-weighted Cox model,
+% and computes the empirical SE of the bootstrap coefficient distribution.
+
+try
+    unique_pats = unique(pat_id);
+    n_pats = length(unique_pats);
+    p = size(X, 2);
+    
+    % Limit bootstrap replicates for computational feasibility
+    n_boot_actual = min(n_boot, 500);
+    boot_coefs = nan(p, n_boot_actual);
+    
+    ipcw_scale = 100;
+    
+    for b = 1:n_boot_actual
+        % Resample patients with replacement
+        rng_state = rng;  %#ok<NASGU>
+        boot_pat_idx = randsample(n_pats, n_pats, true);
+        
+        % Build bootstrap dataset
+        boot_rows = [];
+        for k = 1:n_pats
+            rows_k = find(pat_id == unique_pats(boot_pat_idx(k)));
+            boot_rows = [boot_rows; rows_k]; %#ok<AGROW>
+        end
+        
+        X_b = X(boot_rows, :);
+        T_b = T_matrix(boot_rows, :);
+        cens_b = is_censored(boot_rows);
+        w_b = ipcw_weights(boot_rows);
+        freq_b = max(1, round(w_b * ipcw_scale));
+        
+        % Remove constant columns in bootstrap sample
+        col_var = var(X_b, 0, 1);
+        var_cols = col_var > eps;
+        if sum(var_cols) < p
+            % Skip this replicate if we lose columns
+            continue;
+        end
+        
+        try
+            warning('off', 'all');
+            [b_boot, ~, ~, ~] = coxphfit(X_b, T_b, ...
+                'Censoring', cens_b, 'Ties', ties_method, 'Frequency', freq_b);
+            boot_coefs(:, b) = b_boot;
+            warning('on', 'all');
+        catch
+            warning('on', 'all');
+            continue;
+        end
+    end
+    
+    % Compute SE from valid bootstrap replicates
+    valid_boots = all(isfinite(boot_coefs), 1);
+    n_valid = sum(valid_boots);
+    
+    if n_valid >= 50
+        bootstrap_se = std(boot_coefs(:, valid_boots), 0, 2);
+        fprintf('  Bootstrap: %d/%d valid replicates.\n', n_valid, n_boot_actual);
+    else
+        fprintf('  Bootstrap: only %d valid replicates (need >= 50).\n', n_valid);
+        bootstrap_se = [];
+    end
+    
+catch ME
+    fprintf('  Bootstrap SE error: %s\n', ME.message);
+    bootstrap_se = [];
 end
 end
 
@@ -383,263 +627,4 @@ for i = find(interval_censored)'
             t_start_adj(i) = max(t_start_adj(i), interval_start);
             t_stop_adj(i) = midpoint;
             
-        elseif ~isempty(preceding_scans)
-            % Event after last scan - use previous interval pattern
-            if length(preceding_scans) >= 2
-                typical_gap = median(diff(preceding_scans));
-                interval_start = max(preceding_scans);
-                t_start_adj(i) = interval_start;
-                t_stop_adj(i) = interval_start + typical_gap/2;
-            end
-        end
-    end
-end
-end
-
-function mi_results = perform_multiple_imputation_fg(survival_data, interval_censored, config)
-% PERFORM_MULTIPLE_IMPUTATION_FG Multiple imputation sensitivity analysis
-
-n_imputations = min(10, floor(config.n_bootstrap / 100));  % Reasonable number of imputations
-coeffs_matrix = nan(survival_data.n_feat, n_imputations);
-
-fprintf('  Performing multiple imputation (M=%d) for sensitivity analysis.\n', n_imputations);
-
-for m = 1:n_imputations
-    try
-        % Generate imputed event times
-        [t_start_imp, t_stop_imp, event_imp] = impute_interval_times(survival_data, interval_censored, m);
-        
-        % Fit model with imputed data
-        X_scaled = scale_td_panel(survival_data.X, survival_data.feat_names, ...
-            survival_data.pat_id, t_start_imp, unique(survival_data.pat_id), 'baseline');
-        
-        fg_model_imp = fit_subdistribution_hazard(X_scaled, t_start_imp, t_stop_imp, ...
-            event_imp, survival_data.pat_id, survival_data.feat_names);
-        
-        if fg_model_imp.converged
-            coeffs_matrix(:, m) = fg_model_imp.coefficients;
-        end
-        
-    catch
-        % Skip failed imputation
-        continue;
-    end
-end
-
-% Combine results using Rubin's rules
-valid_imputations = ~isnan(coeffs_matrix(1, :));
-n_valid = sum(valid_imputations);
-
-if n_valid >= 3
-    coeffs_valid = coeffs_matrix(:, valid_imputations);
-    
-    % Pool estimates
-    pooled_coeffs = mean(coeffs_valid, 2);
-    within_var = var(coeffs_valid, 0, 2);
-    between_var = var(mean(coeffs_valid, 1)) * n_valid / (n_valid - 1);
-    total_var = within_var + (1 + 1/n_valid) * between_var;
-    
-    mi_results = struct();
-    mi_results.performed = true;
-    mi_results.n_imputations = n_valid;
-    mi_results.pooled_coefficients = pooled_coeffs;
-    mi_results.pooled_se = sqrt(total_var);
-    mi_results.pooled_shr = exp(pooled_coeffs);
-    
-else
-    mi_results = struct('performed', false, 'message', 'Insufficient valid imputations');
-end
-end
-
-function [t_start_imp, t_stop_imp, event_imp] = impute_interval_times(survival_data, interval_censored, seed)
-% IMPUTE_INTERVAL_TIMES Generate single imputation for interval-censored times
-
-rng(seed);  % Reproducible imputations
-
-t_start_imp = survival_data.t_start;
-t_stop_imp = survival_data.t_stop;
-event_imp = survival_data.event;
-
-scan_days = survival_data.scan_days;
-
-for i = find(interval_censored)'
-    if event_imp(i) > 0
-        event_time = t_stop_imp(i);
-        
-        % Find interval
-        preceding_scans = scan_days(scan_days <= event_time);
-        following_scans = scan_days(scan_days > event_time);
-        
-        if ~isempty(preceding_scans) && ~isempty(following_scans)
-            interval_start = max(preceding_scans);
-            interval_end = min(following_scans);
-            
-            % Random imputation within interval (uniform distribution)
-            imputed_time = interval_start + rand() * (interval_end - interval_start);
-            
-            t_start_imp(i) = max(t_start_imp(i), interval_start);
-            t_stop_imp(i) = imputed_time;
-        end
-    end
-end
-end
-
-function fg_model = fit_subdistribution_hazard(X, t_start, t_stop, event, pat_id, feat_names)
-% FIT_SUBDISTRIBUTION_HAZARD Fit Fine-Gray subdistribution hazard model
-
-% This is a simplified implementation of the Fine-Gray approach
-% In practice, this would use specialized competing risks software
-
-try
-    % Focus on primary event of interest (event = 1)
-    % Competing events (event = 2) are handled via subdistribution approach
-    
-    % Create modified dataset for subdistribution hazard
-    [X_fg, t_start_fg, t_stop_fg, event_fg, weights_fg] = create_finegray_dataset(X, t_start, t_stop, event, pat_id);
-    
-    % Remove constant columns
-    [X_clean, keep_cols] = remove_constant_columns(X_fg);
-    if size(X_clean, 2) == 0
-        fg_model = struct('converged', false);
-        return;
-    end
-    
-    % Fit weighted Cox model (approximation to Fine-Gray)
-    T_fg = [t_start_fg, t_stop_fg];
-    is_censored_fg = (event_fg == 0);
-    
-    warning('off', 'all');
-    [b_short, logl, ~, stats_short] = coxphfit(X_clean, T_fg, ...
-        'Censoring', is_censored_fg, 'Frequency', weights_fg);
-    warning('on', 'all');
-    
-    % Map back to full feature space
-    b_full = zeros(size(X, 2), 1);
-    b_full(keep_cols) = b_short;
-    se_full = nan(size(X, 2), 1);
-    se_full(keep_cols) = stats_short.se;
-    p_full = 2 * (1 - normcdf(abs(b_full ./ se_full)));
-    
-    % Estimate cumulative incidence function
-    cif = estimate_cumulative_incidence(t_stop, event, X, b_full);
-    
-    fg_model = struct();
-    fg_model.converged = true;
-    fg_model.coefficients = b_full;
-    fg_model.se = se_full;
-    fg_model.p_values = p_full;
-    fg_model.loglik = logl;
-    fg_model.cif = cif;
-    
-catch ME
-    fg_model = struct('converged', false, 'error', ME.message);
-end
-end
-
-function [X_fg, t_start_fg, t_stop_fg, event_fg, weights_fg] = create_finegray_dataset(X, t_start, t_stop, event, pat_id)
-% CREATE_FINEGRAY_DATASET Create Fine-Gray transformed dataset
-
-% Simplified implementation - in practice would need full Fine-Gray transformation
-% This includes artificial censoring and IPCW for competing events
-
-n_obs = length(t_start);
-keep_idx = true(n_obs, 1);
-
-% For competing events (event = 2), create artificial censoring
-competing_mask = (event == 2);
-
-% Apply inverse probability weighting for competing risks
-weights = ones(n_obs, 1);
-
-% Simplified weight calculation (in practice, would use Kaplan-Meier for censoring)
-if any(competing_mask)
-    % Estimate probability of not having competing event
-    competing_times = t_stop(competing_mask);
-    for i = 1:n_obs
-        if event(i) == 1  % Primary event
-            % Weight by inverse probability of not having competing event by this time
-            prob_no_competing = sum(competing_times > t_stop(i)) / length(competing_times);
-            weights(i) = 1 / max(0.1, prob_no_competing);  % Avoid extreme weights
-        end
-    end
-end
-
-X_fg = X(keep_idx, :);
-t_start_fg = t_start(keep_idx);
-t_stop_fg = t_stop(keep_idx);
-event_fg = event(keep_idx);
-event_fg(event_fg == 2) = 0;  % Competing events become censored
-weights_fg = max(1, round(weights(keep_idx) * 100));  % Scale for frequency weights
-end
-
-function cif = estimate_cumulative_incidence(t_stop, event, X, coefficients)
-% ESTIMATE_CUMULATIVE_INCIDENCE Estimate cumulative incidence function
-
-% Simplified CIF estimation
-unique_times = unique(t_stop(event == 1));
-unique_times = sort(unique_times);
-
-cif = struct();
-cif.times = unique_times;
-cif.incidence = zeros(size(unique_times));
-
-% Basic empirical CIF (would be more sophisticated in practice)
-for i = 1:length(unique_times)
-    t = unique_times(i);
-    n_events = sum(event == 1 & t_stop <= t);
-    n_at_risk = sum(t_stop >= t | (t_stop < t & event > 0));
-    cif.incidence(i) = n_events / max(1, n_at_risk);
-end
-end
-
-function print_finegray_results(finegray_results, feat_names)
-% PRINT_FINEGRAY_RESULTS Print Fine-Gray model results
-
-fprintf('  Fine-Gray Subdistribution Hazard Model Results:\n');
-fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'SHR', 'CI_lo', 'CI_hi', 'p');
-fprintf('  %s\n', repmat('-', 1, 52));
-
-for fi = 1:length(feat_names)
-    shr = finegray_results.shr(fi);
-    ci_lo = exp(finegray_results.coefficients(fi) - 1.96 * finegray_results.se(fi));
-    ci_hi = exp(finegray_results.coefficients(fi) + 1.96 * finegray_results.se(fi));
-    
-    fprintf('  %-10s  %6.3f  %6.3f  %6.3f  %6.4f\n', ...
-        feat_names{fi}, shr, ci_lo, ci_hi, finegray_results.p_values(fi));
-end
-
-if finegray_results.interval_censored_count > 0
-    fprintf('  Note: %d interval-censored observations handled via %s imputation.\n', ...
-        finegray_results.interval_censored_count, finegray_results.imputation_method);
-end
-
-if finegray_results.multiple_imputation.performed
-    fprintf('  Multiple imputation performed with %d imputations for sensitivity analysis.\n', ...
-        finegray_results.multiple_imputation.n_imputations);
-end
-end
-
-function timevar_results = compute_time_varying_effects(survival_data, config)
-% COMPUTE_TIME_VARYING_EFFECTS Analyze time-varying coefficient effects
-
-if ~survival_data.has_sufficient_data
-    timevar_results = struct('success', false, 'message', 'Insufficient data');
-    return;
-end
-
-fprintf('  Analyzing sensitivity to imputation half-life assumptions.\n');
-
-% Test different half-life assumptions
-half_life_grid = config.half_life_grid;
-n_halflife = length(half_life_grid);
-hr_matrix = nan(survival_data.n_feat, n_halflife);
-
-for hl_idx = 1:n_halflife
-    text_progress_bar(hl_idx, n_halflife, 'Half-life sensitivity');
-    
-    try
-        % Rebuild panel with different half-life
-        [X_hl, t_start_hl, t_stop_hl, event_hl, pat_id_hl, ~] = ...
-            build_td_panel(survival_data.feat_arrays, survival_data.feat_names, ...
-            survival_data.lf_status, survival_data.total_time, ...
-            size(survival_data.feat_arrays{1}, 2
+        elseif ~
