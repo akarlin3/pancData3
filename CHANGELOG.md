@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-03-20
+
+### Added
+- CI/CD pipeline with GitHub Actions — Python tests on Ubuntu, Windows, macOS; MATLAB file integrity check
+- Auxiliary biomarker wiring — non-DWI biomarker CSV data now flows through elastic net and Cox survival models when `use_auxiliary_biomarkers` is enabled
+- External validation round-trip — `apply_external_validation.m` now called from orchestrator when `external_validation_data` config field is set
+- Report sections for decision curve analysis, NRI/IDI, texture features, and registration quality
+- Longitudinal trajectory visualizations — waterfall, swimmer, and spider plots
+- Programmatic improvement loop orchestrator (`improvement_loop/orchestrator_v1.py`)
+- Structured finding schema with Pydantic validation
+- Diminishing returns detection in loop exit condition
+- Parallel implementation phase in orchestrator (configurable `--max-workers`)
+
+### Fixed
+- IPCW-weighted Cox standard error correction now uses sandwich variance ratio instead of naive `sqrt(mean(weights))` scaling (`metrics_survival.m`)
+- Command injection vulnerability in `escape_shell_arg.m` Windows Unicode short-path lookup — unescaped argument was passed to `system()` during 8.3 name resolution
+- Immortal time bias in competing risk censoring — competing event patients now use event time instead of total follow-up time (`metrics_survival.m`)
+- Landmark day selection in time-dependent Cox models — largest gap heuristic replaced with clinically meaningful landmark (`metrics_survival.m`)
+- Global `warning('off', 'all')` before `coxphfit` replaced with scoped warning suppression via `onCleanup` (`metrics_survival.m`)
+- IVIM fitting with insufficient b-values (< 4) now skips fitting entirely instead of producing unreliable parameters (`fit_models.m`)
+- Non-monotonic b-value validation relaxed to allow duplicate values, which are valid for averaging (`fit_models.m`)
+- Memory optimization in DWI volume reshaping — reduced peak memory via chunked processing (`fit_models.m`)
+- Diary file leak in `metrics_stats_predictive.m` — added `onCleanup` to ensure diary is turned off on error
+- API key masking regex in `run_analysis.py` expanded to cover additional secret patterns
+
+### Changed
+- `improvement_loop_log.json` moved to `.gitignore` as a runtime artifact
+- CLAUDE_WORKFLOWS.md updated — `orchestrator_v1.py` is now canonical loop driver
+
+---
+
 ## [2.1.0-beta.2] - 2026-03-20
 
 ### Added
