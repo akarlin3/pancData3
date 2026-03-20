@@ -110,13 +110,17 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         fit_metadata.ivim_reliable = false;
     end
 
-    % Validate minimum number of b-values for model fitting
+    % Validate minimum number of b-values for model fitting.
+    % The segmented IVIM fit has 3 free parameters (D, f, D*), so fewer
+    % than 4 b-values leaves the model underdetermined or exactly determined
+    % with no degrees of freedom. In this case, skip IVIM fitting entirely
+    % and return NaN-filled IVIM maps to make the invalidity obvious.
     if length(bvalues) < 4
-        warn_msg = sprintf('Only %d b-values provided. IVIM fitting requires at least 4 b-values for reliable parameter estimation.', ...
+        warn_msg = sprintf('Only %d b-values provided. IVIM fitting requires at least 4 b-values for reliable parameter estimation. Skipping IVIM fit entirely; D, f, D* maps will be NaN.', ...
             length(bvalues));
         warning('fit_models:fewBValues', '%s', warn_msg);
         fit_metadata.warnings{end+1} = warn_msg;
-        % Also mark IVIM as unreliable with fewer than 4 b-values
+        % Mark IVIM as unreliable with fewer than 4 b-values
         fit_metadata.ivim_reliable = false;
     end
 
@@ -182,11 +186,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     f_vec = nan(n_valid, 1);
     dstar_vec = nan(n_valid, 1);
 
-    % Skip IVIM fitting entirely if the b-value range is insufficient.
-    % When ivim_reliable is false, the IVIM parameter maps (D, f, D*) are
-    % set to NaN to prevent downstream functions from using unreliable values.
+    % Skip IVIM fitting entirely if the b-value range is insufficient or
+    % there are too few b-values. When ivim_reliable is false, the IVIM
+    % parameter maps (D, f, D*) are set to NaN to prevent downstream
+    % functions from using unreliable values and to avoid wasting computation
+    % on an underdetermined or poorly conditioned fit.
     % ADC fitting still proceeds because it is robust even with narrow
-    % b-value ranges.
+    % b-value ranges and fewer b-values (only 1 free parameter).
     if ~fit_metadata.ivim_reliable
         fprintf('IVIM parameters flagged as unreliable (insufficient b-value range or too few b-values). Skipping IVIM fit; D, f, D* maps set to NaN.\n');
         d_map = nan(sz3);
