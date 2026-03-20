@@ -74,12 +74,12 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     has_tests_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run, master_output_folder);
 
     if ~has_tests_passed
-        % initialize_pipeline indicated failure or tests were not required
-        % but config_path may have been resolved; re-resolve it here.
-        config_path = resolve_config_path(pipeline_dir, config_path);
-    else
-        config_path = resolve_config_path(pipeline_dir, config_path);
+        error('run_dwi_pipeline:PreFlightFailed', ...
+            '%s Pre-flight initialization failed. Cannot proceed with pipeline execution. Review test output above for details.', ...
+            safe_icon('fail'));
     end
+
+    config_path = resolve_config_path(pipeline_dir, config_path);
 
     % If 'test' was the only requested step, stop here.
     other_steps = setdiff(steps_to_run, {'test'});
