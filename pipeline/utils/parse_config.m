@@ -420,6 +420,83 @@ function config_struct = parse_config(json_path)
             config_struct.gpu_device = 1;
         end
 
+        % ================================================================
+        % Type validation for critical configuration fields.
+        %
+        % jsondecode faithfully mirrors JSON types, but user errors in
+        % config.json (e.g., quoting a number as a string, or writing a
+        % comma-separated string instead of a JSON array) produce MATLAB
+        % types that silently misbehave downstream.  For example, MATLAB's
+        % '<' operator on a char array compares ASCII code points, not the
+        % numeric content of the string, so "adc < adc_thresh" would give
+        % wrong results if adc_thresh were accidentally a char.
+        %
+        % We validate types here, immediately after defaults are assigned,
+        % to fail fast with an actionable error message.
+        % ================================================================
+
+        % --- Numeric scalar fields (thresholds and counts) ---
+        numeric_fields = {'adc_thresh', 'd_thresh', 'f_thresh', ...
+            'dstar_thresh', 'ivim_bthr', 'high_adc_thresh', ...
+            'adc_max', 'min_vox_hist', 'core_percentile', ...
+            'core_n_clusters', 'fdm_thresh', 'spectral_min_voxels', ...
+            'gpu_device'};
+        for i = 1:numel(numeric_fields)
+            fn = numeric_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if ~isnumeric(val) || ~isscalar(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a numeric scalar, but got %s (class: %s). Check your config.json — numeric values must not be quoted.', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- Logical / boolean fields ---
+        % JSON booleans become MATLAB logical via jsondecode.  We also
+        % accept numeric 0/1 (which is what you get if the user writes
+        % the JSON integer 0 or 1 instead of true/false) and coerce to
+        % logical.  Strings like "true" are rejected.
+        logical_fields = {'skip_to_reload', 'skip_tests', 'use_checkpoints', ...
+            'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
+            'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
+            'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
+            'run_imputation_sensitivity', 'fit_time_varying_cox', ...
+            'export_validation_model', 'use_auxiliary_biomarkers', ...
+            'use_gpu'};
+        for i = 1:numel(logical_fields)
+            fn = logical_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if islogical(val) && isscalar(val)
+                    % Already correct type — nothing to do.
+                elseif isnumeric(val) && isscalar(val) && (val == 0 || val == 1)
+                    % Coerce numeric 0/1 to logical.
+                    config_struct.(fn) = logical(val);
+                else
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a logical (true/false) or numeric 0/1, but got %s (class: %s). In config.json, use true or false (unquoted).', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- Numeric vector / array fields ---
+        % td_scan_days must be a numeric vector (or empty).  A common
+        % mistake is writing "0,5,10,15,20,90" (a comma-separated string)
+        % instead of [0, 5, 10, 15, 20, 90] (a JSON array).
+        if isfield(config_struct, 'td_scan_days')
+            val = config_struct.td_scan_days;
+            if ~isempty(val)
+                if ~isnumeric(val) || ~isvector(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "td_scan_days" must be a numeric vector (JSON array of numbers) or empty, but got %s (class: %s). Use a JSON array like [0, 5, 10, 15, 20, 90], not a comma-separated string.', ...
+                        mat2str(val), class(val));
+                end
+            end
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
         % If the error was already wrapped with our ID, rethrow as-is.
