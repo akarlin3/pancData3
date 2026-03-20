@@ -192,6 +192,39 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     end
 
     % =====================================================================
+    % External Validation (export + apply)
+    % =====================================================================
+    % Runs after metrics_stats_predictive so the trained model is available.
+    % Both sub-steps are non-fatal: failures are logged and the pipeline continues.
+    if ismember('metrics_stats_predictive', steps_to_run)
+        validation_model_path = fullfile(config_struct.output_folder, ...
+            sprintf('validation_model_%s.mat', current_name));
+
+        % --- Export validation model ---
+        if config_struct.export_validation_model
+            execute_pipeline_step('export_validation_model', ...
+                @() run_export_validation_step(session, validation_model_path), ...
+                pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+        end
+
+        % --- Apply saved model to external dataset ---
+        ext_data_path = config_struct.external_validation_data;
+        if ~isempty(ext_data_path) && ischar(ext_data_path)
+            if ~exist(ext_data_path, 'dir')
+                fprintf('\u26a0\ufe0f External validation data file not found: %s\n', ext_data_path);
+                if log_fid > 0
+                    fprintf(log_fid, '[%s] [WARNING] External validation data not found: %s\n', ...
+                        datestr(now, 'yyyy-mm-dd HH:MM:SS'), ext_data_path);
+                end
+            else
+                execute_pipeline_step('apply_external_validation', ...
+                    @() run_apply_external_validation_step(session, ext_data_path, validation_model_path), ...
+                    pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+            end
+        end
+    end
+
+    % =====================================================================
     % Visualize Results
     % =====================================================================
     if ismember('visualize', steps_to_run)
@@ -331,6 +364,44 @@ function run_visualize_step(validated_data_gtvp, summary_metrics, config_struct,
     write_sentinel_file(config_struct.output_folder, 'visualize_results_state', ...
         sprintf('Visualizations generated successfully for: %s', current_name), current_name);
     fprintf('      ✅ Done.\n');
+end
+
+function run_export_validation_step(session, validation_model_path)
+    fprintf('\xf0\x9f\x92\xa1 External validation: exporting trained model...\n');
+    config_struct = session.config_struct;
+    if exist(session.results_file, 'file')
+        tmp = load(session.results_file, 'calculated_results');
+        cr = tmp.calculated_results;
+        % Build trained_model_struct from calculated_results if it has model info
+        if isfield(cr, 'trained_model')
+            prepare_external_validation(cr.trained_model, config_struct, validation_model_path);
+        else
+            fprintf('      \u26a0\ufe0f calculated_results does not contain trained_model. Export skipped.\n');
+        end
+    else
+        fprintf('      \u26a0\ufe0f No calculated_results file found. Export skipped.\n');
+    end
+    fprintf('      \xe2\x9c\x85 Done.\n');
+end
+
+function run_apply_external_validation_step(session, ext_data_path, validation_model_path)
+    fprintf('\xf0\x9f\x92\xa1 External validation: applying saved model to external dataset\n');
+    config_struct = session.config_struct;
+    if ~exist(validation_model_path, 'file')
+        fprintf('      \u26a0\ufe0f Validation model not found at: %s. Skipping.\n', validation_model_path);
+        return;
+    end
+    ext_results = apply_external_validation(validation_model_path, ext_data_path, config_struct);
+    % Store results in the session results file
+    if exist(session.results_file, 'file')
+        tmp = load(session.results_file, 'calculated_results');
+        cr = tmp.calculated_results;
+        cr.external_validation = ext_results;
+        calculated_results = cr; %#ok<NASGU>
+        save(session.results_file, 'calculated_results');
+        fprintf('      \xf0\x9f\x93\x81 External validation results saved to %s\n', session.results_file);
+    end
+    fprintf('      \xe2\x9c\x85 Done.\n');
 end
 
 function run_metrics_survival_step(session, baseline_results, summary_metrics)
