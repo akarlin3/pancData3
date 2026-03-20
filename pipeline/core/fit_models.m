@@ -61,20 +61,18 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         warning('fit_models:repeatedBValues', '%s', warn_msg);
         fit_metadata.warnings{end+1} = warn_msg;
         
-        % Average DWI signal across repeated b-values by indexing directly
-        % into the 4th dimension of the 4D array. This avoids creating a
-        % large flattened intermediate (reshape to [n_spatial x n_bvalues])
-        % which would temporarily double peak memory usage.
-        sz_dwi = size(dwi);
+        % Average DWI signal across repeated b-values in-place to avoid
+        % allocating a separate full-sized output array. We overwrite the
+        % first n_unique slices of the 4th dimension with the averaged
+        % volumes, then truncate. This halves peak memory compared to
+        % maintaining both the original and averaged arrays simultaneously.
         n_unique = length(bvalues_unique);
-        dwi_averaged = zeros([sz_dwi(1), sz_dwi(2), sz_dwi(3), n_unique]);
         for ub = 1:n_unique
             idx_this_b = find(ic == ub);
-            dwi_averaged(:,:,:,ub) = mean(dwi(:,:,:,idx_this_b), 4);
+            dwi(:,:,:,ub) = mean(dwi(:,:,:,idx_this_b), 4);
         end
-        dwi = dwi_averaged;
+        dwi = dwi(:,:,:,1:n_unique);
         bvalues = bvalues_unique;
-        clear dwi_averaged;
     end
 
     %% ---- Input validation (after unique/sort step) ----
