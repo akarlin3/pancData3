@@ -129,6 +129,18 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return merged
 
 
+def _normalize_dwi_type(dwi_type: str, canonical_types: list[str]) -> str:
+    """Return the canonical-case version of *dwi_type* if it matches an
+    existing entry (case-insensitive), otherwise return *dwi_type* unchanged.
+
+    This prevents duplicate entries like ``['Standard', 'standard']`` when
+    the MATLAB ``config.json`` uses a different capitalisation than the
+    built-in defaults.
+    """
+    lower_map = {ct.lower(): ct for ct in canonical_types}
+    return lower_map.get(dwi_type.lower(), dwi_type)
+
+
 def load_analysis_config(
     config_path: str | Path | None = None,
     matlab_config_path: str | Path | None = None,
@@ -208,9 +220,14 @@ def load_analysis_config(
                 matlab_cfg = json.load(f)
             dwi_type = matlab_cfg.get("dwi_type")
             if dwi_type and isinstance(dwi_type, str):
+                # Normalize to canonical case to avoid duplicates like
+                # ['Standard', 'standard'] when the MATLAB config uses
+                # different capitalisation than the built-in defaults.
+                dwi_type = _normalize_dwi_type(dwi_type, cfg["dwi_types"])
                 # The MATLAB config stores a single active type; we don't
                 # override the full list, but we can ensure it's present.
-                if dwi_type not in cfg["dwi_types"]:
+                existing_lower = [d.lower() for d in cfg["dwi_types"]]
+                if dwi_type.lower() not in existing_lower:
                     cfg["dwi_types"].append(dwi_type)
         except (json.JSONDecodeError, OSError):
             pass
