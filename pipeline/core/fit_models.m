@@ -155,8 +155,14 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             fprintf('  [Stage 3 Opt] Computing ADC warm start for IVIM D parameter...\n');
             
             % Extract 1D signal decay curves for valid voxels for initial ADC estimation
-            dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-            dwi_valid = dwi_flat(valid_voxels_idx, :);
+            % Avoid creating a full reshape of the 4D volume; instead index
+            % directly into each 3D sub-volume to save memory.
+            n_bvals = length(bvalues);
+            dwi_valid = zeros(n_valid, n_bvals);
+            for b = 1:n_bvals
+                vol_b = dwi(:,:,:,b);
+                dwi_valid(:,b) = vol_b(valid_voxels_idx);
+            end
             
             % Quick ADC estimation for warm start using high-b values only
             % This provides better initial guess for D parameter than default values
@@ -199,8 +205,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 
             % Extract 1D signal decay curves for valid voxels (reuse if already computed)
             if ~exist('dwi_valid', 'var')
-                dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-                dwi_valid = dwi_flat(valid_voxels_idx, :);
+                n_bvals = length(bvalues);
+                dwi_valid = zeros(n_valid, n_bvals);
+                for b = 1:n_bvals
+                    vol_b = dwi(:,:,:,b);
+                    dwi_valid(:,b) = vol_b(valid_voxels_idx);
+                end
             end
 
             % [MODULARIZATION STAGE 3]: Masked 1D Flattening
@@ -241,7 +251,7 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
 
             % Release large intermediate arrays no longer needed to reduce
             % peak memory during parfor (each worker holds its own copy).
-            clear dwi_flat dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
+            clear dwi_valid dwi_valid_padded dwi_1d_vol mask_1d_vol ivim_fit_1d ivim_out_flat;
 
             % Replace zero-fit voxels with NaN (failed fits).
             % The segmented IVIM fitter returns D=0 when the log-linear
@@ -320,8 +330,12 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     if n_valid > 0
         % Extract 1D signal decay curves if not already computed
         if ~exist('dwi_valid', 'var')
-            dwi_flat = reshape(dwi, [prod(sz3), length(bvalues)]);
-            dwi_valid = dwi_flat(valid_voxels_idx, :);
+            n_bvals = length(bvalues);
+            dwi_valid = zeros(n_valid, n_bvals);
+            for b = 1:n_bvals
+                vol_b = dwi(:,:,:,b);
+                dwi_valid(:,b) = vol_b(valid_voxels_idx);
+            end
         end
 
         % Filter to voxels with all-positive signal across ALL b-values.
