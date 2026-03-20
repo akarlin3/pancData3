@@ -147,8 +147,19 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
     % Java package prefix such as 'java.', 'javax.', 'com.', 'org.', 'net.').
     % This avoids false positives from substring matching (e.g. a
     % legitimate class named 'javascript_parser' would NOT be flagged).
+    %
+    % Defense-in-depth: 'struct' and 'cell' variables are also checked
+    % for non-target variables. whos('-file') only reports the top-level
+    % class; a struct or cell could contain nested unsafe types (e.g.,
+    % function_handle) that are invisible to whos inspection. Since we
+    % only load the target variable (which has already been validated as
+    % a safe primitive type), the presence of struct/cell in OTHER
+    % variables does not block loading but is logged as a warning so
+    % that analysts are aware the file may contain potentially unsafe
+    % nested content.
     exact_suspicious_classes = {'function_handle', 'onCleanup', 'timer'};
     java_prefixes = {'java.', 'javax.', 'com.', 'org.', 'net.'};
+    opaque_container_classes = {'struct', 'cell'};
     for i = 1:length(file_info)
         var_class = file_info(i).class;
         is_exact_suspicious = ismember(var_class, exact_suspicious_classes);
@@ -158,6 +169,20 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
                 'File contains suspicious variable of class ''%s''. Aborting load for security.', ...
                 var_class);
             return;
+        end
+        % For non-target variables, warn about opaque container types
+        % (struct, cell) that could hide nested unsafe types such as
+        % function_handle. whos('-file') cannot inspect their contents,
+        % so we log a defense-in-depth warning. Loading proceeds because
+        % only the individually validated target variable is loaded.
+        is_non_target = ~strcmp(file_info(i).name, varname);
+        is_opaque_container = ismember(var_class, opaque_container_classes);
+        if is_non_target && is_opaque_container
+            warning('safe_load_mask:OpaqueContainerInFile', ...
+                ['Non-target variable ''%s'' has class ''%s'' which may contain ' ...
+                 'nested unsafe types (e.g., function_handle) invisible to whos inspection. ' ...
+                 'Only the validated target variable ''%s'' will be loaded.'], ...
+                file_info(i).name, var_class, varname);
         end
     end
 
