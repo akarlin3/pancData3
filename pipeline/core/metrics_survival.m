@@ -103,10 +103,24 @@ td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
 td_n_feat = numel(td_feat_arrays);
 td_ok = (sum(event_td_def == 1) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
-% Apply landmark analysis
-scan_gaps = diff(td_scan_days);
-[~, gap_idx] = max(scan_gaps);
-landmark_day = td_scan_days(gap_idx);
+% Determine landmark day
+% Priority 1: Use explicitly configured landmark_day (clinically motivated)
+% Priority 2: Fall back to gap-based heuristic with a warning
+if isfield(config_struct_in, 'landmark_day') && ~isempty(config_struct_in.landmark_day)
+    landmark_day = config_struct_in.landmark_day;
+    fprintf('  Using configured landmark_day = %d (from config).\n', landmark_day);
+else
+    % Gap-based heuristic fallback: choose the scan day preceding the largest
+    % gap between consecutive scans. This is a fragile proxy for "end of
+    % treatment" and should be replaced with a clinically motivated value.
+    scan_gaps = diff(td_scan_days);
+    [~, gap_idx] = max(scan_gaps);
+    landmark_day = td_scan_days(gap_idx);
+    fprintf('  ⚠️  WARNING: config.landmark_day not set. Falling back to gap-based heuristic (landmark_day = %d).\n', landmark_day);
+    fprintf('      This heuristic is fragile and may not reflect a clinically meaningful timepoint.\n');
+    fprintf('      Set config.landmark_day to the last intra-treatment scan day for robust results.\n');
+end
+
 lm_keep = (t_start_td_def >= landmark_day);
 
 if any(lm_keep)
@@ -604,27 +618,4 @@ t_start_adj = survival_data.t_start;
 t_stop_adj = survival_data.t_stop;
 event_adj = survival_data.event;
 
-% For interval-censored observations, use midpoint imputation
-scan_days = survival_data.scan_days;
-
-for i = find(interval_censored)'
-    if event_adj(i) > 0  % Only adjust events, not censored observations
-        % Find the interval containing this event time
-        event_time = t_stop_adj(i);
-        
-        % Find preceding and following scan times
-        preceding_scans = scan_days(scan_days <= event_time);
-        following_scans = scan_days(scan_days > event_time);
-        
-        if ~isempty(preceding_scans) && ~isempty(following_scans)
-            interval_start = max(preceding_scans);
-            interval_end = min(following_scans);
-            
-            % Use midpoint of the interval
-            midpoint = (interval_start + interval_end) / 2;
-            
-            % Adjust times
-            t_start_adj(i) = max(t_start_adj(i), interval_start);
-            t_stop_adj(i) = midpoint;
-            
-        elseif ~
+%
