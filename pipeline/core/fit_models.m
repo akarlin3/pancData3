@@ -190,18 +190,23 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     f_vec = nan(n_valid, 1);
     dstar_vec = nan(n_valid, 1);
 
+    % Initialize IVIM output maps as NaN arrays. These will be populated
+    % with fitted values only if IVIM fitting proceeds (ivim_reliable==true).
+    % When IVIM is skipped, the maps remain NaN to prevent downstream
+    % functions from using unreliable values.
+    d_map = nan(sz3);
+    f_map = nan(sz3);
+    dstar_map = nan(sz3);
+
     % Skip IVIM fitting entirely if the b-value range is insufficient or
     % there are too few b-values. When ivim_reliable is false, the IVIM
-    % parameter maps (D, f, D*) are set to NaN to prevent downstream
+    % parameter maps (D, f, D*) are left as NaN to prevent downstream
     % functions from using unreliable values and to avoid wasting computation
     % on an underdetermined or poorly conditioned fit.
     % ADC fitting still proceeds because it is robust even with narrow
     % b-value ranges and fewer b-values (only 1 free parameter).
     if ~fit_metadata.ivim_reliable
         fprintf('IVIM parameters flagged as unreliable (insufficient b-value range or too few b-values). Skipping IVIM fit; D, f, D* maps set to NaN.\n');
-        d_map = nan(sz3);
-        f_map = nan(sz3);
-        dstar_map = nan(sz3);
     else
         % The segmented IVIM fit requires:
         %   - At least 2 b-values >= bthr (typically 100 s/mm^2) for the high-b
@@ -218,10 +223,7 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
             fit_metadata.ivim_reliable = false;
             warn_msg = sprintf('Insufficient b-values above threshold (%d s/mm²) for segmented IVIM fit.', opts.bthr);
             fit_metadata.warnings{end+1} = warn_msg;
-            % Early return for IVIM parameters - ADC can still be computed
-            d_map = nan(sz3);
-            f_map = nan(sz3);
-            dstar_map = nan(sz3);
+            % IVIM maps already initialized as NaN above; nothing more to do.
         else
             % Pre-compute ADC-derived initial guess for D parameter to improve convergence
             adc_initial_guess = [];
@@ -325,10 +327,6 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
             % maps where only tumor voxels carry fitted values. This spatial
             % correspondence between mask and parameter maps is essential for
             % subsequent overlay visualization and voxel-level dose-response analysis.
-            d_map = nan(sz3);
-            f_map = nan(sz3);
-            dstar_map = nan(sz3);
-
             if n_valid > 0
                 % Place fitted 1D parameter values back into their original 3D
                 % spatial positions using the linear indices from the GTV mask.
