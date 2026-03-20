@@ -42,5 +42,6 @@
     "auxiliary_biomarker_csv": "",
     "use_auxiliary_biomarkers": false,
     "use_gpu": false,
-    "gpu_device": 1
+    "gpu_device": 1,
+    "run_trajectory_plots": true
 }

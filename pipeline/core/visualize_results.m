@@ -177,6 +177,28 @@ catch ME
     fprintf('  ⚠️ Cross-DWI subvolume comparison failed: %s\n', ME.message);
 end
 
+%% -----------------------------------------------------------------------
+%  5. TRAJECTORY PLOTS (Waterfall, Swimmer, Spider)
+% -----------------------------------------------------------------------
+if isfield(config_struct, 'run_trajectory_plots') && config_struct.run_trajectory_plots
+    fprintf('\n--- SECTION 5: Trajectory Plots (Waterfall / Swimmer / Spider) ---\n');
+    try
+        plot_waterfall_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Waterfall chart failed: %s\n', ME.message);
+    end
+    try
+        plot_swimmer_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Swimmer chart failed: %s\n', ME.message);
+    end
+    try
+        plot_spider_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Spider chart failed: %s\n', ME.message);
+    end
+end
+
 fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');
@@ -476,8 +498,167 @@ end
 
 function plot_patient_adc_overlay(patient_data, patient_id)
 % Placeholder for plotting patient ADC overlay
-% Replace with actual ADC overlay plotting logic  
+% Replace with actual ADC overlay plotting logic
 text(0.5, 0.5, sprintf('ADC Overlay\n%s', patient_id), 'HorizontalAlignment', 'center', ...
     'Units', 'normalized');
 title('ADC on Anatomy');
+end
+
+function plot_waterfall_chart(calculated_results, config_struct)
+% PLOT_WATERFALL_CHART  Sorted bar chart of best ADC response per patient.
+%
+%   Requires calculated_results.percent_deltas with fields:
+%     patient_ids  — cell array of patient IDs
+%     adc_mean     — vector of percent-change values (best response)
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'percent_deltas')
+    error('visualize_results:missingField', 'percent_deltas not found in calculated_results.');
+end
+pd = calculated_results.percent_deltas;
+if ~isfield(pd, 'patient_ids') || ~isfield(pd, 'adc_mean')
+    error('visualize_results:missingField', 'percent_deltas must contain patient_ids and adc_mean.');
+end
+
+pct = pd.adc_mean(:);
+ids = pd.patient_ids(:);
+valid = isfinite(pct);
+pct = pct(valid);
+ids = ids(valid);
+if isempty(pct), return; end
+
+[pct_sorted, idx] = sort(pct, 'ascend');
+ids_sorted = ids(idx);
+
+% Colour by response category
+colors = zeros(numel(pct_sorted), 3);
+for k = 1:numel(pct_sorted)
+    if pct_sorted(k) <= -20
+        colors(k, :) = [0.2 0.6 0.2];   % responder (green)
+    elseif pct_sorted(k) >= 20
+        colors(k, :) = [0.8 0.2 0.2];   % progressor (red)
+    else
+        colors(k, :) = [0.5 0.5 0.5];   % stable (grey)
+    end
+end
+
+fig = figure('Visible', 'off', 'Position', [100 100 900 500]);
+b = bar(pct_sorted, 'FaceColor', 'flat');
+b.CData = colors;
+hold on;
+yline(-20, '--k', 'LineWidth', 1);
+yline(20, '--k', 'LineWidth', 1);
+hold off;
+set(gca, 'XTick', 1:numel(ids_sorted), 'XTickLabel', ids_sorted, ...
+    'XTickLabelRotation', 90, 'FontSize', 7);
+ylabel('Best ADC Response (% change)');
+title(sprintf('Waterfall Plot — ADC Response (%s)', config_struct.dwi_type));
+grid on;
+
+fname = fullfile(output_folder, 'waterfall_adc_response');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
+end
+
+function plot_swimmer_chart(calculated_results, config_struct)
+% PLOT_SWIMMER_CHART  Horizontal timeline per patient with scan markers.
+%
+%   Requires calculated_results.scan_timeline with fields:
+%     patient_ids  — cell array of patient IDs
+%     scan_days    — cell array of numeric vectors (days from baseline)
+%     follow_up    — vector of total follow-up days
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'scan_timeline')
+    error('visualize_results:missingField', 'scan_timeline not found in calculated_results.');
+end
+st = calculated_results.scan_timeline;
+if ~isfield(st, 'patient_ids') || ~isfield(st, 'scan_days') || ~isfield(st, 'follow_up')
+    error('visualize_results:missingField', 'scan_timeline must contain patient_ids, scan_days, and follow_up.');
+end
+
+ids = st.patient_ids(:);
+follow_up = st.follow_up(:);
+scan_days = st.scan_days(:);
+nPat = numel(ids);
+if nPat == 0, return; end
+
+[~, order] = sort(follow_up, 'descend');
+
+fig = figure('Visible', 'off', 'Position', [100 100 900 max(400, nPat * 18)]);
+hold on;
+for i = 1:nPat
+    row = order(i);
+    barh(i, follow_up(row), 0.6, 'FaceColor', [0.7 0.85 1.0], 'EdgeColor', 'none');
+    days_vec = scan_days{row};
+    if ~isempty(days_vec)
+        plot(days_vec, repmat(i, size(days_vec)), 'k^', 'MarkerSize', 5, 'MarkerFaceColor', [0.2 0.4 0.8]);
+    end
+end
+hold off;
+set(gca, 'YTick', 1:nPat, 'YTickLabel', ids(order), 'FontSize', 7, 'YDir', 'reverse');
+xlabel('Days from Baseline');
+title(sprintf('Swimmer Plot — Patient Timelines (%s)', config_struct.dwi_type));
+
+fname = fullfile(output_folder, 'swimmer_timeline');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
+end
+
+function plot_spider_chart(calculated_results, config_struct)
+% PLOT_SPIDER_CHART  Per-patient ADC trajectories normalised to cohort median baseline.
+%
+%   Requires calculated_results.longitudinal_trajectories with fields:
+%     patient_ids  — cell array of patient IDs
+%     timepoints   — numeric vector of common timepoints (e.g. scan days)
+%     adc_values   — nPatients x nTimepoints matrix of ADC values
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'longitudinal_trajectories')
+    error('visualize_results:missingField', 'longitudinal_trajectories not found in calculated_results.');
+end
+lt = calculated_results.longitudinal_trajectories;
+if ~isfield(lt, 'patient_ids') || ~isfield(lt, 'timepoints') || ~isfield(lt, 'adc_values')
+    error('visualize_results:missingField', 'longitudinal_trajectories must contain patient_ids, timepoints, and adc_values.');
+end
+
+tp = lt.timepoints(:)';
+vals = lt.adc_values;  % nPat x nTP
+nPat = size(vals, 1);
+if nPat == 0 || isempty(tp), return; end
+
+% Normalise: percent change from cohort median at baseline
+baseline_median = nanmedian(vals(:, 1));
+if baseline_median == 0 || isnan(baseline_median)
+    baseline_median = 1;  % avoid division by zero
+end
+pct_change = ((vals - baseline_median) ./ baseline_median) * 100;
+
+fig = figure('Visible', 'off', 'Position', [100 100 800 500]);
+hold on;
+cmap = lines(min(nPat, 64));
+for k = 1:nPat
+    cidx = mod(k - 1, size(cmap, 1)) + 1;
+    plot(tp, pct_change(k, :), '-o', 'Color', cmap(cidx, :), ...
+        'MarkerSize', 4, 'LineWidth', 1);
+end
+yline(0, '--k', 'LineWidth', 1);
+hold off;
+xlabel('Timepoint (days)');
+ylabel('ADC Change from Cohort Median (%)');
+title(sprintf('Spider Plot — Longitudinal ADC Trajectories (%s)', config_struct.dwi_type));
+grid on;
+
+fname = fullfile(output_folder, 'spider_adc_trajectories');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
 end
