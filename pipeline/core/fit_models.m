@@ -54,18 +54,20 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             'Detected %d repeated b-values (e.g., multiple averages). Averaging signal across %d unique b-values before fitting.', ...
             length(bvalues) - length(bvalues_unique), length(bvalues_unique));
         
-        % Average DWI signal across repeated b-values
+        % Average DWI signal across repeated b-values by indexing directly
+        % into the 4th dimension of the 4D array. This avoids creating a
+        % large flattened intermediate (reshape to [n_spatial x n_bvalues])
+        % which would temporarily double peak memory usage.
         sz_dwi = size(dwi);
-        dwi_flat_all = reshape(dwi, [], length(bvalues)); % [n_spatial x n_bvalues]
         n_unique = length(bvalues_unique);
-        dwi_averaged = zeros(size(dwi_flat_all, 1), n_unique);
+        dwi_averaged = zeros([sz_dwi(1), sz_dwi(2), sz_dwi(3), n_unique]);
         for ub = 1:n_unique
-            idx_this_b = (ic == ub);
-            dwi_averaged(:, ub) = mean(dwi_flat_all(:, idx_this_b), 2);
+            idx_this_b = find(ic == ub);
+            dwi_averaged(:,:,:,ub) = mean(dwi(:,:,:,idx_this_b), 4);
         end
-        dwi = reshape(dwi_averaged, [sz_dwi(1), sz_dwi(2), sz_dwi(3), n_unique]);
+        dwi = dwi_averaged;
         bvalues = bvalues_unique;
-        clear dwi_flat_all dwi_averaged;
+        clear dwi_averaged;
     end
 
     % Validate that (unique) b-values are monotonically increasing
