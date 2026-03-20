@@ -292,6 +292,111 @@ def _section_model_diagnostics(log_data, dwi_types_present, mat_data) -> list[st
 
 
 
+def build_dca_section(saved_files: dict) -> str:
+    """Build a standalone Decision Curve Analysis section.
+
+    Renders a net benefit vs threshold probability table and a brief
+    clinical interpretation paragraph from parsed pipeline output.
+
+    Parameters
+    ----------
+    saved_files : dict
+        Parsed pipeline output (keyed by DWI type at top level, with
+        ``stats_predictive.decision_curve`` nested within).
+
+    Returns
+    -------
+    str
+        HTML string for the DCA section.  Empty string if no DCA data
+        is present.
+    """
+    if not saved_files:
+        return ""
+
+    h: list[str] = []
+    dca_found = False
+
+    for dwi_type, dwi_data in saved_files.items():
+        if not isinstance(dwi_data, dict):
+            continue
+        sp = dwi_data.get("stats_predictive", {})
+        if not isinstance(sp, dict):
+            continue
+        dca = sp.get("decision_curve")
+        if not dca or not isinstance(dca, dict):
+            continue
+
+        if not dca_found:
+            h.append(_h2("Decision Curve Analysis", "dca"))
+            h.append(
+                '<p class="meta">Decision curve analysis evaluates the clinical '
+                'utility of a predictive model by computing net benefit across a '
+                'range of threshold probabilities. A model adds value at thresholds '
+                'where its net benefit exceeds both the treat-all and treat-none '
+                'default strategies.</p>'
+            )
+            dca_found = True
+
+        h.append(f"<h3>{_dwi_badge(dwi_type)}</h3>")
+
+        # Net benefit table
+        thresholds = dca.get("thresholds", [])
+        net_benefits = dca.get("net_benefits", [])
+        treat_all = dca.get("treat_all", [])
+
+        if thresholds and net_benefits:
+            h.append(
+                "<table><thead><tr>"
+                "<th>Threshold Probability</th>"
+                "<th>Model Net Benefit</th>"
+                "<th>Treat All</th>"
+                "<th>Advantage</th>"
+                "</tr></thead><tbody>"
+            )
+            for i, thr in enumerate(thresholds):
+                nb = net_benefits[i] if i < len(net_benefits) else None
+                ta = treat_all[i] if i < len(treat_all) else None
+                nb_str = f"{nb:.4f}" if isinstance(nb, (int, float)) else "N/A"
+                ta_str = f"{ta:.4f}" if isinstance(ta, (int, float)) else "N/A"
+                if isinstance(nb, (int, float)) and isinstance(ta, (int, float)):
+                    adv = nb - ta
+                    adv_cls = "agree" if adv > 0 else "differ"
+                    adv_str = f'<span class="{adv_cls}">{adv:+.4f}</span>'
+                else:
+                    adv_str = "N/A"
+                h.append(
+                    f"<tr><td>{_esc(str(thr))}</td>"
+                    f"<td><strong>{nb_str}</strong></td>"
+                    f"<td>{ta_str}</td>"
+                    f"<td>{adv_str}</td></tr>"
+                )
+            h.append("</tbody></table>")
+
+        # Clinical interpretation
+        useful_lo = dca.get("useful_range_lo")
+        useful_hi = dca.get("useful_range_hi")
+        if (isinstance(useful_lo, (int, float))
+                and isinstance(useful_hi, (int, float))):
+            h.append(
+                f'<p>The model provides positive net benefit over default '
+                f'strategies at threshold probabilities between '
+                f'<strong>{useful_lo:.2f}</strong> and '
+                f'<strong>{useful_hi:.2f}</strong>. This range represents the '
+                f'clinical decision space where using the model to guide '
+                f'treatment decisions is expected to produce better outcomes '
+                f'than either treating all patients or treating none.</p>'
+            )
+        else:
+            h.append(
+                '<p class="meta">Decision curve data available but the useful '
+                'threshold range could not be determined.</p>'
+            )
+
+    if not dca_found:
+        return ""
+    return "\n".join(h)
+
+
 def _section_sensitivity_analysis(log_data, dwi_types_present, mat_data) -> list[str]:
     """Build a Sensitivity Analysis section for publication robustness.
 

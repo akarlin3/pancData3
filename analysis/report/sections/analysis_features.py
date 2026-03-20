@@ -7,6 +7,7 @@ from report.report_formatters import (  # type: ignore
     _esc,
     _h2,
     _stat_card,
+    _table_caption,
 )
 
 
@@ -235,3 +236,122 @@ def _section_feature_overlap(log_data, dwi_types_present) -> list[str]:
             )
 
     return h
+
+
+def build_texture_section(saved_files: dict) -> str:
+    """Build the Texture Features summary section.
+
+    Renders a table of the top discriminating texture features (GLCM,
+    GLRLM, first-order, shape) ranked by AUC from parsed pipeline output.
+
+    Parameters
+    ----------
+    saved_files : dict
+        Parsed pipeline output (keyed by DWI type at top level, with
+        ``texture_features`` nested within).
+
+    Returns
+    -------
+    str
+        HTML string for the texture features section.  Empty string if
+        no texture data is present.
+    """
+    if not saved_files:
+        return ""
+
+    h: list[str] = []
+    found = False
+
+    for dwi_type, dwi_data in saved_files.items():
+        if not isinstance(dwi_data, dict):
+            continue
+        tex = dwi_data.get("texture_features")
+        if not tex or not isinstance(tex, (dict, list)):
+            continue
+
+        # Accept either a list of feature dicts or a dict with a "features" key
+        if isinstance(tex, dict):
+            features = tex.get("features", [])
+        else:
+            features = tex
+
+        if not features or not isinstance(features, list):
+            continue
+
+        if not found:
+            h.append(_h2("Texture Features", "texture-features"))
+            h.append(
+                '<p class="meta">Texture features extracted from DWI parameter '
+                "maps (GLCM, GLRLM, first-order statistics, and shape descriptors) "
+                "ranked by discriminative ability (AUC). Higher AUC indicates "
+                "stronger separation between outcome groups.</p>"
+            )
+            found = True
+
+        h.append(f"<h3>{_dwi_badge(dwi_type)}</h3>")
+
+        # Sort by AUC descending, take top features
+        scored = [
+            f for f in features
+            if isinstance(f, dict) and isinstance(f.get("auc"), (int, float))
+        ]
+        scored.sort(key=lambda f: f["auc"], reverse=True)
+
+        # Summary cards
+        if scored:
+            categories: dict[str, int] = {}
+            for f in features:
+                if isinstance(f, dict):
+                    cat = f.get("category", "unknown")
+                    categories[cat] = categories.get(cat, 0) + 1
+
+            cards = [
+                _stat_card("Total Features", str(len(features)),
+                           "extracted from parameter maps"),
+                _stat_card("Top AUC", f"{scored[0]['auc']:.3f}",
+                           _esc(str(scored[0].get("name", "?")))),
+            ]
+            if categories:
+                cat_summary = ", ".join(
+                    f"{v} {k}" for k, v in sorted(
+                        categories.items(), key=lambda x: -x[1]
+                    )
+                )
+                cards.append(_stat_card("Categories", cat_summary))
+            h.append('<div class="stat-grid">')
+            h.extend(cards)
+            h.append("</div>")
+
+        # Table of top features (up to 20)
+        top_n = scored[:20]
+        if top_n:
+            h.append(_table_caption(
+                "Top Texture Features by AUC",
+                f"Top {len(top_n)} discriminating texture features for "
+                f"{_esc(dwi_type)}.",
+            ))
+            h.append(
+                "<table><thead><tr>"
+                "<th>Feature</th><th>Category</th>"
+                "<th>AUC</th><th>p-value</th>"
+                "</tr></thead><tbody>"
+            )
+            for f in top_n:
+                name = f.get("name", "?")
+                cat = f.get("category", "?")
+                auc = f["auc"]
+                p = f.get("p")
+                auc_cls = "agree" if auc >= 0.7 else ""
+                auc_attr = f' class="{auc_cls}"' if auc_cls else ""
+                p_str = f"{p:.4f}" if isinstance(p, (int, float)) else "N/A"
+                h.append(
+                    f"<tr><td><code>{_esc(str(name))}</code></td>"
+                    f"<td>{_esc(str(cat))}</td>"
+                    f"<td{auc_attr}><strong>{auc:.3f}</strong></td>"
+                    f"<td>{p_str}</td></tr>"
+                )
+            h.append("</tbody></table>")
+
+    if not found:
+        return ""
+    return "\n".join(h)
