@@ -102,24 +102,21 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     % the outer voxel loop level (parfor across voxels), which distributes
     % independent voxel fits across workers without nested parallelism
     % overhead.
-    optimized_opts = optimoptions('lsqnonlin', ...
-        'UseParallel', false, ...                % Avoid nested parallelism; parfor handles voxel-level parallelism
-        'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
-        'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
-        'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
-        'MaxIterations', 400, ...               % Increased max iterations
-        'MaxFunctionEvaluations', 800, ...      % Increased max function evaluations
-        'Display', 'off');                      % Suppress individual fit output
-    
-    % Store original options to restore later if needed
-    if isfield(opts, 'optimoptions')
-        original_opts = opts.optimoptions;
-    else
-        original_opts = [];
+    %
+    % These defaults are only applied when the caller has not provided
+    % custom optimoptions (e.g., for debugging with Display='iter' or
+    % site-specific tolerance adjustments).
+    if ~isfield(opts, 'optimoptions') || isempty(opts.optimoptions)
+        optimized_opts = optimoptions('lsqnonlin', ...
+            'UseParallel', false, ...                % Avoid nested parallelism; parfor handles voxel-level parallelism
+            'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
+            'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
+            'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
+            'MaxIterations', 400, ...               % Increased max iterations
+            'MaxFunctionEvaluations', 800, ...      % Increased max function evaluations
+            'Display', 'off');                      % Suppress individual fit output
+        opts.optimoptions = optimized_opts;
     end
-    
-    % Apply optimized options
-    opts.optimoptions = optimized_opts;
 
     %% ---- IVIM MODEL FITTING (Segmented Biexponential) ----
     % [MODULARIZATION STAGE 3]: Masked 1D Flattening + `parfor`
@@ -288,13 +285,6 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             f_map(valid_voxels_idx) = f_vec;
             dstar_map(valid_voxels_idx) = dstar_vec;
         end
-    end
-
-    % Restore original optimization options if they existed
-    if ~isempty(original_opts)
-        opts.optimoptions = original_opts;
-    elseif isfield(opts, 'optimoptions')
-        opts = rmfield(opts, 'optimoptions');
     end
 
     % Monoexponential ADC fit — weighted log-linear regression on active voxels.
