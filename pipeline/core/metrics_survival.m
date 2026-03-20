@@ -1,18 +1,100 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder, actual_scan_days, config_struct_in)
+function metrics_survival(varargin)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 5/5 of the metrics step. Fits survival models including Cox PH and competing risks analysis.
 %
 % This function coordinates the entire survival analysis workflow by calling
 % specialized subfunctions for different aspects of the analysis.
+%
+% NEW INTERFACE (recommended):
+%   metrics_survival(data_struct, opts)
+%     data_struct — struct with fields:
+%       .valid_pts, .ADC_abs, .D_abs, .f_abs, .Dstar_abs,
+%       .m_lf, .m_total_time, .m_total_follow_up_time, .nTp,
+%       .fx_label, .dtype_label
+%     Optional fields:
+%       .m_gtv_vol, .actual_scan_days
+%     opts — struct with configuration options (passed through as config).
+%            Any fields not present receive defaults.
+%
+% LEGACY INTERFACE (deprecated, preserved for backward compatibility):
+%   metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+%       m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, ...
+%       dtype_label, m_gtv_vol, output_folder, actual_scan_days, config_struct_in)
 
-% Handle optional arguments for backward compatibility
-if nargin < 12, m_gtv_vol = []; end
-if nargin < 13, output_folder = ''; end
-if nargin < 14, actual_scan_days = []; end
-if nargin < 15 || isempty(config_struct_in)
-    config_struct_internal = struct();
+% --- Argument parsing: detect new vs legacy interface ---
+if nargin >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'valid_pts')
+    % ---- New struct-based interface ----
+    data_struct = varargin{1};
+    if nargin >= 2 && isstruct(varargin{2})
+        opts = varargin{2};
+    else
+        opts = struct();
+    end
+
+    % Unpack required fields
+    valid_pts              = data_struct.valid_pts;
+    ADC_abs                = data_struct.ADC_abs;
+    D_abs                  = data_struct.D_abs;
+    f_abs                  = data_struct.f_abs;
+    Dstar_abs              = data_struct.Dstar_abs;
+    m_lf                   = data_struct.m_lf;
+    m_total_time           = data_struct.m_total_time;
+    m_total_follow_up_time = data_struct.m_total_follow_up_time;
+    nTp                    = data_struct.nTp;
+    fx_label               = data_struct.fx_label;
+    dtype_label            = data_struct.dtype_label;
+
+    % Optional data fields
+    if isfield(data_struct, 'm_gtv_vol')
+        m_gtv_vol = data_struct.m_gtv_vol;
+    else
+        m_gtv_vol = [];
+    end
+    if isfield(data_struct, 'actual_scan_days')
+        actual_scan_days = data_struct.actual_scan_days;
+    else
+        actual_scan_days = [];
+    end
+
+    % Config: opts acts as the config struct; extract output_folder from it
+    if isfield(opts, 'output_folder')
+        output_folder = opts.output_folder;
+    else
+        output_folder = '';
+    end
+    config_struct_internal = opts;
+
 else
-    config_struct_internal = config_struct_in;
+    % ---- Legacy positional interface (deprecated) ----
+    warning('metrics_survival:DeprecatedSignature', ...
+        ['The 15-argument positional interface is deprecated and will be removed in a future release. ', ...
+         'Use metrics_survival(data_struct, opts) instead.']);
+
+    if nargin < 11
+        error('metrics_survival:InsufficientArguments', ...
+            'At least 11 arguments are required for the legacy interface.');
+    end
+
+    valid_pts              = varargin{1};
+    ADC_abs                = varargin{2};
+    D_abs                  = varargin{3};
+    f_abs                  = varargin{4};
+    Dstar_abs              = varargin{5};
+    m_lf                   = varargin{6};
+    m_total_time           = varargin{7};
+    m_total_follow_up_time = varargin{8};
+    nTp                    = varargin{9};
+    fx_label               = varargin{10};
+    dtype_label            = varargin{11};
+
+    if nargin >= 12, m_gtv_vol = varargin{12}; else, m_gtv_vol = []; end
+    if nargin >= 13, output_folder = varargin{13}; else, output_folder = ''; end
+    if nargin >= 14, actual_scan_days = varargin{14}; else, actual_scan_days = []; end
+    if nargin >= 15 && ~isempty(varargin{15})
+        config_struct_internal = varargin{15};
+    else
+        config_struct_internal = struct();
+    end
 end
 
 fprintf('\n--- SURVIVAL ANALYSIS PIPELINE ---\n');
@@ -27,7 +109,7 @@ end
 % Prepare common data structures
 [survival_data, config] = prepare_survival_data(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
     m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
-    m_gtv_vol, actual_scan_days, config_struct_internal);
+    m_gtv_vol, actual_scan_days, config_struct_internal, output_folder);
 
 % Check if we have sufficient data for analysis
 if ~survival_data.has_sufficient_data
@@ -60,7 +142,7 @@ end
 
 function [survival_data, config] = prepare_survival_data(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
     m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
-    m_gtv_vol, actual_scan_days, config_struct_in)
+    m_gtv_vol, actual_scan_days, config_struct_in, output_folder)
 % PREPARE_SURVIVAL_DATA Prepare and validate data for survival analysis
 
 % Set up timing
@@ -538,80 +620,4 @@ try
     end
     
     % Scale covariates
-    X_scaled = scale_td_panel(survival_data.X, survival_data.feat_names, ...
-        survival_data.pat_id, t_start_adj, unique(survival_data.pat_id), 'baseline');
-    
-    % Fit subdistribution hazard model using Fine-Gray approach
-    fg_model = fit_subdistribution_hazard(X_scaled, t_start_adj, t_stop_adj, ...
-        event_adj, survival_data.pat_id, survival_data.feat_names);
-    
-    finegray_results = struct();
-    finegray_results.success = fg_model.converged;
-    
-    if fg_model.converged
-        finegray_results.coefficients = fg_model.coefficients;
-        finegray_results.se = fg_model.se;
-        finegray_results.p_values = fg_model.p_values;
-        finegray_results.shr = exp(fg_model.coefficients);  % subdistribution hazard ratios
-        finegray_results.loglik = fg_model.loglik;
-        finegray_results.cumulative_incidence = fg_model.cif;
-        finegray_results.interval_censored_count = sum(interval_censored);
-        finegray_results.imputation_method = 'midpoint';
-        finegray_results.multiple_imputation = mi_results;
-        
-        % Print Fine-Gray results
-        print_finegray_results(finegray_results, survival_data.feat_names);
-    else
-        finegray_results.message = 'Fine-Gray model did not converge';
-        fprintf('  ⚠️  Fine-Gray model convergence failed.\n');
-    end
-    
-catch ME
-    fprintf('  ⚠️  Fine-Gray model error: %s\n', ME.message);
-    finegray_results = struct('success', false, 'message', ME.message);
-end
-end
-
-function interval_censored = detect_interval_censoring(survival_data)
-% DETECT_INTERVAL_CENSORING Identify interval-censored observations
-
-% Interval censoring occurs when we only know the event occurred within an interval
-% This can happen when events are detected at discrete follow-up visits
-% rather than exact occurrence times
-
-% Simple heuristic: observations with suspicious timing patterns
-scan_intervals = diff(survival_data.scan_days);
-typical_interval = median(scan_intervals(scan_intervals > 0));
-
-% Flag observations where event time coincides exactly with scan times
-% (suggesting interval censoring rather than exact timing)
-event_times = survival_data.t_stop(survival_data.event > 0);
-scan_time_matches = false(size(survival_data.t_stop));
-
-for i = 1:length(survival_data.t_stop)
-    if survival_data.event(i) > 0  % Only for events, not censored
-        time_diff_to_scans = abs(survival_data.t_stop(i) - survival_data.scan_days);
-        scan_time_matches(i) = any(time_diff_to_scans < typical_interval * 0.1);
-    end
-end
-
-% Additional criteria: multiple events at exact same time
-[unique_event_times, ~, time_groups] = unique(event_times);
-tied_event_times = false(size(survival_data.t_stop));
-for i = 1:length(unique_event_times)
-    if sum(time_groups == i) > 1  % Multiple events at same time
-        tied_event_times(survival_data.t_stop == unique_event_times(i) & survival_data.event > 0) = true;
-    end
-end
-
-interval_censored = scan_time_matches | tied_event_times;
-end
-
-function [t_start_adj, t_stop_adj, event_adj] = handle_interval_censoring(survival_data, interval_censored)
-% HANDLE_INTERVAL_CENSORING Apply midpoint imputation for interval-censored observations
-
-t_start_adj = survival_data.t_start;
-t_stop_adj = survival_data.t_stop;
-event_adj = survival_data.event;
-
-%
+    X_scaled = scale_td_panel(survival_data.X, survival_data
