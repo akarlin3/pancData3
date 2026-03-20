@@ -11,6 +11,8 @@ from report.report_formatters import (  # type: ignore
     _dwi_badge,
     _esc,
     _h2,
+    _stat_card,
+    _table_caption,
 )
 
 
@@ -301,3 +303,185 @@ def _section_power_analysis(log_data, dwi_types_present, mat_data) -> list[str]:
         h.append("</div>")
 
     return h
+
+
+def build_nri_idi_section(saved_files: dict) -> str:
+    """Build the Net Reclassification Improvement (NRI) and IDI section.
+
+    Renders NRI (overall, events, non-events), IDI, and their confidence
+    intervals from parsed ``compute_nri.m`` output.
+
+    Parameters
+    ----------
+    saved_files : dict
+        Parsed pipeline output (keyed by DWI type at top level, with
+        ``nri`` and ``idi`` keys nested within).
+
+    Returns
+    -------
+    str
+        HTML string for the NRI/IDI section.  Empty string if no NRI/IDI
+        data is present.
+    """
+    if not saved_files:
+        return ""
+
+    h: list[str] = []
+    found = False
+
+    for dwi_type, dwi_data in saved_files.items():
+        if not isinstance(dwi_data, dict):
+            continue
+        nri = dwi_data.get("nri")
+        idi = dwi_data.get("idi")
+        if not nri and not idi:
+            continue
+
+        if not found:
+            h.append(_h2("Net Reclassification Improvement", "nri-idi"))
+            h.append(
+                '<p class="meta">NRI and IDI quantify the improvement in risk '
+                "classification when adding DWI-derived biomarkers to a baseline "
+                "clinical model. Positive NRI indicates that the new model "
+                "correctly reclassifies more patients than it misclassifies.</p>"
+            )
+            found = True
+
+        h.append(f"<h3>{_dwi_badge(dwi_type)}</h3>")
+
+        # Stat cards for quick overview
+        cards: list[str] = []
+        if isinstance(nri, dict):
+            overall = nri.get("overall")
+            p_val = nri.get("p")
+            if isinstance(overall, (int, float)):
+                sig_label = ""
+                if isinstance(p_val, (int, float)) and p_val < 0.05:
+                    sig_label = " (p < 0.05)"
+                cards.append(_stat_card(
+                    "Overall NRI",
+                    f"{overall:+.3f}{sig_label}",
+                    "positive = improvement",
+                ))
+        if isinstance(idi, dict):
+            idi_val = idi.get("value")
+            if isinstance(idi_val, (int, float)):
+                cards.append(_stat_card(
+                    "IDI",
+                    f"{idi_val:+.4f}",
+                    "integrated discrimination",
+                ))
+        if cards:
+            h.append('<div class="stat-grid">')
+            h.extend(cards)
+            h.append("</div>")
+
+        # Detailed NRI table
+        if isinstance(nri, dict):
+            h.append(
+                _table_caption(
+                    "NRI Components",
+                    f"Reclassification improvement for {_esc(dwi_type)}.",
+                )
+            )
+            h.append(
+                "<table><thead><tr>"
+                "<th>Component</th><th>Estimate</th>"
+                "<th>95% CI</th><th>p-value</th>"
+                "</tr></thead><tbody>"
+            )
+            for component, key in [
+                ("Overall NRI", "overall"),
+                ("Events NRI", "events"),
+                ("Non-events NRI", "non_events"),
+                ("Continuous NRI", "continuous"),
+            ]:
+                val = nri.get(key)
+                if val is None:
+                    continue
+                ci_lo = nri.get(f"{key}_ci_lo")
+                ci_hi = nri.get(f"{key}_ci_hi")
+                p_val = nri.get(f"{key}_p", nri.get("p"))
+
+                val_str = f"{val:+.4f}" if isinstance(val, (int, float)) else "N/A"
+                if (isinstance(ci_lo, (int, float))
+                        and isinstance(ci_hi, (int, float))):
+                    ci_str = f"[{ci_lo:+.4f}, {ci_hi:+.4f}]"
+                else:
+                    ci_str = "N/A"
+                if isinstance(p_val, (int, float)):
+                    p_cls = "agree" if p_val < 0.05 else ""
+                    p_str = f"{p_val:.4f}"
+                else:
+                    p_cls = ""
+                    p_str = "N/A"
+                cls_attr = f' class="{p_cls}"' if p_cls else ""
+                h.append(
+                    f"<tr><td>{_esc(component)}</td>"
+                    f"<td><strong>{val_str}</strong></td>"
+                    f"<td>{ci_str}</td>"
+                    f"<td{cls_attr}>{p_str}</td></tr>"
+                )
+            h.append("</tbody></table>")
+
+        # IDI row
+        if isinstance(idi, dict):
+            idi_val = idi.get("value")
+            idi_ci_lo = idi.get("ci_lo")
+            idi_ci_hi = idi.get("ci_hi")
+            idi_p = idi.get("p")
+
+            h.append(
+                _table_caption(
+                    "Integrated Discrimination Improvement",
+                    f"IDI for {_esc(dwi_type)}.",
+                )
+            )
+            h.append(
+                "<table><thead><tr>"
+                "<th>Metric</th><th>Estimate</th>"
+                "<th>95% CI</th><th>p-value</th>"
+                "</tr></thead><tbody>"
+            )
+            val_str = f"{idi_val:+.4f}" if isinstance(idi_val, (int, float)) else "N/A"
+            if (isinstance(idi_ci_lo, (int, float))
+                    and isinstance(idi_ci_hi, (int, float))):
+                ci_str = f"[{idi_ci_lo:+.4f}, {idi_ci_hi:+.4f}]"
+            else:
+                ci_str = "N/A"
+            if isinstance(idi_p, (int, float)):
+                p_cls = "agree" if idi_p < 0.05 else ""
+                p_str = f"{idi_p:.4f}"
+            else:
+                p_cls = ""
+                p_str = "N/A"
+            cls_attr = f' class="{p_cls}"' if p_cls else ""
+            h.append(
+                f'<tr><td>IDI</td><td><strong>{val_str}</strong></td>'
+                f"<td>{ci_str}</td>"
+                f"<td{cls_attr}>{p_str}</td></tr>"
+            )
+            h.append("</tbody></table>")
+
+        # Significance flag
+        sig_items: list[str] = []
+        if isinstance(nri, dict):
+            p_val = nri.get("p")
+            if isinstance(p_val, (int, float)) and p_val < 0.05:
+                sig_items.append(f"NRI (p = {p_val:.4f})")
+        if isinstance(idi, dict):
+            p_val = idi.get("p")
+            if isinstance(p_val, (int, float)) and p_val < 0.05:
+                sig_items.append(f"IDI (p = {p_val:.4f})")
+        if sig_items:
+            h.append(
+                '<div class="info-box"><strong>Statistically significant '
+                "reclassification improvement:</strong> "
+                + ", ".join(sig_items)
+                + ". The DWI-derived model provides meaningful improvement in "
+                "risk stratification over the baseline clinical model.</div>"
+            )
+
+    if not found:
+        return ""
+    return "\n".join(h)

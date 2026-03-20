@@ -54,9 +54,19 @@ from .effect_sizes import (  # noqa: F401
 from .model_diagnostics import (  # noqa: F401
     _section_model_diagnostics,
     _section_sensitivity_analysis,
+    build_dca_section,
 )
 from .model_robustness import (  # noqa: F401
     _section_model_robustness,
+)
+from .statistics_robustness import (  # noqa: F401
+    build_nri_idi_section,
+)
+from .analysis_features import (  # noqa: F401
+    build_texture_section,
+)
+from .data_quality import (  # noqa: F401
+    build_registration_quality_section,
 )
 from .power_analysis import (  # noqa: F401
     _section_power_analysis,

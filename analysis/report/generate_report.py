@@ -116,9 +116,21 @@ from report.sections import (  # noqa: F401  # type: ignore
     _section_statistical_significance,
     _section_table_index,
     _section_treatment_response,
+    build_dca_section,
+    build_nri_idi_section,
+    build_texture_section,
+    build_registration_quality_section,
 )
 
 setup_utf8_stdout()
+
+
+def _wrap_str_builder(fn):
+    """Wrap a ``str``-returning section builder so it fits the ``list[str]`` protocol."""
+    def wrapper(*args):
+        result = fn(*args)
+        return [result] if result else []
+    return wrapper
 
 
 def generate_report(folder: Path) -> str:
@@ -346,6 +358,11 @@ def generate_report(folder: Path) -> str:
 
     if not has_quality_data:
         h.append('<p class="meta">No baseline quality data found in logs.</p>')
+
+    # Registration quality (from parsed pipeline output)
+    reg_html = build_registration_quality_section(mat_data)
+    if reg_html:
+        h.append(reg_html)
     report_bar.update(1)
 
     # Remaining Data sections.
@@ -429,7 +446,10 @@ def generate_report(folder: Path) -> str:
         ("Predictive performance", _section_predictive_performance, (log_data, dwi_types_present)),
         ("Forest plot", _section_forest_plot_figure, (log_data, dwi_types_present, folder)),
         ("Feature overlap", _section_feature_overlap, (log_data, dwi_types_present)),
+        ("Texture features", _wrap_str_builder(build_texture_section), (mat_data,)),
         ("Model diagnostics", _section_model_diagnostics, (log_data, dwi_types_present, mat_data)),
+        ("DCA", _wrap_str_builder(build_dca_section), (log_data,)),
+        ("NRI/IDI", _wrap_str_builder(build_nri_idi_section), (mat_data,)),
         ("Model robustness", _section_model_robustness, (log_data, dwi_types_present, mat_data)),
         ("__break__", None, "Part 5 — Discussion"),
         ("Power analysis", _section_power_analysis, (log_data, dwi_types_present, mat_data)),
