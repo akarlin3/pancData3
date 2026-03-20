@@ -94,10 +94,16 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
     end
 
     %% ---- Optimized solver configuration for IVIM fitting ----
-    % Configure optimized solver options for lsqnonlin used in IVIM fitting
-    % Improved settings for better convergence speed and robustness
+    % Configure optimized solver options for lsqnonlin used in IVIM fitting.
+    % UseParallel is set to false because the IVIM model has only 3
+    % parameters — the overhead of parallel finite-difference gradient
+    % evaluation (thread pool management) far exceeds the trivial
+    % per-parameter computation cost. Parallelism is instead exploited at
+    % the outer voxel loop level (parfor across voxels), which distributes
+    % independent voxel fits across workers without nested parallelism
+    % overhead.
     optimized_opts = optimoptions('lsqnonlin', ...
-        'UseParallel', true, ...                 % Enable parallel gradient computation
+        'UseParallel', false, ...                % Avoid nested parallelism; parfor handles voxel-level parallelism
         'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
         'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
         'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
