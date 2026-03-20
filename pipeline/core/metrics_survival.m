@@ -112,12 +112,40 @@ end
 
 fprintf('\n--- SURVIVAL ANALYSIS PIPELINE ---\n');
 
-% Set up diary for output capture
+% Set up diary for output capture.
+% We use a two-phase approach: first perform all filesystem operations that
+% could fail, then start the diary and create the cleanup guard. This
+% ensures that if file deletion or diary activation throws, the diary is
+% not left in an inconsistent state.
+cleanupDiary = []; %#ok<NASGU> — will hold onCleanup handle if diary is started
 if ~isempty(output_folder)
     diary_file = fullfile(output_folder, ['metrics_survival_output_' dtype_label '.txt']);
-    if exist(diary_file, 'file'), delete(diary_file); end
-    diary(diary_file);
-    cleanupDiary = onCleanup(@() diary('off'));
+    % Phase 1: filesystem checks (may throw on read-only filesystem)
+    try
+        if exist(diary_file, 'file')
+            delete(diary_file);
+        end
+    catch ME_del
+        warning('metrics_survival:DiaryDeleteFailed', ...
+            'Could not delete existing diary file: %s. Proceeding without diary.', ME_del.message);
+        diary_file = '';
+    end
+    % Phase 2: start diary only if filesystem prep succeeded
+    if ~isempty(diary_file)
+        try
+            diary(diary_file);
+            cleanupDiary = onCleanup(@() diary('off')); %#ok<NASGU>
+        catch ME_diary
+            % diary() itself failed — ensure it is off and warn
+            try
+                diary('off');
+            catch
+                % diary('off') may also fail; nothing more we can do
+            end
+            warning('metrics_survival:DiaryStartFailed', ...
+                'Could not start diary: %s. Proceeding without diary.', ME_diary.message);
+        end
+    end
 end
 
 % Prepare common data structures
@@ -571,29 +599,4 @@ try
     
     % Limit bootstrap replicates for computational feasibility
     n_boot_actual = min(n_boot, 500);
-    boot_coefs = nan(p, n_boot_actual);
-    
-    ipcw_scale = 100;
-    
-    for b = 1:n_boot_actual
-        % Resample patients with replacement
-        rng_state = rng;  %#ok<NASGU>
-        boot_pat_idx = randsample(n_pats, n_pats, true);
-        
-        % Build bootstrap dataset
-        boot_rows = [];
-        for k = 1:n_pats
-            rows_k = find(pat_id == unique_pats(boot_pat_idx(k)));
-            boot_rows = [boot_rows; rows_k]; %#ok<AGROW>
-        end
-        
-        X_b = X(boot_rows, :);
-        T_b = T_matrix(boot_rows, :);
-        cens_b = is_censored(boot_rows);
-        w_b = ipcw_weights(boot_rows);
-        freq_b = max(1, round(w_b * ipcw_scale));
-        
-        % Remove constant columns in bootstrap sample
-        col_var = var(X_b, 0, 1);
-        var_cols = col_var > eps;
-        if sum(
+    boot_co
