@@ -37,11 +37,16 @@ function config_struct = parse_config(json_path)
         error('parse_config:fileNotFound', 'Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
+        % Check file size and warn about large config files
+        file_info = dir(json_path);
+        if file_info.bytes > 1e6
+            warning('Large config file detected (%d bytes). Consider optimizing config structure.', file_info.bytes);
+        end
+        
         % Read and parse the JSON config in one step.  jsondecode converts
         % JSON objects to MATLAB structs, arrays to matrices, and strings
         % to char arrays — the native MATLAB types used downstream.
-        raw_json = fileread(json_path);
-        config_struct = jsondecode(raw_json);
+        config_struct = jsondecode(fileread(json_path));
 
         % ================================================================
         % Default value assignments for optional configuration fields.
