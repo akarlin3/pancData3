@@ -420,6 +420,12 @@ function config_struct = parse_config(json_path)
             config_struct.gpu_device = 1;
         end
 
+        % run_trajectory_plots: generate waterfall, swimmer, and spider
+        % plots during the visualization step.  Default true.
+        if ~isfield(config_struct, 'run_trajectory_plots')
+            config_struct.run_trajectory_plots = true;
+        end
+
         % ================================================================
         % Type validation for critical configuration fields.
         %
@@ -464,7 +470,7 @@ function config_struct = parse_config(json_path)
             'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
             'run_imputation_sensitivity', 'fit_time_varying_cox', ...
             'export_validation_model', 'use_auxiliary_biomarkers', ...
-            'use_gpu'};
+            'use_gpu', 'run_trajectory_plots'};
         for i = 1:numel(logical_fields)
             fn = logical_fields{i};
             if isfield(config_struct, fn)
