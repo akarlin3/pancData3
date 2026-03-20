@@ -139,15 +139,38 @@ cp config.example.json config.json
 
 > **Note:** Inside the container, patient data is mounted at `/opt/pancData3/data/` and `dcm2niix` is on the system PATH, so `dcm2nii_call` should be `"dcm2niix"` (not a host path).
 
-#### Running with Docker Compose
+#### Environment setup (`.env` file)
 
-Set the required environment variables, then use Compose targets:
+Docker Compose automatically reads a `.env` file in the project root. Copy the template and fill in your values:
 
 ```bash
-export DATA_DIR=/path/to/patient_dwi_data
-export OUTPUT_DIR=/path/to/output
-export CONFIG_FILE=/path/to/config.json
+cp .env.example .env
+```
 
+Then edit `.env` with your host paths and (optionally) API keys:
+
+```dotenv
+# Required
+DATA_DIR=/path/to/patient_dwi_data
+
+# Optional (defaults shown)
+OUTPUT_DIR=./output
+CONFIG_FILE=./config.json
+
+# Optional: vision-based graph analysis API keys
+GEMINI_API_KEY=your-gemini-key
+ANTHROPIC_API_KEY=your-anthropic-key
+```
+
+> **Security:** The `.env` file is gitignored and should never be committed, as it may contain API keys. Only `.env.example` (which contains no real values) is tracked.
+
+Alternatively, you can export the variables in your shell instead of using a `.env` file.
+
+#### Running with Docker Compose
+
+Use Compose targets to run the pipeline, analysis, or both:
+
+```bash
 # Pipeline + analysis (default)
 docker compose up
 

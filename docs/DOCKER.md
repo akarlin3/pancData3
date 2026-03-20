@@ -52,16 +52,40 @@ Inside the container, patient data is mounted at `/opt/pancData3/data` and outpu
 
 ---
 
+## Environment Setup (`.env` File)
+
+Docker Compose automatically reads a `.env` file in the project root. Copy the template and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your host paths and (optionally) API keys:
+
+```dotenv
+# Required
+DATA_DIR=/path/to/patient_dwi_data
+
+# Optional (defaults shown)
+OUTPUT_DIR=./output
+CONFIG_FILE=./config.json
+
+# Optional: vision-based graph analysis API keys
+GEMINI_API_KEY=your-gemini-key
+ANTHROPIC_API_KEY=your-anthropic-key
+```
+
+> **Security:** The `.env` file is gitignored and should never be committed, as it may contain API keys. Only `.env.example` (which contains no real values) is tracked.
+
+Alternatively, you can export the variables directly in your shell before running `docker compose`.
+
+---
+
 ## Running with Docker Compose
 
 ### Full Pipeline + Analysis
 
 ```bash
-# Set required environment variables
-export DATA_DIR=/path/to/patient_dwi_data
-export OUTPUT_DIR=/path/to/output
-export CONFIG_FILE=/path/to/config.json
-
 # Run pipeline followed by analysis
 docker compose up
 ```
