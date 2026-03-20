@@ -43,10 +43,35 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             'First b-value is %g, not 0. Both IVIM and ADC fits require S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
     end
 
-    % Validate that b-values are monotonically increasing
+    % Handle repeated b-values by averaging signal across duplicates.
+    % Clinical DWI protocols legitimately include repeated b-values for
+    % signal averaging (e.g., b=[0,0,100,100,500,500]) where the scanner
+    % acquires multiple averages at each b-value. We detect duplicates,
+    % average the corresponding DWI volumes, and proceed with unique b-values.
+    [bvalues_unique, ~, ic] = unique(bvalues);
+    if length(bvalues_unique) < length(bvalues)
+        warning('fit_models:repeatedBValues', ...
+            'Detected %d repeated b-values (e.g., multiple averages). Averaging signal across %d unique b-values before fitting.', ...
+            length(bvalues) - length(bvalues_unique), length(bvalues_unique));
+        
+        % Average DWI signal across repeated b-values
+        sz_dwi = size(dwi);
+        dwi_flat_all = reshape(dwi, [], length(bvalues)); % [n_spatial x n_bvalues]
+        n_unique = length(bvalues_unique);
+        dwi_averaged = zeros(size(dwi_flat_all, 1), n_unique);
+        for ub = 1:n_unique
+            idx_this_b = (ic == ub);
+            dwi_averaged(:, ub) = mean(dwi_flat_all(:, idx_this_b), 2);
+        end
+        dwi = reshape(dwi_averaged, [sz_dwi(1), sz_dwi(2), sz_dwi(3), n_unique]);
+        bvalues = bvalues_unique;
+        clear dwi_flat_all dwi_averaged;
+    end
+
+    % Validate that (unique) b-values are monotonically increasing
     if any(diff(bvalues) <= 0)
         error('fit_models:nonMonotonicBValues', ...
-            'B-values must be monotonically increasing. Non-monotonic ordering can cause convergence failures in IVIM model fitting.');
+            'B-values must be monotonically increasing after averaging duplicates. Non-monotonic ordering can cause convergence failures in IVIM model fitting.');
     end
 
     % Validate sufficient dynamic range for IVIM parameter estimation
@@ -318,9 +343,9 @@ function [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim
             % The monoexponential model S(b) = S0 * exp(-b * ADC) becomes
             % linear after taking logarithms: ln(S/S0) = -b * ADC.
             % However, ln() transforms Gaussian noise into heteroscedastic
-            % noise with variance ~ 1/S^2 (via delta method). Weighted
-            % Least Squares with w = S^2 restores homoscedasticity, giving
-            % more weight to high-SNR (high-signal) measurements and
+            % noise with variance ~ 1/S^2 (via delta method).  Weighted
+            % Least Squares with w = S^2 corrects for this heteroscedasticity,
+            % giving more weight to high-SNR (high-signal) measurements and
             % reducing the influence of noisy high-b-value data points.
             %
             % The closed-form WLS solution for a single predictor is:
