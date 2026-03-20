@@ -148,8 +148,14 @@ if ~isempty(output_folder)
     end
 end
 
-% Prepare common data structures
-[survival_data, config] = prepare_survival_data(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+% Prepare common data structures using the extracted utility functions.
+% Previously this was a single local function (prepare_survival_data);
+% now the logic is split across independently testable functions in
+% pipeline/utils/:
+%   prepare_outcome_data  — censoring logic
+%   select_landmark_day   — landmark day selection
+%   build_survival_features — feature assembly and panel construction
+[survival_data, config] = prepare_survival_data_dispatch(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
     m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
     m_gtv_vol, actual_scan_days, config_struct_internal, output_folder);
 
@@ -180,12 +186,16 @@ print_survival_summary(cox_results, finegray_results, timevar_results, validatio
 
 end
 
-function [survival_data, config] = prepare_survival_data(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+function [survival_data, config] = prepare_survival_data_dispatch(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
     m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
     m_gtv_vol, actual_scan_days, config_struct_in, output_folder)
-% PREPARE_SURVIVAL_DATA Prepare and validate data for survival analysis
+% PREPARE_SURVIVAL_DATA_DISPATCH Orchestrate data preparation by delegating
+% to independently testable utility functions:
+%   build_survival_features  — feature array assembly
+%   prepare_outcome_data     — censoring/competing risk logic
+%   select_landmark_day      — landmark day selection
 
-% Set up timing
+% --- 1. Scan days ---
 if ~isempty(actual_scan_days)
     td_scan_days = actual_scan_days;
     fprintf('  Using provided scan days [%s].\n', num2str(td_scan_days));
@@ -195,52 +205,14 @@ else
     fprintf('      Pass actual DICOM-derived scan days to avoid immortal time bias.\n');
 end
 
-% Prepare feature arrays
-td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
-                   f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
-td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+% --- 2. Build feature arrays (delegated to build_survival_features) ---
+[td_feat_arrays, td_feat_names] = build_survival_features(valid_pts, ...
+    ADC_abs, D_abs, f_abs, Dstar_abs, m_gtv_vol, nTp);
 
-% Include baseline GTV volume if available
-has_vol = ~isempty(m_gtv_vol) && any(isfinite(m_gtv_vol(valid_pts, 1)));
-if has_vol
-    vol_baseline = m_gtv_vol(valid_pts, 1);
-    vol_rep = repmat(vol_baseline, 1, nTp);
-    td_feat_arrays{end+1} = vol_rep;
-    td_feat_names{end+1}  = 'GTVvol';
-    fprintf('  Including baseline GTV volume as a covariate.\n');
-end
+% --- 3. Prepare outcome data with censoring logic (delegated to prepare_outcome_data) ---
+[td_lf, td_tot_time] = prepare_outcome_data(valid_pts, m_lf, m_total_time, m_total_follow_up_time);
 
-% Prepare outcome data
-td_lf = m_lf(valid_pts);
-td_tot_time = m_total_time(valid_pts);
-follow_up_valid = m_total_follow_up_time(valid_pts);
-
-% For truly censored patients (lf==0), replace total_time with follow_up_time
-% because follow_up_time reflects the last known alive date.
-cens_mask_lc = (td_lf == 0) & ~isnan(follow_up_valid);
-td_tot_time(cens_mask_lc) = follow_up_valid(cens_mask_lc);
-
-% For competing risk patients (lf==2), keep the original total_time which
-% represents the time to the competing event (e.g., death from other cause).
-% Using follow_up_time here would introduce immortal time bias by extending
-% their risk period beyond when they actually experienced the competing event.
-
-% Read the time-dependent panel decay half-life from config, with a
-% documented default of 18 days.
-%
-% The half-life controls the exponential decay weight applied to imaging
-% features from prior fractions when constructing the time-dependent
-% covariate panel. A half-life of 18 days means that a feature measured at
-% a given fraction retains 50% of its weight 18 days later. For a typical
-% 5-fraction SBRT course spanning ~20 days:
-%   - 18 days: Fx1 features retain ~46% weight at Fx5 (default)
-%   -  6 days: Fx1 features retain ~10% weight at Fx5 (rapid decay)
-%   - 36 days: Fx1 features retain ~68% weight at Fx5 (slow decay)
-%
-% This parameter should be tuned based on the expected timescale of
-% biological response in the tissue of interest. It can also be optimized
-% via cross-validation over config.half_life_grid in the time-varying
-% effects analysis step.
+% --- 4. Parse half-life config ---
 if isfield(config_struct_in, 'td_halflife_days') && ~isempty(config_struct_in.td_halflife_days)
     td_halflife_days = config_struct_in.td_halflife_days;
     fprintf('  Using configured td_halflife_days = %.1f (from config).\n', td_halflife_days);
@@ -250,32 +222,18 @@ else
     fprintf('      Set config.td_halflife_days to customize the decay half-life for time-dependent feature weighting.\n');
 end
 
-% Build time-dependent panel with configurable half-life
+% --- 5. Build time-dependent panel ---
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
     build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, td_halflife_days);
 
-% Check data sufficiency
+% --- 6. Check initial data sufficiency ---
 td_n_feat = numel(td_feat_arrays);
 td_ok = (sum(event_td_def == 1) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
-% Determine landmark day
-% Priority 1: Use explicitly configured landmark_day (clinically motivated)
-% Priority 2: Fall back to gap-based heuristic with a warning
-if isfield(config_struct_in, 'landmark_day') && ~isempty(config_struct_in.landmark_day)
-    landmark_day = config_struct_in.landmark_day;
-    fprintf('  Using configured landmark_day = %d (from config).\n', landmark_day);
-else
-    % Gap-based heuristic fallback: choose the scan day preceding the largest
-    % gap between consecutive scans. This is a fragile proxy for "end of
-    % treatment" and should be replaced with a clinically motivated value.
-    scan_gaps = diff(td_scan_days);
-    [~, gap_idx] = max(scan_gaps);
-    landmark_day = td_scan_days(gap_idx);
-    fprintf('  ⚠️  WARNING: config.landmark_day not set. Falling back to gap-based heuristic (landmark_day = %d).\n', landmark_day);
-    fprintf('      This heuristic is fragile and may not reflect a clinically meaningful timepoint.\n');
-    fprintf('      Set config.landmark_day to the last intra-treatment scan day for robust results.\n');
-end
+% --- 7. Select landmark day (delegated to select_landmark_day) ---
+landmark_day = select_landmark_day(td_scan_days, config_struct_in);
 
+% --- 8. Apply landmark filtering ---
 lm_keep = (t_start_td_def >= landmark_day);
 
 if any(lm_keep)
@@ -295,7 +253,7 @@ else
     td_ok = false;
 end
 
-% Package results
+% --- 9. Package results ---
 survival_data = struct();
 survival_data.has_sufficient_data = td_ok;
 if td_ok
