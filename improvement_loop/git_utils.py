@@ -108,6 +108,7 @@ def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
     If *capture_output* is True, returns ``(passed, output_text)`` so callers
     can inspect failure details for self-healing.
     """
+    print(f"    [debug] Running tests from: {REPO_ROOT}")
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "analysis/tests/", "-q", "--tb=short",
             "--ignore=analysis/tests/test_evaluator_finding.py",
@@ -119,6 +120,7 @@ def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
         capture_output=capture_output,
         text=capture_output,
     )
+    print(f"    [debug] pytest exit code: {result.returncode}")
     if capture_output:
         combined = (result.stdout or "") + "\n" + (result.stderr or "")
         return result.returncode == 0, combined
