@@ -8,6 +8,15 @@ function test_knn_impute()
 %     4. Mixed cell/numeric patient IDs (should error on mismatch, work on match)
 %     5. Empty X_te
 %     6. Basic correctness sanity check
+%     7. No missing data passthrough
+%     8. Partial NaN neighbor column
+%     9. Target column exclusion from distance metric
+%    10. Multiple missing columns in single row
+%    11. Training imputation with patient blocking
+%    12. Single training row (degenerate case)
+%    13. Patient blocking changes imputed value (blocked vs unblocked)
+%    14. Constant column (zero variance) produces no NaN/Inf
+%    15. Negative feature values are correctly handled
 %
 %   Usage:
 %     >> test_knn_impute   % runs all tests, prints PASS/FAIL summary
@@ -376,6 +385,121 @@ function test_knn_impute()
     end
 
     % =====================================================================
+    % Test 13: Patient blocking changes imputed value
+    %   With 3 patients, verify that blocking patient P1 produces a
+    %   different imputed value than if P1 were not blocked.  This
+    %   confirms the blocking mechanism actually affects the result.
+    %
+    %   Setup: 3 training rows from patients P1, P2, P3.
+    %   Test row belongs to P1.  P1's training row (row 1) is the nearest
+    %   neighbor by feature distance, so blocking it should change the
+    %   imputed value.
+    % =====================================================================
+    try
+        % Col 1 = feature, Col 2 = value to impute
+        % Row 1 (P1): feature=1, col2=100  (nearest to test query feature=1.1)
+        % Row 2 (P2): feature=5, col2=200
+        % Row 3 (P3): feature=6, col2=300
+        X_tr = [1 100; 5 200; 6 300];
+        X_te = [1.1 NaN];
+        pat_id_tr = [1; 2; 3];
+        k = 2;
+
+        % Run WITH blocking (test patient = P1, so row 1 is blocked)
+        pat_id_te_blocked = [1];
+        [~, X_te_blocked] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te_blocked);
+
+        % Run WITHOUT blocking (test patient = P4, no rows blocked)
+        pat_id_te_unblocked = [4];
+        [~, X_te_unblocked] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te_unblocked);
+
+        assert(~isnan(X_te_blocked(1,2)), 'Blocked imputation should not be NaN');
+        assert(~isnan(X_te_unblocked(1,2)), 'Unblocked imputation should not be NaN');
+
+        % The blocked and unblocked values should differ because:
+        % Unblocked k=2 neighbors: row 1 (P1, col2=100) and row 2 (P2, col2=200)
+        % Blocked k=2 neighbors: row 2 (P2, col2=200) and row 3 (P3, col2=300)
+        assert(abs(X_te_blocked(1,2) - X_te_unblocked(1,2)) > 1e-6, ...
+            sprintf('Blocking should change imputed value: blocked=%.4f, unblocked=%.4f', ...
+                X_te_blocked(1,2), X_te_unblocked(1,2)));
+
+        % Verify the blocked result uses only P2 and P3
+        % With k=2 and P1 blocked, neighbors are P2 (col2=200) and P3 (col2=300)
+        expected_blocked = mean([200, 300]);
+        assert(abs(X_te_blocked(1,2) - expected_blocked) < 1e-10, ...
+            sprintf('Blocked imputation expected %.4f, got %.4f', expected_blocked, X_te_blocked(1,2)));
+
+        record_pass('patient_blocking_changes_value');
+    catch me
+        record_fail('patient_blocking_changes_value', me.message);
+    end
+
+    % =====================================================================
+    % Test 14: Constant column (zero variance)
+    %   A column with zero variance would produce NaN when standardized
+    %   (division by zero std).  The function should handle this gracefully,
+    %   producing no NaN or Inf in distances or imputed values.
+    % =====================================================================
+    try
+        % Col 1 varies, Col 2 is constant (zero variance), Col 3 has missing
+        X_tr = [1 5 10; 2 5 20; 3 5 30; 4 5 40];
+        X_te = [2.5 5 NaN];
+        pat_id_tr = [1; 2; 3; 4];
+        pat_id_te = [5];
+        k = 2;
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Constant column should not cause NaN in output');
+        assert(~any(isinf(X_te_imp(:))), 'Constant column should not cause Inf in output');
+        assert(~any(isnan(X_tr_imp(:))), 'Constant column should not cause NaN in training output');
+        assert(~any(isinf(X_tr_imp(:))), 'Constant column should not cause Inf in training output');
+
+        % The imputed value in col 3 should be based on nearest neighbors
+        % by col 1 (since col 2 is constant and contributes nothing to distance)
+        % Nearest to 2.5 in col 1: rows 2 (val=2) and 3 (val=3) -> col3: 20, 30
+        expected_val = mean([20, 30]);
+        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f with constant column, got %.4f', expected_val, X_te_imp(1,3)));
+
+        record_pass('constant_column_zero_variance');
+    catch me
+        record_fail('constant_column_zero_variance', me.message);
+    end
+
+    % =====================================================================
+    % Test 15: Negative feature values
+    %   Percent-change features (e.g., D_pct, f_delta) can be negative.
+    %   Verify that negative values in the feature matrix are handled
+    %   correctly during distance computation and imputation.
+    % =====================================================================
+    try
+        % Features include negative values (like percent changes)
+        X_tr = [-10 -5 100; -2 3 200; 5 8 300; 12 15 400];
+        X_te = [-8 -3 NaN];  % closest to row 1 by feature distance
+        pat_id_tr = [1; 2; 3; 4];
+        pat_id_te = [5];
+        k = 2;
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Negative feature values should not cause NaN');
+        assert(~any(isinf(X_te_imp(:))), 'Negative feature values should not cause Inf');
+        assert(~any(isnan(X_tr_imp(:))), 'Negative feature training values should not cause NaN');
+
+        % Test query [-8, -3] should be nearest to row 1 [-10, -5] then row 2 [-2, 3]
+        % After z-scoring cols 1-2 using training stats:
+        %   col1: mean=1.25, std=9.2157 -> z-scores: [-1.22, -0.35, 0.41, 1.17], query: -1.00
+        %   col2: mean=5.25, std=8.54   -> z-scores: [-1.20, -0.26, 0.32, 1.14], query: -0.97
+        % Row 1 is nearest, then row 2.  k=2 neighbors -> col3 values: 100, 200
+        expected_val = mean([100, 200]);
+        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
+            sprintf('Negative features: expected %.4f, got %.4f', expected_val, X_te_imp(1,3)));
+
+        record_pass('negative_feature_values');
+    catch me
+        record_fail('negative_feature_values', me.message);
+    end
+
+    % =====================================================================
     % Print Summary
     % =====================================================================
     fprintf('\n========================================\n');
@@ -399,15 +523,4 @@ function test_knn_impute()
     end
 
     % --- Nested helper functions ---
-    function record_pass(name)
-        n_pass = n_pass + 1;
-        test_names{end+1} = name;
-        test_results{end+1} = 'PASS';
-    end
-
-    function record_fail(name, msg)
-        n_fail = n_fail + 1;
-        test_names{end+1} = name;
-        test_results{end+1} = msg;
-    end
-end
+    
