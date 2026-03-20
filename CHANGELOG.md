@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0-beta.1] - 2026-03-19
+
+### Added
+
+#### Automated Improvement Loop
+- **`improvement_loop/` package**: Programmatic audit → fix → test → commit cycle with Claude API integration
+  - **`orchestrator_v1.py`**: Main loop driver with configurable max iterations and dry-run mode
+  - **`evaluator.py`**: Finding schema (Pydantic) and audit quality scoring with exit condition logic
+  - **`loop_tracker.py`**: Iteration logging, context generation for subsequent iterations, score drift detection
+  - **`git_utils.py`**: Subprocess-based git operations (branch management, test runners, commit helpers)
+- **Self-healing protocol**: When a fix causes test regressions, the orchestrator automatically attempts to fix the regression up to 2 times before reverting (`MAX_SELF_HEAL_ATTEMPTS`)
+- **Run summary**: End-of-loop summary with per-iteration stats, dimension breakdown, and convergence status
+
+#### New Report Sections
+- **`analysis/report/sections/analysis_cross_dwi.py`**: Cross-DWI comparison section builder
+- **`analysis/report/sections/analysis_features.py`**: Feature overlap analysis section builder
+
+#### New Test Files (4 Python)
+- `test_evaluator_finding.py`, `test_git_utils.py`, `test_loop_tracker.py`, `test_orchestrator.py` for the improvement loop package
+- Python test suite: 32 → 36 files (~1559 tests)
+
+### Changed
+
+#### Correctness Fixes (Improvement Loop — 5 iterations)
+- **`metrics_survival.m`**: Replaced invalid MATLAB ternary syntax (`? :`) with proper if/else blocks
+- **`compute_calibration_metrics.m`**: Replaced 3 invalid MATLAB ternary expressions with if/else blocks
+- **`fit_time_varying_cox.m`**: Replaced 2 invalid MATLAB ternaries; guard empty finite values before median; fixed entry weight denominator; changed log(0) minimum from 0.5 to 1 day
+- **`extract_tumor_core.m`**: NaN/zero `max_adc` guard in active contours; small-sample fallback in region growing
+- **`detect_motion_artifacts.m`**: Zero noise floor fallback to 1% of masked signal median; NaN NMI flagging
+- **`bootstrap_ci.m`**: Consolidated BCa fallback; clamped quantile indices; removed redundant degenerate check
+- **`apply_external_validation.m`**: Center zero-variance features; warn on padded missing features
+- **`build_td_panel.m`**: Warning when scan_days exceeds available timepoints
+- **`metrics_stats_comparisons.m`**: Guard before ranksum when fewer than 2 groups
+- **`metrics_longitudinal.m`**: Fixed Octave SEM computation for N=1 case
+- **`compute_texture_features.m`**: Constant-image guard for 3D GLRLM; existence check before `compute_glrlm_3d`
+- **`make_grouped_folds.m`**: Warning on k≤1 degenerate fallback
+- **`imputation_sensitivity.m`**: Case-insensitive patient ID matching (`strcmpi`)
+- **`compute_nri.m`**: Minimum 3 events/non-events threshold; `isfinite` guards on variance and z-score
+- **`fit_models.m`**: `rcond` check to skip warm start on singular matrices
+- **`process_single_scan.m`**: Check `mkdir` return code with error on failure
+- **`decision_curve_analysis.m`**: Floating-point safety for threshold comparison
+- **`compute_ipcw_weights.m`**: Guard against division by zero risk sum
+
+#### Analysis Pipeline
+- **`batch_graph_analysis.py`**: Moved `queue.task_done()` into `finally:` block to prevent asyncio deadlock on interruption
+- **`cross_dwi_agreement.py`**: Fisher z-transform requires n>3; replaced manual exp formula with `math.tanh()` for overflow safety
+- **`run_analysis.py`**: `TeeWriter.fileno()` wrapped in try/except for captured streams (pytest compatibility)
+
+#### Documentation
+- **`CLAUDE_WORKFLOWS.md`**: Added self-healing protocol documentation to the Validation Protocol section
+- **`CLAUDE.md`**, **`CLAUDE_REFERENCE.md`**: Updated file counts and module tables
+
+### Fixed
+- 5 instances of invalid MATLAB ternary syntax (`? :`) that would crash at runtime
+- Asyncio queue deadlock when `batch_graph_analysis.py` is interrupted via KeyboardInterrupt
+- CCC confidence interval overflow when sample size ≤ 3
+- IPCW weight computation NaN propagation from exp() underflow
+
+---
+
 ## [2.1.0-alpha.2] - 2026-03-17
 
 ### Added
