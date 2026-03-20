@@ -151,23 +151,32 @@ function escaped_arg = escape_shell_arg(arg, style)
         escaped_arg = strrep(escaped_arg, '!', '^!');
 
         % --- Unicode Path Handling for Windows ---
-        % Windows has special handling requirements for Unicode paths
+        % For paths with Unicode characters, use the \\?\ long path prefix
+        % which allows the Windows API to handle extended characters and
+        % long paths without needing 8.3 short names. This is more reliable
+        % than 8.3 name lookup, which is often disabled on modern Windows
+        % systems and would also require passing unescaped input to a
+        % system() call, creating a shell injection vulnerability.
         if exist('has_unicode', 'var') && has_unicode
-            % For paths with Unicode characters, Windows may require
-            % short path names (8.3 format) for reliable shell operations
-            if exist(arg, 'file') || exist(arg, 'dir')
+            if (exist(arg, 'file') || exist(arg, 'dir'))
                 try
-                    % Attempt to get short path name for existing files/directories
-                    [status, short_path] = system(['for %I in ("' arg '") do @echo %~sI']);
-                    if status == 0 && ~isempty(strtrim(short_path))
-                        % Use short path if available and different from original
-                        short_path = strtrim(short_path);
-                        if ~strcmp(short_path, arg) && ~contains(short_path, '?')
-                            escaped_arg = short_path;
-                        end
+                    % Convert to absolute path if not already
+                    abs_path = arg;
+                    if length(arg) < 2 || arg(2) ~= ':'
+                        abs_path = fullfile(pwd, arg);
+                    end
+                    % Apply \\?\ prefix for Unicode-safe Windows API access
+                    % This avoids character encoding issues in cmd.exe
+                    if ~startsWith(abs_path, '\\?\')
+                        escaped_arg = strrep(abs_path, '"', '\"');
+                        escaped_arg = strrep(escaped_arg, '%', '%%');
+                        escaped_arg = strrep(escaped_arg, '^', '^^');
+                        escaped_arg = strrep(escaped_arg, '!', '^!');
+                        % Prepend \\?\ prefix for extended-length path handling
+                        escaped_arg = ['\\?\' escaped_arg];
                     end
                 catch
-                    % If short path conversion fails, continue with Unicode path
+                    % If long path prefix fails, continue with escaped path
                 end
             end
         end
