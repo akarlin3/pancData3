@@ -47,7 +47,7 @@ def _handle_windows_path(path: Path) -> Path:
     """Handle Windows-specific path issues including UNC paths and long paths.
     
     On Windows, applies pathlib.Path.resolve() and handles:
-    - Long path prefix (\\?\) for paths longer than 260 characters
+    - Long path prefix (\\\\?\\) for paths longer than 260 characters
     - UNC path detection and appropriate handling
     - Network path normalization
     
