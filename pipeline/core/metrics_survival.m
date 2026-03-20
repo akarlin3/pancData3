@@ -165,24 +165,69 @@ if ~survival_data.has_sufficient_data
     return;
 end
 
+% Initialize success/failure flags for each analysis
+cox_success = false;
+finegray_success = false;
+timevar_success = false;
+validation_success = false;
+
 % Fit Cox Proportional Hazards model
 fprintf('\n--- COX PROPORTIONAL HAZARDS MODEL ---\n');
-cox_results = fit_cox_ph(survival_data, config);
+try
+    cox_results = fit_cox_ph(survival_data, config);
+    cox_success = true;
+catch ME_cox
+    fprintf('  ⚠️  Cox PH analysis failed: %s\n', ME_cox.message);
+    fprintf('      Identifier: %s\n', ME_cox.identifier);
+    cox_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_cox.message));
+end
 
 % Fit Fine-Gray competing risks model
 fprintf('\n--- FINE-GRAY COMPETING RISKS MODEL ---\n');
-finegray_results = fit_fine_gray(survival_data, config);
+try
+    finegray_results = fit_fine_gray(survival_data, config);
+    finegray_success = true;
+catch ME_fg
+    fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
+    fprintf('      Identifier: %s\n', ME_fg.identifier);
+    finegray_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_fg.message));
+end
 
 % Compute time-varying effects analysis
 fprintf('\n--- TIME-VARYING COEFFICIENTS ANALYSIS ---\n');
-timevar_results = compute_time_varying_effects(survival_data, config);
+try
+    timevar_results = compute_time_varying_effects(survival_data, config);
+    timevar_success = true;
+catch ME_tv
+    fprintf('  ⚠️  Time-varying effects analysis failed: %s\n', ME_tv.message);
+    fprintf('      Identifier: %s\n', ME_tv.identifier);
+    timevar_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_tv.message));
+end
 
 % Validate survival models
 fprintf('\n--- MODEL VALIDATION ---\n');
-validation_results = validate_survival_model(survival_data, cox_results, config);
+try
+    validation_results = validate_survival_model(survival_data, cox_results, config);
+    validation_success = true;
+catch ME_val
+    fprintf('  ⚠️  Model validation failed: %s\n', ME_val.message);
+    fprintf('      Identifier: %s\n', ME_val.identifier);
+    validation_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_val.message));
+end
 
-% Output summary results
-print_survival_summary(cox_results, finegray_results, timevar_results, validation_results);
+% Output summary results, including success/failure status for each analysis
+analysis_status = struct();
+analysis_status.cox_success = cox_success;
+analysis_status.finegray_success = finegray_success;
+analysis_status.timevar_success = timevar_success;
+analysis_status.validation_success = validation_success;
+
+print_survival_summary(cox_results, finegray_results, timevar_results, ...
+    validation_results, analysis_status);
 
 end
 
