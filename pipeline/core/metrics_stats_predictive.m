@@ -85,6 +85,7 @@ fprintf('  --- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 diary_file = fullfile(output_folder, ['metrics_stats_predictive_output_' dtype_label '.txt']);
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
+cleanupDiary = onCleanup(@() diary('off'));
 
 % Initialize risk outputs to be returned and used by metrics_survival.m
 % for Kaplan-Meier stratification and Cox proportional hazards modeling.
