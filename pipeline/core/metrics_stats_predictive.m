@@ -65,10 +65,26 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 %                       quasi-perfect separation.  Default: use_firth_refit=true.
 %
 % Outputs:
-%   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores
-%   is_high_risk      - Binarised array demarcating patients > median training risk
-%   times_km          - Times used for subsequent Kaplan-Meier models
-%   events_km         - Events matched to times_km
+%   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores.
+%                        If no timepoint yields significant predictive features,
+%                        this is returned as a NaN-filled column vector of size
+%                        [sum(valid_pts), 1] and a warning is emitted.
+%   is_high_risk      - Binarised array demarcating patients > median training risk.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%   times_km          - Times used for subsequent Kaplan-Meier models.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%   events_km         - Events matched to times_km.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%
+% NOTE ON NO-SIGNIFICANT-FEATURES CASE:
+%   When no timepoint yields significant predictive features (plausible with
+%   small cohorts or non-predictive biomarkers), the function returns NaN-filled
+%   arrays for all outputs and emits a warning. Downstream code (e.g.,
+%   metrics_survival.m) should check for all-NaN risk_scores_all before
+%   attempting Kaplan-Meier stratification or Cox modeling.
 
 % Backward-compatible: config_struct is optional (34th arg).
 if nargin < 34 || isempty(config_struct)
@@ -89,6 +105,7 @@ cleanupDiary = onCleanup(@() diary('off'));
 
 % Initialize risk outputs to be returned and used by metrics_survival.m
 % for Kaplan-Meier stratification and Cox proportional hazards modeling.
+n_valid = sum(valid_pts);
 risk_scores_all = [];  % continuous LOOCV out-of-fold predicted risk scores
 is_high_risk = [];     % binary high/low risk classification (threshold = median training risk)
 times_km = [];         % time-to-event (days from RT end) for KM plotting
@@ -428,59 +445,33 @@ end
 
 %% --- Handle case where no timepoint yielded significant features ---
 % If best_risk_fx remains Inf, no timepoint produced significant features
-% (possible with small cohorts or non-predictive biomarkers).  Return empty
-% outputs with appropriate messaging rather than letting Inf propagate as
-% an index into downstream arrays.
+% (possible with small cohorts or non-predictive biomarkers).  Return
+% NaN-filled sentinel arrays of appropriate size so that downstream code
+% (e.g., metrics_survival.m) receives arrays of the expected dimensions
+% rather than empty matrices.  Downstream code should check for all-NaN
+% risk_scores_all (e.g., via all(isnan(risk_scores_all))) before attempting
+% Kaplan-Meier stratification or Cox modeling.
 if isinf(best_risk_fx)
-    fprintf('\n  ⚠️  WARNING: No timepoint yielded significant predictive features.\n');
-    fprintf('      Returning empty risk scores. Downstream survival analysis will be skipped.\n');
-    fprintf('      Possible causes: small cohort size, non-predictive biomarkers, or excessive missing data.\n');
-    risk_scores_all = [];
-    is_high_risk = [];
-    times_km = [];
-    events_km = [];
-end
+    warning('metrics_stats_predictive:noPredictiveTimepoint', ...
+        ['No timepoint yielded significant predictive features for %s. ', ...
+         'Returning NaN-filled sentinel arrays. Possible causes: small cohort size, ', ...
+         'non-predictive biomarkers, excessive missing data, or overly stringent ', ...
+         'elastic net regularisation. Downstream survival analysis should be skipped.'], ...
+        dtype_label);
+    fprintf('\n  ⚠️  WARNING: No timepoint yielded significant predictive features for %s.\n', dtype_label);
+    fprintf('      Returning NaN-filled sentinel arrays (size = [%d, 1]).\n', n_valid);
+    fprintf('      Downstream survival analysis (Kaplan-Meier, Cox) will need to handle this gracefully.\n');
+    fprintf('      Possible causes:\n');
+    fprintf('        - Small cohort size (insufficient power for elastic net feature selection)\n');
+    fprintf('        - Non-predictive biomarkers at all assessed timepoints\n');
+    fprintf('        - Excessive missing data reducing effective sample size below model requirements\n');
+    fprintf('        - Overly stringent regularisation (all coefficients shrunk to zero)\n');
 
-%% --- External Validation Model Export (optional) ---
-if isfield(config_struct, 'export_validation_model') && config_struct.export_validation_model
-    if ~isempty(risk_scores_all) && exist('coefs_en', 'var') && exist('feat_names_lasso', 'var')
-        try
-            trained_model = struct();
-            trained_model.coefficients = coefs_en;
-            trained_model.selected_features = selected_indices;
-            trained_model.feature_names = feat_names_lasso;
-            % Compute scaling from training data
-            trained_model.scaling_mu = mean(X_impute, 1, 'omitnan');
-            trained_model.scaling_sigma = std(X_impute, 0, 1, 'omitnan');
-            trained_model.imputation_ref = X_impute;
-            % Youden threshold from ROC
-            valid_rs = ~isnan(risk_scores_oof) & ~isnan(y_clean);
-            if sum(valid_rs) >= 5
-                [~, ~, thresholds_roc, ~] = perfcurve(y_clean(valid_rs), risk_scores_oof(valid_rs), 1);
-                trained_model.risk_threshold = median(thresholds_roc);
-            else
-                trained_model.risk_threshold = 0.5;
-            end
-            % Compute AUC from LOOCV risk scores
-            if sum(valid_rs) >= 5
-                [~, ~, ~, auc_export] = perfcurve(y_clean(valid_rs), risk_scores_oof(valid_rs), 1);
-            else
-                auc_export = NaN;
-            end
-            trained_model.auc = auc_export;
-            trained_model.n_patients = numel(y_clean);
-            trained_model.event_rate = mean(y_clean == 1);
+    % Return NaN-filled arrays of size [n_valid, 1] so downstream code
+    % receives consistently sized outputs regardless of predictive success.
+    risk_scores_all = nan(n_valid, 1);
+    is_high_risk    = nan(n_valid, 1);
 
-            val_path = fullfile(output_folder, sprintf('validation_model_%s.mat', dtype_label));
-            prepare_external_validation(trained_model, config_struct, val_path);
-        catch ME_exp
-            fprintf('  ⚠️  Validation model export failed: %s\n', ME_exp.message);
-        end
-    end
-end
-
-% Clear any PerfectSeparation warning from lastwarn buffer when Firth
-% handled the separation.  The orchestrator (run_dwi_pipeline.m) checks
-% lastwarn after each module and logs it to error.log — clearing it here
-% prevents logging a warning that Firth has already resolved.
-% Perfect separation occurs when a linear combination of features perfectly
+    % Construct time-to-event arrays even when no model was fit, so that
+    % downstream code has consistently sized survival data if needed.
+    times_km_temp = m
