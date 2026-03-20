@@ -84,7 +84,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % If 'test' was the only requested step, stop here.
     other_steps = setdiff(steps_to_run, {'test'});
     if isempty(other_steps)
-        fprintf('✅ Test-only run complete. No pipeline steps to execute.\n');
+        fprintf('%s Test-only run complete. No pipeline steps to execute.\n', safe_icon('ok'));
         return;
     end
 
@@ -121,7 +121,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % Completion
     % ----------------------------
     fprintf('=======================================================\n');
-    fprintf('🎉 Pipeline Execution Complete for parameter %s\n', session.current_name);
+    fprintf('%s Pipeline Execution Complete for parameter %s\n', safe_icon('done'), session.current_name);
     fprintf('=======================================================\n');
 
     if session.log_fid > 0
@@ -133,6 +133,53 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 end
 
 %% ===== Utility functions (remain in orchestrator) =====
+
+function icon = safe_icon(name)
+%SAFE_ICON  Return a Unicode icon string if the console supports UTF-8,
+%   otherwise return an ASCII-safe fallback.
+%
+%   Supported names:
+%     'ok'    -> checkmark or '[OK]'
+%     'done'  -> party popper or '[DONE]'
+%     'fail'  -> cross mark or '[FAIL]'
+%
+%   On Windows MATLAB with non-UTF-8 default character set (common for
+%   versions < R2020a), emoji/Unicode characters display as garbled text
+%   or cause encoding errors. This helper inspects the MATLAB character
+%   set and falls back gracefully.
+    is_utf8 = false;
+    try
+        charset = feature('DefaultCharacterSet');
+        if strcmpi(charset, 'UTF-8')
+            is_utf8 = true;
+        end
+    catch
+        % feature() call failed; assume non-UTF-8
+    end
+
+    switch lower(name)
+        case 'ok'
+            if is_utf8
+                icon = char([226 156 133]); % UTF-8 bytes for U+2705 (white heavy check mark)
+            else
+                icon = '[OK]';
+            end
+        case 'done'
+            if is_utf8
+                icon = char([240 159 142 137]); % UTF-8 bytes for U+1F389 (party popper)
+            else
+                icon = '[DONE]';
+            end
+        case 'fail'
+            if is_utf8
+                icon = char([226 157 140]); % UTF-8 bytes for U+274C (cross mark)
+            else
+                icon = '[FAIL]';
+            end
+        otherwise
+            icon = '';
+    end
+end
 
 function closeIfValid(gui)
 %CLOSEIFVALID  Close a PipelineProgressGUI if it is still valid.
@@ -180,8 +227,8 @@ function has_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run
     end
 
     if cache_valid
-        fprintf('✅ Pre-flight tests already passed this session (%.1f min ago). Skipping.\n', ...
-            (now - cached_timestamp) * 24 * 60);
+        fprintf('%s Pre-flight tests already passed this session (%.1f min ago). Skipping.\n', ...
+            safe_icon('ok'), (now - cached_timestamp) * 24 * 60);
         has_passed = true;
         return;
     end
@@ -197,7 +244,7 @@ function has_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run
     catch ME
         cached_passed = false;
         cached_timestamp = [];
-        fprintf('❌ Pre-flight initialization failed: %s\n', ME.message);
+        fprintf('%s Pre-flight initialization failed: %s\n', safe_icon('fail'), ME.message);
         has_passed = false;
     end
 end
