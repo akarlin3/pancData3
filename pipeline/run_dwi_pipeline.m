@@ -141,53 +141,6 @@ end
 
 %% ===== Utility functions (remain in orchestrator) =====
 
-function icon = safe_icon(name)
-%SAFE_ICON  Return a Unicode icon string if the console supports UTF-8,
-%   otherwise return an ASCII-safe fallback.
-%
-%   Supported names:
-%     'ok'    -> checkmark or '[OK]'
-%     'done'  -> party popper or '[DONE]'
-%     'fail'  -> cross mark or '[FAIL]'
-%
-%   On Windows MATLAB with non-UTF-8 default character set (common for
-%   versions < R2020a), emoji/Unicode characters display as garbled text
-%   or cause encoding errors. This helper inspects the MATLAB character
-%   set and falls back gracefully.
-    is_utf8 = false;
-    try
-        charset = feature('DefaultCharacterSet');
-        if strcmpi(charset, 'UTF-8')
-            is_utf8 = true;
-        end
-    catch
-        % feature() call failed; assume non-UTF-8
-    end
-
-    switch lower(name)
-        case 'ok'
-            if is_utf8
-                icon = native2unicode(uint8([226 156 133]), 'UTF-8'); % U+2705 (white heavy check mark)
-            else
-                icon = '[OK]';
-            end
-        case 'done'
-            if is_utf8
-                icon = native2unicode(uint8([240 159 142 137]), 'UTF-8'); % U+1F389 (party popper)
-            else
-                icon = '[DONE]';
-            end
-        case 'fail'
-            if is_utf8
-                icon = native2unicode(uint8([226 157 140]), 'UTF-8'); % U+274C (cross mark)
-            else
-                icon = '[FAIL]';
-            end
-        otherwise
-            icon = '';
-    end
-end
-
 function closeIfValid(gui)
 %CLOSEIFVALID  Close a PipelineProgressGUI if it is still valid.
     if ~isempty(gui)
