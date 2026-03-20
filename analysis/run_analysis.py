@@ -34,7 +34,7 @@ from pathlib import Path
 
 from tqdm import tqdm  # type: ignore
 
-from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout  # type: ignore
+from shared import find_latest_saved_folder, get_api_key, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -301,58 +301,25 @@ def _run_script(
         return False
 
 
-def _ensure_env_key(key_name: str, display_name: str, get_url: str) -> None:
-    """Ensure an API key is available in the environment.
+def _ensure_config_key(provider: str, display_name: str, config_key: str,
+                       get_url: str) -> None:
+    """Ensure an API key is available via config or environment.
 
-    Checks the environment and a local .env file. If still missing,
-    prompts the user interactively and saves the entered key to .env.
+    Resolution order (via ``get_api_key``):
+    1. ``vision.<config_key>`` in ``analysis_config.json``.
+    2. The corresponding environment variable.
 
-    Parameters
-    ----------
-    key_name : str
-        Environment variable name (e.g. ``"GEMINI_API_KEY"``).
-    display_name : str
-        Human-readable name for prompts (e.g. ``"Gemini"``).
-    get_url : str
-        URL where the user can obtain the key.
+    If still missing, prompts interactively and saves to
+    ``analysis_config.json`` for future runs.
     """
-    import os
-    env_file = ANALYSIS_DIR / ".env"
-
-    # Step 1: Check environment first
-    if os.environ.get(key_name):
+    if get_api_key(provider):
         return
 
-    # Step 2: Check .env file
-    if env_file.exists():
-        try:
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip comments and blank lines
-                    if not line or line.startswith("#"):
-                        continue
-                    if "=" not in line:
-                        continue
-                    env_key, _, env_val = line.partition("=")
-                    env_key = env_key.strip()
-                    if env_key != key_name:
-                        continue
-                    # Strip surrounding quotes (single or double)
-                    env_val = env_val.strip()
-                    if len(env_val) >= 2 and env_val[0] == env_val[-1] and env_val[0] in ("'", '"'):
-                        env_val = env_val[1:-1]
-                    if env_val:
-                        os.environ[key_name] = env_val
-                        return
-        except Exception as e:
-            print(f"  [WARN] Failed to read .env file: {e}")
-
-    # Step 3: Prompt user
     print("\n" + "!" * 70)
-    print(f"  WARNING: {key_name} is not set.")
+    print(f"  WARNING: {display_name} API key is not set.")
     print(f"  This key is required for {display_name} vision analysis.")
     print(f"  You can get an API key from: {get_url}")
+    print(f"  Set vision.{config_key} in analysis_config.json")
     print("!" * 70)
 
     import getpass
@@ -362,16 +329,24 @@ def _ensure_env_key(key_name: str, display_name: str, get_url: str) -> None:
         print(f"  [WARN] No API key provided. {display_name} vision analysis will fail if not skipped.\n")
         return
 
-    # Update environment
-    os.environ[key_name] = key
+    # Inject into running config so downstream code sees it immediately
+    os.environ[{"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY"}[provider]] = key
 
-    # Save to .env for future runs
+    # Persist to analysis_config.json for future runs
+    config_path = ANALYSIS_DIR.parent / "analysis_config.json"
     try:
-        with open(env_file, "a", encoding="utf-8") as f:
-            f.write(f"\n{key_name}={key}\n")
-        print(f"  [INFO] Saved API key to {env_file}\n")
+        if config_path.is_file():
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg_data = json.load(f)
+        else:
+            cfg_data = {}
+        cfg_data.setdefault("vision", {})[config_key] = key
+        with open(config_path, "w", encoding="utf-8", newline="") as f:
+            json.dump(cfg_data, f, indent=4)
+            f.write("\n")
+        print(f"  [INFO] Saved API key to {config_path}\n")
     except Exception as e:
-        print(f"  [WARN] Failed to save key to .env: {e}\n")
+        print(f"  [WARN] Failed to save key to config: {e}\n")
 
 
 def _ensure_api_keys(provider: str) -> None:
@@ -383,12 +358,12 @@ def _ensure_api_keys(provider: str) -> None:
         One of ``"gemini"``, ``"claude"``, or ``"both"``.
     """
     if provider in ("gemini", "both"):
-        _ensure_env_key(
-            "GEMINI_API_KEY", "Gemini",
+        _ensure_config_key(
+            "gemini", "Gemini", "gemini_api_key",
             "https://aistudio.google.com/")
     if provider in ("claude", "both"):
-        _ensure_env_key(
-            "ANTHROPIC_API_KEY", "Claude (Anthropic)",
+        _ensure_config_key(
+            "claude", "Claude (Anthropic)", "anthropic_api_key",
             "https://console.anthropic.com/")
 
 

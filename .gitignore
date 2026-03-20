@@ -68,8 +68,9 @@ test.out
 failure_summary.out
 unrelated
 
-# Configuration (contains local paths)
+# Configuration (contains local paths / preferences)
 config.json
+analysis_config.json
 improvement_loop_log.json
 improvement_loop_config.json
 octave-workspace

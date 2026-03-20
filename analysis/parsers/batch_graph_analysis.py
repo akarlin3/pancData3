@@ -43,7 +43,6 @@ import asyncio
 import base64
 import csv
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -54,7 +53,7 @@ from tqdm import tqdm  # type: ignore
 # Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared import get_config, resolve_folder, setup_utf8_stdout  # type: ignore
+from shared import get_api_key, get_config, resolve_folder, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
@@ -1351,23 +1350,19 @@ def _check_gemini_available(fallback_enabled: bool) -> bool:
             )
         return False
 
-    if not os.environ.get("GEMINI_API_KEY"):
+    if not get_api_key("gemini"):
         if fallback_enabled:
             print(
-                "\u26a0\ufe0f  GEMINI_API_KEY not set. "
+                "\u26a0\ufe0f  Gemini API key not set. "
                 "Falling back to local filename-based analysis.\n"
-                "   For full vision analysis, set the key via:\n"
-                "   1. Running 'python run_analysis.py' (interactive prompt)\n"
-                "   2. Creating 'analysis/.env' with GEMINI_API_KEY=your-key\n"
-                "   3. export GEMINI_API_KEY='your-key'\n"
+                "   Set vision.gemini_api_key in analysis_config.json\n"
+                "   or export GEMINI_API_KEY in your shell.\n"
             )
         else:
             sys.exit(
-                "ERROR: GEMINI_API_KEY environment variable not set.\n"
-                "  You can set it by:\n"
-                "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
-                "  2. Creating an 'analysis/.env' file with GEMINI_API_KEY=your-api-key\n"
-                "  3. Exporting it in your shell: export GEMINI_API_KEY='your-api-key'\n"
+                "ERROR: Gemini API key not set.\n"
+                "  Set vision.gemini_api_key in analysis_config.json\n"
+                "  or export GEMINI_API_KEY in your shell.\n"
                 "  Or set vision.fallback_to_local=true in analysis_config.json "
                 "to allow local fallback."
             )
@@ -1396,23 +1391,19 @@ def _check_claude_available(fallback_enabled: bool) -> bool:
             )
         return False
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not get_api_key("claude"):
         if fallback_enabled:
             print(
-                "\u26a0\ufe0f  ANTHROPIC_API_KEY not set. "
+                "\u26a0\ufe0f  Anthropic API key not set. "
                 "Falling back to local filename-based analysis.\n"
-                "   For full vision analysis, set the key via:\n"
-                "   1. Running 'python run_analysis.py' (interactive prompt)\n"
-                "   2. Creating 'analysis/.env' with ANTHROPIC_API_KEY=your-key\n"
-                "   3. export ANTHROPIC_API_KEY='your-key'\n"
+                "   Set vision.anthropic_api_key in analysis_config.json\n"
+                "   or export ANTHROPIC_API_KEY in your shell.\n"
             )
         else:
             sys.exit(
-                "ERROR: ANTHROPIC_API_KEY environment variable not set.\n"
-                "  You can set it by:\n"
-                "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
-                "  2. Creating an 'analysis/.env' file with ANTHROPIC_API_KEY=your-api-key\n"
-                "  3. Exporting it in your shell: export ANTHROPIC_API_KEY='your-api-key'\n"
+                "ERROR: Anthropic API key not set.\n"
+                "  Set vision.anthropic_api_key in analysis_config.json\n"
+                "  or export ANTHROPIC_API_KEY in your shell.\n"
                 "  Or set vision.fallback_to_local=true in analysis_config.json "
                 "to allow local fallback."
             )
@@ -1573,8 +1564,7 @@ async def main():
     if provider == "gemini":
         print(f"   Model: {GEMINI_MODEL} (Google Gemini)")
         print()
-        gemini_key = os.environ.get("GEMINI_API_KEY")
-        client = genai.Client(api_key=gemini_key)  # type: ignore
+        client = genai.Client(api_key=get_api_key("gemini"))  # type: ignore
         rate_limiter = _RateLimitCoordinator()
         final_results, errors = await _run_worker_pool(
             images, analyze_image, client, rate_limiter, "Analyzing (Gemini)")
@@ -1584,8 +1574,7 @@ async def main():
     if provider == "claude":
         print(f"   Model: {CLAUDE_MODEL} (Anthropic Claude)")
         print()
-        claude_key = os.environ.get("ANTHROPIC_API_KEY")
-        client = anthropic_mod.AsyncAnthropic(api_key=claude_key)  # type: ignore
+        client = anthropic_mod.AsyncAnthropic(api_key=get_api_key("claude"))  # type: ignore
         rate_limiter = _RateLimitCoordinator()
         final_results, errors = await _run_worker_pool(
             images, analyze_image_claude, client, rate_limiter, "Analyzing (Claude)")
@@ -1599,16 +1588,14 @@ async def main():
 
     # Run Gemini first
     print("── Phase 1/2: Gemini API ──")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    gemini_client = genai.Client(api_key=gemini_key)  # type: ignore
+    gemini_client = genai.Client(api_key=get_api_key("gemini"))  # type: ignore
     gemini_limiter = _RateLimitCoordinator()
     gemini_results, gemini_errors = await _run_worker_pool(
         images, analyze_image, gemini_client, gemini_limiter, "Analyzing (Gemini)")
 
     # Run Claude second
     print("\n── Phase 2/2: Claude API ──")
-    claude_key = os.environ.get("ANTHROPIC_API_KEY")
-    claude_client = anthropic_mod.AsyncAnthropic(api_key=claude_key)  # type: ignore
+    claude_client = anthropic_mod.AsyncAnthropic(api_key=get_api_key("claude"))  # type: ignore
     claude_limiter = _RateLimitCoordinator()
     claude_results, claude_errors = await _run_worker_pool(
         images, analyze_image_claude, claude_client, claude_limiter, "Analyzing (Claude)")

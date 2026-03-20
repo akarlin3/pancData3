@@ -1,4 +1,3 @@
-import os
 import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
@@ -32,12 +31,11 @@ def test_gemini_api_connection(tmp_path: Path):
     This requires a valid GEMINI_API_KEY environment variable. If the key
     is valid, the API should return a response without raising an exception.
     """
-    api_key = os.environ.get("GEMINI_API_KEY")
+    from shared import get_api_key, get_config
+    api_key = get_api_key("gemini")
     if not api_key:
-        pytest.skip("GEMINI_API_KEY environment variable not set. Skipping API test.")
+        pytest.skip("Gemini API key not configured. Skipping API test.")
 
-    # Get the configured model from our shared config
-    from shared import get_config
     cfg = get_config()
     model = cfg["vision"]["gemini_model"]
 
@@ -81,12 +79,11 @@ def test_claude_api_connection(tmp_path: Path):
     This requires a valid ANTHROPIC_API_KEY environment variable. If the key
     is valid, the API should return a response without raising an exception.
     """
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    from shared import get_api_key, get_config
+    api_key = get_api_key("claude")
     if not api_key:
-        pytest.skip("ANTHROPIC_API_KEY environment variable not set. Skipping API test.")
+        pytest.skip("Anthropic API key not configured. Skipping API test.")
 
-    # Get the configured model from our shared config
-    from shared import get_config
     cfg = get_config()
     model = cfg["vision"].get("claude_model", "claude-opus-4-6")
 

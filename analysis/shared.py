@@ -36,7 +36,9 @@ _DEFAULTS: dict = {
     "vision": {
         "gemini_model": "gemini-2.5-flash",
         "claude_model": "claude-opus-4-6",
-        "provider": "gemini",
+        "provider": "claude",
+        "gemini_api_key": "",
+        "anthropic_api_key": "",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 10000,
@@ -68,6 +70,35 @@ _DEFAULTS: dict = {
 
 # Resolved at first access via :func:`get_config`.
 _config_cache: dict | None = None
+
+# Map from provider name to (config key, environment variable name)
+_API_KEY_MAP: dict[str, tuple[str, str]] = {
+    "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
+    "claude": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+    "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+}
+
+
+def get_api_key(provider: str, cfg: dict | None = None) -> str | None:
+    """Resolve an API key for *provider*, checking config then environment.
+
+    Resolution order:
+    1. ``vision.<provider>_api_key`` in the analysis config.
+    2. The corresponding environment variable (``GEMINI_API_KEY`` or
+       ``ANTHROPIC_API_KEY``).
+
+    Returns ``None`` if no key is found.
+    """
+    mapping = _API_KEY_MAP.get(provider.lower())
+    if mapping is None:
+        return os.environ.get(f"{provider.upper()}_API_KEY")
+    config_key, env_var = mapping
+    if cfg is None:
+        cfg = get_config()
+    key = cfg.get("vision", {}).get(config_key, "")
+    if key:
+        return key
+    return os.environ.get(env_var) or None
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -134,7 +165,7 @@ def load_analysis_config(
 
     # ── Layer 2: analysis_config.json ──
     if config_path is None:
-        config_path = analysis_dir / "analysis_config.json"
+        config_path = analysis_dir.parent / "analysis_config.json"
     else:
         config_path = Path(config_path)
 

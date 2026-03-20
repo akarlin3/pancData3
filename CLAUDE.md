@@ -48,6 +48,8 @@ This repository uses a three-agent architecture:
 pancData3/
 ├── config.json                          # Active configuration (not committed)
 ├── config.example.json                  # Configuration template (committed)
+├── analysis_config.json                 # Active analysis configuration (not committed)
+├── analysis_config.example.json         # Analysis configuration template (committed)
 ├── .matlab_version                      # Expected MCR version for Docker builds
 ├── Dockerfile                           # Multi-stage Docker build (MATLAB Runtime + Python)
 ├── docker-compose.yml                   # Pipeline + analysis Docker services
@@ -71,7 +73,6 @@ pancData3/
 ├── analysis/                            # Python post-hoc analysis scripts
 │   ├── run_analysis.py                 # Orchestrator entry point
 │   ├── shared.py                       # Shared utilities and config loading
-│   ├── analysis_config.json            # Centralised configuration
 │   ├── parsers/                        # Log/CSV/MAT/vision parsing (4 files)
 │   ├── cross_reference/                # Cross-DWI comparison scripts (5 files)
 │   ├── report/                         # HTML+PDF report generation
@@ -280,12 +281,11 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 **Requirements:** Python 3.12+, `anthropic`, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` and/or `ANTHROPIC_API_KEY` environment variables depending on the selected provider (`--provider gemini|claude|both`); PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
-**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis/analysis_config.json` (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--provider`, `--gemini-model`, `--claude-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis_config.json` at the repository root (copy from `analysis_config.example.json`) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--provider`, `--gemini-model`, `--claude-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
 | File | Purpose |
 |---|---|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with `--folder`, `--skip-vision`, `--report-only`, `--no-pdf`, `--html`, `--skip-checks`, `--interactive`, `--provider` flags; verifies requirements and runs tests before starting |
-| `analysis_config.json` | Centralised configuration: vision model/provider, concurrency, statistical thresholds, priority graphs |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, p-value/correlation regex extraction, config loading |
 | `parsers/batch_graph_analysis.py` | Async batch processing of all graph images via Google Gemini and/or Anthropic Claude vision APIs; supports `--provider gemini\|claude\|both` for dual-provider comparison; outputs structured CSV with axes, trends, inflection points, statistical tests, outliers, reference lines, clinical relevance, and metadata |
 | `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files: Wilcoxon p-values, AUC, hazard ratios, GLME interaction terms, sanity check convergence/alignment |

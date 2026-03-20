@@ -194,12 +194,12 @@ class TestLoadAnalysisConfig:
         assert cfg["vision"]["claude_model"] == "claude-opus-4-6"
 
     def test_provider_default(self, tmp_path: Path):
-        """Default provider is 'gemini'."""
+        """Default provider is 'claude'."""
         cfg = load_analysis_config(
             config_path=tmp_path / "nonexistent.json",
             matlab_config_path=tmp_path / "nonexistent.json",
         )
-        assert cfg["vision"]["provider"] == "gemini"
+        assert cfg["vision"]["provider"] == "claude"
 
     def test_provider_override_from_config(self, tmp_path: Path):
         """Provider can be overridden from analysis_config.json."""

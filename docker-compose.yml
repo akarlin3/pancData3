@@ -23,9 +23,6 @@ services:
     volumes:
       - ${OUTPUT_DIR:-./output}:/opt/pancData3/output
       - ${CONFIG_FILE:-./config.json}:/opt/pancData3/config.json:ro
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     depends_on:
       pipeline:
         condition: service_completed_successfully
