@@ -310,11 +310,71 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
             print(f"\n  Loop complete after {i} iteration(s).")
             break
 
-    print(f"\n{'='*60}")
-    print(f"  DONE — {len(entries)} iteration(s) logged")
-    print(f"{'='*60}\n")
+    # Print end-of-run summary
+    _print_run_summary(entries)
 
     return entries
+
+
+def _print_run_summary(entries: list) -> None:
+    """Print a concise summary of this run's iterations and findings."""
+    n = len(entries)
+    print(f"\n{'='*60}")
+    print(f"  IMPROVEMENT LOOP SUMMARY — {n} iteration(s)")
+    print(f"{'='*60}")
+
+    total_findings = 0
+    total_implemented = 0
+    total_pending = 0
+    by_dimension: dict = {}
+
+    for entry in entries:
+        for f in entry.get("findings", []):
+            total_findings += 1
+            status = f.get("status", "unknown")
+            dim = f.get("dimension", "unknown")
+            by_dimension.setdefault(dim, {"implemented": 0, "pending": 0})
+            if status in ("implemented", "merged"):
+                total_implemented += 1
+                by_dimension[dim]["implemented"] += 1
+            else:
+                total_pending += 1
+                by_dimension[dim]["pending"] += 1
+
+    # Per-iteration line
+    for entry in entries:
+        it = entry["iteration"]
+        n_findings = entry["findings_count"]
+        n_merged = len(entry.get("branches_merged", []))
+        score = entry.get("audit_scores", {}).get("overall", "?")
+        tests = "pass" if entry.get("tests_passed") else "FAIL"
+        exit_flag = " [EXIT]" if entry.get("exit_condition_met") else ""
+        print(f"  Iter {it}: {n_findings} findings, {n_merged} merged, "
+              f"score={score}/10, tests={tests}{exit_flag}")
+
+    # Totals
+    print(f"\n  Findings:     {total_findings} total, "
+          f"{total_implemented} implemented, {total_pending} pending")
+
+    # By dimension
+    if by_dimension:
+        print(f"\n  By dimension:")
+        for dim in sorted(by_dimension):
+            counts = by_dimension[dim]
+            print(f"    {dim}: {counts['implemented']} implemented, "
+                  f"{counts['pending']} pending")
+
+    # Final status
+    if entries:
+        last = entries[-1]
+        if last.get("exit_condition_met"):
+            print(f"\n  Status: Converged — all findings below threshold")
+        elif last.get("tests_passed") is False:
+            print(f"\n  Status: Stopped — test failures remain")
+        else:
+            print(f"\n  Status: Stopped — max iterations reached")
+
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":
@@ -325,6 +385,4 @@ if __name__ == "__main__":
                         help="Maximum number of audit/fix cycles (default: 10)")
     args = parser.parse_args()
 
-    entries = run_loop(max_iterations=args.max_iterations, dry_run=args.dry_run)
-    for e in entries:
-        print(e)
+    run_loop(max_iterations=args.max_iterations, dry_run=args.dry_run)
