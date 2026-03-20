@@ -69,20 +69,18 @@ def _handle_windows_path(path: Path) -> Path:
         resolved = path.resolve()
         path_str = str(resolved)
         
-        # Check if this is already a UNC path
+        # Determine path type
         is_unc = path_str.startswith('\\\\')
+        path_type = 'local' if not is_unc else 'unc'
         
-        # Check if this is a network path that needs UNC handling
-        if is_unc and not path_str.startswith('\\\\?\\UNC\\'):
-            # Convert \\server\share to \\?\UNC\server\share for long path support
-            if len(path_str) > 260:
-                path_str = '\\\\?\\UNC\\' + path_str[2:]
-                return Path(path_str)
-        elif not is_unc and len(path_str) > 260:
-            # Add long path prefix for local paths
-            if not path_str.startswith('\\\\?\\'):
-                path_str = '\\\\?\\' + path_str
-                return Path(path_str)
+        # Handle UNC paths
+        if path_type == 'unc':
+            if len(path_str) > 260 and not path_str.startswith('\\\\?\\UNC\\'):
+                return Path('\\\\?\\UNC\\' + path_str[2:])
+        # Handle local paths
+        else:
+            if len(path_str) > 260 and not path_str.startswith('\\\\?\\'):
+                return Path('\\\\?\\' + path_str)
         
         return resolved
         
