@@ -169,13 +169,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     % worker — for a 256x256x20x6 double volume (~1.5 GB), broadcasting
     % to 4 workers would require ~6 GB just for the copies. Instead, only
     % the compact [n_valid x n_bvalues] matrix (typically <100 KB) is sent.
+    % The extraction flattens the spatial dimensions first, then indexes
+    % valid voxels, producing a 2D matrix that MATLAB's parfor can treat
+    % as a sliced variable along its first dimension.
     if n_valid > 0
-        dwi_valid = zeros(n_valid, n_bvals);
-        n_spatial = prod(sz3);
-        for b = 1:n_bvals
-            vol_b = dwi(:,:,:,b);
-            dwi_valid(:,b) = vol_b(valid_voxels_idx);
-        end
+        dwi_flat = reshape(dwi, [], size(dwi, 4));       % [n_spatial x n_bvals]
+        dwi_valid = dwi_flat(valid_voxels_idx, :);       % [n_valid x n_bvals]
+        clear dwi_flat;
     end
 
     % Release the large 4D dwi array now that voxel signals are extracted.
