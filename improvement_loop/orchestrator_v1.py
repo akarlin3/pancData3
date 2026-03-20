@@ -293,6 +293,7 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
                     )
                     finding.status = "merged"
                     print(f"    ✅  Merged: {finding.branch_name}")
+                    print(f"    ⚙️  Updated finding status to: {finding.status}")
 
                     # Post-merge sanity check
                     print(f"    ⚙️  Post-merge test run on {original_branch}")
@@ -397,6 +398,7 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
         tests_passed = _apply_fixes(findings, dry_run)
 
         print(f"\n[5/5] Logging iteration and evaluating exit condition...")
+        print(f"    ⚙️  Findings going to log: {[(f.branch_name, f.status) for f in findings]}")
         entry = loop_tracker.log_iteration(
             audit_output=audit_output,
             findings=findings,
