@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import warnings
 from collections import defaultdict
 from pathlib import Path
 
@@ -112,8 +113,11 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
     If *override* contains a ``None`` value for a key whose *base* value
     is a dict, the ``None`` is skipped and the base dict is preserved.
-    This prevents downstream code from crashing with ``AttributeError``
-    when it does e.g. ``cfg.get('vision', {}).get(...)``.
+    More generally, if *override* contains a non-dict value for a key
+    whose *base* value is a dict, the override is skipped and a warning
+    is emitted.  This prevents downstream code from crashing with
+    ``AttributeError`` when it does e.g.
+    ``cfg.get('vision', {}).get(...)``.
     """
     import copy
     merged = {}
@@ -125,9 +129,16 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             merged[key] = val
     for key, val in override.items():
-        if val is None and key in merged and isinstance(merged[key], dict):
-            # Preserve the base dict — nullifying a section-level key is
-            # not allowed because downstream code expects a dict.
+        if key in merged and isinstance(merged[key], dict) and not isinstance(val, dict):
+            # Preserve the base dict — overwriting a section-level dict
+            # key with a non-dict value (None, list, scalar, etc.) is not
+            # allowed because downstream code expects a dict.
+            warnings.warn(
+                f"[config] Ignoring override for key '{key}': cannot replace "
+                f"a dict value with {type(val).__name__} ({val!r}). "
+                f"The base dict is preserved.",
+                stacklevel=2,
+            )
             continue
         if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
             merged[key] = _deep_merge(merged[key], val)
