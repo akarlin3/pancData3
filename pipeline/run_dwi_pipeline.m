@@ -160,19 +160,19 @@ function icon = safe_icon(name)
     switch lower(name)
         case 'ok'
             if is_utf8
-                icon = char([226 156 133]); % UTF-8 bytes for U+2705 (white heavy check mark)
+                icon = native2unicode(uint8([226 156 133]), 'UTF-8'); % U+2705 (white heavy check mark)
             else
                 icon = '[OK]';
             end
         case 'done'
             if is_utf8
-                icon = char([240 159 142 137]); % UTF-8 bytes for U+1F389 (party popper)
+                icon = native2unicode(uint8([240 159 142 137]), 'UTF-8'); % U+1F389 (party popper)
             else
                 icon = '[DONE]';
             end
         case 'fail'
             if is_utf8
-                icon = char([226 157 140]); % UTF-8 bytes for U+274C (cross mark)
+                icon = native2unicode(uint8([226 157 140]), 'UTF-8'); % U+274C (cross mark)
             else
                 icon = '[FAIL]';
             end
