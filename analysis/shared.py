@@ -137,7 +137,15 @@ def load_analysis_config(
 
     Resolution order (later wins):
     1. Built-in defaults (``_DEFAULTS``).
-    2. ``analysis_config.json`` (next to this file, or *config_path*).
+    2. ``analysis_config.json`` — when no explicit *config_path* is given,
+       the function searches two locations:
+
+       a. ``analysis/analysis_config.json`` (next to this module) — checked
+          first and takes priority.
+       b. ``analysis_config.json`` at the repository root (one level above
+          ``analysis/``).
+
+       If an explicit *config_path* is provided, only that path is used.
     3. MATLAB ``config.json`` at the repository root — only ``dwi_type``
        is read (mapped to ``dwi_types`` list for consistency).
 
@@ -145,8 +153,9 @@ def load_analysis_config(
     ----------
     config_path : str or Path, optional
         Explicit path to the analysis config JSON.  If ``None``, the
-        function looks for ``analysis_config.json`` in the same directory
-        as this module.
+        function searches for ``analysis_config.json`` in the
+        ``analysis/`` directory first, then falls back to the repository
+        root.
     matlab_config_path : str or Path, optional
         Explicit path to the MATLAB pipeline ``config.json``.  If
         ``None``, the function looks for ``config.json`` at the
@@ -165,7 +174,15 @@ def load_analysis_config(
 
     # ── Layer 2: analysis_config.json ──
     if config_path is None:
-        config_path = analysis_dir.parent / "analysis_config.json"
+        # Check the analysis/ directory first (next to this file), then
+        # fall back to the repository root.  This ensures that a config
+        # placed alongside the analysis scripts takes priority.
+        local_config = analysis_dir / "analysis_config.json"
+        root_config = analysis_dir.parent / "analysis_config.json"
+        if local_config.is_file():
+            config_path = local_config
+        else:
+            config_path = root_config
     else:
         config_path = Path(config_path)
 
