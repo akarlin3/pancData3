@@ -295,8 +295,11 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
 
 
                     # Post-merge sanity check
+                    print(f"    ⚙️  cwd after merge: {os.getcwd()}")
                     print(f"    ⚙️  Post-merge test run on {original_branch}")
+                    print(f"    ⚙️  Post-merge cwd: {os.getcwd()}")
                     post_ok = git_utils.run_python_tests()
+                    print(f"    ⚙️  Post-merge test result: {post_ok}")
                     if post_ok:
                         print(f"    ✅  Post-merge tests passed")
                     else:

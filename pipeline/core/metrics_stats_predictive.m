@@ -154,6 +154,81 @@ if nargin == 1 && isstruct(varargin{1})
         config_struct = struct();
     end
 
+    % ---- Dimension consistency checks for struct-based interface ----
+    % Verify that all patient-indexed arrays have consistent first dimension
+    % (equal to numel(valid_pts)) and all timepoint-indexed arrays have
+    % second dimension equal to nTp. This catches mismatched dimensions at
+    % the interface boundary rather than deep inside assemble_predictive_features.
+    n_pts_expected = numel(valid_pts);
+    nTp_expected   = nTp;
+
+    % Define arrays that must be [n_pts_expected x nTp_expected]
+    patient_tp_arrays = {ADC_abs, D_abs, f_abs, Dstar_abs, ...
+                         ADC_pct, D_pct, f_delta, Dstar_pct, ...
+                         m_d95_gtvp, m_v50gy_gtvp, m_gtv_vol, adc_sd};
+    patient_tp_names  = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', ...
+                         'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
+                         'm_d95_gtvp', 'm_v50gy_gtvp', 'm_gtv_vol', 'adc_sd'};
+
+    % Define sub-volume arrays that must also be [n_pts_expected x nTp_expected]
+    subvol_arrays = {d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
+                     d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
+    subvol_names  = {'d95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', ...
+                     'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
+
+    all_2d_arrays = [patient_tp_arrays, subvol_arrays];
+    all_2d_names  = [patient_tp_names, subvol_names];
+
+    % Collect mismatches for a single comprehensive error message
+    dim_errors = {};
+    for di = 1:numel(all_2d_arrays)
+        arr_i = all_2d_arrays{di};
+        if isempty(arr_i)
+            continue;  % allow legitimately empty arrays
+        end
+        [nr_i, nc_i] = size(arr_i);
+        if nr_i ~= n_pts_expected
+            dim_errors{end+1} = sprintf('  %s: %d rows (expected %d = numel(valid_pts))', ...
+                all_2d_names{di}, nr_i, n_pts_expected); %#ok<AGROW>
+        end
+        if nc_i ~= nTp_expected
+            dim_errors{end+1} = sprintf('  %s: %d columns (expected %d = nTp)', ...
+                all_2d_names{di}, nc_i, nTp_expected); %#ok<AGROW>
+        end
+    end
+
+    % Check 1-D patient-indexed arrays
+    oneD_arrays = {m_lf, m_total_time, m_total_follow_up_time};
+    oneD_names  = {'m_lf', 'm_total_time', 'm_total_follow_up_time'};
+    for di = 1:numel(oneD_arrays)
+        if numel(oneD_arrays{di}) ~= n_pts_expected
+            dim_errors{end+1} = sprintf('  %s: %d elements (expected %d = numel(valid_pts))', ...
+                oneD_names{di}, numel(oneD_arrays{di}), n_pts_expected); %#ok<AGROW>
+        end
+    end
+
+    % Check lf_group: should be sum(valid_pts) or numel(valid_pts)
+    n_valid_expected = sum(valid_pts);
+    if numel(lf_group) ~= n_valid_expected && numel(lf_group) ~= n_pts_expected
+        dim_errors{end+1} = sprintf('  lf_group: %d elements (expected %d = sum(valid_pts) or %d = numel(valid_pts))', ...
+            numel(lf_group), n_valid_expected, n_pts_expected);
+    end
+
+    % Check x_labels
+    if numel(x_labels) < nTp_expected
+        dim_errors{end+1} = sprintf('  x_labels: %d elements (expected at least %d = nTp)', ...
+            numel(x_labels), nTp_expected);
+    end
+
+    if ~isempty(dim_errors)
+        error('metrics_stats_predictive:dimensionMismatch', ...
+            ['Dimension consistency check failed for struct-based interface. ', ...
+             'The following arrays have mismatched sizes:\n%s\n', ...
+             'All patient-indexed arrays must have numel(valid_pts)=%d rows ', ...
+             'and all timepoint-indexed arrays must have nTp=%d columns.'], ...
+            strjoin(dim_errors, '\n'), n_pts_expected, nTp_expected);
+    end
+
 elseif nargin >= 33
     % ---- Legacy 34-positional-argument interface (deprecated) ----
     warning('metrics_stats_predictive:deprecatedPositionalArgs', ...
@@ -382,82 +457,3 @@ for target_fx = 2:nTp
 
     y_lasso_all = lf_group;
     % Exclude competing risk patients (lf==2) from the binomial model.
-    % Previously, competing events were recoded as LC (lf==0), which
-    % misclassifies patients who died of non-cancer causes before LF could
-    % be observed.  This biased the elastic net by diluting the LC group.
-    % Consistent with the GLME approach in metrics_stats_comparisons.m
-    % which also excludes competing risk patients.
-    competing_mask = (y_lasso_all == 2);
-    y_lasso_all(competing_mask) = NaN;  % mark for exclusion below
-
-    % Filter to patients with at least SOME imaging data in the first 8
-    % columns (baseline + absolute parameters).  Patients with entirely
-    % missing imaging at this timepoint cannot contribute to the model.
-    % The impute_mask also requires a valid (non-NaN) outcome label.
-    base_cols = min(8, size(X_lasso_all, 2));
-    has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);
-    impute_mask = has_any_imaging & ~isnan(y_lasso_all);
-    X_impute = X_lasso_all(impute_mask, :);
-    y_clean  = y_lasso_all(impute_mask);
-
-    % Validate that outcome labels are strictly binary after competing risk
-    % exclusion.  Any values other than 0 (LC) or 1 (LF) — e.g., -1 for
-    % unknown — would corrupt the elastic net logistic regression by
-    % introducing nonsensical outcome labels.
-    assert(all(y_clean == 0 | y_clean == 1), ...
-        'metrics_stats_predictive:unexpectedOutcome', ...
-        'Unexpected outcome values in lf_group after competing risk exclusion: values must be 0 (LC) or 1 (LF).');
-
-    id_list_valid = id_list(valid_pts);
-    id_list_impute = id_list_valid(impute_mask);
-
-    if isempty(X_impute)
-        fprintf('  No patients with any imaging data at %s. Skipping predictive modeling.\n', fx_label);
-        continue;
-    end
-
-    % LIMITATION: KNN imputation produces a single completed dataset.
-    % Confidence intervals and p-values may be anti-conservative because
-    % they do not account for imputation uncertainty.  For definitive
-    % inference, consider multiple imputation (e.g., MICE) and pool
-    % estimates via Rubin's rules.  Single imputation is retained here
-    % because the small cohort size makes stable MI infeasible.
-    fprintf('  ⚠️  Single imputation: CIs may be anti-conservative (imputation uncertainty not propagated).\n');
-
-    % --- DL provenance leakage check (covers outer CV, not just LOOCV) ---
-    if isfield(dl_provenance, 'manifest_loaded') && ~dl_provenance.manifest_loaded && (dtype == 2 || dtype == 3)
-        fprintf('  ⚠️  DL provenance manifest not loaded for %s — leakage guard inactive. Skipping predictive modeling.\n', dtype_label);
-        continue;
-    end
-    if dtype == 2
-        for chk_i = 1:numel(id_list_impute)
-            if any(strcmp(dl_provenance.dncnn_train_ids, id_list_impute{chk_i}))
-                error('metrics_stats_predictive:dataLeakage', 'DATA LEAKAGE DETECTED: Patient %s was used to train the DnCNN model.', id_list_impute{chk_i});
-            end
-        end
-    elseif dtype == 3
-        for chk_i = 1:numel(id_list_impute)
-            if any(strcmp(dl_provenance.ivimnet_train_ids, id_list_impute{chk_i}))
-                error('metrics_stats_predictive:dataLeakage', 'DATA LEAKAGE DETECTED: Patient %s was used to train the IVIMnet model.', id_list_impute{chk_i});
-            end
-        end
-    end
-
-    %% --- Elastic Net Feature Selection ---
-    [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_counts, coefs_en, final_feature_indices] = run_elastic_net_cv( ...
-        X_impute, y_clean, id_list_impute, 5, use_firth, ...
-        original_feature_indices, feat_names_lasso_full, fx_label);
-
-    %% --- LOOCV For Risk Scores ---
-    [risk_scores_oof, is_high_risk_oof] = run_loocv_risk_scores( ...
-        X_impute, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
-
-    risk_scores_all_target = nan(sum(valid_pts), 1);
-    risk_scores_all_target(impute_mask) = risk_scores_oof;
-
-    is_high_risk_target = nan(sum(valid_pts), 1);
-    is_high_risk_target(impute_mask) = is_high_risk_oof;
-
-    %% --- Build feature metadata for diagnostics ---
-    % Map each of the 22 model features back to its source data array,
-    % display name, units, and whether it is an absolute
