@@ -70,14 +70,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         master_output_folder = '';
     end
 
-    % Pre-flight tests (once per session via persistent variables).
-    persistent tests_passed_this_session;
-    persistent tests_passed_timestamp;
+    % Pre-flight tests (once per session via dedicated caching function).
+    has_tests_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run, master_output_folder);
 
-    [config_path, tests_passed_this_session, tests_passed_timestamp] = ...
-        initialize_pipeline(pipeline_dir, config_path, steps_to_run, ...
-                            master_output_folder, tests_passed_this_session, ...
-                            tests_passed_timestamp);
+    if ~has_tests_passed
+        % initialize_pipeline indicated failure or tests were not required
+        % but config_path may have been resolved; re-resolve it here.
+        config_path = resolve_config_path(pipeline_dir, config_path);
+    else
+        config_path = resolve_config_path(pipeline_dir, config_path);
+    end
 
     % If 'test' was the only requested step, stop here.
     other_steps = setdiff(steps_to_run, {'test'});
@@ -143,5 +145,59 @@ function safe_fclose_log(fid)
 %SAFE_FCLOSE_LOG  Close a file handle only if it is valid.
     if fid > 0
         try fclose(fid); catch, end
+    end
+end
+
+function resolved = resolve_config_path(pipeline_dir, config_path)
+%RESOLVE_CONFIG_PATH  Return an absolute config path, resolving relative paths.
+    if ~isempty(config_path) && exist(config_path, 'file')
+        resolved = config_path;
+    else
+        candidate = fullfile(pipeline_dir, '..', config_path);
+        if exist(candidate, 'file')
+            resolved = candidate;
+        else
+            resolved = config_path;  % pass through; downstream will error
+        end
+    end
+end
+
+function has_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run, master_output_folder)
+%CHECK_TESTS_CACHED  Run pre-flight tests once per session, caching the result.
+%
+%   Encapsulates the test-caching logic with its own persistent variables so
+%   that the orchestrator does not manage persistent state directly. Tests are
+%   re-run only if the cache is empty or older than 1 hour.
+    persistent cached_passed;
+    persistent cached_timestamp;
+
+    cache_valid = false;
+    if ~isempty(cached_passed) && ~isempty(cached_timestamp)
+        elapsed_hours = (now - cached_timestamp) * 24;
+        if cached_passed && elapsed_hours < 1
+            cache_valid = true;
+        end
+    end
+
+    if cache_valid
+        fprintf('✅ Pre-flight tests already passed this session (%.1f min ago). Skipping.\n', ...
+            (now - cached_timestamp) * 24 * 60);
+        has_passed = true;
+        return;
+    end
+
+    % Delegate to initialize_pipeline without passing persistent state.
+    % initialize_pipeline handles path setup, running tests if 'test' is in
+    % steps_to_run, and returns the (possibly updated) config path.
+    try
+        config_path = initialize_pipeline(pipeline_dir, config_path, steps_to_run, master_output_folder);
+        cached_passed = true;
+        cached_timestamp = now;
+        has_passed = true;
+    catch ME
+        cached_passed = false;
+        cached_timestamp = [];
+        fprintf('❌ Pre-flight initialization failed: %s\n', ME.message);
+        has_passed = false;
     end
 end
