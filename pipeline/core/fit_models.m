@@ -47,21 +47,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     fit_metadata.ivim_reliable = true;
     fit_metadata.warnings = {};
 
-    %% ---- Input validation ----
-    % Validate that bvalues(1)==0 up-front before any model fitting.
-    % The ADC WLS formula divides by S(:,1) assuming it is S(b=0), and the
-    % IVIM segmented fit also relies on S0 being the b=0 signal. A non-zero
-    % first b-value produces silently wrong estimates for both models.
-    if bvalues(1) ~= 0
-        error('fit_models:noB0', ...
-            'First b-value is %g, not 0. Both IVIM and ADC fits require S(b=0) as reference. Reorder b-values so b=0 comes first.', bvalues(1));
-    end
-
-    % Handle repeated b-values by averaging signal across duplicates.
+    %% ---- Handle repeated b-values by averaging signal across duplicates ----
     % Clinical DWI protocols legitimately include repeated b-values for
     % signal averaging (e.g., b=[0,0,100,100,500,500]) where the scanner
     % acquires multiple averages at each b-value. We detect duplicates,
     % average the corresponding DWI volumes, and proceed with unique b-values.
+    % NOTE: unique() returns sorted values, so after this step bvalues are
+    % guaranteed to be in ascending order.
     [bvalues_unique, ~, ic] = unique(bvalues);
     if length(bvalues_unique) < length(bvalues)
         warn_msg = sprintf('Detected %d repeated b-values (e.g., multiple averages). Averaging signal across %d unique b-values before fitting.', ...
@@ -83,6 +75,17 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         dwi = dwi_averaged;
         bvalues = bvalues_unique;
         clear dwi_averaged;
+    end
+
+    %% ---- Input validation (after unique/sort step) ----
+    % Validate that the first (minimum) b-value is 0. After unique() above,
+    % bvalues is sorted in ascending order, so bvalues(1) is the minimum.
+    % The ADC WLS formula divides by S(:,1) assuming it is S(b=0), and the
+    % IVIM segmented fit also relies on S0 being the b=0 signal. A non-zero
+    % minimum b-value produces silently wrong estimates for both models.
+    if bvalues(1) ~= 0
+        error('fit_models:noB0', ...
+            'Minimum b-value is %g, not 0. Both IVIM and ADC fits require S(b=0) as reference. Ensure b=0 is included in the b-value set.', bvalues(1));
     end
 
     % Validate that (unique) b-values are monotonically increasing
@@ -381,7 +384,7 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         if any(adc_valid_idx)
             S_a = dwi_valid(adc_valid_idx, :);
 
-            % bvalues(1)==0 already validated at function entry.
+            % bvalues(1)==0 already validated above (after unique/sort).
 
             % Vectorized WLS: weights = S^2 at each b-value.
             %
