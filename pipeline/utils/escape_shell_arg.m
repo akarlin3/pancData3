@@ -35,6 +35,13 @@ function escaped_arg = escape_shell_arg(arg, style)
 % names). The function detects system encoding and ensures proper character
 % representation for shell operations.
 
+    % --- Persistent encoding cache ---
+    % Cache the detected system encoding so that expensive system() calls
+    % (chcp on Windows, locale charmap on Unix) are executed only once per
+    % MATLAB session instead of on every invocation.
+    persistent cached_pc_encoding;
+    persistent cached_unix_encoding;
+
     % --- OS Detection ---
     % Auto-detect the shell style based on the current platform. The optional
     % 'style' override is provided for cross-platform testing (e.g., testing
@@ -68,17 +75,20 @@ function escaped_arg = escape_shell_arg(arg, style)
             % Get system encoding to ensure proper character handling
             if strcmpi(style, 'pc')
                 % Windows: Check for system code page and handle Unicode paths
-                try
-                    % Attempt to get system code page
-                    [~, cp_output] = system('chcp');
-                    if contains(cp_output, '65001') % UTF-8
-                        system_encoding = 'UTF-8';
-                    else
-                        system_encoding = 'windows-1252'; % Common Windows default
+                if isempty(cached_pc_encoding)
+                    try
+                        % Attempt to get system code page (runs only once)
+                        [~, cp_output] = system('chcp');
+                        if contains(cp_output, '65001') % UTF-8
+                            cached_pc_encoding = 'UTF-8';
+                        else
+                            cached_pc_encoding = 'windows-1252'; % Common Windows default
+                        end
+                    catch
+                        cached_pc_encoding = 'windows-1252';
                     end
-                catch
-                    system_encoding = 'windows-1252';
                 end
+                system_encoding = cached_pc_encoding;
                 
                 % For Windows, ensure proper Unicode handling by converting
                 % to native encoding if needed
@@ -93,17 +103,20 @@ function escaped_arg = escape_shell_arg(arg, style)
                 end
             else
                 % Unix systems: Most modern Unix systems use UTF-8
-                try
-                    % Check locale for encoding information
-                    [~, locale_output] = system('locale charmap');
-                    if contains(upper(locale_output), 'UTF-8')
-                        system_encoding = 'UTF-8';
-                    else
-                        system_encoding = 'ISO-8859-1';
+                if isempty(cached_unix_encoding)
+                    try
+                        % Check locale for encoding information (runs only once)
+                        [~, locale_output] = system('locale charmap');
+                        if contains(upper(locale_output), 'UTF-8')
+                            cached_unix_encoding = 'UTF-8';
+                        else
+                            cached_unix_encoding = 'ISO-8859-1';
+                        end
+                    catch
+                        cached_unix_encoding = 'UTF-8'; % Default assumption for modern Unix
                     end
-                catch
-                    system_encoding = 'UTF-8'; % Default assumption for modern Unix
                 end
+                system_encoding = cached_unix_encoding; %#ok<NASGU>
             end
         end
     catch
@@ -202,18 +215,8 @@ function escaped_arg = escape_shell_arg(arg, style)
         % Unix systems generally handle UTF-8 well, but ensure proper locale
         if exist('has_unicode', 'var') && has_unicode
             % For Unix systems with Unicode characters, we may need to ensure
-            % the environment supports UTF-8
-            try
-                % Check if we need to set UTF-8 locale for the command
-                [~, current_locale] = system('echo $LC_ALL$LC_CTYPE$LANG');
-                if ~contains(upper(current_locale), 'UTF') && ~contains(upper(current_locale), 'utf')
-                    % The escaped argument will be used in a context where
-                    % UTF-8 locale might need to be explicitly set
-                    % This is handled by the calling code, we just ensure proper escaping
-                end
-            catch
-                % If locale detection fails, proceed with standard escaping
-            end
+            % the environment supports UTF-8. The cached encoding is already
+            % available from above; no additional system calls needed here.
         end
         
         escaped_arg = ['''' escaped_arg ''''];
