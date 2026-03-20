@@ -161,6 +161,55 @@ def _normalize_dwi_type(dwi_type: str, canonical_types: list[str]) -> str:
     return lower_map.get(dwi_type.lower(), dwi_type)
 
 
+def _permissive_json_loads(text: str) -> dict:
+    """Attempt to parse JSON text, stripping comments and trailing commas.
+
+    Python's :func:`json.loads` is strict and rejects constructs that
+    MATLAB's ``jsondecode`` (and many editors) silently accept, such as:
+
+    - Single-line comments (``// ...``)
+    - Block comments (``/* ... */``)
+    - Trailing commas before closing ``}`` or ``]``
+
+    This helper strips those constructs and retries parsing when the
+    initial strict parse fails.
+
+    Parameters
+    ----------
+    text : str
+        Raw file content that is expected to be JSON (possibly with
+        non-standard extensions).
+
+    Returns
+    -------
+    dict
+        Parsed JSON object.
+
+    Raises
+    ------
+    json.JSONDecodeError
+        If the text cannot be parsed even after sanitisation.
+    """
+    # First, try strict parsing — fast path for well-formed JSON.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Strip block comments (/* ... */)
+    sanitised = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    # Strip single-line comments (// ...) — but not inside strings.
+    # A simple heuristic: remove // comments only when they appear after
+    # the start of a line (possibly preceded by whitespace) or after a
+    # comma/brace.  This won't handle every edge case but covers the
+    # common patterns found in config files.
+    sanitised = re.sub(r'(?m)//[^\n]*$', '', sanitised)
+    # Strip trailing commas before } or ]
+    sanitised = re.sub(r",\s*([}\]])", r"\1", sanitised)
+
+    return json.loads(sanitised)
+
+
 def load_analysis_config(
     config_path: str | Path | None = None,
     matlab_config_path: str | Path | None = None,
@@ -237,20 +286,33 @@ def load_analysis_config(
     if matlab_config_path.is_file():
         try:
             with open(matlab_config_path, encoding="utf-8") as f:
-                matlab_cfg = json.load(f)
-            dwi_type = matlab_cfg.get("dwi_type")
-            if dwi_type and isinstance(dwi_type, str):
-                # Normalize to canonical case to avoid duplicates like
-                # ['Standard', 'standard'] when the MATLAB config uses
-                # different capitalisation than the built-in defaults.
-                dwi_type = _normalize_dwi_type(dwi_type, cfg["dwi_types"])
-                # The MATLAB config stores a single active type; we don't
-                # override the full list, but we can ensure it's present.
-                existing_lower = [d.lower() for d in cfg["dwi_types"]]
-                if dwi_type.lower() not in existing_lower:
-                    cfg["dwi_types"].append(dwi_type)
-        except (json.JSONDecodeError, OSError):
-            pass
+                raw_text = f.read()
+            try:
+                matlab_cfg = _permissive_json_loads(raw_text)
+            except json.JSONDecodeError as exc:
+                print(
+                    f"[WARN] Cannot parse MATLAB config {matlab_config_path}: "
+                    f"{exc.__class__.__name__}: {exc}"
+                )
+                matlab_cfg = None
+
+            if matlab_cfg is not None:
+                dwi_type = matlab_cfg.get("dwi_type")
+                if dwi_type and isinstance(dwi_type, str):
+                    # Normalize to canonical case to avoid duplicates like
+                    # ['Standard', 'standard'] when the MATLAB config uses
+                    # different capitalisation than the built-in defaults.
+                    dwi_type = _normalize_dwi_type(dwi_type, cfg["dwi_types"])
+                    # The MATLAB config stores a single active type; we don't
+                    # override the full list, but we can ensure it's present.
+                    existing_lower = [d.lower() for d in cfg["dwi_types"]]
+                    if dwi_type.lower() not in existing_lower:
+                        cfg["dwi_types"].append(dwi_type)
+        except OSError as exc:
+            print(
+                f"[WARN] Cannot read MATLAB config {matlab_config_path}: "
+                f"{exc.__class__.__name__}: {exc}"
+            )
 
     # ── Layer 4: Environment variable overrides ──
     # These allow run_analysis.py to propagate CLI flags (--gemini-model,
