@@ -4,11 +4,15 @@ Replaces natural-language git instructions with direct subprocess calls.
 """
 
 import logging
+import pathlib
 import shlex  # noqa: F401 — imported as a guard for future shell-string construction
 import shutil
 import subprocess
 import sys
 from typing import List
+
+# Repository root — one level up from this file's directory
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +114,7 @@ def run_python_tests(capture_output: bool = False) -> "bool | tuple[bool, str]":
             "--ignore=analysis/tests/test_git_utils.py",
             "--ignore=analysis/tests/test_loop_tracker.py",
             "--ignore=analysis/tests/test_orchestrator.py"],
+        cwd=REPO_ROOT,
         check=False,
         capture_output=capture_output,
         text=capture_output,
@@ -140,6 +145,7 @@ def run_matlab_tests() -> bool:
                 "if any([results.Failed]), exit(1); else exit(0); end"
             ),
         ],
+        cwd=REPO_ROOT,
         check=False,
     )
     return result.returncode == 0

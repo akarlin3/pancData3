@@ -208,7 +208,7 @@ class TestShouldContinueLoop:
         flagged_scores = {**self.GOOD_SCORES, "flags": ["LEAKAGE_RISK"]}
         assert should_continue_loop(flagged_scores, []) is True
 
-    def test_evaluation_failed_flag_ignored(self):
-        """EVALUATION_FAILED flag alone should not force continuation."""
+    def test_evaluation_failed_flag_forces_continuation(self):
+        """EVALUATION_FAILED flag must force continuation — failed eval is not a valid exit."""
         failed_scores = {**self.GOOD_SCORES, "flags": ["EVALUATION_FAILED"]}
-        assert should_continue_loop(failed_scores, []) is False
+        assert should_continue_loop(failed_scores, []) is True

@@ -305,6 +305,26 @@ def test_summary_shows_unmerged_branches(mock_score, capsys):
 
 
 @patch("improvement_loop.loop_tracker.score_audit", return_value=FAKE_SCORES)
+def test_should_continue_loop_on_evaluation_failed(mock_score):
+    """should_continue_loop returns True when EVALUATION_FAILED flag is set,
+    even with empty findings and high coverage — a failed evaluator is not
+    a valid exit condition."""
+    from improvement_loop.evaluator import should_continue_loop
+
+    failed_scores = {
+        "specificity": 5.0,
+        "accuracy": 5.0,
+        "coverage": 8.0,  # high enough to normally trigger exit
+        "prioritization": 5.0,
+        "domain_appropriateness": 5.0,
+        "overall": 5.0,
+        "flags": ["EVALUATION_FAILED"],
+        "reasoning": "Fallback scores — evaluator failed after max retries.",
+    }
+    assert should_continue_loop(failed_scores, findings=[]) is True
+
+
+@patch("improvement_loop.loop_tracker.score_audit", return_value=FAKE_SCORES)
 def test_summary_no_unmerged_section_when_all_merged(mock_score, capsys):
     findings = [
         _make_finding("improvement/all-m-a", status="merged"),

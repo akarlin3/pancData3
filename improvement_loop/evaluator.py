@@ -287,6 +287,11 @@ def should_continue_loop(scores: dict, findings: List[Finding], dry_run: bool = 
         print("Exit condition met — dry-run mode")
         return False
 
+    # Evaluator failure is not a valid exit condition — retry next iteration
+    if "EVALUATION_FAILED" in scores.get("flags", []):
+        print("Continuing — evaluator failed, cannot trust scores as exit signal")
+        return True
+
     # Any finding above threshold — keep going
     high_priority = [f for f in findings if f.importance >= 2]
     if high_priority:
