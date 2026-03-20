@@ -65,6 +65,22 @@ function escaped_arg = escape_shell_arg(arg, style)
     % objects and char arrays behave differently with strrep and concatenation.
     arg = char(arg);
 
+    % --- Null Byte Detection and Removal ---
+    % Null bytes (char(0)) within a shell argument can cause premature string
+    % termination in C-based system() implementations. MATLAB's system() is
+    % implemented via the C runtime, where strings are null-terminated. An
+    % embedded null byte would silently truncate the argument at that position,
+    % causing the shell to see only the portion before the null byte. This is
+    % a security hazard: if a DICOM metadata field contains an embedded null
+    % byte followed by shell metacharacters (e.g., 'path\0; rm -rf /'), the
+    % system() call could interpret the truncated string differently than
+    % intended, potentially executing injected commands after the null byte
+    % boundary. We strip all null bytes unconditionally and warn the user.
+    if any(arg == 0)
+        warning('escape_shell_arg:nullByte', 'Null bytes detected and removed from shell argument.');
+        arg(arg == 0) = [];
+    end
+
     % --- Unicode and Encoding Handling ---
     % Check if the string contains non-ASCII characters. For the common case
     % of pure-ASCII paths (the vast majority in US clinical environments),
