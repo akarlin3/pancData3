@@ -100,6 +100,30 @@ events_km = [];        % event indicator (0=censored, 1=LF, 2=competing risk)
 % chemotherapy regimen, or surgical intervention).
 best_risk_fx = Inf;
 
+% --- Pre-index all parameter arrays with valid_pts ONCE before the loop ---
+% This avoids redundant re-indexing of ~30 large arrays at each timepoint
+% iteration (4 iterations × ~30 arrays = ~120 redundant indexing operations).
+ADC_abs_valid      = ADC_abs(valid_pts, :);
+D_abs_valid        = D_abs(valid_pts, :);
+f_abs_valid        = f_abs(valid_pts, :);
+Dstar_abs_valid    = Dstar_abs(valid_pts, :);
+ADC_pct_valid      = ADC_pct(valid_pts, :);
+D_pct_valid        = D_pct(valid_pts, :);
+f_delta_valid      = f_delta(valid_pts, :);
+Dstar_pct_valid    = Dstar_pct(valid_pts, :);
+m_d95_gtvp_valid   = m_d95_gtvp(valid_pts, :);
+m_v50gy_gtvp_valid = m_v50gy_gtvp(valid_pts, :);
+d95_adc_sub_valid  = d95_adc_sub(valid_pts, :);
+v50_adc_sub_valid  = v50_adc_sub(valid_pts, :);
+d95_d_sub_valid    = d95_d_sub(valid_pts, :);
+v50_d_sub_valid    = v50_d_sub(valid_pts, :);
+d95_f_sub_valid    = d95_f_sub(valid_pts, :);
+v50_f_sub_valid    = v50_f_sub(valid_pts, :);
+d95_dstar_sub_valid = d95_dstar_sub(valid_pts, :);
+v50_dstar_sub_valid = v50_dstar_sub(valid_pts, :);
+m_gtv_vol_valid    = m_gtv_vol(valid_pts, :);
+adc_sd_valid       = adc_sd(valid_pts, :);
+
 % Iterate from Fx2 onwards (Fx1 is baseline — no change to analyse).
 % Each timepoint is analysed independently to identify the earliest
 % fraction at which treatment response prediction becomes feasible.
@@ -108,12 +132,17 @@ for target_fx = 2:nTp
     fprintf('\n=== Analyzing %s ===\n', fx_label);
 
     %% --- Feature Assembly ---
+    % Pass pre-indexed (valid_pts subset) arrays to avoid redundant indexing.
+    % assemble_predictive_features receives data already subset to valid
+    % patients, so it should use a trivial index (true mask or 1:size) internally.
+    trivial_mask = true(size(ADC_abs_valid, 1), 1);
     [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_lasso_full] = assemble_predictive_features( ...
-        valid_pts, target_fx, nTp, fx_label, output_folder, ...
-        ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-        m_d95_gtvp, m_v50gy_gtvp, ...
-        d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
-        d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub);
+        trivial_mask, target_fx, nTp, fx_label, output_folder, ...
+        ADC_abs_valid, D_abs_valid, f_abs_valid, Dstar_abs_valid, ...
+        ADC_pct_valid, D_pct_valid, f_delta_valid, Dstar_pct_valid, ...
+        m_d95_gtvp_valid, m_v50gy_gtvp_valid, ...
+        d95_adc_sub_valid, v50_adc_sub_valid, d95_d_sub_valid, v50_d_sub_valid, ...
+        d95_f_sub_valid, v50_f_sub_valid, d95_dstar_sub_valid, v50_dstar_sub_valid);
 
     y_lasso_all = lf_group;
     % Exclude competing risk patients (lf==2) from the binomial model.
@@ -200,14 +229,15 @@ for target_fx = 2:nTp
     % Feature indices 1-4 are baseline covariates (Fx1), 5-8 are absolute
     % values at target_fx, 9-12 are percent/absolute changes, 13-14 are
     % whole-GTV dose, and 15-22 are sub-volume dose coverage metrics.
-    all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 1-4: baseline covariates
-                      ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 5-8: absolute at target_fx
-                      ADC_pct,       D_pct,       f_delta,       Dstar_pct, ... % 9-12: percent change
-                      m_d95_gtvp,    m_v50gy_gtvp, ...                          % 13-14: dose
-                      d95_adc_sub,   v50_adc_sub, ...                           % 15-16
-                      d95_d_sub,     v50_d_sub, ...                             % 17-18
-                      d95_f_sub,     v50_f_sub, ...                             % 19-20
-                      d95_dstar_sub, v50_dstar_sub};                            % 21-22
+    % Use the pre-indexed (valid_pts subset) arrays for diagnostic plots.
+    all_feat_data  = {ADC_abs_valid,       D_abs_valid,       f_abs_valid,       Dstar_abs_valid, ...   % 1-4: baseline covariates
+                      ADC_abs_valid,       D_abs_valid,       f_abs_valid,       Dstar_abs_valid, ...   % 5-8: absolute at target_fx
+                      ADC_pct_valid,       D_pct_valid,       f_delta_valid,       Dstar_pct_valid, ... % 9-12: percent change
+                      m_d95_gtvp_valid,    m_v50gy_gtvp_valid, ...                          % 13-14: dose
+                      d95_adc_sub_valid,   v50_adc_sub_valid, ...                           % 15-16
+                      d95_d_sub_valid,     v50_d_sub_valid, ...                             % 17-18
+                      d95_f_sub_valid,     v50_f_sub_valid, ...                             % 19-20
+                      d95_dstar_sub_valid, v50_dstar_sub_valid};                            % 21-22
 
     all_feat_names = {'ADC BL',      'D BL',      'f BL',      'D* BL', ...
                       'ADC',         'D',         'f',         'D*', ...
@@ -237,7 +267,6 @@ for target_fx = 2:nTp
     all_feat_units = {'mm^2/s',      'mm^2/s',    'Fraction',  'mm^2/s', ...
                       'mm^2/s',      'mm^2/s',    'Fraction',  'mm^2/s', ...
                       '%',           '%',         'Fraction',  '%', ...
-                      'Gy',          '%', ...
                       'Gy',          '%', ...
                       'Gy',          '%', ...
                       'Gy',          '%', ...
@@ -316,12 +345,13 @@ for target_fx = 2:nTp
         risk_scores_oof, y_clean, 5, output_folder, dtype_label, fx_label);
 
     %% --- Diagnostic Plots (ROC, Sanity Checks, 2D Scatter) ---
+    % Pass pre-indexed arrays for diagnostic plots to avoid redundant subsetting.
     plot_predictive_diagnostics( ...
         selected_indices, n_sig, sig_data_selected, sig_names, sig_is_abs, ...
         sig_is_pct_imaging, sig_disp_names, sig_units, sig_col_idx, ...
         sig_abs_data, sig_pct_data, ...
         risk_scores_all_target, lf_group, valid_pts, ...
-        m_gtv_vol, adc_sd, ADC_abs, ...
+        m_gtv_vol_valid, adc_sd_valid, ADC_abs_valid, ...
         target_fx, fx_label, dtype_label, dtype, output_folder, use_firth);
 
     %% --- Decision Curve Analysis ---
