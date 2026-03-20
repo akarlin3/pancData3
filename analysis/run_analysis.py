@@ -134,6 +134,11 @@ def _check_requirements() -> bool:
 
     Returns True if every requirement is satisfied, False otherwise.
     Missing packages are printed to stdout.
+
+    Uses ``packaging.requirements.Requirement`` to properly parse each
+    requirement line, correctly handling extras syntax (e.g.,
+    ``package[extra]>=1.0``), URL-based requirements (e.g.,
+    ``git+https://...``), and complex version specifiers.
     """
     req_file = ANALYSIS_DIR / "requirements.txt"
     if not req_file.exists():
@@ -143,12 +148,23 @@ def _check_requirements() -> bool:
     missing: list[str] = []
     import importlib.metadata as _meta
 
+    from packaging.requirements import InvalidRequirement, Requirement
+
     for line in req_file.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Strip version specifiers to get the package name.
-        pkg_name = line.split(">=")[0].split("<=")[0].split("==")[0].split("!=")[0].split("<")[0].split(">")[0].strip()
+        # Skip options lines (e.g., ``--index-url``, ``-f``, etc.)
+        if line.startswith("-"):
+            continue
+        try:
+            req = Requirement(line)
+            pkg_name = req.name
+        except InvalidRequirement:
+            # If packaging cannot parse the line (e.g., malformed or
+            # very unusual syntax), warn and skip rather than crash.
+            print(f"  [WARN] Could not parse requirement line, skipping: {line}")
+            continue
         try:
             _meta.version(pkg_name)
         except _meta.PackageNotFoundError:
