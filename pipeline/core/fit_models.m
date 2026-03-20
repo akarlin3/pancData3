@@ -69,6 +69,12 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         n_unique = length(bvalues_unique);
         for ub = 1:n_unique
             idx_this_b = find(ic == ub);
+            % Skip the copy when the b-value is not repeated and already in
+            % the correct position — avoids an unnecessary full 3D sub-volume
+            % copy through mean() that wastes memory bandwidth.
+            if numel(idx_this_b) == 1 && idx_this_b == ub
+                continue;
+            end
             dwi(:,:,:,ub) = mean(dwi(:,:,:,idx_this_b), 4);
         end
         dwi = dwi(:,:,:,1:n_unique);
