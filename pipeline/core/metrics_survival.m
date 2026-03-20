@@ -173,8 +173,16 @@ end
 td_lf = m_lf(valid_pts);
 td_tot_time = m_total_time(valid_pts);
 follow_up_valid = m_total_follow_up_time(valid_pts);
-cens_mask_td = (td_lf == 0 | td_lf == 2) & ~isnan(follow_up_valid);
-td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
+
+% For truly censored patients (lf==0), replace total_time with follow_up_time
+% because follow_up_time reflects the last known alive date.
+cens_mask_lc = (td_lf == 0) & ~isnan(follow_up_valid);
+td_tot_time(cens_mask_lc) = follow_up_valid(cens_mask_lc);
+
+% For competing risk patients (lf==2), keep the original total_time which
+% represents the time to the competing event (e.g., death from other cause).
+% Using follow_up_time here would introduce immortal time bias by extending
+% their risk period beyond when they actually experienced the competing event.
 
 % Build time-dependent panel with default half-life
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
@@ -611,12 +619,4 @@ try
             mi_results = struct('performed', false);
         end
     else
-        t_start_adj = survival_data.t_start;
-        t_stop_adj = survival_data.t_stop;
-        event_adj = survival_data.event;
-        mi_results = struct('performed', false);
-        fprintf('  No interval censoring detected.\n');
-    end
-    
-    % Scale covariates
-    X_scaled = scale_td_panel(survival_data.X, survival_data
+        t_start_adj = survival_data.t_start
