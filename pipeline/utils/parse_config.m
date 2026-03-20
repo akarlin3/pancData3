@@ -438,7 +438,10 @@ function config_struct = parse_config(json_path)
         % wrong results if adc_thresh were accidentally a char.
         %
         % We validate types here, immediately after defaults are assigned,
-        % to fail fast with an actionable error message.
+        % to fail fast with an actionable error message.  Where possible,
+        % we coerce recoverable types (e.g., char to double for numeric
+        % fields, numeric 0/1 to logical) rather than erroring, but we
+        % error if the coercion would be ambiguous or lossy.
         % ================================================================
 
         % --- Numeric scalar fields (thresholds and counts) ---
@@ -451,7 +454,17 @@ function config_struct = parse_config(json_path)
             fn = numeric_fields{i};
             if isfield(config_struct, fn)
                 val = config_struct.(fn);
-                if ~isnumeric(val) || ~isscalar(val)
+                if ischar(val) || isstring(val)
+                    % User likely quoted a number in JSON, e.g., "0.001".
+                    % Attempt to recover by converting to double.
+                    converted = str2double(val);
+                    if isnan(converted)
+                        error('parse_config:invalidType', ...
+                            'Configuration field "%s" must be a numeric scalar, but got non-numeric string "%s". Remove the quotes around the value in config.json.', ...
+                            fn, char(val));
+                    end
+                    config_struct.(fn) = converted;
+                elseif ~isnumeric(val) || ~isscalar(val)
                     error('parse_config:invalidType', ...
                         'Configuration field "%s" must be a numeric scalar, but got %s (class: %s). Check your config.json — numeric values must not be quoted.', ...
                         fn, mat2str(val), class(val));
@@ -463,7 +476,7 @@ function config_struct = parse_config(json_path)
         % JSON booleans become MATLAB logical via jsondecode.  We also
         % accept numeric 0/1 (which is what you get if the user writes
         % the JSON integer 0 or 1 instead of true/false) and coerce to
-        % logical.  Strings like "true" are rejected.
+        % logical.  Strings like "true"/"false" are also coerced.
         logical_fields = {'skip_to_reload', 'skip_tests', 'use_checkpoints', ...
             'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
             'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
@@ -480,9 +493,42 @@ function config_struct = parse_config(json_path)
                 elseif isnumeric(val) && isscalar(val) && (val == 0 || val == 1)
                     % Coerce numeric 0/1 to logical.
                     config_struct.(fn) = logical(val);
+                elseif (ischar(val) || isstring(val))
+                    % User quoted a boolean, e.g., "true" or "false".
+                    val_lower = lower(strtrim(char(val)));
+                    if strcmp(val_lower, 'true')
+                        config_struct.(fn) = true;
+                    elseif strcmp(val_lower, 'false')
+                        config_struct.(fn) = false;
+                    else
+                        error('parse_config:invalidType', ...
+                            'Configuration field "%s" must be a logical (true/false), but got string "%s". In config.json, use true or false (unquoted).', ...
+                            fn, char(val));
+                    end
                 else
                     error('parse_config:invalidType', ...
                         'Configuration field "%s" must be a logical (true/false) or numeric 0/1, but got %s (class: %s). In config.json, use true or false (unquoted).', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- String fields ---
+        % These fields must be character vectors (or string scalars, which
+        % we coerce to char for consistency with the rest of the pipeline).
+        string_fields = {'cause_of_death_column', 'core_method', ...
+            'fdm_parameter', 'texture_quantization_method', ...
+            'external_validation_data', 'auxiliary_biomarker_csv'};
+        for i = 1:numel(string_fields)
+            fn = string_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if isstring(val) && isscalar(val)
+                    % Coerce MATLAB string to char for downstream consistency.
+                    config_struct.(fn) = char(val);
+                elseif ~ischar(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a string, but got %s (class: %s).', ...
                         fn, mat2str(val), class(val));
                 end
             end
@@ -495,7 +541,17 @@ function config_struct = parse_config(json_path)
         if isfield(config_struct, 'td_scan_days')
             val = config_struct.td_scan_days;
             if ~isempty(val)
-                if ~isnumeric(val) || ~isvector(val)
+                if ischar(val) || isstring(val)
+                    % Attempt to parse comma-separated numeric string.
+                    val_str = strtrim(char(val));
+                    converted = str2double(strsplit(val_str, ','));
+                    if any(isnan(converted))
+                        error('parse_config:invalidType', ...
+                            'Configuration field "td_scan_days" must be a numeric vector (JSON array of numbers) or empty, but got string "%s". Use a JSON array like [0, 5, 10, 15, 20, 90], not a comma-separated string.', ...
+                            val_str);
+                    end
+                    config_struct.td_scan_days = converted;
+                elseif ~isnumeric(val) || ~isvector(val)
                     error('parse_config:invalidType', ...
                         'Configuration field "td_scan_days" must be a numeric vector (JSON array of numbers) or empty, but got %s (class: %s). Use a JSON array like [0, 5, 10, 15, 20, 90], not a comma-separated string.', ...
                         mat2str(val), class(val));
@@ -503,67 +559,25 @@ function config_struct = parse_config(json_path)
             end
         end
 
+        % --- Cell array fields ---
+        % patient_ids should be a cell array of character vectors.
+        % jsondecode produces a cell array from a JSON array of strings,
+        % but a single-element array may produce a plain char.
+        if isfield(config_struct, 'patient_ids')
+            val = config_struct.patient_ids;
+            if ischar(val)
+                % Single string: wrap in a cell.
+                config_struct.patient_ids = {val};
+            elseif isstring(val)
+                % MATLAB string array: convert to cell of char.
+                config_struct.patient_ids = cellstr(val);
+            elseif ~iscell(val) && ~isempty(val)
+                error('parse_config:invalidType', ...
+                    'Configuration field "patient_ids" must be a cell array of strings (JSON array of strings) or empty, but got class: %s.', ...
+                    class(val));
+            end
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        % If the error was already wrapped with our ID, rethrow as-is.
-        % Otherwise, wrap any unexpected field-access or type error with
-        % a descriptive message so callers can distinguish config parsing
-        % failures from other errors in their try/catch blocks.
-        if strncmp(ME.identifier, 'parse_config:', 13)
-            rethrow(ME);
-        end
-        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file %s: %s', json_path, ME.message);
-    end
-
-    % ================================================================
-    % Validate core_method against the set of implemented algorithms.
-    % ================================================================
-    valid_core_methods = {'adc_threshold', 'd_threshold', 'df_intersection', ...
-        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
-        'percentile', 'spectral', 'fdm'};
-    if ~any(strcmpi(config_struct.core_method, valid_core_methods))
-        error('parse_config:invalidCoreMethod', ...
-            'Unrecognized core_method "%s". Must be one of: %s', ...
-            config_struct.core_method, strjoin(valid_core_methods, ', '));
-    end
-
-    % ================================================================
-    % DWI type validation and mapping to numeric run indices.
-    %
-    % The pipeline supports three analysis modes that differ in how the
-    % raw DWI signal is preprocessed before IVIM/ADC model fitting:
-    %   1 = Standard: conventional voxel-wise fitting on raw DWI data.
-    %   2 = dnCNN:    DnCNN deep-learning denoiser applied to each b-value
-    %                 image before fitting, reducing thermal noise while
-    %                 preserving diffusion contrast.
-    %   3 = IVIMnet:  Neural-network-based IVIM parameter estimation that
-    %                 jointly learns D, f, D* from the full b-value series,
-    %                 avoiding the two-step segmented fitting bias.
-    %
-    % When dwi_type is omitted, all three modes run sequentially via
-    % execute_all_workflows, enabling head-to-head comparison of
-    % denoising strategies on the same patient cohort.
-    %
-    % Validation is intentionally placed AFTER the try/catch so that an
-    % unrecognized type produces a specific, actionable error rather than
-    % being swallowed by the generic "Failed to parse JSON" catch block.
-    % ================================================================
-    if isfield(config_struct, 'dwi_type')
-        switch lower(config_struct.dwi_type)
-            case 'standard', config_struct.dwi_types_to_run = 1;
-            case 'dncnn', config_struct.dwi_types_to_run = 2;
-            case 'ivimnet', config_struct.dwi_types_to_run = 3;
-            otherwise
-                error('parse_config:invalidJSON', ...
-                    'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
-                    config_struct.dwi_type);
-        end
-    else
-        % No dwi_type specified: run all three modes sequentially.
-        % This is the typical research workflow — comparing Standard vs
-        % dnCNN vs IVIMnet on the same cohort to assess whether DL
-        % denoising improves IVIM parameter precision and downstream
-        % predictive performance.
-        config_struct.dwi_types_to_run = 1:3;
-    end
-end
+        
