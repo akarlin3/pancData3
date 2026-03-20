@@ -43,10 +43,19 @@ function config_struct = parse_config(json_path)
             warning('Large config file detected (%d bytes). Consider optimizing config structure.', file_info.bytes);
         end
         
-        % Read and parse the JSON config in one step.  jsondecode converts
-        % JSON objects to MATLAB structs, arrays to matrices, and strings
-        % to char arrays — the native MATLAB types used downstream.
-        config_struct = jsondecode(fileread(json_path));
+        % Read and parse the JSON config.  jsondecode converts JSON objects
+        % to MATLAB structs, arrays to matrices, and strings to char
+        % arrays — the native MATLAB types used downstream.  The try-catch
+        % around this specific call provides a user-friendly error message
+        % when the JSON is malformed (trailing commas, unquoted keys, etc.).
+        raw_text = fileread(json_path);
+        try
+            config_struct = jsondecode(raw_text);
+        catch ME
+            error('parse_config:invalidJSON', ...
+                'Failed to parse %s: %s\nPlease validate your JSON syntax (e.g., https://jsonlint.com/).', ...
+                json_path, ME.message);
+        end
 
         % ================================================================
         % Default value assignments for optional configuration fields.
@@ -407,10 +416,14 @@ function config_struct = parse_config(json_path)
 
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        % Any JSON syntax error or field-access failure is caught here.
-        % Re-throwing as a specific error ID allows callers to distinguish
-        % config parsing failures from other errors in their try/catch blocks.
-        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
+        % If the error was already wrapped with our ID, rethrow as-is.
+        % Otherwise, wrap any unexpected field-access or type error with
+        % a descriptive message so callers can distinguish config parsing
+        % failures from other errors in their try/catch blocks.
+        if strcmp(ME.identifier, 'parse_config:invalidJSON')
+            rethrow(ME);
+        end
+        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file %s: %s', json_path, ME.message);
     end
 
     % ================================================================
