@@ -56,7 +56,7 @@ Audit the codebase and return a JSON array of findings. Each finding must have:
   "file": "path/to/file.m or .py",
   "function_name": "optional — specific function if applicable",
   "description": "what the problem is — cite specific lines",
-  "fix": "concrete fix description with code snippets if helpful",
+  "fix": "concise fix description (1-3 sentences, NO full code blocks — just describe the change)",
   "importance": integer 1-10 (8-10 = critical bugs/data integrity, 4-7 = moderate, 1-3 = minor),
   "branch_name": "improvement/<slug>" (slug: lowercase, hyphens, no spaces, max 50 chars after prefix)
 }
@@ -73,14 +73,22 @@ cross-timepoint imputation, etc.).
 
 
 def _api_call_with_retry(create_kwargs: dict) -> str:
-    """Call client.messages.create with rate-limit retry. Returns response text."""
+    """Call client.messages.create with rate-limit retry. Returns response text.
+
+    Uses streaming to avoid the SDK's 10-minute timeout guard for large
+    max_tokens values.
+    """
     cfg = _get_loop_config()
     client = _get_client()
     for attempt in range(1, cfg.max_api_retries + 1):
         try:
-            response = client.messages.create(**create_kwargs)
-            return response.content[0].text
-        except anthropic.RateLimitError as e:
+            # Use streaming to avoid SDK timeout for large max_tokens
+            collected: list[str] = []
+            with client.messages.stream(**create_kwargs) as stream:
+                for text in stream.text_stream:
+                    collected.append(text)
+            return "".join(collected)
+        except anthropic.RateLimitError:
             delay = cfg.retry_base_delay * attempt
             print(f"    Rate limited (attempt {attempt}/{cfg.max_api_retries}), "
                   f"waiting {delay:.0f}s...")
@@ -140,7 +148,7 @@ def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
     cfg = _get_loop_config()
     return _api_call_with_retry({
         "model": cfg.audit_model,
-        "max_tokens": 8000,
+        "max_tokens": cfg.audit_max_tokens,
         "system": AUDIT_SYSTEM_PROMPT,
         "messages": [{"role": "user", "content": user_message}],
     })
@@ -151,29 +159,57 @@ def _parse_findings(audit_output: str, dry_run: bool) -> List[Finding]:
     if dry_run:
         return []
 
-    # Strip markdown fences if present
+    # Strip markdown fences if present (handles preamble before the fence)
     text = audit_output.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-        text = text.strip()
+    if "```" in text:
+        # Extract content between first pair of ``` fences
+        parts = text.split("```")
+        if len(parts) >= 3:
+            # parts[1] is the content between the first pair of fences
+            inner = parts[1]
+            if inner.startswith("json"):
+                inner = inner[4:]
+            text = inner.strip()
+        elif text.startswith("```"):
+            text = parts[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+
+    # If text still doesn't look like JSON, try to find a JSON array directly
+    if not text.startswith("["):
+        bracket_pos = text.find("[")
+        if bracket_pos >= 0:
+            text = text[bracket_pos:]
+
+    print(f"       Parsed text starts with: {text[:80]!r}")
+    print(f"       Parsed text ends with:   {text[-80:]!r}")
 
     # Truncation guard: check if the JSON array appears complete
     if not text.rstrip().endswith("]"):
         print("⚠️  Audit response appears truncated — consider increasing max_tokens further")
-        # Attempt repair: find last complete finding object
+        # Attempt repair: find the last complete finding object by looking
+        # for "},\n  {" or "}\n  {" boundaries (the split between findings).
+        # Then try progressively shorter substrings.
+        import re
+        # Find all positions where a finding object boundary occurs
+        boundaries = [m.end() - 1 for m in re.finditer(r'\}\s*,\s*\{', text)]
+        # Also try the simple last-} approach as fallback
         last_brace = text.rfind("}")
-        if last_brace >= 0:
-            repaired = text[:last_brace + 1]
-            if not repaired.lstrip().startswith("["):
-                repaired = "[" + repaired
-            repaired = repaired + "]"
+        candidates = sorted(set(boundaries + ([last_brace] if last_brace >= 0 else [])),
+                            reverse=True)
+        for pos in candidates:
+            # Take everything up to and including the } at this boundary
+            # For boundary matches, pos points to the comma; use the } before it
+            chunk = text[:pos + 1].rstrip().rstrip(",")
+            if not chunk.lstrip().startswith("["):
+                chunk = "[" + chunk
+            chunk = chunk + "]"
             try:
-                raw_list = json.loads(repaired)
-                print(f"⚠️  Recovered {len(raw_list)} findings from truncated response")
+                raw_list = json.loads(chunk)
                 if not isinstance(raw_list, list):
-                    return []
+                    continue
+                print(f"⚠️  Recovered {len(raw_list)} findings from truncated response")
                 findings = []
                 for i, raw in enumerate(raw_list):
                     try:
@@ -182,12 +218,11 @@ def _parse_findings(audit_output: str, dry_run: bool) -> List[Finding]:
                     except Exception as e:
                         print(f"WARNING: Skipping finding {i}: {e}")
                 return findings
-            except json.JSONDecodeError as e:
-                print(f"WARNING: Repair also failed: {e}")
-                return []
-        else:
-            print("WARNING: No complete finding object found in truncated response")
-            return []
+            except json.JSONDecodeError:
+                continue
+        print("WARNING: Could not recover any findings from truncated response")
+        print(f"Raw output (last 200 chars): {text[-200:]}")
+        return []
 
     try:
         raw_list = json.loads(text)
@@ -247,8 +282,30 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
             py_ok = git_utils.run_python_tests()
 
             if py_ok:
-                finding.status = "implemented"
-                print("    ✅ Tests passed")
+                print("    ✅ Tests passed on branch")
+
+                # Merge back into the original branch
+                print(f"    ⚙️  Attempting merge: {finding.branch_name}")
+                try:
+                    git_utils.merge_branch(
+                        finding.branch_name, target=original_branch,
+                        delete_after=True,
+                    )
+                    finding.status = "merged"
+                    print(f"    ✅  Merged: {finding.branch_name}")
+
+                    # Post-merge sanity check
+                    print(f"    ⚙️  Post-merge test run on {original_branch}")
+                    post_ok = git_utils.run_python_tests()
+                    if post_ok:
+                        print(f"    ✅  Post-merge tests passed")
+                    else:
+                        print(f"    ❌  Post-merge tests FAILED — merge may have introduced issues")
+                        all_passed = False
+                except Exception as e:
+                    print(f"    ❌  Merge failed: {finding.branch_name} — {e}")
+                    finding.status = "implemented"
+                    all_passed = False
             else:
                 finding.status = "pending"
                 all_passed = False
@@ -281,7 +338,7 @@ def _apply_single_fix(finding: Finding) -> None:
     cfg = _get_loop_config()
     new_content = _api_call_with_retry({
         "model": cfg.fix_model,
-        "max_tokens": 8192,
+        "max_tokens": cfg.fix_max_tokens,
         "system": (
             "You are a code fixer. Given the original file and a description of the fix, "
             "return ONLY the complete updated file content. No markdown fences, no commentary, "
