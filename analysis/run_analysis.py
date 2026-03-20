@@ -202,26 +202,93 @@ def _run_tests() -> bool:
         return False
 
 
+def _mask_key_value(key_value: str) -> str:
+    """Mask an API key value based on its length.
+
+    For keys longer than 20 characters, the entire value is masked (only
+    the first 4 characters are shown). For shorter keys (8-20 chars), the
+    first 4 characters are shown followed by ``****``.
+
+    Parameters
+    ----------
+    key_value : str
+        The raw API key string to mask.
+
+    Returns
+    -------
+    str
+        The masked key string.
+    """
+    if len(key_value) > 20:
+        return key_value[:4] + "*" * (len(key_value) - 4)
+    return key_value[:4] + "****"
+
+
 def _mask_api_keys(text: str) -> str:
     """Redact API key values that may appear in subprocess output.
 
-    Catches common patterns like ``GEMINI_API_KEY=sk-...`` and bearer tokens.
+    Catches common patterns including:
+    - ``GEMINI_API_KEY=sk-...`` and similar ENV-style dumps
+    - ``gemini_api_key: sk-...`` and ``anthropic_api_key: sk-ant-...``
+      (suffix-style key names as found in analysis_config.json)
+    - Bearer tokens in HTTP headers
+    - Known provider key prefixes (``sk-ant-``, ``AIza``, ``sk-``)
+      appearing as standalone values
+
     Keys shorter than 8 characters are left untouched (unlikely to be real).
+    Keys longer than 20 characters have their full value masked (only the
+    first 4 characters are preserved).
     """
-    # Mask KEY=value patterns (e.g. from verbose env dumps)
+    # 1. Mask patterns where the field name ends with _KEY, _SECRET, _TOKEN
+    #    (case-insensitive), covering both PREFIX_API_KEY and prefix_api_key
+    #    style names.  Matches ``=`` or ``:`` as the separator.
     text = re.sub(
         r'((?:API_KEY|SECRET|TOKEN)\s*[=:]\s*)["\']?([A-Za-z0-9_\-]{8,})["\']?',
-        lambda m: m.group(1) + m.group(2)[:4] + "****",
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
         text,
         flags=re.IGNORECASE,
     )
-    # Mask Bearer tokens in HTTP headers
+
+    # 2. Mask patterns where the field name ends with _api_key (suffix style),
+    #    e.g. ``gemini_api_key: AIza...`` or ``anthropic_api_key = sk-ant-...``
+    text = re.sub(
+        r'(api_key\s*[=:]\s*)["\']?([A-Za-z0-9_\-]{8,})["\']?',
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 3. Mask Bearer tokens in HTTP headers
     text = re.sub(
         r'(Bearer\s+)([A-Za-z0-9_\-]{8,})',
-        lambda m: m.group(1) + m.group(2)[:4] + "****",
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
         text,
         flags=re.IGNORECASE,
     )
+
+    # 4. Mask known provider key prefixes that may appear as standalone values
+    #    (e.g. in tracebacks printing repr of a dict value).
+    #    - sk-ant-  : Anthropic keys
+    #    - AIza     : Google/Gemini keys
+    #    - sk-      : OpenAI-style keys (also matches sk-ant- but we run this
+    #                 after the more specific pattern above, so duplicates are
+    #                 harmless — already masked text won't re-match).
+    text = re.sub(
+        r'(sk-ant-[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r'(AIza[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r'(sk-[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+
     return text
 
 
