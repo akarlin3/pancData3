@@ -215,10 +215,14 @@ After **every feature implementation** (adding a new file, adding a config field
 
 ## Tracking infrastructure
 
-The loop is tracked by two scripts in the repository root:
+The loop is tracked by several modules in `improvement_loop/`:
 
 - **`evaluator.py`** — Sends the audit text to the Claude API for independent scoring across 6 dimensions (specificity, accuracy, coverage, prioritization, domain_appropriateness, overall). Returns a structured JSON verdict with flags for risky suggestions.
 - **`loop_tracker.py`** — Logs each iteration (scores, findings, branches, test status) to `improvement_loop_log.json`. Provides `get_context_for_next_iteration()` to inject history into subsequent prompts so work is not repeated.
+- **`agents/`** — Subpackage containing agent modules extracted from the orchestrator:
+  - **`agents/auditor.py`** — Audit agent: `audit()` runs a code audit via the Claude API and returns parsed `Finding` objects. Also exposes `collect_source_files()` and `parse_findings()` for direct use.
+  - **`agents/implementer.py`** — Implementer agent: `implement()` creates a branch, generates a code fix via the Claude API, writes it to disk, commits, and runs a syntax check. Returns an `ImplementResult` dataclass with `success`, `original_content`, `new_content`, and `error` fields.
+  - **`agents/_api.py`** — Shared `api_call_with_retry()` helper used by the auditor and implementer agents.
 
 **Requirement:** `pip install anthropic` and `ANTHROPIC_API_KEY` must be set.
 

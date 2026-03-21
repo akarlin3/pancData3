@@ -6,10 +6,8 @@ signals that no further improvements are warranted.
 """
 
 import argparse
-import json
 import os
 import sys
-import time
 
 # Allow direct invocation (python improvement_loop/orchestrator_v1.py)
 # by ensuring the repo root is on sys.path for absolute imports.
@@ -17,14 +15,13 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-import anthropic  # type: ignore
-
 from improvement_loop import loop_tracker
 from improvement_loop import git_utils
 from improvement_loop.evaluator import Finding
+from improvement_loop.agents.auditor import audit as run_audit
+from improvement_loop.agents.implementer import implement as _implement_finding, ImplementResult
+from improvement_loop.agents.reviewer import review as _review_change
 from typing import List
-
-from improvement_loop.loop_config import get_config as _get_loop_config
 
 # Legacy constants — kept as module-level for backward compat but
 # actual runtime values come from get_config().
@@ -34,221 +31,6 @@ MAX_SELF_HEAL_ATTEMPTS = 2  # max retries when a fix causes test failures
 
 # Repo root is one level up from this file's directory
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-def _get_client() -> anthropic.Anthropic:
-    """Return an Anthropic client, using the config API key if set."""
-    cfg = _get_loop_config()
-    kwargs = {}
-    if cfg.anthropic_api_key:
-        kwargs["api_key"] = cfg.anthropic_api_key
-    return anthropic.Anthropic(**kwargs)
-
-AUDIT_SYSTEM_PROMPT = """\
-You are a senior code auditor for a MATLAB + Python medical-imaging research pipeline \
-(pancreatic DWI analysis at Memorial Sloan Kettering).
-
-## Repository overview
-- MATLAB pipeline in `pipeline/` — IVIM and ADC diffusion model fitting, survival analysis, \
-competing risks, treatment response prediction.
-- Python analysis in `analysis/` — post-hoc parsing, cross-DWI comparison, HTML/PDF reports.
-- Config-driven via `config.json`; backwards-compatible defaults in `pipeline/utils/parse_config.m`.
-- `pipeline/dependencies/` is READ-ONLY — never suggest modifications there.
-- Patient data must NEVER be exposed; no PHI in code, logs, or suggestions.
-
-## Your task
-Audit the codebase and return a JSON array of findings. Each finding must have:
-{
-  "dimension": one of ("performance", "correctness", "error_handling", "modularity", \
-"memory", "code_quality", "test_coverage", "security", "cross_platform"),
-  "file": "path/to/file.m or .py",
-  "function_name": "optional — specific function if applicable",
-  "description": "what the problem is — cite specific lines",
-  "fix": "concise fix description (1-3 sentences, NO full code blocks — just describe the change)",
-  "importance": integer 1-10 (8-10 = critical bugs/data integrity, 4-7 = moderate, 1-3 = minor),
-  "branch_name": "improvement/<slug>" (slug: lowercase, hyphens, no spaces, max 50 chars after prefix)
-}
-
-## Rules
-- Be specific: cite files, functions, and line numbers.
-- Do NOT suggest changes to `pipeline/dependencies/`.
-- Do NOT suggest changes that would introduce data leakage (removing patient-stratified CV, \
-cross-timepoint imputation, etc.).
-- Do NOT inflate importance scores — style nits are 1-2, not 7-8.
-- Cover multiple dimensions if possible (performance, correctness, security, tests, etc.).
-- Return ONLY the JSON array — no markdown fences, no commentary.
-"""
-
-
-def _api_call_with_retry(create_kwargs: dict) -> str:
-    """Call client.messages.create with rate-limit retry. Returns response text.
-
-    Uses streaming to avoid the SDK's 10-minute timeout guard for large
-    max_tokens values.
-    """
-    cfg = _get_loop_config()
-    client = _get_client()
-    for attempt in range(1, cfg.max_api_retries + 1):
-        try:
-            # Use streaming to avoid SDK timeout for large max_tokens
-            collected: list[str] = []
-            with client.messages.stream(**create_kwargs) as stream:
-                for text in stream.text_stream:
-                    collected.append(text)
-            return "".join(collected)
-        except anthropic.RateLimitError:
-            delay = cfg.retry_base_delay * attempt
-            print(f"    Rate limited (attempt {attempt}/{cfg.max_api_retries}), "
-                  f"waiting {delay:.0f}s...")
-            time.sleep(delay)
-            if attempt == cfg.max_api_retries:
-                raise
-        except anthropic.APIError:
-            raise
-    return ""  # unreachable
-
-
-def _collect_source_files() -> str:
-    """Collect key source files as context for the audit."""
-    cfg = _get_loop_config()
-    # Smaller focused set to stay under rate limits
-    key_files = [
-        "pipeline/run_dwi_pipeline.m",
-        "pipeline/core/fit_models.m",
-        "pipeline/core/metrics_survival.m",
-        "pipeline/core/metrics_stats_predictive.m",
-        "pipeline/utils/parse_config.m",
-        "pipeline/utils/knn_impute_train_test.m",
-        "pipeline/utils/safe_load_mask.m",
-        "pipeline/utils/escape_shell_arg.m",
-        "analysis/run_analysis.py",
-        "analysis/shared.py",
-    ]
-
-    parts = []
-    for rel_path in key_files:
-        full_path = os.path.join(REPO_ROOT, rel_path)
-        if not os.path.exists(full_path):
-            continue
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-            if len(content) > cfg.max_file_chars:
-                content = content[:cfg.max_file_chars] + "\n... [truncated]"
-            parts.append(f"=== {rel_path} ===\n{content}")
-        except OSError:
-            continue
-    return "\n\n".join(parts)
-
-
-def _run_audit(iteration: int, context: str, dry_run: bool) -> str:
-    """Run or simulate a code audit.  Returns raw audit text."""
-    if dry_run:
-        return f"[dry-run] audit output for iteration {iteration}"
-
-    source_context = _collect_source_files()
-    user_message = (
-        f"## Iteration context\n{context}\n\n"
-        f"## Source files\n{source_context}\n\n"
-        "Return your findings as a JSON array."
-    )
-
-    cfg = _get_loop_config()
-    return _api_call_with_retry({
-        "model": cfg.audit_model,
-        "max_tokens": cfg.audit_max_tokens,
-        "system": AUDIT_SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_message}],
-    })
-
-
-def _parse_findings(audit_output: str, dry_run: bool) -> List[Finding]:
-    """Parse or simulate findings from audit output."""
-    if dry_run:
-        return []
-
-    # Strip markdown fences if present (handles preamble before the fence)
-    text = audit_output.strip()
-    if "```" in text:
-        # Extract content between first pair of ``` fences
-        parts = text.split("```")
-        if len(parts) >= 3:
-            # parts[1] is the content between the first pair of fences
-            inner = parts[1]
-            if inner.startswith("json"):
-                inner = inner[4:]
-            text = inner.strip()
-        elif text.startswith("```"):
-            text = parts[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
-
-    # If text still doesn't look like JSON, try to find a JSON array directly
-    if not text.startswith("["):
-        bracket_pos = text.find("[")
-        if bracket_pos >= 0:
-            text = text[bracket_pos:]
-
-
-
-    # Truncation guard: check if the JSON array appears complete
-    if not text.rstrip().endswith("]"):
-        print("⚠️  Audit response appears truncated — consider increasing max_tokens further")
-        # Attempt repair: find the last complete finding object by looking
-        # for "},\n  {" or "}\n  {" boundaries (the split between findings).
-        # Then try progressively shorter substrings.
-        import re
-        # Find all positions where a finding object boundary occurs
-        boundaries = [m.end() - 1 for m in re.finditer(r'\}\s*,\s*\{', text)]
-        # Also try the simple last-} approach as fallback
-        last_brace = text.rfind("}")
-        candidates = sorted(set(boundaries + ([last_brace] if last_brace >= 0 else [])),
-                            reverse=True)
-        for pos in candidates:
-            # Take everything up to and including the } at this boundary
-            # For boundary matches, pos points to the comma; use the } before it
-            chunk = text[:pos + 1].rstrip().rstrip(",")
-            if not chunk.lstrip().startswith("["):
-                chunk = "[" + chunk
-            chunk = chunk + "]"
-            try:
-                raw_list = json.loads(chunk)
-                if not isinstance(raw_list, list):
-                    continue
-                print(f"⚠️  Recovered {len(raw_list)} findings from truncated response")
-                findings = []
-                for i, raw in enumerate(raw_list):
-                    try:
-                        finding = Finding(**raw)
-                        findings.append(finding)
-                    except Exception as e:
-                        print(f"WARNING: Skipping finding {i}: {e}")
-                return findings
-            except json.JSONDecodeError:
-                continue
-        print("WARNING: Could not recover any findings from truncated response")
-        print(f"Raw output (last 200 chars): {text[-200:]}")
-        return []
-
-    try:
-        raw_list = json.loads(text)
-    except json.JSONDecodeError as e:
-        print(f"WARNING: Could not parse audit findings as JSON: {e}")
-        print(f"Raw output (first 500 chars): {audit_output[:500]}")
-        return []
-
-    if not isinstance(raw_list, list):
-        print(f"WARNING: Expected JSON array, got {type(raw_list).__name__}")
-        return []
-
-    findings = []
-    for i, raw in enumerate(raw_list):
-        try:
-            finding = Finding(**raw)
-            findings.append(finding)
-        except Exception as e:
-            print(f"WARNING: Skipping finding {i}: {e}")
-    return findings
 
 
 def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
@@ -267,30 +49,20 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
         print(f"    {finding.dimension}: {finding.description}")
 
         try:
-            # Create branch for this fix
-            if git_utils.branch_exists(finding.branch_name):
-                print(f"    Branch {finding.branch_name} already exists, skipping")
+            # Implement the fix (branch creation, API call, commit, syntax check)
+            result = _implement_finding(finding, base_branch=original_branch, dry_run=dry_run)
+
+            if not result.success:
+                if "branch exists" in result.error:
+                    print(f"    Branch {finding.branch_name} already exists, skipping")
+                else:
+                    print(f"    ❌ Implementation failed: {result.error}")
                 finding.status = "pending"
+                if result.error not in ("", "branch exists"):
+                    all_passed = False
                 continue
-
-            git_utils.create_branch(finding.branch_name, base=original_branch)
-
-            # Use Claude to generate and apply the fix
-            _apply_single_fix(finding)
-
-            # Commit changes
-            git_utils.commit_all(
-                f"improvement: {finding.dimension} — {finding.description[:60]}"
-            )
 
             # Run tests
-            print("    Running syntax check...")
-            if not git_utils.run_syntax_check():
-                print("    ❌ Syntax error detected — skipping tests")
-                finding.status = "pending"
-                all_passed = False
-                continue
-
             print("    Running Python tests...")
             py_ok = git_utils.run_python_tests()
 
@@ -346,40 +118,6 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
     return all_passed
 
 
-def _apply_single_fix(finding: Finding) -> None:
-    """Use Claude to generate and apply a code fix for a single finding."""
-    file_path = os.path.join(REPO_ROOT, finding.file)
-    if not os.path.exists(file_path):
-        print(f"    WARNING: File {finding.file} not found, skipping")
-        return
-
-    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-        original_content = f.read()
-
-    cfg = _get_loop_config()
-    new_content = _api_call_with_retry({
-        "model": cfg.fix_model,
-        "max_tokens": cfg.fix_max_tokens,
-        "system": (
-            "You are a code fixer. Given the original file and a description of the fix, "
-            "return ONLY the complete updated file content. No markdown fences, no commentary, "
-            "no explanation — just the raw file content ready to be written to disk."
-        ),
-        "messages": [{
-            "role": "user",
-            "content": (
-                f"File: {finding.file}\n"
-                f"Problem: {finding.description}\n"
-                f"Fix: {finding.fix}\n\n"
-                f"Original file content:\n{original_content}"
-            ),
-        }],
-    })
-    with open(file_path, "w", encoding="utf-8", newline="") as f:
-        f.write(new_content)
-    print(f"    Updated {finding.file}")
-
-
 def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
     """Execute the improvement loop up to *max_iterations* times.
 
@@ -400,24 +138,27 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
         print(f"  ITERATION {i}/{max_iterations}")
         print(f"{'─'*60}")
 
-        print(f"\n[1/5] Gathering context from prior iterations...")
+        print(f"\n[1/4] Gathering context from prior iterations...")
         context = loop_tracker.get_context_for_next_iteration()
 
-        print(f"[2/5] Running code audit via Claude API...")
-        audit_output = _run_audit(i, context, dry_run)
-        print(f"       Audit response: {len(audit_output)} chars")
-
-        print(f"[3/5] Parsing findings...")
-        findings = _parse_findings(audit_output, dry_run)
+        print(f"[2/4] Running code audit via Claude API...")
+        findings = run_audit(i, context, dry_run)
         print(f"       Found {len(findings)} valid finding(s)")
         for j, f in enumerate(findings, 1):
             print(f"       {j}. [{f.dimension}] {f.description[:80]}"
                   f" (importance={f.importance})")
 
-        print(f"[4/5] Applying fixes and running tests...")
+        print(f"[3/4] Applying fixes and running tests...")
         tests_passed = _apply_fixes(findings, dry_run)
 
-        print(f"\n[5/5] Logging iteration and evaluating exit condition...")
+        print(f"\n[4/4] Logging iteration and evaluating exit condition...")
+
+        # Build a synthetic audit_output for the tracker/evaluator
+        # (they need the raw text for scoring; reconstruct from findings)
+        import json
+        audit_output = json.dumps(
+            [f.to_log_dict() for f in findings], indent=2
+        ) if findings else "[]"
 
         entry = loop_tracker.log_iteration(
             audit_output=audit_output,

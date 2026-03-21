@@ -42,11 +42,14 @@ class LoopConfig:
     audit_model: str = "claude-opus-4-6"
     fix_model: str = "claude-opus-4-6"
     judge_model: str = "claude-opus-4-6"
+    review_model: str = "claude-sonnet-4-20250514"
+
 
     # ── Token limits ────────────────────────────────────────────────────
     audit_max_tokens: int = 32000
     fix_max_tokens: int = 8192
     judge_max_tokens: int = 2000
+    review_max_tokens: int = 2000
 
     # ── Orchestrator knobs ───────────────────────────────────────────────
     max_api_retries: int = 3
