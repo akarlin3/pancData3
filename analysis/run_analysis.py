@@ -15,7 +15,8 @@ which steps succeeded, failed, or were skipped.
 Usage:
     python run_analysis.py                     # auto-detect latest folder
     python run_analysis.py --folder PATH       # specify folder
-    python run_analysis.py --skip-vision       # skip Claude API calls
+    python run_analysis.py --skip-vision       # skip vision API calls
+    python run_analysis.py --provider both     # run both Gemini & Claude
     python run_analysis.py --report-only       # only generate report
     python run_analysis.py --skip-checks       # skip pre-flight checks
 """
@@ -24,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
+import re
 import subprocess
 import sys
 import time
@@ -31,13 +34,60 @@ from pathlib import Path
 
 from tqdm import tqdm  # type: ignore
 
-from shared import find_latest_saved_folder, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout  # type: ignore
+from shared import find_latest_saved_folder, get_api_key, get_config, load_analysis_config, reset_config_cache, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
 # Absolute path to the analysis/ directory (where this script lives).
 ANALYSIS_DIR = Path(__file__).resolve().parent
+
+
+def _handle_windows_path(path: Path) -> Path:
+    """Handle Windows-specific path issues including UNC paths and long paths.
+    
+    On Windows, applies pathlib.Path.resolve() and handles:
+    - Long path prefix (\\\\?\\) for paths longer than 260 characters
+    - UNC path detection and appropriate handling
+    - Network path normalization
+    
+    Parameters
+    ----------
+    path : Path
+        The path to handle
+        
+    Returns
+    -------
+    Path
+        The processed path with Windows-specific handling applied
+    """
+    if os.name != 'nt':
+        return path.resolve()
+    
+    try:
+        # First resolve the path normally
+        resolved = path.resolve()
+        path_str = str(resolved)
+        
+        # Determine path type
+        is_unc = path_str.startswith('\\\\')
+        path_type = 'local' if not is_unc else 'unc'
+        
+        # Handle UNC paths
+        if path_type == 'unc':
+            if len(path_str) > 260 and not path_str.startswith('\\\\?\\UNC\\'):
+                return Path('\\\\?\\UNC\\' + path_str[2:])
+        # Handle local paths
+        else:
+            if len(path_str) > 260 and not path_str.startswith('\\\\?\\'):
+                return Path('\\\\?\\' + path_str)
+        
+        return resolved
+        
+    except (OSError, ValueError) as e:
+        print(f"  [WARN] Path handling issue: {e}")
+        # Fall back to the original path if resolution fails
+        return path
 
 
 class TeeWriter:
@@ -67,8 +117,16 @@ class TeeWriter:
         return hasattr(self.terminal, "isatty") and self.terminal.isatty()
 
     def fileno(self) -> int:
-        """Delegate fileno to the terminal stream (for subprocess piping)."""
-        return self.terminal.fileno()
+        """Delegate fileno to the terminal stream (for subprocess piping).
+
+        Raises OSError when the terminal stream lacks a file descriptor
+        (e.g., StringIO during pytest capture), matching the standard
+        io.UnsupportedOperation behavior.
+        """
+        try:
+            return self.terminal.fileno()
+        except (AttributeError, OSError):
+            raise OSError("TeeWriter: underlying stream has no fileno")
 
 
 def _check_requirements() -> bool:
@@ -76,6 +134,11 @@ def _check_requirements() -> bool:
 
     Returns True if every requirement is satisfied, False otherwise.
     Missing packages are printed to stdout.
+
+    Uses ``packaging.requirements.Requirement`` to properly parse each
+    requirement line, correctly handling extras syntax (e.g.,
+    ``package[extra]>=1.0``), URL-based requirements (e.g.,
+    ``git+https://...``), and complex version specifiers.
     """
     req_file = ANALYSIS_DIR / "requirements.txt"
     if not req_file.exists():
@@ -85,12 +148,23 @@ def _check_requirements() -> bool:
     missing: list[str] = []
     import importlib.metadata as _meta
 
+    from packaging.requirements import InvalidRequirement, Requirement
+
     for line in req_file.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Strip version specifiers to get the package name.
-        pkg_name = line.split(">=")[0].split("<=")[0].split("==")[0].split("!=")[0].split("<")[0].split(">")[0].strip()
+        # Skip options lines (e.g., ``--index-url``, ``-f``, etc.)
+        if line.startswith("-"):
+            continue
+        try:
+            req = Requirement(line)
+            pkg_name = req.name
+        except InvalidRequirement:
+            # If packaging cannot parse the line (e.g., malformed or
+            # very unusual syntax), warn and skip rather than crash.
+            print(f"  [WARN] Could not parse requirement line, skipping: {line}")
+            continue
         try:
             _meta.version(pkg_name)
         except _meta.PackageNotFoundError:
@@ -144,6 +218,106 @@ def _run_tests() -> bool:
         return False
 
 
+def _mask_key_value(key_value: str) -> str:
+    """Mask an API key value aggressively based on its length.
+
+    For keys shorter than 12 characters, the entire value is fully masked
+    (no characters revealed) to prevent information leakage on short keys.
+    For longer keys, at most the first 2 characters are shown followed by
+    ``****`` and a bracketed character count indicating the total key
+    length, e.g. ``sk****[39 chars]``.
+
+    This avoids revealing well-known provider prefixes (e.g., ``sk-ant-``,
+    ``AIza``) and reduces the information available to an attacker for
+    keys of any length.
+
+    Parameters
+    ----------
+    key_value : str
+        The raw API key string to mask.
+
+    Returns
+    -------
+    str
+        The masked key string.
+    """
+    key_len = len(key_value)
+    if key_len < 12:
+        # Fully mask short keys — showing any characters is too revealing
+        return f"****[{key_len} chars]"
+    # For longer keys, show at most the first 2 characters
+    return key_value[:2] + f"****[{key_len} chars]"
+
+
+def _mask_api_keys(text: str) -> str:
+    """Redact API key values that may appear in subprocess output.
+
+    Catches common patterns including:
+    - ``GEMINI_API_KEY=sk-...`` and similar ENV-style dumps
+    - ``gemini_api_key: sk-...`` and ``anthropic_api_key: sk-ant-...``
+      (suffix-style key names as found in analysis_config.json)
+    - Bearer tokens in HTTP headers
+    - Known provider key prefixes (``sk-ant-``, ``AIza``, ``sk-``)
+      appearing as standalone values
+
+    Keys shorter than 8 characters are left untouched (unlikely to be real).
+    All matched keys are aggressively masked: keys shorter than 12 characters
+    are fully redacted, and longer keys show at most 2 leading characters
+    plus a length indicator.
+    """
+    # 1. Mask patterns where the field name ends with _KEY, _SECRET, _TOKEN
+    #    (case-insensitive), covering both PREFIX_API_KEY and prefix_api_key
+    #    style names.  Matches ``=`` or ``:`` as the separator.
+    text = re.sub(
+        r'((?:API_KEY|SECRET|TOKEN)\s*[=:]\s*)["\']?([A-Za-z0-9_\-]{8,})["\']?',
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 2. Mask patterns where the field name ends with _api_key (suffix style),
+    #    e.g. ``gemini_api_key: AIza...`` or ``anthropic_api_key = sk-ant-...``
+    text = re.sub(
+        r'(api_key\s*[=:]\s*)["\']?([A-Za-z0-9_\-]{8,})["\']?',
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 3. Mask Bearer tokens in HTTP headers
+    text = re.sub(
+        r'(Bearer\s+)([A-Za-z0-9_\-]{8,})',
+        lambda m: m.group(1) + _mask_key_value(m.group(2)),
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 4. Mask known provider key prefixes that may appear as standalone values
+    #    (e.g. in tracebacks printing repr of a dict value).
+    #    - sk-ant-  : Anthropic keys
+    #    - AIza     : Google/Gemini keys
+    #    - sk-      : OpenAI-style keys (also matches sk-ant- but we run this
+    #                 after the more specific pattern above, so duplicates are
+    #                 harmless — already masked text won't re-match).
+    text = re.sub(
+        r'(sk-ant-[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r'(AIza[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+    text = re.sub(
+        r'(sk-[A-Za-z0-9_\-]{8,})',
+        lambda m: _mask_key_value(m.group(1)),
+        text,
+    )
+
+    return text
+
+
 def _run_script(
     name: str,
     folder: Path,
@@ -181,9 +355,12 @@ def _run_script(
     print(f"\n  Running {name} ...")
     t0 = time.time()
     # Run the child script using the same Python interpreter as this process.
+    # Apply Windows path handling to the folder path
+    folder_handled = _handle_windows_path(folder)
+    
     try:
         result = subprocess.run(
-            [sys.executable, str(script), str(folder)],
+            [sys.executable, str(script), str(folder_handled)],
             cwd=str(ANALYSIS_DIR),
             capture_output=True,
             text=True,
@@ -200,12 +377,14 @@ def _run_script(
         return False
     elapsed = time.time() - t0
 
-    # Emit captured output to terminal and log file.
+    # Emit captured output to terminal and log file, masking any API keys
+    # that may have leaked into stdout/stderr (e.g., verbose HTTP logging).
     for stream_output in (result.stdout, result.stderr):
         if stream_output:
-            sys.stdout.write(stream_output)
+            masked = _mask_api_keys(stream_output)
+            sys.stdout.write(masked)
             if log_file is not None:
-                log_file.write(stream_output)  # type: ignore
+                log_file.write(masked)  # type: ignore
 
     if result.returncode == 0:
         print(f"  Done: {name} ({elapsed:.1f}s)")
@@ -215,59 +394,70 @@ def _run_script(
         return False
 
 
-def _ensure_api_key() -> None:
-    """Ensure GEMINI_API_KEY is available in the environment.
+def _ensure_config_key(provider: str, display_name: str, config_key: str,
+                       get_url: str) -> None:
+    """Ensure an API key is available via config or environment.
 
-    Checks the environment and a local .env file. If still missing,
-    prompts the user interactively and saves the entered key to .env.
+    Resolution order (via ``get_api_key``):
+    1. ``vision.<config_key>`` in ``analysis_config.json``.
+    2. The corresponding environment variable.
+
+    If still missing, prompts interactively and saves to
+    ``analysis_config.json`` for future runs.
     """
-    import os
-    env_file = ANALYSIS_DIR / ".env"
-    key_name = "GEMINI_API_KEY"
-
-    # Step 1: Check environment first
-    if os.environ.get(key_name):
+    if get_api_key(provider):
         return
 
-    # Step 2: Check .env file
-    if env_file.exists():
-        try:
-            with open(env_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith(f"{key_name}="):
-                        key = line.split("=", 1)[1].strip(" '\"")
-                        if key:
-                            os.environ[key_name] = key
-                            return
-        except Exception as e:
-            print(f"  [WARN] Failed to read .env file: {e}")
-
-    # Step 3: Prompt user
     print("\n" + "!" * 70)
-    print("  WARNING: GEMINI_API_KEY is not set.")
-    print("  This key is required for the vision-based graph analysis.")
-    print("  You can get an API key from: https://aistudio.google.com/")
+    print(f"  WARNING: {display_name} API key is not set.")
+    print(f"  This key is required for {display_name} vision analysis.")
+    print(f"  You can get an API key from: {get_url}")
+    print(f"  Set vision.{config_key} in analysis_config.json")
     print("!" * 70)
-    
+
     import getpass
-    key = getpass.getpass("\n  Enter your Gemini API key (hidden): ").strip()
-    
+    key = getpass.getpass(f"\n  Enter your {display_name} API key (hidden): ").strip()
+
     if not key:
-        print("  [WARN] No API key provided. Vision analysis will fail if not skipped.\n")
+        print(f"  [WARN] No API key provided. {display_name} vision analysis will fail if not skipped.\n")
         return
 
-    # Update environment
-    os.environ[key_name] = key
+    # Inject into running config so downstream code sees it immediately
+    os.environ[{"gemini": "GEMINI_API_KEY", "claude": "ANTHROPIC_API_KEY"}[provider]] = key
 
-    # Save to .env for future runs
+    # Persist to analysis_config.json for future runs
+    config_path = ANALYSIS_DIR.parent / "analysis_config.json"
     try:
-        # Append just in case there are other things in .env
-        with open(env_file, "a", encoding="utf-8") as f:
-            f.write(f"\n{key_name}={key}\n")
-        print(f"  [INFO] Saved API key to {env_file}\n")
+        if config_path.is_file():
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg_data = json.load(f)
+        else:
+            cfg_data = {}
+        cfg_data.setdefault("vision", {})[config_key] = key
+        with open(config_path, "w", encoding="utf-8", newline="") as f:
+            json.dump(cfg_data, f, indent=4)
+            f.write("\n")
+        print(f"  [INFO] Saved API key to {config_path}\n")
     except Exception as e:
-        print(f"  [WARN] Failed to save key to .env: {e}\n")
+        print(f"  [WARN] Failed to save key to config: {e}\n")
+
+
+def _ensure_api_keys(provider: str) -> None:
+    """Ensure all required API keys are available for the given provider.
+
+    Parameters
+    ----------
+    provider : str
+        One of ``"gemini"``, ``"claude"``, or ``"both"``.
+    """
+    if provider in ("gemini", "both"):
+        _ensure_config_key(
+            "gemini", "Gemini", "gemini_api_key",
+            "https://aistudio.google.com/")
+    if provider in ("claude", "both"):
+        _ensure_config_key(
+            "claude", "Claude (Anthropic)", "anthropic_api_key",
+            "https://console.anthropic.com/")
 
 
 def main():
@@ -285,7 +475,7 @@ def main():
     parser.add_argument(
         "--skip-vision",
         action="store_true",
-        help="Skip Gemini API vision analysis (use existing CSV if available)",
+        help="Skip vision API analysis (use existing CSV if available)",
     )
     parser.add_argument(
         "--report-only",
@@ -303,16 +493,29 @@ def main():
         help="Also write the HTML report to disk (default: PDF only)",
     )
     parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        choices=["gemini", "claude", "both"],
+        help="Vision API provider: gemini (default), claude, or both (runs both and compares)",
+    )
+    parser.add_argument(
         "--gemini-model",
         type=str,
         default=None,
         help="Override the Gemini vision model (e.g. gemini-2.0-flash)",
     )
     parser.add_argument(
+        "--claude-model",
+        type=str,
+        default=None,
+        help="Override the Claude vision model (e.g. claude-opus-4-6)",
+    )
+    parser.add_argument(
         "--concurrency",
         type=int,
         default=None,
-        help="Max concurrent Gemini API requests (default: from config)",
+        help="Max concurrent API requests (default: from config)",
     )
     parser.add_argument(
         "--config",
@@ -325,6 +528,11 @@ def main():
         action="store_true",
         help="Skip pre-flight checks (requirements verification and test suite)",
     )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Also generate an interactive HTML report with client-side filtering",
+    )
     args = parser.parse_args()
 
     # ── Apply CLI overrides to the centralised config ──
@@ -332,10 +540,15 @@ def main():
     import os as _os
     import shared as _shared_mod  # type: ignore
     cfg = load_analysis_config(config_path=args.config)
+    if args.provider:
+        cfg["vision"]["provider"] = args.provider
+        _os.environ["PANCDATA3_VISION_PROVIDER"] = args.provider
     if args.gemini_model:
         cfg["vision"]["gemini_model"] = args.gemini_model
-        # Propagate to subprocess children via environment variable.
         _os.environ["PANCDATA3_GEMINI_MODEL"] = args.gemini_model
+    if args.claude_model:
+        cfg["vision"]["claude_model"] = args.claude_model
+        _os.environ["PANCDATA3_CLAUDE_MODEL"] = args.claude_model
     if args.concurrency is not None:
         cfg["vision"]["max_concurrent_requests"] = args.concurrency
         _os.environ["PANCDATA3_GEMINI_CONCURRENCY"] = str(args.concurrency)
@@ -346,11 +559,15 @@ def main():
     # ── Resolve output folder ──
     if args.folder:
         folder = Path(args.folder)
+        # Apply Windows path handling
+        folder = _handle_windows_path(folder)
         if not folder.is_dir():
             sys.exit(f"ERROR: Folder does not exist: {folder}")
     else:
         # Auto-detect the most recent saved_files_* directory.
         folder = find_latest_saved_folder()
+        # Apply Windows path handling
+        folder = _handle_windows_path(folder)
 
     # ── Open log file and tee all output ──
     log_path = folder / "run_analysis_output.log"
@@ -369,14 +586,17 @@ def main():
         print(f"  Skip vision:   {args.skip_vision}")
         print(f"  Report only:   {args.report_only}")
         print(f"  Skip checks:   {args.skip_checks}")
+        print(f"  Provider:      {cfg['vision'].get('provider', 'gemini')}")
         print(f"  Gemini model:  {cfg['vision']['gemini_model']}")
+        print(f"  Claude model:  {cfg['vision'].get('claude_model', 'claude-opus-4-6')}")
         print(f"  Concurrency:   {cfg['vision']['max_concurrent_requests']}")
         print(f"  Log file:      {log_path}")
         print()
 
         # ── Setup Environment ──
+        vision_provider = cfg["vision"].get("provider", "gemini")
         if not args.skip_vision:
-            _ensure_api_key()
+            _ensure_api_keys(vision_provider)
 
         # ── Pre-flight checks ──
         if not args.skip_checks:
@@ -445,6 +665,13 @@ def main():
             results["mat"] = _run_script("parsers/parse_mat_metrics.py", folder, log_file)
             pipeline_bar.update(1)
 
+            # Step 3.75: Cross-DWI agreement analysis (Bland-Altman, CCC, ICC).
+            pipeline_bar.set_postfix_str("cross-DWI agreement", refresh=True)
+            results["agreement"] = _run_script(
+                "cross_reference/cross_dwi_agreement.py", folder, log_file
+            )
+            pipeline_bar.update(1)
+
         # Step 4: Assemble the final HTML (+PDF) report from all collected data.
         report_script = ANALYSIS_DIR / "report" / "generate_report.py"
         if report_script.exists():
@@ -475,6 +702,34 @@ def main():
             results["report"] = False
 
         pipeline_bar.update(1)
+
+        # Step 5 (optional): Generate interactive report.
+        if args.interactive:
+            interactive_script = ANALYSIS_DIR / "report" / "generate_interactive_report.py"
+            if interactive_script.exists():
+                pipeline_bar.total += 1
+                pipeline_bar.refresh()
+                pipeline_bar.set_postfix_str("interactive report", refresh=True)
+                print(f"\n  Running generate_interactive_report.py ...")
+                t0 = time.time()
+                result = subprocess.run(
+                    [sys.executable, str(interactive_script), str(folder)],
+                    cwd=str(ANALYSIS_DIR),
+                    capture_output=True, text=True,
+                    encoding="utf-8", errors="replace",
+                )
+                elapsed = time.time() - t0
+                for stream_output in (result.stdout, result.stderr):
+                    if stream_output:
+                        sys.stdout.write(stream_output)
+                if result.returncode == 0:
+                    print(f"  Done: generate_interactive_report.py ({elapsed:.1f}s)")
+                    results["interactive"] = True
+                else:
+                    print(f"  FAILED: generate_interactive_report.py (exit code {result.returncode}, {elapsed:.1f}s)")
+                    results["interactive"] = False
+                pipeline_bar.update(1)
+
         pipeline_bar.set_postfix_str("complete", refresh=True)
         pipeline_bar.close()
 
@@ -492,6 +747,9 @@ def main():
             print(f"\n  HTML Report: {report_path}")
         if pdf_path.exists():
             print(f"  PDF Report:  {pdf_path}")
+        interactive_path = folder / "interactive_report.html"  # type: ignore
+        if interactive_path.exists():
+            print(f"  Interactive: {interactive_path}")
         print(f"  Log file:    {log_path}")
         print()
 

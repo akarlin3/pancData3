@@ -13,43 +13,62 @@ from .metadata import (  # noqa: F401
     _section_table_index,
     _section_figure_index,
 )
-from .main_results import (  # noqa: F401
-    _section_executive_summary,
-    _section_hypothesis,
-    _section_treatment_response,
-)
+from .main_results_summary import _section_executive_summary  # noqa: F401
+from .main_results_hypothesis import _section_hypothesis  # noqa: F401
+from .main_results_trends import _section_treatment_response  # noqa: F401
 from .statistical_reporting import (  # noqa: F401
     _section_statistical_significance,
     _section_broad_statistical_overview,
 )
-from .manuscript import (  # noqa: F401
-    _section_predictive_performance,
-    _section_manuscript_ready_findings,
-    _section_results_draft,
-)
-from .data_sections import (  # noqa: F401
+from .manuscript_performance import _section_predictive_performance  # noqa: F401
+from .manuscript_findings import _section_manuscript_ready_findings  # noqa: F401
+from .manuscript_results import _section_results_draft  # noqa: F401
+from .enrollment import (  # noqa: F401
     _section_cohort_overview,
     _section_patient_flow,
     _section_data_completeness,
+)
+from .supplemental import (  # noqa: F401
     _section_mat_data,
 )
 from .gallery import (  # noqa: F401
     _section_appendix,
     _section_figure_gallery,
 )
-from .analysis_sections import (  # noqa: F401
+from .graph_overview import (  # noqa: F401
     _section_graph_overview,
     _section_graph_issues,
     _section_stats_by_graph_type,
+)
+from .cross_dwi import (  # noqa: F401
     _section_cross_dwi_comparison,
-    _section_correlations,
     _section_feature_overlap,
 )
-from .statistics import (  # noqa: F401
+from .correlations import (  # noqa: F401
+    _section_correlations,
+)
+from .effect_sizes import (  # noqa: F401
     _section_effect_sizes,
     _section_multiple_comparisons,
+)
+from .model_diagnostics import (  # noqa: F401
     _section_model_diagnostics,
     _section_sensitivity_analysis,
+    build_dca_section,
+)
+from .model_robustness import (  # noqa: F401
+    _section_model_robustness,
+)
+from .statistics_robustness import (  # noqa: F401
+    build_nri_idi_section,
+)
+from .analysis_features import (  # noqa: F401
+    build_texture_section,
+)
+from .data_quality import (  # noqa: F401
+    build_registration_quality_section,
+)
+from .power_analysis import (  # noqa: F401
     _section_power_analysis,
 )
 from .discussion import (  # noqa: F401
@@ -60,4 +79,9 @@ from .discussion import (  # noqa: F401
 from .publication import (  # noqa: F401
     _section_reporting_checklist,
     _section_journal_guide,
+)
+from .forest_plot import (  # noqa: F401
+    _section_forest_plot_figure,
+    extract_hr_data,
+    generate_forest_plot,
 )

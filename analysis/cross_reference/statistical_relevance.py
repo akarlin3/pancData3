@@ -100,7 +100,7 @@ def main():
         # Also extract structured statistical tests (more reliable than regex).
         try:
             stat_tests = json.loads(r.get("statistical_tests_json", "[]") or "[]")
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             stat_tests = []
         for st in stat_tests:
             if not isinstance(st, dict):

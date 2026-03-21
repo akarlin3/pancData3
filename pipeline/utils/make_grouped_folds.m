@@ -70,6 +70,8 @@ k = min(n_folds, n_unique);
 
 if k <= 1
     % Degenerate case: fewer than 2 unique patients
+    fprintf('  ⚠️  make_grouped_folds: only %d unique patient(s); cannot create %d folds. Returning single fold.\n', ...
+        n_unique, n_folds);
     fold_id = ones(numel(id_list_cell), 1);
     return;
 end

@@ -349,6 +349,40 @@ else
     end
 end
 
+% --- Registration Quality Summary (when deformation fields are available) ---
+% If DIR (deformable image registration) was used, report quality metrics
+% for the spatial transformations. This provides early warning of registration
+% failures that may not show as dimensional mismatches but could still
+% corrupt dose-response analysis.
+reg_quality_issues = 0;
+for j = 1:nPat
+    for k = 2:min(size(data_vectors_gtvp, 2), 5)
+        if j > size(data_vectors_gtvp, 1), continue; end
+        s = data_vectors_gtvp(j, k, 1);
+        if isfield(s, 'deformation_field') && ~isempty(s.deformation_field) && ...
+           isfield(s, 'reference_volume') && ~isempty(s.reference_volume) && ...
+           isfield(s, 'warped_volume') && ~isempty(s.warped_volume)
+            try
+                reg_vox_spacing = [1 1 1];
+                if isfield(s, 'vox_dims') && isnumeric(s.vox_dims) && numel(s.vox_dims) == 3
+                    reg_vox_spacing = s.vox_dims;
+                end
+                quality = compute_registration_quality(s.reference_volume, s.warped_volume, s.deformation_field, reg_vox_spacing);
+                if quality.jacobian_folding_pct > 1.0
+                    fprintf('  ⚠️  Patient %s %s: Jacobian folding %.1f%% (>1%% threshold)\n', ...
+                        id_list{j}, fx_labels{k}, quality.jacobian_folding_pct);
+                    reg_quality_issues = reg_quality_issues + 1;
+                end
+            catch
+                % Registration quality check is non-fatal
+            end
+        end
+    end
+end
+if reg_quality_issues > 0
+    fprintf('  💡 %d registration quality warnings detected.\n', reg_quality_issues);
+end
+
 fprintf('\n======================================================\n');
 fprintf('  Sanity checks complete.\n');
 fprintf('======================================================\n');

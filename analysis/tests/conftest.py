@@ -11,7 +11,9 @@ import csv
 import importlib.util
 import json
 import os
+import struct
 import sys
+import zlib
 from pathlib import Path
 
 import pytest  # type: ignore
@@ -408,3 +410,20 @@ def saved_files_with_csvs(saved_files_dir: Path) -> Path:
                 writer.writerow({"Metric": "mean_adc", "Timepoint": "BL", "p_value": "0.005"})
 
     return saved_files_dir
+
+
+# ---------------------------------------------------------------------------
+# Image helpers
+# ---------------------------------------------------------------------------
+
+def make_tiny_png() -> bytes:
+    """Create a minimal valid 1x1 pixel PNG image for testing."""
+    raw_data = b'\x00\x00\x00\x00'
+    compressed = zlib.compress(raw_data)
+    def chunk(ctype: bytes, data: bytes) -> bytes:
+        c = ctype + data
+        return struct.pack('>I', len(data)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+    return (b'\x89PNG\r\n\x1a\n' +
+            chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)) +
+            chunk(b'IDAT', compressed) +
+            chunk(b'IEND', b''))

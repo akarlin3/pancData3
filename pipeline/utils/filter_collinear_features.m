@@ -57,6 +57,15 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
         return;
     end
 
+    % Validate input dimensions
+    if ~ismatrix(X)
+        error('filter_collinear_features:badX', 'X must be a 2D matrix.');
+    end
+    if size(X, 1) ~= numel(y)
+        error('filter_collinear_features:sizeMismatch', ...
+            'X has %d rows but y has %d elements.', size(X, 1), numel(y));
+    end
+
     % --- Time-stratified subset: use only Fraction 1 (baseline) rows ---
     if nargin >= 3 && ~isempty(frac_vec)
         baseline_mask = (frac_vec == 1);

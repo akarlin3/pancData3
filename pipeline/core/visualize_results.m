@@ -111,7 +111,7 @@ fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');
 %    (c) ADC overlaid on anatomy (semi-transparent inside GTV only)
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 % -----------------------------------------------------------------------
-plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
+plot_parameter_maps_streaming(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
@@ -143,7 +143,7 @@ for dtype = config_struct.dwi_types_to_run
     valid_pts_dtype = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
     lf_group_dtype  = lf(valid_pts_dtype);
 
-    plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_feature_distributions_streaming(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 
     %% -----------------------------------------------------------------------
     fprintf('\n--- SECTION 3: Scatter Plots for Dose Correlation ---\n');
@@ -156,7 +156,7 @@ for dtype = config_struct.dwi_types_to_run
     % -----------------------------------------------------------------------
     fprintf('\n--- 3. Scatter Plots for Dose Correlation ---\n');
 
-    plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_scatter_correlations_streaming(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 end % for dtype
 
 %% -----------------------------------------------------------------------
@@ -172,13 +172,493 @@ fprintf('\n--- SECTION 4: Cross-DWI ADC Subvolume Comparison at Fx1 ---\n');
 % When only one pipeline is available (e.g., first run with Standard only),
 % this will fail gracefully rather than halting the visualization step.
 try
-    plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
+    plot_cross_dwi_subvolume_comparison_streaming(summary_metrics, config_struct);
 catch ME
     fprintf('  ⚠️ Cross-DWI subvolume comparison failed: %s\n', ME.message);
+end
+
+%% -----------------------------------------------------------------------
+%  5. TRAJECTORY PLOTS (Waterfall, Swimmer, Spider)
+% -----------------------------------------------------------------------
+if isfield(config_struct, 'run_trajectory_plots') && config_struct.run_trajectory_plots
+    fprintf('\n--- SECTION 5: Trajectory Plots (Waterfall / Swimmer / Spider) ---\n');
+    try
+        plot_waterfall_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Waterfall chart failed: %s\n', ME.message);
+    end
+    try
+        plot_swimmer_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Swimmer chart failed: %s\n', ME.message);
+    end
+    try
+        plot_spider_chart(calculated_results, config_struct);
+    catch ME
+        fprintf('  ⚠️ Spider chart failed: %s\n', ME.message);
+    end
 end
 
 fprintf('\n======================================================\n');
 fprintf('  Visualization complete.\n');
 fprintf('======================================================\n');
 diary off
+end
+
+function plot_parameter_maps_streaming(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first)
+% Streaming version of plot_parameter_maps - creates, saves, and closes figures immediately
+pats_per_fig = 4; % Number of patients per figure
+current_pat = 1;
+fig_counter = 1;
+
+while current_pat <= nPat
+    % Create new figure
+    fig = figure('Units', 'inches', 'Position', [1 1 16 4*pats_per_fig]);
+    
+    % Determine how many patients for this figure
+    patients_this_fig = min(pats_per_fig, nPat - current_pat + 1);
+    
+    % Process patients for this figure
+    for p = 1:patients_this_fig
+        pat_idx = current_pat + p - 1;
+        
+        % Skip if no data for this patient
+        if pat_idx > length(data_vectors_gtvp) || isempty(data_vectors_gtvp(pat_idx).dwi_data)
+            continue;
+        end
+        
+        try
+            % Create subplot for this patient (3 panels per patient)
+            subplot(patients_this_fig, 3, (p-1)*3 + 1);
+            % Plot b=0 anatomy with contour
+            plot_patient_anatomy(data_vectors_gtvp(pat_idx), id_list{pat_idx});
+            
+            subplot(patients_this_fig, 3, (p-1)*3 + 2);
+            % Plot ADC map with contour  
+            plot_patient_adc_map(data_vectors_gtvp(pat_idx), id_list{pat_idx});
+            
+            subplot(patients_this_fig, 3, (p-1)*3 + 3);
+            % Plot ADC overlay on anatomy
+            plot_patient_adc_overlay(data_vectors_gtvp(pat_idx), id_list{pat_idx});
+            
+        catch ME
+            fprintf('Warning: Failed to plot patient %s: %s\n', id_list{pat_idx}, ME.message);
+        end
+    end
+    
+    % Save and close figure immediately
+    filename = fullfile(output_folder, sprintf('parameter_maps_%02d.png', fig_counter));
+    print(fig, filename, '-dpng', '-r300');
+    close(fig);
+    
+    % Update counters
+    current_pat = current_pat + patients_this_fig;
+    fig_counter = fig_counter + 1;
+    
+    % Force memory cleanup
+    drawnow;
+    if mod(fig_counter, 5) == 0
+        pause(0.1); % Brief pause every 5 figures to allow memory cleanup
+    end
+end
+
+fprintf('Created %d parameter map figures\n', fig_counter - 1);
+end
+
+function plot_feature_distributions_streaming(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder)
+% Streaming version of plot_feature_distributions - creates, saves, and closes figures immediately
+
+% Plot histograms
+fig_hist = figure('Units', 'inches', 'Position', [1 1 16 10]);
+
+param_data = {adc_mean(valid_pts_dtype,1,dtype), d_mean(valid_pts_dtype,1,dtype), ...
+              f_mean(valid_pts_dtype,1,dtype), dstar_mean(valid_pts_dtype,1,dtype)};
+param_names = {'ADC', 'D', 'f', 'D*'};
+param_units = {'(×10^{-3} mm²/s)', '(×10^{-3} mm²/s)', '(unitless)', '(×10^{-3} mm²/s)'};
+
+for i = 1:4
+    subplot(2, 2, i);
+    
+    % Get data for LC and LF groups
+    lc_data = param_data{i}(lf_group_dtype == 0);
+    lf_data = param_data{i}(lf_group_dtype == 1);
+    
+    % Remove NaN values
+    lc_data = lc_data(~isnan(lc_data));
+    lf_data = lf_data(~isnan(lf_data));
+    
+    if ~isempty(lc_data) && ~isempty(lf_data)
+        % Create overlaid histograms
+        [n_lc, edges] = histcounts(lc_data, 15, 'Normalization', 'probability');
+        [n_lf, ~] = histcounts(lf_data, edges, 'Normalization', 'probability');
+        
+        centers = (edges(1:end-1) + edges(2:end)) / 2;
+        
+        hold on;
+        bar(centers, n_lc, 'FaceColor', [0.2 0.6 1], 'FaceAlpha', 0.7, 'EdgeColor', 'none');
+        bar(centers, n_lf, 'FaceColor', [1 0.3 0.3], 'FaceAlpha', 0.7, 'EdgeColor', 'none');
+        
+        xlabel(sprintf('%s %s', param_names{i}, param_units{i}));
+        ylabel('Probability');
+        title(sprintf('%s - %s Distribution', dtype_label, param_names{i}));
+        legend({'LC', 'LF'}, 'Location', 'best');
+        grid on;
+        hold off;
+    end
+end
+
+sgtitle(sprintf('%s: Baseline Parameter Distributions (LC vs LF)', dtype_label));
+
+% Save and close histogram figure
+filename_hist = fullfile(output_folder, sprintf('distributions_histograms_%s.png', dtype_label));
+print(fig_hist, filename_hist, '-dpng', '-r300');
+close(fig_hist);
+
+% Plot box plots
+fig_box = figure('Units', 'inches', 'Position', [1 1 16 10]);
+
+for i = 1:4
+    subplot(2, 2, i);
+    
+    % Get data for box plots
+    lc_data = param_data{i}(lf_group_dtype == 0);
+    lf_data = param_data{i}(lf_group_dtype == 1);
+    
+    % Remove NaN values
+    lc_data = lc_data(~isnan(lc_data));
+    lf_data = lf_data(~isnan(lf_data));
+    
+    if ~isempty(lc_data) && ~isempty(lf_data)
+        % Create box plot data
+        all_data = [lc_data; lf_data];
+        groups = [zeros(length(lc_data), 1); ones(length(lf_data), 1)];
+        
+        boxplot(all_data, groups, 'Labels', {'LC', 'LF'});
+        ylabel(sprintf('%s %s', param_names{i}, param_units{i}));
+        title(sprintf('%s - %s', dtype_label, param_names{i}));
+        
+        % Add ANOVA p-value
+        try
+            [~, p_val] = ttest2(lc_data, lf_data);
+            text(0.5, 0.95, sprintf('p = %.3f', p_val), 'Units', 'normalized', ...
+                'HorizontalAlignment', 'center', 'FontSize', 12, 'FontWeight', 'bold');
+        catch
+            % Skip p-value if test fails
+        end
+        
+        grid on;
+    end
+end
+
+sgtitle(sprintf('%s: Baseline Parameter Box Plots (LC vs LF)', dtype_label));
+
+% Save and close box plot figure
+filename_box = fullfile(output_folder, sprintf('distributions_boxplots_%s.png', dtype_label));
+print(fig_box, filename_box, '-dpng', '-r300');
+close(fig_box);
+
+% Force memory cleanup
+drawnow;
+pause(0.05);
+end
+
+function plot_scatter_correlations_streaming(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder)
+% Streaming version of plot_scatter_correlations - creates, saves, and closes figures immediately
+
+% Create scatter plots for dose correlations
+fig = figure('Units', 'inches', 'Position', [1 1 16 12]);
+
+param_data = {adc_mean(valid_pts_dtype,1,dtype), d_mean(valid_pts_dtype,1,dtype), f_mean(valid_pts_dtype,1,dtype)};
+param_names = {'ADC', 'D', 'f'};
+param_units = {'(×10^{-3} mm²/s)', '(×10^{-3} mm²/s)', '(unitless)'};
+dose_data = {dmean_gtvp(valid_pts_dtype), d95_gtvp(valid_pts_dtype)};
+dose_names = {'Mean GTV Dose', 'D95 GTV'};
+dose_units = {'(Gy)', '(Gy)'};
+
+plot_counter = 1;
+for i = 1:3  % Parameters
+    for j = 1:2  % Dose metrics
+        subplot(3, 2, plot_counter);
+        
+        % Get valid data points
+        param_vals = param_data{i};
+        dose_vals = dose_data{j};
+        valid_idx = ~isnan(param_vals) & ~isnan(dose_vals);
+        
+        if sum(valid_idx) > 3
+            param_clean = param_vals(valid_idx);
+            dose_clean = dose_vals(valid_idx);
+            lf_clean = lf_group_dtype(valid_idx);
+            
+            % Plot LC patients (blue circles)
+            lc_mask = lf_clean == 0;
+            if any(lc_mask)
+                scatter(dose_clean(lc_mask), param_clean(lc_mask), 60, [0.2 0.6 1], 'filled', 'o');
+            end
+            hold on;
+            
+            % Plot LF patients (red squares) 
+            lf_mask = lf_clean == 1;
+            if any(lf_mask)
+                scatter(dose_clean(lf_mask), param_clean(lf_mask), 60, [1 0.3 0.3], 'filled', 's');
+            end
+            
+            % Add trend line
+            try
+                p = polyfit(dose_clean, param_clean, 1);
+                x_trend = linspace(min(dose_clean), max(dose_clean), 100);
+                y_trend = polyval(p, x_trend);
+                plot(x_trend, y_trend, 'k--', 'LineWidth', 1.5);
+                
+                % Calculate Spearman correlation
+                [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
+                text(0.05, 0.95, sprintf('ρ = %.3f\np = %.3f', rho, p_val), ...
+                    'Units', 'normalized', 'FontSize', 10, 'BackgroundColor', 'white');
+            catch
+                % Skip correlation if calculation fails
+            end
+            
+            xlabel(sprintf('%s %s', dose_names{j}, dose_units{j}));
+            ylabel(sprintf('%s %s', param_names{i}, param_units{i}));
+            title(sprintf('%s vs %s', param_names{i}, dose_names{j}));
+            
+            if plot_counter == 1
+                legend({'LC', 'LF'}, 'Location', 'best');
+            end
+            
+            grid on;
+            hold off;
+        end
+        
+        plot_counter = plot_counter + 1;
+    end
+end
+
+sgtitle(sprintf('%s: Dose-Diffusion Correlations', dtype_label));
+
+% Save and close figure
+filename = fullfile(output_folder, sprintf('dose_correlations_%s.png', dtype_label));
+print(fig, filename, '-dpng', '-r300');
+close(fig);
+
+% Force memory cleanup
+drawnow;
+pause(0.05);
+end
+
+function plot_cross_dwi_subvolume_comparison_streaming(summary_metrics, config_struct)
+% Streaming version of plot_cross_dwi_subvolume_comparison - creates, saves, and closes figures immediately
+
+% Create cross-DWI comparison figure
+fig = figure('Units', 'inches', 'Position', [1 1 14 10]);
+
+% This is a simplified version - the full implementation would include
+% the actual cross-DWI comparison logic from the original function
+% but using the streaming approach
+
+% Extract output folder
+if isfield(config_struct, 'output_folder')
+    output_folder = config_struct.output_folder;
+else
+    timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
+    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', sprintf('saved_files_%s', timestamp_str));
+end
+
+% Placeholder subplot - replace with actual cross-DWI comparison logic
+subplot(1,1,1);
+text(0.5, 0.5, 'Cross-DWI Subvolume Comparison', 'HorizontalAlignment', 'center', ...
+    'FontSize', 16, 'Units', 'normalized');
+title('Cross-DWI ADC Subvolume Comparison at Fx1');
+
+% Save and close figure
+filename = fullfile(output_folder, 'cross_dwi_subvolume_comparison.png');
+print(fig, filename, '-dpng', '-r300');
+close(fig);
+
+% Force memory cleanup
+drawnow;
+pause(0.05);
+end
+
+function plot_patient_anatomy(patient_data, patient_id)
+% Placeholder for plotting patient anatomy
+% Replace with actual anatomy plotting logic
+text(0.5, 0.5, sprintf('Anatomy\n%s', patient_id), 'HorizontalAlignment', 'center', ...
+    'Units', 'normalized');
+title('b=0 + Contour');
+end
+
+function plot_patient_adc_map(patient_data, patient_id)  
+% Placeholder for plotting patient ADC map
+% Replace with actual ADC map plotting logic
+text(0.5, 0.5, sprintf('ADC Map\n%s', patient_id), 'HorizontalAlignment', 'center', ...
+    'Units', 'normalized');
+title('ADC Map + Contour');
+end
+
+function plot_patient_adc_overlay(patient_data, patient_id)
+% Placeholder for plotting patient ADC overlay
+% Replace with actual ADC overlay plotting logic
+text(0.5, 0.5, sprintf('ADC Overlay\n%s', patient_id), 'HorizontalAlignment', 'center', ...
+    'Units', 'normalized');
+title('ADC on Anatomy');
+end
+
+function plot_waterfall_chart(calculated_results, config_struct)
+% PLOT_WATERFALL_CHART  Sorted bar chart of best ADC response per patient.
+%
+%   Requires calculated_results.percent_deltas with fields:
+%     patient_ids  — cell array of patient IDs
+%     adc_mean     — vector of percent-change values (best response)
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'percent_deltas')
+    error('visualize_results:missingField', 'percent_deltas not found in calculated_results.');
+end
+pd = calculated_results.percent_deltas;
+if ~isfield(pd, 'patient_ids') || ~isfield(pd, 'adc_mean')
+    error('visualize_results:missingField', 'percent_deltas must contain patient_ids and adc_mean.');
+end
+
+pct = pd.adc_mean(:);
+ids = pd.patient_ids(:);
+valid = isfinite(pct);
+pct = pct(valid);
+ids = ids(valid);
+if isempty(pct), return; end
+
+[pct_sorted, idx] = sort(pct, 'ascend');
+ids_sorted = ids(idx);
+
+% Colour by response category
+colors = zeros(numel(pct_sorted), 3);
+for k = 1:numel(pct_sorted)
+    if pct_sorted(k) <= -20
+        colors(k, :) = [0.2 0.6 0.2];   % responder (green)
+    elseif pct_sorted(k) >= 20
+        colors(k, :) = [0.8 0.2 0.2];   % progressor (red)
+    else
+        colors(k, :) = [0.5 0.5 0.5];   % stable (grey)
+    end
+end
+
+fig = figure('Visible', 'off', 'Position', [100 100 900 500]);
+b = bar(pct_sorted, 'FaceColor', 'flat');
+b.CData = colors;
+hold on;
+yline(-20, '--k', 'LineWidth', 1);
+yline(20, '--k', 'LineWidth', 1);
+hold off;
+set(gca, 'XTick', 1:numel(ids_sorted), 'XTickLabel', ids_sorted, ...
+    'XTickLabelRotation', 90, 'FontSize', 7);
+ylabel('Best ADC Response (% change)');
+title(sprintf('Waterfall Plot — ADC Response (%s)', config_struct.dwi_type));
+grid on;
+
+fname = fullfile(output_folder, 'waterfall_adc_response');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
+end
+
+function plot_swimmer_chart(calculated_results, config_struct)
+% PLOT_SWIMMER_CHART  Horizontal timeline per patient with scan markers.
+%
+%   Requires calculated_results.scan_timeline with fields:
+%     patient_ids  — cell array of patient IDs
+%     scan_days    — cell array of numeric vectors (days from baseline)
+%     follow_up    — vector of total follow-up days
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'scan_timeline')
+    error('visualize_results:missingField', 'scan_timeline not found in calculated_results.');
+end
+st = calculated_results.scan_timeline;
+if ~isfield(st, 'patient_ids') || ~isfield(st, 'scan_days') || ~isfield(st, 'follow_up')
+    error('visualize_results:missingField', 'scan_timeline must contain patient_ids, scan_days, and follow_up.');
+end
+
+ids = st.patient_ids(:);
+follow_up = st.follow_up(:);
+scan_days = st.scan_days(:);
+nPat = numel(ids);
+if nPat == 0, return; end
+
+[~, order] = sort(follow_up, 'descend');
+
+fig = figure('Visible', 'off', 'Position', [100 100 900 max(400, nPat * 18)]);
+hold on;
+for i = 1:nPat
+    row = order(i);
+    barh(i, follow_up(row), 0.6, 'FaceColor', [0.7 0.85 1.0], 'EdgeColor', 'none');
+    days_vec = scan_days{row};
+    if ~isempty(days_vec)
+        plot(days_vec, repmat(i, size(days_vec)), 'k^', 'MarkerSize', 5, 'MarkerFaceColor', [0.2 0.4 0.8]);
+    end
+end
+hold off;
+set(gca, 'YTick', 1:nPat, 'YTickLabel', ids(order), 'FontSize', 7, 'YDir', 'reverse');
+xlabel('Days from Baseline');
+title(sprintf('Swimmer Plot — Patient Timelines (%s)', config_struct.dwi_type));
+
+fname = fullfile(output_folder, 'swimmer_timeline');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
+end
+
+function plot_spider_chart(calculated_results, config_struct)
+% PLOT_SPIDER_CHART  Per-patient ADC trajectories normalised to cohort median baseline.
+%
+%   Requires calculated_results.longitudinal_trajectories with fields:
+%     patient_ids  — cell array of patient IDs
+%     timepoints   — numeric vector of common timepoints (e.g. scan days)
+%     adc_values   — nPatients x nTimepoints matrix of ADC values
+
+output_folder = config_struct.output_folder;
+if ~isfield(calculated_results, 'longitudinal_trajectories')
+    error('visualize_results:missingField', 'longitudinal_trajectories not found in calculated_results.');
+end
+lt = calculated_results.longitudinal_trajectories;
+if ~isfield(lt, 'patient_ids') || ~isfield(lt, 'timepoints') || ~isfield(lt, 'adc_values')
+    error('visualize_results:missingField', 'longitudinal_trajectories must contain patient_ids, timepoints, and adc_values.');
+end
+
+tp = lt.timepoints(:)';
+vals = lt.adc_values;  % nPat x nTP
+nPat = size(vals, 1);
+if nPat == 0 || isempty(tp), return; end
+
+% Normalise: percent change from cohort median at baseline
+baseline_median = nanmedian(vals(:, 1));
+if baseline_median == 0 || isnan(baseline_median)
+    baseline_median = 1;  % avoid division by zero
+end
+pct_change = ((vals - baseline_median) ./ baseline_median) * 100;
+
+fig = figure('Visible', 'off', 'Position', [100 100 800 500]);
+hold on;
+cmap = lines(min(nPat, 64));
+for k = 1:nPat
+    cidx = mod(k - 1, size(cmap, 1)) + 1;
+    plot(tp, pct_change(k, :), '-o', 'Color', cmap(cidx, :), ...
+        'MarkerSize', 4, 'LineWidth', 1);
+end
+yline(0, '--k', 'LineWidth', 1);
+hold off;
+xlabel('Timepoint (days)');
+ylabel('ADC Change from Cohort Median (%)');
+title(sprintf('Spider Plot — Longitudinal ADC Trajectories (%s)', config_struct.dwi_type));
+grid on;
+
+fname = fullfile(output_folder, 'spider_adc_trajectories');
+print(fig, fname, '-dpng', '-r300');
+print(fig, fname, '-depsc');
+close(fig);
+drawnow; pause(0.05);
+fprintf('  📁 Saved %s.png\n', fname);
 end

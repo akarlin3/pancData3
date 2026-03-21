@@ -29,5 +29,19 @@
     "run_compare_cores": false,
     "run_all_core_methods": false,
     "store_core_masks": false,
-    "use_firth_refit": true
+    "use_firth_refit": true,
+    "compute_fine_gray": true,
+    "exclude_motion_volumes": false,
+    "use_texture_features": false,
+    "texture_3d": true,
+    "texture_quantization_method": "fixed_bin_number",
+    "run_imputation_sensitivity": false,
+    "fit_time_varying_cox": true,
+    "export_validation_model": false,
+    "external_validation_data": "",
+    "auxiliary_biomarker_csv": "",
+    "use_auxiliary_biomarkers": false,
+    "use_gpu": false,
+    "gpu_device": 1,
+    "run_trajectory_plots": true
 }

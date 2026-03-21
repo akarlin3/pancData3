@@ -77,7 +77,13 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     % NIfTI output directory: all converted volumes for this patient are stored
     % in a flat 'nii' subdirectory within the patient folder.
     outloc = fullfile(ctx.basefolder, 'nii');
-    if ~isfolder(outloc), mkdir(outloc); end
+    if ~isfolder(outloc)
+        [mk_status, mk_msg] = mkdir(outloc);
+        if mk_status ~= 1
+            error('process_single_scan:mkdirFailed', ...
+                'Cannot create output folder %s: %s', outloc, mk_msg);
+        end
+    end
 
     bad_dwi_found = 0;  % flag: set to 1 if any conversion/loading error occurs
     bad_list = {};       % accumulates DICOM paths that failed
@@ -210,9 +216,24 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         bval_file = fullfile(outloc, [scanID '.bval']);
         if exist(bval_file,'file')
             fid = fopen(bval_file);
-            tline = fgetl(fid);
-            fclose(fid);
-            bvalues = sscanf(tline, '%f');
+            if fid < 0
+                warning('process_single_scan:bvalOpenFailed', ...
+                    'Cannot open bval file %s for %s. Skipping.', bval_file, scanID);
+                havedwi = 0;
+                bvalues = [];
+            end
+            if havedwi
+                tline = fgetl(fid);
+                fclose(fid);
+                if ~ischar(tline)
+                    warning('process_single_scan:bvalEmpty', ...
+                        'Empty bval file %s for %s. Skipping.', bval_file, scanID);
+                    havedwi = 0;
+                    bvalues = [];
+                else
+                    bvalues = sscanf(tline, '%f');
+                end
+            end
             % Validate volume count BEFORE sorting to prevent indexing
             % errors when the bval file has more entries than the NIfTI
             % has volumes (e.g., truncated acquisition, protocol mismatch).
@@ -296,7 +317,8 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             if exist(gtvn_filepath, 'file')
                 gtvn_mask_for_dncnn = rot90(niftiread(niftiinfo(gtvn_filepath)));
             end
-            [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask_for_dncnn, gtvn_mask_for_dncnn);
+            use_gpu_dncnn = isfield(ctx, 'use_gpu') && ctx.use_gpu;
+            [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask_for_dncnn, gtvn_mask_for_dncnn, use_gpu_dncnn);
         end
     end
 
@@ -377,10 +399,38 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
         if havegtvp, mask_ivim = logical(mask_ivim + logical(gtv_mask)); end
         if havegtvn, mask_ivim = logical(mask_ivim + logical(gtvn_mask)); end
 
+        % --- Motion artifact detection (optional) ---
+        % When enabled, flag DWI volumes with excessive motion corruption
+        % before model fitting. Flagged volumes can be excluded to improve
+        % parameter estimation accuracy.
+        if isfield(ctx, 'exclude_motion_volumes') && ctx.exclude_motion_volumes
+            try
+                motion = detect_motion_artifacts(dwi, bvalues, mask_ivim);
+                if any(motion.flagged)
+                    n_flagged = sum(motion.flagged);
+                    fprintf('    ⚠️  Motion: %d/%d volumes flagged, excluding from fit\n', ...
+                        n_flagged, numel(motion.flagged));
+                    % Remove flagged volumes from DWI and b-values
+                    keep_vols = ~motion.flagged;
+                    dwi = dwi(:,:,:,keep_vols);
+                    bvalues = bvalues(keep_vols);
+                    if havedenoised == 1
+                        dwi_dncnn = dwi_dncnn(:,:,:,keep_vols);
+                    end
+                end
+            catch me_motion
+                fprintf('    💡 Motion detection skipped: %s\n', me_motion.message);
+            end
+        end
+
         % opts.bthr: b-value threshold (typically 100 s/mm^2) for IVIM
         % segmented fitting. b < bthr captures perfusion, b >= bthr captures diffusion.
         opts = [];
         opts.bthr = ctx.ivim_bthr;
+        % Pass GPU flag to fit_models for GPU-accelerated ADC WLS fitting.
+        if isfield(ctx, 'use_gpu')
+            opts.use_gpu = ctx.use_gpu;
+        end
 
         [d_map, f_map, dstar_map, adc_map] = fit_models(dwi, bvalues, mask_ivim, opts);
         if havedenoised==1
@@ -390,6 +440,11 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
             [d_map_dncnn, f_map_dncnn, dstar_map_dncnn, adc_map_dncnn] = fit_models(dwi_dncnn, bvalues, mask_ivim, opts);
         end
     end
+
+    % --- Clear DWI volume variables to reduce memory usage ---
+    % Model fitting is complete; clear large DWI volumes immediately to
+    % reduce peak memory usage before visualization/metric computation
+    clear dwi dwi_dncnn;
 
     % --- Deformable Image Registration (DIR) ---
     % DIR warps later-fraction (Fx2-Fx5, post) images to the Fx1 baseline
@@ -411,7 +466,11 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
     D_forward_cur    = [];
 
     if havedwi && havegtvp
-        b0_current = dwi(:,:,:,1);  % b=0 volume: highest-SNR anatomical reference
+        % Use dwi_info to recreate b0_current from disk to avoid keeping dwi in memory
+        b0_current = rot90(niftiread(dwi_info));
+        b0_current = double(b0_current(:,:,:,i_sort));
+        b0_current = b0_current(:,:,:,1);  % b=0 volume: highest-SNR anatomical reference
+        
         if fi == 1
             % At Fx1 (baseline), save the b=0 volume and GTV masks as
             % reference images for subsequent fraction registrations.
@@ -431,331 +490,4 @@ function [result, b0_ref_out, gtvp_ref_out, gtvn_ref_out] = process_single_scan(
                 fprintf('  [DIR] Loaded cached warped mask + D_forward for Fx%d rpi%d\n', fi, rpi);
             else
                 fprintf('  [DIR] Running imregdemons for Fx%d rpi%d...\n', fi, rpi);
-                [gtv_mask_warped, D_forward_cur, ref3d_cur] = ...
-                    apply_dir_mask_propagation(ctx.b0_fx1_ref, b0_current, ctx.gtv_mask_fx1_ref);
-                if ~isempty(gtv_mask_warped)
-                    gtv_mask_for_dvh = gtv_mask_warped;
-                    parsave_dir_cache(dir_cache_file, gtv_mask_warped, D_forward_cur, ref3d_cur);
-                    fprintf('  [DIR] Done. Warped mask + D_forward saved.\n');
-                else
-                    fprintf('  [DIR] Registration failed for Fx%d rpi%d. Falling back to rigid dose/mask.\n', fi, rpi);
-                end
-            end
-        end
-    end
-
-    % --- Warp native-space parameter maps to baseline geometry -----------
-    % All DWI types (Standard, DnCNN, IVIMnet) are warped using the SAME
-    % displacement field so longitudinal comparisons across methods use
-    % identical spatial correspondence. Linear interpolation is used for
-    % continuous parameter maps (ADC, D, f, D*) to avoid step artifacts
-    % from nearest-neighbor. NaN fill values mark voxels that map outside
-    % the native field-of-view, preventing extrapolated values from
-    % contaminating summary statistics.
-    can_warp = (fi > 1) && ~isempty(D_forward_cur) && ~isempty(ctx.b0_fx1_ref);
-    if can_warp
-        % Standard maps — warp from native FxN space to Fx1 baseline space
-        adc_map = imwarp(adc_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        d_map   = imwarp(d_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        f_map   = imwarp(f_map,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        dstar_map = imwarp(dstar_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-
-        % DnCNN maps
-        if havedenoised
-            d_map_dncnn     = imwarp(d_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-            f_map_dncnn     = imwarp(f_map_dncnn,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-            dstar_map_dncnn = imwarp(dstar_map_dncnn, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-            adc_map_dncnn   = imwarp(adc_map_dncnn,   -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        end
-
-        % IVIMnet maps
-        if haveivimnet
-            D_ivimnet     = imwarp(D_ivimnet,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-            f_ivimnet     = imwarp(f_ivimnet,     -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-            Dstar_ivimnet = imwarp(Dstar_ivimnet, -D_forward_cur, 'Interp', 'linear', 'FillValues', nan);
-        end
-
-        % Warp dose map to baseline geometry so DVH metrics are in the same
-        % reference frame as warped parameter maps.  Without this, dose stays
-        % in native Fx2+ space while parameters are in Fx1 space, creating a
-        % spatial mismatch in dose-parameter correlations.
-        if havedose
-            dose_map = imwarp(dose_map, -D_forward_cur, 'Interp', 'linear', 'FillValues', 0);
-        end
-
-        fprintf('  [DIR] Warped all parameter maps and dose to baseline geometry.\n');
-    end
-
-    % Package parameter maps and metadata into structs for extract_biomarkers.
-    % This centralises the interface between spatial (3D) and statistical (1D)
-    % analysis, ensuring all downstream extraction uses consistent inputs.
-    maps = struct('adc_map', adc_map, 'd_map', d_map, 'f_map', f_map, 'dstar_map', dstar_map);
-    meta = struct('id', ctx.id_j, 'mrn', ctx.mrn_j, 'lf', ctx.pat_lf, ...
-        'immuno', ctx.pat_immuno, 'fi', fi, 'rpi', rpi, 'vox_vol', dwi_vox_vol, 'vox_dims', dwi_dims);
-
-    % DnCNN maps struct
-    dncnn_maps = struct();
-    if havedenoised
-        dncnn_maps.d_map_dncnn     = d_map_dncnn;
-        dncnn_maps.f_map_dncnn     = f_map_dncnn;
-        dncnn_maps.dstar_map_dncnn = dstar_map_dncnn;
-        dncnn_maps.adc_map_dncnn   = adc_map_dncnn;
-    end
-
-    % IVIMnet maps struct (already rotated at load time, lines 214-216)
-    ivimnet_maps = struct();
-    if haveivimnet
-        ivimnet_maps.D_ivimnet     = D_ivimnet;
-        ivimnet_maps.f_ivimnet     = f_ivimnet;
-        ivimnet_maps.Dstar_ivimnet = Dstar_ivimnet;
-    end
-
-    % Determine the appropriate mask for biomarker extraction.
-    % When parameter maps are warped to Fx1 (baseline) geometry (can_warp),
-    % ALL DWI types must use the Fx1 reference mask for consistency.
-    % Previously DnCNN used the Fx1 mask while standard maps used the
-    % native Fx2+ mask, causing a spatial mismatch that invalidated
-    % cross-DWI-type longitudinal comparisons.
-    biomarker_mask_p = gtv_mask;
-    biomarker_mask_n = gtvn_mask;
-    if can_warp && ~isempty(ctx.gtv_mask_fx1_ref)
-        biomarker_mask_p = ctx.gtv_mask_fx1_ref;
-        if ~isempty(ctx.gtvn_mask_fx1_ref)
-            biomarker_mask_n = ctx.gtvn_mask_fx1_ref;
-        end
-    end
-
-    % DnCNN masks now use the same mask as all other DWI types
-    dncnn_mask_p = biomarker_mask_p;
-    dncnn_mask_n = biomarker_mask_n;
-
-    % --- Extract biomarkers for GTVp ---
-    % Initialize with empty struct matching init_scan_structs fields.
-    % init_scan_structs creates template structs with all required fields
-    % (adc_vector, d_vector, etc.) set to empty, ensuring downstream code
-    % never encounters missing-field errors even if extraction is skipped.
-    [empty_p, empty_n] = init_scan_structs(1, 1);
-    result.data_gtvp = empty_p;
-    result.data_gtvn = empty_n;
-
-    if havegtvp
-        result.data_gtvp = extract_biomarkers(biomarker_mask_p, maps, meta, dncnn_maps, dncnn_mask_p, ivimnet_maps);
-
-        % Compute summary statistics for this scan's ADC distribution.
-        % nanmean excludes voxels where fitting failed (NaN).
-        result.adc_mean = nanmean(adc_map(biomarker_mask_p==1));
-        % NOTE: Histogram kurtosis of trace-average ADC — NOT valid DKI.
-        % This measures the peakedness of the ADC distribution, which may
-        % indicate heterogeneity (platykurtic = heterogeneous; leptokurtic
-        % = homogeneous). Requires >= 4 finite values for a meaningful estimate.
-        % Filter NaN before kurtosis() which does not ignore NaN values.
-        adc_finite = adc_map(biomarker_mask_p==1);
-        adc_finite = adc_finite(~isnan(adc_finite));
-        if numel(adc_finite) >= 4
-            result.adc_kurtosis = kurtosis(adc_finite);
-        end
-        result.d_mean = nanmean(d_map(biomarker_mask_p==1));
-        % NOTE: Histogram kurtosis of trace-average map — NOT valid DKI.
-        d_finite = d_map(biomarker_mask_p==1);
-        d_finite = d_finite(~isnan(d_finite));
-        if numel(d_finite) >= 4
-            result.d_kurtosis = kurtosis(d_finite);
-        end
-
-        if havedenoised
-            result.d_mean_dncnn = nanmean(d_map_dncnn(dncnn_mask_p==1));
-        end
-        if haveivimnet
-            result.d_mean_ivimnet = nanmean(D_ivimnet(biomarker_mask_p==1));
-        end
-    end
-
-    % --- DVH (Dose-Volume Histogram) for GTVp ---
-    % DVH analysis quantifies how radiation dose is distributed within
-    % the tumor volume. Key metrics:
-    %   - D95: dose received by 95% of the GTV (coverage metric). Low D95
-    %     indicates cold spots that may correlate with local failure.
-    %   - V50Gy: fraction of GTV receiving >= 50 Gy (high-dose coverage).
-    %     Relevant for dose escalation studies in pancreatic SBRT.
-    %   - dmean: mean dose across all GTV voxels (overall dose intensity).
-    %
-    % The mask used for DVH MUST match the biomarker extraction mask so
-    % that dose_vector and adc_vector have identical lengths, enabling
-    % voxel-level dose-response correlation analysis.
-    dvh_mask_p = biomarker_mask_p;
-    dvh_dose   = dose_map_dvh;
-    if can_warp && havedose
-        dvh_dose   = dose_map;          % dose already warped to Fx1 above
-    end
-    if havedose && havegtvp
-        result.dmean_gtvp = nanmean(dvh_dose(dvh_mask_p==1));
-        % Compute DVH with 2000 bins for smooth dose-volume curves.
-        % 'Normalize' = true reports volumes as percentages rather than
-        % absolute cc, making DVH metrics comparable across patients with
-        % different GTV sizes.
-        [dvhparams, dvh_values] = dvh(dvh_dose, dvh_mask_p, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
-        result.d95_gtvp = dvhparams.("D95% (Gy)");
-        result.v50gy_gtvp = dvhparams.("V50Gy (%)");
-
-        result.data_gtvp.dose_vector = dvh_dose(dvh_mask_p==1);
-        result.data_gtvp.dvh = dvh_values;
-        result.data_gtvp.d95 = dvhparams.("D95% (Gy)");
-        result.data_gtvp.v50gy = dvhparams.("V50Gy (%)");
-    end
-
-    % --- Extract biomarkers for GTVn ---
-    if havegtvn
-        % GTVn uses the same IVIMnet maps as GTVp (already rotated once at
-        % lines 296-298).  The legacy code incorrectly applied rot90 a
-        % second time, causing a 180-deg orientation mismatch.
-        ivimnet_maps_n = ivimnet_maps;
-        result.data_gtvn = extract_biomarkers(biomarker_mask_n, maps, meta, dncnn_maps, dncnn_mask_n, ivimnet_maps_n);
-    end
-
-    % --- DVH for GTVn ---
-    % Always use the same mask for dose as for biomarkers (mirrors GTVp).
-    % Only use warped dose when the GTVn mask is also in Fx1 space;
-    % otherwise fall back to native dose to avoid spatial mismatch.
-    dvh_mask_n = biomarker_mask_n;
-    dvh_dose_n = dose_map_dvh;
-    if can_warp && havedose && ~isempty(ctx.gtvn_mask_fx1_ref)
-        dvh_dose_n = dose_map;
-    end
-    if havedose && havegtvn
-        result.dmean_gtvn = nanmean(dvh_dose_n(dvh_mask_n==1));
-        [dvhparams, dvh_values] = dvh(dvh_dose_n, dvh_mask_n, dwi_dims, 2000, 'Dperc',95,'Vperc',50,'Normalize',true);
-        result.d95_gtvn = dvhparams.("D95% (Gy)");
-        result.v50gy_gtvn = dvhparams.("V50Gy (%)");
-
-        result.data_gtvn.dose_vector = dvh_dose_n(dvh_mask_n==1);
-        result.data_gtvn.dvh = dvh_values;
-        result.data_gtvn.d95 = dvhparams.("D95% (Gy)");
-        result.data_gtvn.v50gy = dvhparams.("V50Gy (%)");
-    end
-
-    result.bad_dwi_list = bad_list;
-end
-
-% =========================================================================
-%  Local helper functions
-% =========================================================================
-
-function [have_mask, mask_data] = load_nifti_mask(filepath, dwi_size, message_prefix, mask_name)
-    % LOAD_NIFTI_MASK Helper function to load a NIfTI mask and validate dimensions
-    %   Spatial dimension validation is critical: if the mask and DWI volumes
-    %   have different matrix sizes (e.g., due to different reconstruction
-    %   settings or protocol changes between scans), applying the mask would
-    %   extract voxels from wrong spatial locations, invalidating all
-    %   downstream parameter analysis. A size mismatch is treated as a hard
-    %   failure (mask excluded) rather than attempting interpolation, which
-    %   could introduce artifacts in binary contour masks.
-    have_mask = 0;
-    mask_data = [];
-
-    if exist(filepath, 'file')
-        info = niftiinfo(filepath);
-        mask_data = rot90(niftiread(info));  % rot90: NIfTI-to-MATLAB convention
-        fprintf('...%sLoaded %s\n', message_prefix, filepath);
-        have_mask = 1;
-
-        mask_size = size(mask_data);
-        if sum(mask_size ~= dwi_size(1:3)) > 0
-            have_mask = 0;
-            mask_data = [];
-            fprintf('size mismatch. excluding %s\n', mask_name);
-        end
-    end
-end
-
-function bio = extract_biomarkers(mask, maps, meta, dncnn_maps, dncnn_mask, ivimnet_maps)
-    % EXTRACT_BIOMARKERS Extract voxel-level biomarkers within a GTV mask
-    %   Returns a struct with all fields matching init_scan_structs layout.
-    %
-    %   This function converts 3D parameter maps into 1D voxel vectors by
-    %   applying the GTV mask as a boolean index. The resulting vectors
-    %   contain one value per tumor voxel, enabling:
-    %     - Summary statistics (mean, kurtosis, skewness) of the parameter
-    %       distribution within the tumor
-    %     - Sub-volume analysis (e.g., fraction of tumor with ADC < threshold)
-    %     - Voxel-level dose-parameter correlation
-    %     - Histogram-based distribution comparison across timepoints (KS test)
-    %   All three DWI pipeline variants (Standard, DnCNN, IVIMnet) are
-    %   extracted in a single call to ensure consistent mask application.
-
-    % Start from template to ensure all fields exist
-    [tmp, ~] = init_scan_structs(1, 1);
-    bio = tmp;
-
-    mask_idx = (mask == 1);
-
-    bio.adc_vector = maps.adc_map(mask_idx);
-    bio.d_vector   = maps.d_map(mask_idx);
-    bio.f_vector   = maps.f_map(mask_idx);
-    bio.dstar_vector = maps.dstar_map(mask_idx);
-    bio.ID = meta.id;
-    bio.MRN = meta.mrn;
-    bio.LF = meta.lf;
-    bio.Immuno = meta.immuno;
-    bio.Fraction = meta.fi;
-    bio.Repeatability_index = meta.rpi;
-    bio.vox_vol = meta.vox_vol;
-    bio.vox_dims = meta.vox_dims;
-
-    % DnCNN-denoised vectors
-    if isfield(dncnn_maps, 'd_map_dncnn') && ~isempty(dncnn_maps.d_map_dncnn)
-        dm = (dncnn_mask == 1);
-        bio.d_vector_dncnn     = dncnn_maps.d_map_dncnn(dm);
-        bio.f_vector_dncnn     = dncnn_maps.f_map_dncnn(dm);
-        bio.dstar_vector_dncnn = dncnn_maps.dstar_map_dncnn(dm);
-        bio.adc_vector_dncnn   = dncnn_maps.adc_map_dncnn(dm);
-    end
-
-    % IVIMnet vectors
-    if isfield(ivimnet_maps, 'D_ivimnet') && ~isempty(ivimnet_maps.D_ivimnet)
-        bio.d_vector_ivimnet     = ivimnet_maps.D_ivimnet(mask_idx);
-        bio.f_vector_ivimnet     = ivimnet_maps.f_ivimnet(mask_idx);
-        bio.dstar_vector_ivimnet = ivimnet_maps.Dstar_ivimnet(mask_idx);
-    end
-end
-
-function [dwi_dncnn, havedenoised] = compute_dncnn_fallback(dwi, i_sort, gtv_mask, gtvn_mask)
-    % COMPUTE_DNCNN_FALLBACK On-the-fly DnCNN denoising when cache is missing
-    %   When pre-computed denoised volumes are not available (e.g., first run
-    %   or cache cleared), this fallback applies DnCNN denoising on the CPU.
-    %   Denoising is applied independently per b-value volume because noise
-    %   characteristics differ across b-values (higher b = lower SNR = more
-    %   noise). The GTV mask focuses denoising on the tumor region. This is
-    %   significantly slower than loading cached results (~minutes vs seconds)
-    %   but ensures the DnCNN pipeline can always produce results.
-    havedenoised = 0;
-    dwi_dncnn = [];
-    fprintf('  [DnCNN] Cache missing. Executing deep learning denoising on CPU...\n');
-    try
-        loaded_model = load(fullfile(fileparts(mfilename('fullpath')), '..', 'dependencies', 'dncnn_model.mat'), 'net');
-        dncnn_net = loaded_model.net;
-
-        dwi_cpu = single(dwi);
-
-        if ~isempty(gtv_mask)
-            mask_cpu = single(gtv_mask);
-        elseif ~isempty(gtvn_mask)
-            mask_cpu = single(gtvn_mask);
-        else
-            mask_cpu = ones(size(dwi, 1), size(dwi, 2), size(dwi, 3), 'single');
-        end
-
-        dwi_dncnn_cpu = zeros(size(dwi_cpu), 'single');
-        n_bvals_dncnn = size(dwi_cpu, 4);
-        for b_idx = 1:n_bvals_dncnn
-            text_progress_bar(b_idx, n_bvals_dncnn, 'DnCNN denoising b-values');
-            dwi_dncnn_cpu(:,:,:,b_idx) = apply_dncnn_symmetric(dwi_cpu(:,:,:,b_idx), mask_cpu, dncnn_net, 15);
-        end
-
-        dwi_dncnn = double(mat2gray(dwi_dncnn_cpu));
-        havedenoised = 1;
-        fprintf('  [DnCNN] Deep learning denoising completed.\n');
-    catch CPU_ME
-        fprintf('  [DnCNN] CPU Computation failed: %s\n', CPU_ME.message);
-        fprintf('  [DnCNN] Proceeding without denoised data.\n');
-    end
-end
+                [gtv_mask

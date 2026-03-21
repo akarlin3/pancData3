@@ -184,6 +184,53 @@ class TestLoadAnalysisConfig:
         )
         assert cfg["dwi_types"] == ["Standard", "dnCNN", "IVIMnet"]
 
+    def test_claude_model_default(self, tmp_path: Path):
+        """Default claude_model is set in vision config."""
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert "claude_model" in cfg["vision"]
+        assert cfg["vision"]["claude_model"] == "claude-opus-4-6"
+
+    def test_provider_default(self, tmp_path: Path):
+        """Default provider is 'claude'."""
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["provider"] == "claude"
+
+    def test_provider_override_from_config(self, tmp_path: Path):
+        """Provider can be overridden from analysis_config.json."""
+        config = {"vision": {"provider": "both"}}
+        config_path = tmp_path / "analysis_config.json"
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+
+        cfg = load_analysis_config(
+            config_path=config_path,
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["provider"] == "both"
+
+    def test_env_var_overrides_claude_model(self, tmp_path: Path, monkeypatch):
+        """PANCDATA3_CLAUDE_MODEL env var overrides the config file value."""
+        monkeypatch.setenv("PANCDATA3_CLAUDE_MODEL", "claude-opus-4-6")
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["claude_model"] == "claude-opus-4-6"
+
+    def test_env_var_overrides_provider(self, tmp_path: Path, monkeypatch):
+        """PANCDATA3_VISION_PROVIDER env var overrides the config file value."""
+        monkeypatch.setenv("PANCDATA3_VISION_PROVIDER", "claude")
+        cfg = load_analysis_config(
+            config_path=tmp_path / "nonexistent.json",
+            matlab_config_path=tmp_path / "nonexistent.json",
+        )
+        assert cfg["vision"]["provider"] == "claude"
+
     def test_env_var_overrides_gemini_model(self, tmp_path: Path, monkeypatch):
         """PANCDATA3_GEMINI_MODEL env var overrides the config file value."""
         monkeypatch.setenv("PANCDATA3_GEMINI_MODEL", "gemini-2.5-flash")
@@ -287,6 +334,8 @@ class TestBackwardCompatibility:
         assert "statistics" in _DEFAULTS
         assert "priority_graphs" in _DEFAULTS
         assert "gemini_model" in _DEFAULTS["vision"]
+        assert "claude_model" in _DEFAULTS["vision"]
+        assert "provider" in _DEFAULTS["vision"]
         assert "request_timeout_seconds" in _DEFAULTS["vision"]
         assert "p_noteworthy" in _DEFAULTS["statistics"]
 

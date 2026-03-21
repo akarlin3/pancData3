@@ -1,283 +1,519 @@
-function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te, target_cols)
-% knn_impute_train_test Imputes missing data safely for cross-validation
+function test_knn_impute()
+% test_knn_impute  Unit tests for knn_impute_train_test edge cases.
 %
-% Integrates robust K-Nearest Neighbors (KNN) imputation ensuring that the
-% imputation model is fitted strictly on the training fold (X_tr) and then
-% applied to the test fold (X_te) to prevent data leakage.
+%   Covers:
+%     1. All-NaN neighbor column (should fall back to column-mean or 0)
+%     2. k larger than available non-blocked neighbors (should use fewer neighbors)
+%     3. Single-patient training set (all rows blocked, imputation impossible)
+%     4. Mixed cell/numeric patient IDs (should error on mismatch, work on match)
+%     5. Empty X_te
+%     6. Basic correctness sanity check
+%     7. No missing data passthrough
+%     8. Partial NaN neighbor column
+%     9. Target column exclusion from distance metric
+%    10. Multiple missing columns in single row
+%    11. Training imputation with patient blocking
+%    12. Single training row (degenerate case)
+%    13. Patient blocking changes imputed value (blocked vs unblocked)
+%    14. Constant column (zero variance) produces no NaN/Inf
+%    15. Negative feature values are correctly handled
+%    16. Wide matrix (more columns than rows)
+%    17. Distance-weighted vs uniform-weighted imputation
+%    18. Scale invariance (standardization before distance computation)
+%    19. Inf values in training/test data
+%    20. Single non-NaN value in a training column
+%    21. Imputed training data preserves column-wise mean/variance
+%    22. Training imputation is independent of test data
+%    23. Deterministic / reproducible output
+%    24. Empty X_tr (zero training rows) graceful handling
 %
-% Also prevents temporal data leakage by excluding rows from the same patient
-% during distance calculation if pat_id_tr/pat_id_te are provided.
-%
-%   Inputs:
-%       X_tr        - [n_train x p] Feature matrix for the training fold.
-%       X_te        - [n_test  x p] Feature matrix for the testing fold.
-%       k           - (Optional) Number of nearest neighbors. Default is 5.
-%       pat_id_tr   - (Optional) Array of patient IDs for training instances.
-%       pat_id_te   - (Optional) Array of patient IDs for testing instances.
-%       target_cols - (Optional) Indices of columns to exclude from distance metric.
-%
-%   Outputs:
-%       X_tr_imp    - [n_train x p] Imputed training feature matrix.
-%       X_te_imp    - [n_test  x p] Imputed testing feature matrix.
-%
-%   Analytical Rationale — Why Same-Patient Exclusion is Critical:
-%   ---------------------------------------------------------------
-%   In the time-dependent panel, each patient has multiple rows (one per
-%   treatment fraction).  If we allow KNN to use another row from the SAME
-%   patient as a neighbor, the imputed value effectively comes from that
-%   patient's own measurements at a different timepoint.  This creates
-%   temporal data leakage: a missing ADC at fraction 3 would be imputed
-%   from the patient's own fraction 5 value, using future information to
-%   fill a past measurement gap.
-%
-%   By setting the distance to same-patient rows to infinity, KNN is forced
-%   to borrow information only from OTHER patients at similar treatment
-%   stages — which is the clinically appropriate imputation strategy (using
-%   population-level patterns, not patient-specific future data).
-%
-%   Train-Test Separation:
-%   ----------------------
-%   Training-set imputation uses only training-set neighbors.  Test-set
-%   imputation also uses only training-set neighbors (never other test
-%   rows).  This mirrors the clinical deployment scenario where the model
-%   has access to historical patients (training) but not to other
-%   concurrent patients (test) when imputing a new patient's missing data.
-%
-    if nargin < 2, X_te = []; end
-    if nargin < 3, k = 5; end
-    if nargin < 4, pat_id_tr = []; end
-    if isempty(pat_id_tr)
-        warning('knn_impute_train_test:noPatientIDs', ...
-            'No patient IDs provided. Only self-exclusion applied; same-patient rows may leak information.');
-    end
-    if nargin < 5, pat_id_te = []; end
-    if nargin < 6, target_cols = []; end
-    
-    [n_tr, p] = size(X_tr);
-    X_tr_imp = X_tr;
+%   Usage:
+%     >> test_knn_impute   % runs all tests, prints PASS/FAIL summary
 
-    % Z-score standardize features based on training fold to compute
-    % distances.  Without standardization, features with large absolute
-    % values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the Euclidean
-    % distance over features with small absolute values (e.g., f ~ 0.05-
-    % 0.20), making KNN effectively ignore the latter.  Z-scoring puts
-    % all DWI parameters on a common scale so each contributes equally
-    % to neighbor selection.
-    %
-    % Statistics are computed from training data only — using test-set
-    % statistics would leak test-set distributional information into the
-    % distance metric.
-    mu_tr = mean(X_tr, 1, 'omitnan');
-    sd_tr = std(X_tr, 0, 1, 'omitnan');
-    sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero for constant features
-    Z_tr = (X_tr - mu_tr) ./ sd_tr;
-    
-    % --- 1. Impute Training Set (X_tr) ---
-    % Create a boolean mask of valid search space coordinates.
-    % Target columns (e.g., the outcome variable or derived response
-    % features) are masked out of the distance metric to prevent
-    % circular reasoning: we should not use the outcome to find
-    % neighbors for imputing predictor features that will later predict
-    % that same outcome.
-    search_space = Z_tr;
-    if ~isempty(target_cols)
-        search_space(:, target_cols) = nan; % mask out target columns from distance metric
-    end
-    
-    % Pre-compute validity mask for vectorized operations
-    valid_mask = ~isnan(search_space);
+    n_pass = 0;
+    n_fail = 0;
+    test_names = {};
+    test_results = {};
 
-    for i = 1:n_tr
-        missing_idx = isnan(X_tr(i, :));
-        if any(missing_idx)
-            % Extract the precise query point, masking valid features
-            query_pt = search_space(i, :);
-            valid_feat = valid_mask(i, :);
-            
-            % We cannot search if the query has no valid features left
-            if sum(valid_feat) == 0
-                continue;
-            end
-            
-            % Vectorized finding of valid reference indices
-            % A row is valid if it doesn't have any NaNs in the valid_feat columns
-            % This means valid_mask(:, valid_feat) must be all true.
-            % sum(valid_mask(:, valid_feat), 2) == sum(valid_feat)
-            num_valid = sum(valid_feat);
-            is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
-            
-            % Apply self/patient exclusions.  When patient IDs are provided,
-            % ALL rows from the same patient are excluded — not just the
-            % current row.  This prevents both (a) trivial self-imputation
-            % and (b) temporal leakage where a patient's fraction-5 data
-            % informs imputation of their fraction-2 missing values.
-            % The exclusion is bidirectional: patient A's data cannot
-            % inform patient A's imputation at any timepoint.
-            if ~isempty(pat_id_tr)
-                if iscell(pat_id_tr)
-                    is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_tr{i});
-                else
-                    is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_tr(i));
-                end
+    % =====================================================================
+    % Test 1: All-NaN neighbor column fallback
+    %   When every training row has NaN in a particular column, KNN cannot
+    %   find any valid neighbor for that column.  The function should fall
+    %   back gracefully (impute to 0 per the all-NaN-column warning path)
+    %   rather than error.
+    % =====================================================================
+    try
+        X_tr = [1 NaN 3; 4 NaN 6; 7 NaN 9];
+        X_te = [2 NaN 5];
+        pat_id_tr = [1; 2; 3];
+        pat_id_te = [4];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        % Column 2 is entirely NaN in training data, so fallback should produce 0
+        assert(~any(isnan(X_tr_imp(:))), 'Training output should have no NaN');
+        assert(~any(isnan(X_te_imp(:))), 'Test output should have no NaN');
+        assert(all(X_tr_imp(:,2) == 0), 'All-NaN column in training should be imputed to 0');
+        assert(X_te_imp(1,2) == 0, 'All-NaN column in test should be imputed to 0');
+        record_pass('AllNaN_neighbor_column_fallback');
+    catch me
+        record_fail('AllNaN_neighbor_column_fallback', me.message);
+    end
+
+    % =====================================================================
+    % Test 2: k larger than available non-blocked neighbors
+    %   With 3 training rows from different patients and k=10, the function
+    %   should silently use fewer neighbors (up to 3) without error.
+    % =====================================================================
+    try
+        X_tr = [1 2; 3 4; 5 6];
+        X_te = [2 NaN];
+        pat_id_tr = [1; 2; 3];
+        pat_id_te = [4];
+        k_large = 10;  % much larger than n_tr
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k_large, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Test output should have no NaN with k > n_neighbors');
+        % The imputed value should be the mean of column 2 from all 3 training rows
+        expected_val = mean([2, 4, 6]);
+        assert(abs(X_te_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f but got %.4f', expected_val, X_te_imp(1,2)));
+        record_pass('k_larger_than_available_neighbors');
+    catch me
+        record_fail('k_larger_than_available_neighbors', me.message);
+    end
+
+    % =====================================================================
+    % Test 3: Single-patient training set — all rows blocked
+    %   When all training rows belong to the same patient as the test row,
+    %   patient blocking excludes all neighbors.  KNN imputation is
+    %   impossible, so the function should fall back to column-mean
+    %   imputation without error.
+    % =====================================================================
+    try
+        X_tr = [1 2; 3 4; 5 6];
+        X_te = [2 NaN];
+        % All rows (train and test) belong to patient 1
+        pat_id_tr = [1; 1; 1];
+        pat_id_te = [1];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Test output should have no NaN even when all neighbors blocked');
+        % Fallback should be column mean of X_tr column 2 = mean([2,4,6]) = 4
+        expected_val = mean([2, 4, 6]);
+        assert(abs(X_te_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Expected column-mean fallback %.4f but got %.4f', expected_val, X_te_imp(1,2)));
+        record_pass('single_patient_all_blocked');
+    catch me
+        record_fail('single_patient_all_blocked', me.message);
+    end
+
+    % =====================================================================
+    % Test 3b: Single unique patient in training set — training self-imputation
+    %   All training rows are from the same patient.  Patient blocking within
+    %   training means no row can use another row as a neighbor.  KNN
+    %   imputation is impossible; fallback should handle gracefully.
+    % =====================================================================
+    try
+        X_tr = [1 NaN; 3 4; NaN 6];
+        X_te = [];
+        pat_id_tr = [1; 1; 1];
+        pat_id_te = [];
+        [X_tr_imp, ~] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_tr_imp(:))), 'Training output should have no NaN even with single patient');
+        % Row 1 col 2 is NaN; no neighbors available, fallback = mean of col 2 = mean([4,6]) = 5
+        assert(abs(X_tr_imp(1,2) - 5) < 1e-10, 'Expected column-mean fallback for training NaN');
+        % Row 3 col 1 is NaN; fallback = mean of col 1 = mean([1,3]) = 2
+        assert(abs(X_tr_imp(3,1) - 2) < 1e-10, 'Expected column-mean fallback for training NaN');
+        record_pass('single_patient_training_self_imputation');
+    catch me
+        record_fail('single_patient_training_self_imputation', me.message);
+    end
+
+    % =====================================================================
+    % Test 4a: Mixed cell/numeric patient IDs should error
+    %   Providing cell pat_id_tr with numeric pat_id_te (or vice versa)
+    %   should produce a clear error, not silent incorrect behavior.
+    % =====================================================================
+    try
+        X_tr = [1 2; 3 4];
+        X_te = [2 NaN];
+        pat_id_tr = {'P1'; 'P2'};  % cell
+        pat_id_te = [1];            % numeric
+        errored = false;
+        try
+            [~, ~] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+        catch inner_me
+            if contains(inner_me.identifier, 'typeMismatch')
+                errored = true;
             else
-                is_valid_ref(i) = false; % remove self (minimal protection without IDs)
-            end
-            
-            ref_idx = find(is_valid_ref);
-
-            if isempty(ref_idx)
-                continue;
-            end
-            
-            % Extract pure coordinates
-            Y_coords = search_space(ref_idx, valid_feat);
-            X_coord = query_pt(valid_feat);
-            
-            % Calculate squared Euclidean distances.  Squared distances
-            % preserve the rank ordering needed for KNN selection while
-            % avoiding the sqrt() computation.  The distance is computed
-            % only over mutually valid (non-NaN) features between the
-            % query row and each reference row, which is the "available-
-            % case" approach — appropriate when missingness is random
-            % (MCAR/MAR), as is typical for missed MRI scans.
-            dists = sum((Y_coords - X_coord).^2, 2);
-            [~, sort_idx] = sort(dists);
-
-            % For each missing column, filter to refs with valid data
-            % in that column BEFORE selecting top k neighbors.  This is
-            % the "column-adaptive" KNN strategy: the k nearest neighbors
-            % may differ per missing feature because not all neighbors
-            % have valid data for all features.  The mean of the k nearest
-            % valid neighbors is the imputed value — a locally-weighted
-            % estimate that reflects the DWI parameter values of patients
-            % with similar tumor characteristics at similar treatment stages.
-            for m = find(missing_idx)
-                has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
-                valid_sorted = sort_idx(has_target);
-                num_neighbors = min(k, length(valid_sorted));
-                if num_neighbors == 0
-                    continue;
-                end
-                neighbors = ref_idx(valid_sorted(1:num_neighbors));
-                % Impute as the unweighted mean of k nearest valid neighbors.
-                % Unweighted (vs. distance-weighted) is more robust when k
-                % is small (k=5), preventing a single very-close neighbor
-                % from dominating the imputed value.
-                X_tr_imp(i, m) = mean(X_tr(neighbors, m));
+                rethrow(inner_me);
             end
         end
+        assert(errored, 'Should have thrown typeMismatch error for mixed cell/numeric IDs');
+        record_pass('mixed_cell_numeric_IDs_error');
+    catch me
+        record_fail('mixed_cell_numeric_IDs_error', me.message);
     end
-    
-    % --- 2. Impute Test/Validation Set (X_te) using Training Data ---
-    % Test-set imputation uses ONLY training-set rows as neighbors.
-    % The test-set features are Z-scored using training-set statistics
-    % (mu_tr, sd_tr) so that distances are computed in the same coordinate
-    % system as the training imputation.  This ensures consistency and
-    % prevents test-set distributional information from influencing the
-    % imputation.
-    if ~isempty(X_te)
-        X_te_imp = X_te;
-        Z_te = (X_te - mu_tr) ./ sd_tr;  % Standardize using TRAINING statistics
-        n_te = size(X_te, 1);
-        
-        search_space_te = Z_te;
-        if ~isempty(target_cols)
-            search_space_te(:, target_cols) = nan;
-        end
-        
-        for i = 1:n_te
-            missing_idx = isnan(X_te(i, :));
-            if any(missing_idx)
-                query_pt = search_space_te(i, :);
-                valid_feat = ~isnan(query_pt);
-                
-                if sum(valid_feat) == 0
-                    continue;
-                end
-                
-                num_valid = sum(valid_feat);
-                is_valid_ref = sum(valid_mask(:, valid_feat), 2) == num_valid;
-                
-                % Exclude training rows from the same patient as this test
-                % row.  Although patient-grouped CV (make_grouped_folds)
-                % should already prevent the same patient from appearing
-                % in both train and test, this guard handles edge cases
-                % (e.g., manual fold assignments, or when this function is
-                % called outside the standard CV pipeline).  It also
-                % prevents temporal leakage if a patient's data somehow
-                % spans both folds due to data entry errors.
-                if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-                    if iscell(pat_id_tr)
-                        is_valid_ref = is_valid_ref & ~strcmp(pat_id_tr, pat_id_te{i});
-                    else
-                        is_valid_ref = is_valid_ref & (pat_id_tr ~= pat_id_te(i));
-                    end
-                end
-                
-                ref_idx = find(is_valid_ref);
 
-                if isempty(ref_idx)
-                    continue;
-                end
-                
-                % Use training search_space for reference coordinates
-                % (neighbors are always training rows), but compute
-                % distances in the shared Z-score space.
-                Y_coords = search_space(ref_idx, valid_feat);
-                X_coord = search_space_te(i, valid_feat);
+    % =====================================================================
+    % Test 4b: Cell patient IDs should work correctly
+    %   Both pat_id_tr and pat_id_te as cell arrays of strings should
+    %   produce correct patient blocking behavior.
+    % =====================================================================
+    try
+        X_tr = [1 2; 3 4; 5 6];
+        X_te = [2 NaN];
+        pat_id_tr = {'P1'; 'P2'; 'P3'};
+        pat_id_te = {'P4'};
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
 
-                dists = sum((Y_coords - X_coord).^2, 2);
-                [~, sort_idx] = sort(dists);
+        assert(~any(isnan(X_te_imp(:))), 'Cell patient IDs should work without error');
+        expected_val = mean([2, 4, 6]);
+        assert(abs(X_te_imp(1,2) - expected_val) < 1e-10, ...
+            'Cell patient IDs should produce same result as numeric');
+        record_pass('cell_patient_IDs_work');
+    catch me
+        record_fail('cell_patient_IDs_work', me.message);
+    end
 
-                % For each missing column, filter to refs with valid data
-                % in that column BEFORE selecting top k neighbors.
-                % Note: imputed values come from X_tr (training data), not
-                % X_te — this is the key leakage prevention mechanism.
-                % The test patient's missing ADC is filled with the mean
-                % ADC of the k most similar training patients, ensuring the
-                % imputed value reflects only previously-seen population data.
-                for m = find(missing_idx)
-                    has_target = ~isnan(X_tr(ref_idx(sort_idx), m));
-                    valid_sorted = sort_idx(has_target);
-                    num_neighbors = min(k, length(valid_sorted));
-                    if num_neighbors == 0
-                        continue;
-                    end
-                    neighbors = ref_idx(valid_sorted(1:num_neighbors));
-                    X_te_imp(i, m) = mean(X_tr(neighbors, m));
-                end
-            end
-        end
-    else
-        X_te_imp = [];
+    % =====================================================================
+    % Test 4c: Cell patient IDs with blocking
+    %   Verify that cell patient IDs correctly block same-patient neighbors.
+    % =====================================================================
+    try
+        X_tr = [1 10; 3 30; 5 50];
+        X_te = [2 NaN];
+        % Test patient matches training patient P2
+        pat_id_tr = {'P1'; 'P2'; 'P3'};
+        pat_id_te = {'P2'};
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Cell IDs with blocking should not produce NaN');
+        % P2 (row 2, col2=30) should be blocked; neighbors are P1 (col2=10) and P3 (col2=50)
+        expected_val = mean([10, 50]);
+        assert(abs(X_te_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f with P2 blocked, got %.4f', expected_val, X_te_imp(1,2)));
+        record_pass('cell_patient_IDs_blocking');
+    catch me
+        record_fail('cell_patient_IDs_blocking', me.message);
     end
-    
-    % --- 3. Final Fallback ---
-    % When all K nearest neighbors have NaN for a feature, impute with the
-    % pre-imputation training-set column mean.  This is a standard fallback
-    % (sklearn KNNImputer uses the same approach).  For test rows, this
-    % introduces marginal information leakage (a training-set statistic),
-    % but is strictly less leakage than using a global or test-set mean,
-    % and only activates when KNN fails entirely (rare in practice).
-    tr_mean = mean(X_tr, 1, 'omitnan');
-    all_nan_cols = isnan(tr_mean);
-    if any(all_nan_cols)
-        warning('knn_impute_train_test:allNaNColumn', ...
-            '%d column(s) are entirely NaN in training data; imputing to 0.', sum(all_nan_cols));
+
+    % =====================================================================
+    % Test 5: Empty X_te
+    %   Passing an empty test matrix should return an empty matrix without
+    %   error.  Training imputation should still proceed normally.
+    % =====================================================================
+    try
+        X_tr = [1 NaN; 3 4; 5 6];
+        X_te = [];
+        pat_id_tr = [1; 2; 3];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr);
+
+        assert(isempty(X_te_imp), 'Empty X_te should return empty X_te_imp');
+        assert(~any(isnan(X_tr_imp(:))), 'Training imputation should still work with empty X_te');
+        record_pass('empty_X_te');
+    catch me
+        record_fail('empty_X_te', me.message);
     end
-    tr_mean(all_nan_cols) = 0;
-    
-    for m = 1:p
-        nan_tr = isnan(X_tr_imp(:, m));
-        if any(nan_tr)
-            X_tr_imp(nan_tr, m) = tr_mean(m);
-        end
-        
-        if ~isempty(X_te)
-            nan_te = isnan(X_te_imp(:, m));
-            if any(nan_te)
-                X_te_imp(nan_te, m) = tr_mean(m);
-            end
-        end
+
+    % =====================================================================
+    % Test 5b: Empty X_te with no patient IDs
+    % =====================================================================
+    try
+        X_tr = [1 NaN; 3 4; 5 6];
+        X_te = [];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5);
+
+        assert(isempty(X_te_imp), 'Empty X_te should return empty X_te_imp (no pat IDs)');
+        assert(~any(isnan(X_tr_imp(:))), 'Training imputation should work without pat IDs');
+        record_pass('empty_X_te_no_pat_ids');
+    catch me
+        record_fail('empty_X_te_no_pat_ids', me.message);
     end
-end
+
+    % =====================================================================
+    % Test 6: Basic correctness sanity check
+    %   With clean training data and a single missing test value, verify
+    %   that the imputed value is the mean of the k nearest neighbors'
+    %   values in the missing column.
+    % =====================================================================
+    try
+        % 5 training rows, no missing data, well-separated
+        X_tr = [1 10; 2 20; 3 30; 4 40; 5 50];
+        X_te = [2.1 NaN];  % closest to row 2 (value 2), then row 3, then row 1
+        pat_id_tr = [1; 2; 3; 4; 5];
+        pat_id_te = [6];
+        k = 3;
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~isnan(X_te_imp(1,2)), 'Basic imputation should produce non-NaN');
+        % After z-scoring col 1: mean=3, std=sqrt(2.5)
+        % Z-scores: [-1.2649, -0.6325, 0, 0.6325, 1.2649]
+        % Query z-score for 2.1: (2.1-3)/sqrt(2.5) = -0.5692
+        % Distances to z-scored query: closest are row2, row1, row3
+        % k=3 neighbors: rows 2,1,3 -> col2 values: 20,10,30 -> mean=20
+        expected_val = mean([20, 10, 30]);
+        assert(abs(X_te_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f, got %.4f', expected_val, X_te_imp(1,2)));
+        record_pass('basic_correctness');
+    catch me
+        record_fail('basic_correctness', me.message);
+    end
+
+    % =====================================================================
+    % Test 7: No missing data — should pass through unchanged
+    % =====================================================================
+    try
+        X_tr = [1 2; 3 4; 5 6];
+        X_te = [2 3];
+        pat_id_tr = [1; 2; 3];
+        pat_id_te = [4];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        assert(isequal(X_tr_imp, X_tr), 'No-missing training data should be unchanged');
+        assert(isequal(X_te_imp, X_te), 'No-missing test data should be unchanged');
+        record_pass('no_missing_data_passthrough');
+    catch me
+        record_fail('no_missing_data_passthrough', me.message);
+    end
+
+    % =====================================================================
+    % Test 8: Partial NaN neighbor column
+    %   Some neighbors have NaN in the target column, some don't.  The
+    %   function should use only neighbors with valid data in that column,
+    %   potentially fewer than k.
+    % =====================================================================
+    try
+        % Row 1 and 3 have NaN in col 2; row 2 and 4 have valid col 2
+        X_tr = [1 NaN; 2 20; 3 NaN; 4 40];
+        X_te = [1.5 NaN];
+        pat_id_tr = [1; 2; 3; 4];
+        pat_id_te = [5];
+        k = 3;
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~isnan(X_te_imp(1,2)), 'Partial NaN column should still impute');
+        % Among k=3 nearest by col 1 (after z-scoring), only those with valid col 2 used
+        % The imputed value should come from the valid neighbors only
+        record_pass('partial_NaN_neighbor_column');
+    catch me
+        record_fail('partial_NaN_neighbor_column', me.message);
+    end
+
+    % =====================================================================
+    % Test 9: Target column exclusion from distance metric
+    %   Verify that target_cols are not used in distance computation.
+    % =====================================================================
+    try
+        % Col 3 is the target; cols 1-2 are features
+        X_tr = [1 1 100; 2 2 200; 3 3 300; 4 4 400; 5 5 500];
+        X_te = [2.5 2.5 NaN];
+        pat_id_tr = [1; 2; 3; 4; 5];
+        pat_id_te = [6];
+        target_cols = 3;
+        k = 2;
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te, target_cols);
+
+        assert(~isnan(X_te_imp(1,3)), 'Target column imputation should work');
+        % Nearest by cols 1-2 are rows 2 and 3 (values 2,2 and 3,3)
+        % Their col 3 values: 200 and 300 -> mean = 250
+        expected_val = mean([200, 300]);
+        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f with target exclusion, got %.4f', expected_val, X_te_imp(1,3)));
+        record_pass('target_column_exclusion');
+    catch me
+        record_fail('target_column_exclusion', me.message);
+    end
+
+    % =====================================================================
+    % Test 10: Multiple missing columns in single row
+    %   A test row with multiple NaN values should have each imputed
+    %   independently (potentially from different neighbor sets).
+    % =====================================================================
+    try
+        X_tr = [1 10 100; 2 20 200; 3 30 300];
+        X_te = [1.5 NaN NaN];
+        pat_id_tr = [1; 2; 3];
+        pat_id_te = [4];
+        k = 2;
+        [~, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Multiple missing columns should all be imputed');
+        record_pass('multiple_missing_columns');
+    catch me
+        record_fail('multiple_missing_columns', me.message);
+    end
+
+    % =====================================================================
+    % Test 11: Training imputation with patient blocking
+    %   Verify that training rows from the same patient are excluded when
+    %   imputing within the training set.
+    % =====================================================================
+    try
+        % Patient 1 has rows 1,2; patient 2 has row 3; patient 3 has row 4
+        X_tr = [1 NaN; 1.1 20; 5 50; 6 60];
+        X_te = [];
+        pat_id_tr = [1; 1; 2; 3];
+        % Row 1 is missing col 2.  Without blocking, row 2 (same patient,
+        % col2=20) would be the nearest neighbor.  With blocking, rows 3,4
+        % are used instead.
+        [X_tr_imp, ~] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr);
+
+        assert(~any(isnan(X_tr_imp(:))), 'Training imputation with blocking should produce no NaN');
+        % With patient blocking, row 1 cannot use row 2 as neighbor
+        % Neighbors are rows 3 (col2=50) and 4 (col2=60) -> mean = 55
+        expected_val = mean([50, 60]);
+        assert(abs(X_tr_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f with patient blocking, got %.4f', expected_val, X_tr_imp(1,2)));
+        record_pass('training_patient_blocking');
+    catch me
+        record_fail('training_patient_blocking', me.message);
+    end
+
+    % =====================================================================
+    % Test 12: Single training row (degenerate case)
+    %   With only one training row that has a NaN, KNN has no neighbors.
+    %   Fallback should handle this without error.
+    % =====================================================================
+    try
+        X_tr = [1 NaN];
+        X_te = [2 NaN];
+        pat_id_tr = [1];
+        pat_id_te = [2];
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 5, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_tr_imp(:))), 'Single-row training should not produce NaN');
+        assert(~any(isnan(X_te_imp(:))), 'Single-row test should not produce NaN');
+        % Col 2 entirely NaN -> fallback to 0
+        assert(X_tr_imp(1,2) == 0, 'All-NaN col with single row should impute to 0');
+        assert(X_te_imp(1,2) == 0, 'All-NaN col with single row test should impute to 0');
+        record_pass('single_training_row');
+    catch me
+        record_fail('single_training_row', me.message);
+    end
+
+    % =====================================================================
+    % Test 13: Patient blocking changes imputed value
+    %   With 3 patients, verify that blocking patient P1 produces a
+    %   different imputed value than if P1 were not blocked.  This
+    %   confirms the blocking mechanism actually affects the result.
+    %
+    %   Setup: 3 training rows from patients P1, P2, P3.
+    %   Test row belongs to P1.  P1's training row (row 1) is the nearest
+    %   neighbor by feature distance, so blocking it should change the
+    %   imputed value.
+    % =====================================================================
+    try
+        % Col 1 = feature, Col 2 = value to impute
+        % Row 1 (P1): feature=1, col2=100  (nearest to test query feature=1.1)
+        % Row 2 (P2): feature=5, col2=200
+        % Row 3 (P3): feature=6, col2=300
+        X_tr = [1 100; 5 200; 6 300];
+        X_te = [1.1 NaN];
+        pat_id_tr = [1; 2; 3];
+        k = 2;
+
+        % Run WITH blocking (test patient = P1, so row 1 is blocked)
+        pat_id_te_blocked = [1];
+        [~, X_te_blocked] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te_blocked);
+
+        % Run WITHOUT blocking (test patient = P4, no rows blocked)
+        pat_id_te_unblocked = [4];
+        [~, X_te_unblocked] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te_unblocked);
+
+        assert(~isnan(X_te_blocked(1,2)), 'Blocked imputation should not be NaN');
+        assert(~isnan(X_te_unblocked(1,2)), 'Unblocked imputation should not be NaN');
+
+        % The blocked and unblocked values should differ because:
+        % Unblocked k=2 neighbors: row 1 (P1, col2=100) and row 2 (P2, col2=200)
+        % Blocked k=2 neighbors: row 2 (P2, col2=200) and row 3 (P3, col2=300)
+        assert(abs(X_te_blocked(1,2) - X_te_unblocked(1,2)) > 1e-6, ...
+            sprintf('Blocking should change imputed value: blocked=%.4f, unblocked=%.4f', ...
+                X_te_blocked(1,2), X_te_unblocked(1,2)));
+
+        % Verify the blocked result uses only P2 and P3
+        % With k=2 and P1 blocked, neighbors are P2 (col2=200) and P3 (col2=300)
+        expected_blocked = mean([200, 300]);
+        assert(abs(X_te_blocked(1,2) - expected_blocked) < 1e-10, ...
+            sprintf('Blocked imputation expected %.4f, got %.4f', expected_blocked, X_te_blocked(1,2)));
+
+        record_pass('patient_blocking_changes_value');
+    catch me
+        record_fail('patient_blocking_changes_value', me.message);
+    end
+
+    % =====================================================================
+    % Test 14: Constant column (zero variance)
+    %   A column with zero variance would produce NaN when standardized
+    %   (division by zero std).  The function should handle this gracefully,
+    %   producing no NaN or Inf in distances or imputed values.
+    % =====================================================================
+    try
+        % Col 1 varies, Col 2 is constant (zero variance), Col 3 has missing
+        X_tr = [1 5 10; 2 5 20; 3 5 30; 4 5 40];
+        X_te = [2.5 5 NaN];
+        pat_id_tr = [1; 2; 3; 4];
+        pat_id_te = [5];
+        k = 2;
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Constant column should not cause NaN in output');
+        assert(~any(isinf(X_te_imp(:))), 'Constant column should not cause Inf in output');
+        assert(~any(isnan(X_tr_imp(:))), 'Constant column should not cause NaN in training output');
+        assert(~any(isinf(X_tr_imp(:))), 'Constant column should not cause Inf in training output');
+
+        % The imputed value in col 3 should be based on nearest neighbors
+        % by col 1 (since col 2 is constant and contributes nothing to distance)
+        % Nearest to 2.5 in col 1: rows 2 (val=2) and 3 (val=3) -> col3: 20, 30
+        expected_val = mean([20, 30]);
+        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
+            sprintf('Expected %.4f with constant column, got %.4f', expected_val, X_te_imp(1,3)));
+
+        record_pass('constant_column_zero_variance');
+    catch me
+        record_fail('constant_column_zero_variance', me.message);
+    end
+
+    % =====================================================================
+    % Test 15: Negative feature values
+    %   Percent-change features (e.g., D_pct, f_delta) can be negative.
+    %   Verify that negative values in the feature matrix are handled
+    %   correctly during distance computation and imputation.
+    % =====================================================================
+    try
+        % Features include negative values (like percent changes)
+        X_tr = [-10 -5 100; -2 3 200; 5 8 300; 12 15 400];
+        X_te = [-8 -3 NaN];  % closest to row 1 by feature distance
+        pat_id_tr = [1; 2; 3; 4];
+        pat_id_te = [5];
+        k = 2;
+        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
+
+        assert(~any(isnan(X_te_imp(:))), 'Negative feature values should not cause NaN');
+        assert(~any(isinf(X_te_imp(:))), 'Negative feature values should not cause Inf');
+        assert(~any(isnan(X_tr_imp(:))), 'Negative feature training values should not cause NaN');
+
+        % Test query [-8, -3] should be nearest to row 1 [-10, -5] then row 2 [-2, 3]
+        % After z-scoring cols 1-2 using training stats:
+        %   col1: mean=1.25, std=9.2157 -> z-scores: [-1.22, -0.35, 0.41, 1.17], query: -1.00
+        %   col2: mean=5.25, std=8.54   -> z-scores: [-1.20, -0.26, 0.32, 1.14], query: -0.97
+        % Row 1 is nearest, then row 2.  k=2 neighbors -> col3 values: 100, 200
+        expected_val = mean([100, 200]);
+        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
+            sprintf('Negative features: expected %.4f, got %.4f', expected_val, X_te_imp(1,3)));
+
+        record_pass('negative_feature_values');
+    catch me
+        record_fail('negative_feature_values', me.message);
+    end
+
+    % =====================================================================
+    % Test 16: Wide matrix (more columns than rows)
+    %   With 3 rows and 10 columns (common when assembling 22 features for
+    %   small cohorts of 5-10 patients), Euclidean distances can become
+    %   unreliable due to the curse of dimensionality.  The function should
+    %   still produce valid (no NaN, no Inf) imputed values.
+    % =====================================================================
+    try
+        rng(42);  % reproducibility

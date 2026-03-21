@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Async batch graph analysis using Google Gemini vision.
+"""Async batch graph analysis using Google Gemini and/or Anthropic Claude vision.
 
 Scans the most recent ``saved_files_*`` timestamped folder for all PNG/JPG
-images produced by the MATLAB pipeline, sends each to the Gemini Flash
-vision model, and extracts structured metadata:
+images produced by the MATLAB pipeline, sends each to the configured vision
+model, and extracts structured metadata:
 
 - Axis labels, units, and ranges
 - Observed trends (direction, series name, description)
@@ -14,11 +14,27 @@ Results are validated via strict Pydantic schemas and written to a flat CSV
 consumed by downstream analysis scripts (``generate_report.py``,
 ``cross_reference_dwi.py``, ``statistical_relevance.py``, etc.).
 
-**Requires** the ``GEMINI_API_KEY`` environment variable to be set.
+**Provider selection** is controlled by the ``vision.provider`` config key
+(or the ``--provider`` CLI flag):
+
+- ``"gemini"`` — use Google Gemini (default)
+- ``"claude"`` — use Anthropic Claude
+- ``"both"`` — run **both** APIs on every image and write an additional
+  ``graph_analysis_comparison.csv`` noting per-image differences
+
+When the required API key is not set or the SDK package is not installed,
+the script automatically falls back to a **local filename-based heuristic**
+that infers graph type, axes, and comparison type from the structured
+filenames produced by the MATLAB pipeline.  This fallback produces
+lower-fidelity results (no visual analysis) but keeps the downstream CSV
+pipeline functional.
 
 Usage:
     python batch_graph_analysis.py                       # auto-detect folder
     python batch_graph_analysis.py /path/to/saved_files  # explicit folder
+    python batch_graph_analysis.py --local /path/to/saved_files  # force local
+    python batch_graph_analysis.py --provider claude      # use Claude API
+    python batch_graph_analysis.py --provider both        # run both, compare
 """
 
 from __future__ import annotations
@@ -27,7 +43,6 @@ import asyncio
 import base64
 import csv
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -38,17 +53,17 @@ from tqdm import tqdm  # type: ignore
 # Ensure analysis/ root is on sys.path so 'shared' is importable when run as subprocess.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared import get_config, resolve_folder, setup_utf8_stdout  # type: ignore
+from shared import get_api_key, get_config, resolve_folder, setup_utf8_stdout  # type: ignore
 
 # Ensure emoji and special characters print correctly on Windows consoles.
 setup_utf8_stdout()
 
-# Lazy-import google.genai so that the module can be imported (and tested)
-# without the google-genai package installed.  The actual imports happen
-# inside ``analyze_image`` and ``main``, which are only called when running
-# the vision pipeline.
+# Lazy-import google.genai and anthropic so that the module can be imported
+# (and tested) without either package installed.  The actual imports happen
+# inside ``analyze_image`` / ``analyze_image_claude`` and ``main``.
 genai = None  # type: ignore[assignment]
 types = None  # type: ignore[assignment]
+anthropic_mod = None  # type: ignore[assignment]
 
 from pydantic import BaseModel, Field, ValidationError  # type: ignore
 
@@ -61,6 +76,14 @@ def _ensure_genai():
         from google.genai import types as _types  # type: ignore
         genai = _genai
         types = _types
+
+
+def _ensure_anthropic():
+    """Import anthropic lazily; raise ImportError if unavailable."""
+    global anthropic_mod
+    if anthropic_mod is None:
+        import anthropic as _anthropic  # type: ignore
+        anthropic_mod = _anthropic
 
 
 # ── Pydantic schema ──────────────────────────────────────────────────────────
@@ -224,6 +247,153 @@ def media_type_for(path: Path) -> str:
     }.get(ext, "image/png")
 
 
+# ── Local filename-based fallback analyzer ───────────────────────────────────
+# When the Gemini API is unavailable, this function infers graph metadata
+# from the structured filenames produced by the MATLAB pipeline.  The
+# results are lower-fidelity (no visual analysis) but keep the downstream
+# CSV pipeline functional for report generation and cross-DWI comparison.
+
+# Filename keywords → graph_type mapping.  Order matters: first match wins.
+_GRAPH_TYPE_KEYWORDS: list[tuple[list[str], str]] = [
+    (["heatmap", "dice_heatmap", "hausdorff_heatmap"], "heatmap"),
+    (["parameter_map", "param_map", "overlay"], "parameter_map"),
+    (["histogram", "hist"], "histogram"),
+    (["boxplot", "box_plot", "box"], "box"),
+    (["scatter", "correlation"], "scatter"),
+    (["violin"], "violin"),
+    (["bar", "volume_comparison"], "bar"),
+    (["longitudinal", "trajectory", "timeseries", "time_series"], "line"),
+    (["kaplan", "survival", "km_curve"], "line"),
+    (["roc", "auc"], "line"),
+    (["dose_vs", "dvh"], "line"),
+]
+
+# Filename keywords → axis label / units hints.
+_AXIS_HINTS: dict[str, dict[str, str | None]] = {
+    "adc": {"label": "ADC", "units": "mm\u00b2/s"},
+    "ivim": {"label": "IVIM Parameter", "units": None},
+    "d_mean": {"label": "D (mean)", "units": "mm\u00b2/s"},
+    "f_mean": {"label": "f (mean)", "units": None},
+    "dstar": {"label": "D* (mean)", "units": "mm\u00b2/s"},
+    "dose": {"label": "Dose", "units": "Gy"},
+    "time": {"label": "Time", "units": "days"},
+    "longitudinal": {"label": "Timepoint", "units": None},
+    "survival": {"label": "Time", "units": "days"},
+    "kaplan": {"label": "Time", "units": "days"},
+    "dice": {"label": "Method", "units": None},
+    "hausdorff": {"label": "Method", "units": None},
+    "volume": {"label": "Method", "units": None},
+}
+
+# Filename keywords → comparison_type hints.
+_COMPARISON_HINTS: dict[str, str] = {
+    "longitudinal": "longitudinal",
+    "trajectory": "longitudinal",
+    "byoutcome": "unpaired",
+    "lf_vs_lc": "unpaired",
+    "dose_vs": "dose-response",
+    "dvh": "dose-response",
+    "repeat": "paired",
+    "baseline": "cross-sectional",
+}
+
+
+def _infer_graph_type(name_lower: str) -> str:
+    """Infer graph_type from a lowercased filename stem."""
+    for keywords, gtype in _GRAPH_TYPE_KEYWORDS:
+        for kw in keywords:
+            if kw in name_lower:
+                return gtype
+    return "unknown"
+
+
+def _infer_axes(name_lower: str) -> tuple[Axis | None, Axis | None]:
+    """Infer x/y axis labels from filename keywords."""
+    x_axis = None
+    y_axis = None
+    for keyword, hints in _AXIS_HINTS.items():
+        if keyword in name_lower:
+            # For time-related x-axes, set x_axis
+            if keyword in ("time", "longitudinal", "survival", "kaplan"):
+                x_axis = Axis(
+                    label=hints["label"],
+                    units=hints.get("units"),
+                )
+            else:
+                # For metric keywords, set as y_axis
+                y_axis = Axis(
+                    label=hints["label"],
+                    units=hints.get("units"),
+                )
+    return x_axis, y_axis
+
+
+def _infer_comparison_type(name_lower: str) -> str | None:
+    """Infer comparison_type from filename keywords."""
+    for keyword, ctype in _COMPARISON_HINTS.items():
+        if keyword in name_lower:
+            return ctype
+    return None
+
+
+def analyze_image_local(image_path: Path) -> GraphAnalysis:
+    """Produce a best-effort ``GraphAnalysis`` from filename heuristics.
+
+    This function does **not** inspect the image pixels.  It uses the
+    structured naming conventions of the MATLAB pipeline
+    (e.g. ``Longitudinal_Mean_Metrics_Standard.png``,
+    ``core_method_dice_heatmap.png``) to infer graph type, axis labels,
+    and comparison type.
+
+    Parameters
+    ----------
+    image_path : Path
+        Path to the graph image.
+
+    Returns
+    -------
+    GraphAnalysis
+        A structured analysis with ``graph_type``, axis hints, and a
+        summary noting that the result was produced by the local fallback.
+    """
+    rel_path = str(image_path)
+    stem = image_path.stem  # filename without extension
+    name_lower = stem.lower()
+
+    graph_type = _infer_graph_type(name_lower)
+    x_axis, y_axis = _infer_axes(name_lower)
+    comparison_type = _infer_comparison_type(name_lower)
+
+    # Build a human-readable summary from the filename.
+    pretty_name = stem.replace("_", " ")
+    summary = (
+        f"Local fallback analysis of '{pretty_name}' "
+        f"(inferred type: {graph_type}). "
+        "No visual analysis was performed; metadata was inferred from the "
+        "filename. Re-run with GEMINI_API_KEY set for full vision analysis."
+    )
+
+    # Detect DWI type from path for clinical context.
+    dwi_types = {"Standard", "dnCNN", "IVIMnet"}
+    clinical_note = None
+    for part in image_path.parts:
+        if part in dwi_types:
+            clinical_note = f"Graph from {part} DWI processing pipeline."
+            break
+
+    return GraphAnalysis(
+        file_path=rel_path,
+        graph_title=pretty_name,
+        graph_type=graph_type,
+        x_axis=x_axis,
+        y_axis=y_axis,
+        summary=summary,
+        comparison_type=comparison_type,
+        clinical_relevance=clinical_note,
+        figure_quality="unknown",
+    )
+
+
 SYSTEM_PROMPT = """\
 You are an expert scientific figure analyst specializing in medical physics and \
 MRI diffusion-weighted imaging. You will receive a single graph image from a \
@@ -316,13 +486,15 @@ radiotherapy response monitoring using DWI metrics.
 """
 
 
-# ── Gemini model configuration ──────────────────────────────────────────────
+# ── Vision model configuration ──────────────────────────────────────────────
 # Loaded from the centralised analysis config (analysis_config.json /
 # shared._DEFAULTS).  Values can be overridden without editing source code.
 _vision_cfg = get_config()["vision"]
 
 # Model to use for vision analysis.
 GEMINI_MODEL = _vision_cfg["gemini_model"]
+CLAUDE_MODEL = _vision_cfg.get("claude_model", "claude-opus-4-6")
+VISION_PROVIDER = _vision_cfg.get("provider", "gemini")
 
 # ── Async API call ───────────────────────────────────────────────────────────
 
@@ -561,6 +733,190 @@ async def analyze_image(
     return analysis
 
 
+def _parse_vision_response(
+    raw_text: str,
+    image_path: Path,
+    rel_path: str,
+    progress_bar: tqdm | None = None,
+) -> GraphAnalysis:
+    """Parse a raw JSON response string into a validated GraphAnalysis.
+
+    Shared by both Gemini and Claude response handlers.  Handles markdown
+    fence stripping, truncation repair, and Pydantic validation.
+
+    Parameters
+    ----------
+    raw_text : str
+        Raw text response from the vision model.
+    image_path : Path
+        Path to the source image (for error messages).
+    rel_path : str
+        Relative file path to embed in the result.
+    progress_bar : tqdm or None
+        Optional progress bar to update on error.
+
+    Returns
+    -------
+    GraphAnalysis
+        Validated analysis or a fallback on parse/validation failure.
+    """
+    text = raw_text.strip()
+
+    # Strip markdown code fences if the model wraps its JSON response.
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    # ── JSON parsing (with truncation repair) ──
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = _repair_truncated_json(text)
+        if data is None:
+            if progress_bar is not None:
+                progress_bar.update(1)
+            else:
+                print(f"  \u274c  JSON parse error for {image_path.name}", flush=True)
+            return GraphAnalysis(
+                file_path=rel_path,
+                graph_type="unknown",
+                summary=f"JSON parse error (unrepairable). Raw response: {text[:200]}",
+            )
+
+    data["file_path"] = rel_path
+
+    # ── Pydantic validation ──
+    try:
+        analysis = GraphAnalysis(**data)
+    except ValidationError as e:
+        if progress_bar is not None:
+            progress_bar.update(1)
+        else:
+            print(f"  \u26a0\ufe0f  Validation warning for {image_path.name}: {e}", flush=True)
+        return GraphAnalysis(
+            file_path=rel_path,
+            graph_type=data.get("graph_type", "unknown"),
+            summary=data.get("summary", f"Validation error: {e}"),
+        )
+
+    if progress_bar is not None:
+        progress_bar.set_postfix_str(image_path.name, refresh=True)
+        progress_bar.update(1)
+    return analysis
+
+
+# ── Claude API integration ──────────────────────────────────────────────────
+
+
+def _is_claude_rate_limit_error(exc: Exception) -> bool:
+    """Check whether *exc* is a Claude rate-limit error."""
+    err_str = str(exc).lower()
+    return ("429" in err_str or "rate_limit" in err_str
+            or "rate limit" in err_str or "overloaded" in err_str)
+
+
+async def analyze_image_claude(
+    client,
+    image_path: Path,
+    rate_limiter: _RateLimitCoordinator,
+    progress_bar: tqdm | None = None,
+) -> GraphAnalysis:
+    """Send one image to Claude and parse the structured JSON response.
+
+    Mirrors :func:`analyze_image` but uses the Anthropic Messages API.
+    Uses the same system prompt, Pydantic validation, and retry logic.
+
+    Parameters
+    ----------
+    client : anthropic.AsyncAnthropic
+        Authenticated Anthropic async client.
+    image_path : Path
+        Path to the graph image to analyse.
+    rate_limiter : _RateLimitCoordinator
+        Shared coordinator that pauses all workers on rate-limit errors.
+    progress_bar : tqdm or None
+        Optional progress bar for UI updates.
+
+    Returns
+    -------
+    GraphAnalysis
+        Validated structured analysis, or a fallback object on failure.
+    """
+    image_bytes = await asyncio.to_thread(image_path.read_bytes)
+    mime = media_type_for(image_path)
+    rel_path = str(image_path)
+    b64_data = base64.standard_b64encode(image_bytes).decode("utf-8")
+
+    if progress_bar is not None:
+        progress_bar.set_postfix_str(f"analyzing {image_path.name}", refresh=True)
+
+    response = None
+    for attempt in range(MAX_RETRIES + 1):
+        await rate_limiter.wait_if_cooling_down()
+
+        try:
+            response = await asyncio.wait_for(
+                client.messages.create(
+                    model=CLAUDE_MODEL,
+                    max_tokens=MAX_OUTPUT_TOKENS,
+                    system=SYSTEM_PROMPT,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime,
+                                        "data": b64_data,
+                                    },
+                                },
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        f"Analyze this graph image. File: {image_path.name}\n"
+                                        "Return ONLY the JSON object described in your instructions."
+                                    ),
+                                },
+                            ],
+                        }
+                    ],
+                ),
+                timeout=REQUEST_TIMEOUT,
+            )
+            await rate_limiter.record_success()
+            break
+        except asyncio.TimeoutError:
+            if attempt < MAX_RETRIES:
+                wait = 2 ** attempt * BACKOFF_BASE
+                print(f"  [TIMEOUT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
+                await asyncio.sleep(wait)
+            else:
+                raise
+        except Exception as e:
+            if _is_claude_rate_limit_error(e) and attempt < MAX_RETRIES:
+                await rate_limiter.signal()
+                wait = 2 ** attempt * BACKOFF_BASE
+                print(f"  [RATE-LIMIT] {image_path.name}: retry {attempt+1}/{MAX_RETRIES} in {wait}s", flush=True)
+                await asyncio.sleep(wait)
+            elif _is_claude_rate_limit_error(e):
+                raise
+            else:
+                raise
+
+    if response is None:
+        raise RuntimeError(f"No response received for {image_path.name} after {MAX_RETRIES + 1} attempts")
+
+    # Extract text from Claude's response content blocks.
+    raw_text = ""
+    for block in response.content:
+        if hasattr(block, "text"):
+            raw_text += block.text
+
+    return _parse_vision_response(raw_text, image_path, rel_path, progress_bar=None)
+
+
 # ── Flatten to CSV rows ──────────────────────────────────────────────────────
 # The nested Pydantic models need to be flattened into a single-level dict
 # for CSV serialisation.  Axis fields are prefixed (``x_axis_``, ``y_axis_``,
@@ -700,119 +1056,53 @@ def flatten(a: GraphAnalysis) -> dict:
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
-async def main():
-    """Discover images, send them to the Gemini vision API, and write CSV.
+def _should_use_local(argv: list[str]) -> bool:
+    """Check whether ``--local`` was passed on the command line."""
+    return "--local" in argv
 
-    This is the async entry point.  It uses a **worker pool** pattern
-    instead of ``asyncio.gather`` + semaphore: a fixed number of worker
-    coroutines pull images from an ``asyncio.Queue`` one at a time.
 
-    This avoids the freeze caused by the old architecture, where all tasks
-    were created upfront and backoff sleeps held semaphore slots, starving
-    queued tasks and causing cascading rate-limit failures.
+def _get_provider(argv: list[str]) -> str:
+    """Extract the ``--provider`` value from *argv*, falling back to config."""
+    for i, arg in enumerate(argv):
+        if arg == "--provider" and i + 1 < len(argv):
+            return argv[i + 1].lower()
+    return VISION_PROVIDER
 
-    Steps:
-    1. Resolves the output folder.
-    2. Collects all PNG/JPG images recursively.
-    3. Validates the ``GEMINI_API_KEY`` environment variable.
-    4. Spawns ``SEM_LIMIT`` worker coroutines pulling from a queue.
-    5. Collects results, substituting error placeholders for failures.
-    6. Writes ``graph_analysis_results.csv`` to the output folder.
+
+def _write_results_csv(
+    folder: Path,
+    final_results: list[GraphAnalysis],
+    errors: int,
+    images: list[Path],
+    mode_label: str,
+    csv_name: str = "graph_analysis_results.csv",
+) -> int:
+    """Write the results CSV and print a summary.
+
+    Parameters
+    ----------
+    folder : Path
+        Output folder.
+    final_results : list[GraphAnalysis]
+        Analysed results (one per image).
+    errors : int
+        Number of images that failed analysis.
+    images : list[Path]
+        Original image list (for the error count denominator).
+    mode_label : str
+        Label for the analysis mode (e.g. "Gemini API" or "local fallback").
+    csv_name : str
+        Output CSV filename (default ``graph_analysis_results.csv``).
+
+    Returns
+    -------
+    int
+        Exit code: 1 if any errors, 0 otherwise.
     """
-    _ensure_genai()
-    folder = resolve_folder(sys.argv)
-    images = collect_images(folder)
-
-    if not images:
-        sys.exit(f"ERROR: No image files found in {folder}")
-
-    print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
-    print(f"   Model: {GEMINI_MODEL} (Google Gemini)")
-    print(f"   Concurrency: {SEM_LIMIT}")
-    print()
-
-    # ── API key validation ──
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        sys.exit(
-            "ERROR: GEMINI_API_KEY environment variable not set.\n"
-            "  You can set it by:\n"
-            "  1. Running 'python run_analysis.py' to be prompted interactively.\n"
-            "  2. Creating an 'analysis/.env' file with GEMINI_API_KEY=your-api-key\n"
-            "  3. Exporting it in your shell: export GEMINI_API_KEY='your-api-key'"
-        )
-
-    client = genai.Client(api_key=api_key)  # type: ignore
-    rate_limiter = _RateLimitCoordinator()
-
-    # ── Worker pool ──
-    # Instead of creating N tasks (one per image) behind a semaphore, we
-    # create exactly SEM_LIMIT workers that pull from a shared queue.
-    # This ensures only SEM_LIMIT images are ever in-flight, backoff
-    # sleeps don't block other images from progressing, and rate-limit
-    # coordination is handled globally.
-    queue: asyncio.Queue[tuple[int, Path]] = asyncio.Queue()
-    for idx, img in enumerate(images):
-        queue.put_nowait((idx, img))
-
-    # Pre-allocate result slots (preserves original image order).
-    results: list[GraphAnalysis | None] = [None] * len(images)
-
-    pbar = tqdm(
-        total=len(images),
-        desc="Analyzing graphs",
-        unit="img",
-        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
-    )
-
-    async def _worker(worker_id: int):
-        """Pull images from the queue and analyse them one at a time."""
-        while True:
-            try:
-                idx, img = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return  # No more work — worker exits.
-            try:
-                result = await analyze_image(client, img, rate_limiter, pbar)
-                results[idx] = result
-            except Exception as e:
-                print(f"  [ERROR] {img.name}: {e}", flush=True)
-                results[idx] = GraphAnalysis(
-                    file_path=str(img),  # type: ignore
-                    graph_type="error",  # type: ignore
-                    summary=f"API error: {e}",  # type: ignore
-                )
-                if pbar is not None:
-                    pbar.update(1)
-            queue.task_done()
-
-    # Spawn workers and wait for all images to be processed.
-    workers = [asyncio.create_task(_worker(i)) for i in range(SEM_LIMIT)]
-    await asyncio.gather(*workers)
-    pbar.close()
-
-    # ── Collect results ──
-    final_results: list[GraphAnalysis] = []
-    errors = 0
-    for img, res in zip(images, results):
-        if res is None:
-            errors += 1
-            final_results.append(GraphAnalysis(
-                file_path=str(img),  # type: ignore
-                graph_type="error",  # type: ignore
-                summary="Worker did not produce a result",  # type: ignore
-            ))
-        elif res.graph_type == "error":  # type: ignore
-            errors += 1
-            final_results.append(res)
-        else:
-            final_results.append(res)
-
     if errors:
         print(f"\n  {errors}/{len(images)} images failed (see 'error' rows in CSV)")
 
-    # ── Write output CSV ──
-    out_csv = folder / "graph_analysis_results.csv"
+    out_csv = folder / csv_name
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
         writer.writeheader()
@@ -821,16 +1111,508 @@ async def main():
 
     print()
     print(f"\U0001f4c1 Results saved to: {out_csv}")
-    print(f"   Total graphs analyzed: {len(final_results)}")
+    print(f"   Total graphs analyzed: {len(final_results)} ({mode_label})")
 
-    # Print a quick breakdown of graph types found.
     type_counts: dict[str, int] = {}
     for r in final_results:
         type_counts[r.graph_type] = type_counts.get(r.graph_type, 0) + 1
     print(f"   Graph types: {json.dumps(type_counts, indent=2)}")
 
-    # Return non-zero exit code if any images failed (e.g. timeouts).
     return 1 if errors else 0
+
+
+def _run_local_fallback(folder: Path, images: list[Path]) -> int:
+    """Run the local filename-based fallback analyser for all images.
+
+    Parameters
+    ----------
+    folder : Path
+        Output folder.
+    images : list[Path]
+        Image files to analyse.
+
+    Returns
+    -------
+    int
+        Exit code (always 0 for local fallback).
+    """
+    print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
+    print("   Mode: local fallback (filename heuristics)")
+    print()
+
+    pbar = tqdm(
+        total=len(images),
+        desc="Analyzing graphs (local)",
+        unit="img",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+    )
+
+    final_results: list[GraphAnalysis] = []
+    for img in images:
+        pbar.set_postfix_str(img.name, refresh=True)
+        final_results.append(analyze_image_local(img))
+        pbar.update(1)
+    pbar.close()
+
+    return _write_results_csv(folder, final_results, 0, images, "local fallback")
+
+
+# ── Comparison CSV for dual-provider mode ───────────────────────────────────
+
+COMPARISON_COLUMNS = [
+    "file_path",
+    "graph_type_gemini",
+    "graph_type_claude",
+    "graph_type_match",
+    "num_trends_gemini",
+    "num_trends_claude",
+    "num_statistical_tests_gemini",
+    "num_statistical_tests_claude",
+    "summary_gemini",
+    "summary_claude",
+    "clinical_relevance_gemini",
+    "clinical_relevance_claude",
+    "figure_quality_gemini",
+    "figure_quality_claude",
+    "x_axis_label_gemini",
+    "x_axis_label_claude",
+    "y_axis_label_gemini",
+    "y_axis_label_claude",
+    "trend_directions_gemini",
+    "trend_directions_claude",
+    "trend_directions_match",
+    "differences",
+]
+
+
+def _compare_results(
+    gemini: GraphAnalysis,
+    claude: GraphAnalysis,
+) -> dict:
+    """Compare Gemini and Claude results for one image, returning a flat dict.
+
+    Parameters
+    ----------
+    gemini : GraphAnalysis
+        Result from the Gemini API.
+    claude : GraphAnalysis
+        Result from the Claude API.
+
+    Returns
+    -------
+    dict
+        Flat dictionary with comparison columns.
+    """
+    diffs: list[str] = []
+
+    # Graph type comparison
+    type_match = gemini.graph_type == claude.graph_type
+    if not type_match:
+        diffs.append(f"graph_type: Gemini={gemini.graph_type}, Claude={claude.graph_type}")
+
+    # Trend direction comparison
+    gem_dirs = sorted(t.direction for t in gemini.trends)
+    cla_dirs = sorted(t.direction for t in claude.trends)
+    dirs_match = gem_dirs == cla_dirs
+    if not dirs_match:
+        diffs.append(f"trend_directions differ")
+    if len(gemini.trends) != len(claude.trends):
+        diffs.append(f"num_trends: Gemini={len(gemini.trends)}, Claude={len(claude.trends)}")
+
+    # Statistical test count
+    if len(gemini.statistical_tests) != len(claude.statistical_tests):
+        diffs.append(
+            f"num_stat_tests: Gemini={len(gemini.statistical_tests)}, "
+            f"Claude={len(claude.statistical_tests)}"
+        )
+
+    # Axis labels
+    gem_x = (gemini.x_axis.label if gemini.x_axis else "")
+    cla_x = (claude.x_axis.label if claude.x_axis else "")
+    if gem_x.lower() != cla_x.lower() and gem_x and cla_x:
+        diffs.append(f"x_axis_label: Gemini={gem_x!r}, Claude={cla_x!r}")
+
+    gem_y = (gemini.y_axis.label if gemini.y_axis else "")
+    cla_y = (claude.y_axis.label if claude.y_axis else "")
+    if gem_y.lower() != cla_y.lower() and gem_y and cla_y:
+        diffs.append(f"y_axis_label: Gemini={gem_y!r}, Claude={cla_y!r}")
+
+    # Figure quality
+    if (gemini.figure_quality or "") != (claude.figure_quality or ""):
+        diffs.append(
+            f"figure_quality: Gemini={gemini.figure_quality}, Claude={claude.figure_quality}"
+        )
+
+    return {
+        "file_path": gemini.file_path,
+        "graph_type_gemini": gemini.graph_type,
+        "graph_type_claude": claude.graph_type,
+        "graph_type_match": "yes" if type_match else "no",
+        "num_trends_gemini": len(gemini.trends),
+        "num_trends_claude": len(claude.trends),
+        "num_statistical_tests_gemini": len(gemini.statistical_tests),
+        "num_statistical_tests_claude": len(claude.statistical_tests),
+        "summary_gemini": gemini.summary[:300] if gemini.summary else "",
+        "summary_claude": claude.summary[:300] if claude.summary else "",
+        "clinical_relevance_gemini": gemini.clinical_relevance or "",
+        "clinical_relevance_claude": claude.clinical_relevance or "",
+        "figure_quality_gemini": gemini.figure_quality or "",
+        "figure_quality_claude": claude.figure_quality or "",
+        "x_axis_label_gemini": gem_x,
+        "x_axis_label_claude": cla_x,
+        "y_axis_label_gemini": gem_y,
+        "y_axis_label_claude": cla_y,
+        "trend_directions_gemini": json.dumps(gem_dirs),
+        "trend_directions_claude": json.dumps(cla_dirs),
+        "trend_directions_match": "yes" if dirs_match else "no",
+        "differences": "; ".join(diffs) if diffs else "none",
+    }
+
+
+def _write_comparison_csv(
+    folder: Path,
+    gemini_results: list[GraphAnalysis],
+    claude_results: list[GraphAnalysis],
+) -> Path:
+    """Write a comparison CSV for dual-provider mode.
+
+    Parameters
+    ----------
+    folder : Path
+        Output folder.
+    gemini_results : list[GraphAnalysis]
+        Results from Gemini (one per image, ordered by image index).
+    claude_results : list[GraphAnalysis]
+        Results from Claude (same order).
+
+    Returns
+    -------
+    Path
+        Path to the written comparison CSV.
+    """
+    out_csv = folder / "graph_analysis_comparison.csv"
+    rows = []
+    agree_count = 0
+    for gem, cla in zip(gemini_results, claude_results):
+        row = _compare_results(gem, cla)
+        rows.append(row)
+        if row["differences"] == "none":
+            agree_count += 1
+
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=COMPARISON_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    total = len(rows)
+    pct = (agree_count / total * 100) if total else 0
+    print(f"\n\U0001f50d Comparison: {agree_count}/{total} images fully agree ({pct:.1f}%)")
+    print(f"\U0001f4c1 Comparison CSV: {out_csv}")
+
+    # Print summary of most common differences
+    diff_counts: dict[str, int] = {}
+    for row in rows:
+        if row["differences"] != "none":
+            for d in row["differences"].split("; "):
+                key = d.split(":")[0] if ":" in d else d
+                diff_counts[key] = diff_counts.get(key, 0) + 1
+    if diff_counts:
+        print("   Most common differences:")
+        for diff_type, count in sorted(diff_counts.items(), key=lambda x: -x[1])[:5]:
+            print(f"     {diff_type}: {count} images")
+
+    return out_csv
+
+
+# ── Provider availability checks ────────────────────────────────────────────
+
+
+def _check_gemini_available(fallback_enabled: bool) -> bool:
+    """Return True if Gemini API is usable, False otherwise.
+
+    Prints warnings or exits depending on *fallback_enabled*.
+    """
+    try:
+        _ensure_genai()
+    except ImportError:
+        if fallback_enabled:
+            print(
+                "\u26a0\ufe0f  google-genai package not installed. "
+                "Falling back to local filename-based analysis.\n"
+                "   Install with: pip install google-genai\n"
+            )
+        else:
+            sys.exit(
+                "ERROR: google-genai package not installed.\n"
+                "  Install with: pip install google-genai\n"
+                "  Or set vision.fallback_to_local=true in analysis_config.json "
+                "to allow local fallback."
+            )
+        return False
+
+    if not get_api_key("gemini"):
+        if fallback_enabled:
+            print(
+                "\u26a0\ufe0f  Gemini API key not set. "
+                "Falling back to local filename-based analysis.\n"
+                "   Set vision.gemini_api_key in analysis_config.json\n"
+                "   or export GEMINI_API_KEY in your shell.\n"
+            )
+        else:
+            sys.exit(
+                "ERROR: Gemini API key not set.\n"
+                "  Set vision.gemini_api_key in analysis_config.json\n"
+                "  or export GEMINI_API_KEY in your shell.\n"
+                "  Or set vision.fallback_to_local=true in analysis_config.json "
+                "to allow local fallback."
+            )
+        return False
+
+    return True
+
+
+def _check_claude_available(fallback_enabled: bool) -> bool:
+    """Return True if Claude API is usable, False otherwise."""
+    try:
+        _ensure_anthropic()
+    except ImportError:
+        if fallback_enabled:
+            print(
+                "\u26a0\ufe0f  anthropic package not installed. "
+                "Falling back to local filename-based analysis.\n"
+                "   Install with: pip install anthropic\n"
+            )
+        else:
+            sys.exit(
+                "ERROR: anthropic package not installed.\n"
+                "  Install with: pip install anthropic\n"
+                "  Or set vision.fallback_to_local=true in analysis_config.json "
+                "to allow local fallback."
+            )
+        return False
+
+    if not get_api_key("claude"):
+        if fallback_enabled:
+            print(
+                "\u26a0\ufe0f  Anthropic API key not set. "
+                "Falling back to local filename-based analysis.\n"
+                "   Set vision.anthropic_api_key in analysis_config.json\n"
+                "   or export ANTHROPIC_API_KEY in your shell.\n"
+            )
+        else:
+            sys.exit(
+                "ERROR: Anthropic API key not set.\n"
+                "  Set vision.anthropic_api_key in analysis_config.json\n"
+                "  or export ANTHROPIC_API_KEY in your shell.\n"
+                "  Or set vision.fallback_to_local=true in analysis_config.json "
+                "to allow local fallback."
+            )
+        return False
+
+    return True
+
+
+# ── Worker pool helper ──────────────────────────────────────────────────────
+
+
+async def _run_worker_pool(
+    images: list[Path],
+    analyze_fn,
+    client,
+    rate_limiter: _RateLimitCoordinator,
+    desc: str = "Analyzing graphs",
+) -> tuple[list[GraphAnalysis], int]:
+    """Run a worker pool to analyse images with the given function.
+
+    Parameters
+    ----------
+    images : list[Path]
+        Images to analyse.
+    analyze_fn : callable
+        Async function with signature ``(client, path, limiter, pbar) -> GraphAnalysis``.
+    client
+        API client to pass to *analyze_fn*.
+    rate_limiter : _RateLimitCoordinator
+        Shared rate-limit coordinator.
+    desc : str
+        Progress bar description.
+
+    Returns
+    -------
+    tuple[list[GraphAnalysis], int]
+        (final_results, error_count).
+    """
+    queue: asyncio.Queue[tuple[int, Path]] = asyncio.Queue()
+    for idx, img in enumerate(images):
+        queue.put_nowait((idx, img))
+
+    results: list[GraphAnalysis | None] = [None] * len(images)
+
+    pbar = tqdm(
+        total=len(images),
+        desc=desc,
+        unit="img",
+        bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}] {postfix}",
+    )
+
+    async def _worker(worker_id: int):
+        while True:
+            try:
+                idx, img = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                result = await analyze_fn(client, img, rate_limiter, pbar)
+                results[idx] = result
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                raise
+            except Exception as e:
+                print(f"  [ERROR] {img.name}: {e}", flush=True)
+                results[idx] = GraphAnalysis(
+                    file_path=str(img),
+                    graph_type="error",
+                    summary=f"API error: {e}",
+                )
+                if pbar is not None:
+                    pbar.update(1)
+            finally:
+                queue.task_done()
+
+    workers = [asyncio.create_task(_worker(i)) for i in range(SEM_LIMIT)]
+    await asyncio.gather(*workers)
+    pbar.close()
+
+    final_results: list[GraphAnalysis] = []
+    errors = 0
+    for img, res in zip(images, results):
+        if res is None:
+            errors += 1
+            final_results.append(GraphAnalysis(
+                file_path=str(img),
+                graph_type="error",
+                summary="Worker did not produce a result",
+            ))
+        elif res.graph_type == "error":
+            errors += 1
+            final_results.append(res)
+        else:
+            final_results.append(res)
+
+    return final_results, errors
+
+
+async def main():
+    """Discover images, analyse them via configured provider(s), and write CSV.
+
+    This is the async entry point.  It uses a **worker pool** pattern:
+    a fixed number of worker coroutines pull images from an
+    ``asyncio.Queue`` one at a time.
+
+    **Provider modes:**
+
+    - ``"gemini"`` — Gemini API only (default, original behaviour).
+    - ``"claude"`` — Claude API only.
+    - ``"both"`` — run both APIs sequentially, write the primary CSV from
+      Gemini, a second CSV from Claude, and a comparison CSV noting
+      per-image differences between the two.
+
+    **Fallback behaviour:**
+
+    - If ``--local`` is passed, the local filename-based fallback is used
+      unconditionally.
+    - If the required API key or package is missing, the script falls back
+      to local analysis automatically (unless ``fallback_to_local=false``).
+    """
+    force_local = _should_use_local(sys.argv)
+    provider = _get_provider(sys.argv)
+
+    folder = resolve_folder(sys.argv)
+    images = collect_images(folder)
+
+    if not images:
+        sys.exit(f"ERROR: No image files found in {folder}")
+
+    # ── Determine analysis mode ──
+    fallback_enabled = _vision_cfg.get("fallback_to_local", True)
+    use_local = force_local
+
+    if not force_local and provider in ("gemini", "both"):
+        if not _check_gemini_available(fallback_enabled):
+            if provider == "both":
+                print("  Gemini unavailable; falling back to Claude-only mode.")
+                provider = "claude"
+            else:
+                use_local = True
+
+    if not force_local and provider in ("claude", "both"):
+        if not _check_claude_available(fallback_enabled):
+            if provider == "both":
+                print("  Claude unavailable; falling back to Gemini-only mode.")
+                provider = "gemini"
+            else:
+                use_local = True
+
+    # ── Local fallback path ──
+    if use_local:
+        return _run_local_fallback(folder, images)
+
+    print(f"\U0001f680 Found {len(images)} graph images in {folder.name}")
+    print(f"   Provider: {provider}")
+    print(f"   Concurrency: {SEM_LIMIT}")
+
+    # ── Single-provider: Gemini ──
+    if provider == "gemini":
+        print(f"   Model: {GEMINI_MODEL} (Google Gemini)")
+        print()
+        client = genai.Client(api_key=get_api_key("gemini"))  # type: ignore
+        rate_limiter = _RateLimitCoordinator()
+        final_results, errors = await _run_worker_pool(
+            images, analyze_image, client, rate_limiter, "Analyzing (Gemini)")
+        return _write_results_csv(folder, final_results, errors, images, "Gemini API")
+
+    # ── Single-provider: Claude ──
+    if provider == "claude":
+        print(f"   Model: {CLAUDE_MODEL} (Anthropic Claude)")
+        print()
+        client = anthropic_mod.AsyncAnthropic(api_key=get_api_key("claude"))  # type: ignore
+        rate_limiter = _RateLimitCoordinator()
+        final_results, errors = await _run_worker_pool(
+            images, analyze_image_claude, client, rate_limiter, "Analyzing (Claude)")
+        return _write_results_csv(folder, final_results, errors, images, "Claude API")
+
+    # ── Dual-provider: both ──
+    assert provider == "both"
+    print(f"   Gemini model: {GEMINI_MODEL}")
+    print(f"   Claude model: {CLAUDE_MODEL}")
+    print()
+
+    # Run Gemini first
+    print("── Phase 1/2: Gemini API ──")
+    gemini_client = genai.Client(api_key=get_api_key("gemini"))  # type: ignore
+    gemini_limiter = _RateLimitCoordinator()
+    gemini_results, gemini_errors = await _run_worker_pool(
+        images, analyze_image, gemini_client, gemini_limiter, "Analyzing (Gemini)")
+
+    # Run Claude second
+    print("\n── Phase 2/2: Claude API ──")
+    claude_client = anthropic_mod.AsyncAnthropic(api_key=get_api_key("claude"))  # type: ignore
+    claude_limiter = _RateLimitCoordinator()
+    claude_results, claude_errors = await _run_worker_pool(
+        images, analyze_image_claude, claude_client, claude_limiter, "Analyzing (Claude)")
+
+    # Write primary CSV (Gemini results used as the canonical output)
+    exit_code = _write_results_csv(
+        folder, gemini_results, gemini_errors, images, "Gemini API (dual-provider mode)")
+
+    # Write Claude CSV separately
+    _write_results_csv(
+        folder, claude_results, claude_errors, images, "Claude API (dual-provider mode)",
+        csv_name="graph_analysis_results_claude.csv")
+
+    # Write comparison CSV
+    _write_comparison_csv(folder, gemini_results, claude_results)
+
+    return exit_code
 
 
 if __name__ == "__main__":

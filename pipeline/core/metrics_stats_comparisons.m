@@ -125,7 +125,12 @@ for s = 1:n_metric_sets
 
             % Wilcoxon rank-sum test: non-parametric comparison of biomarker
             % distributions between LC and LF groups at this timepoint.
-            p = perform_statistical_test(y, g, 'ranksum');
+            % Guard: both groups must have data after competing-risk exclusion.
+            if length(unique(g)) < 2 || isempty(y)
+                p = NaN;
+            else
+                p = perform_statistical_test(y, g, 'ranksum');
+            end
 
             if ~isnan(p)
                 p_val_store(s).p_vals(m, tp) = p;

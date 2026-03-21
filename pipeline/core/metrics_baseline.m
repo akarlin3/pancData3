@@ -1,4 +1,4 @@
-function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean, m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp, m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp, metric_sets, set_names, time_labels, dtype_label, dl_provenance] = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
+function baseline = metrics_baseline(data_vectors_gtvp, data_vectors_gtvn, summary_metrics, config_struct)
 % METRICS_BASELINE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 1/5 of the metrics step. Compiles baseline measures, cleans outliers,
 % computes relative changes (percent delta), and groups metric sets for later steps.
@@ -39,9 +39,12 @@ function [m_lf, m_total_time, m_total_follow_up_time, m_gtv_vol, m_adc_mean, m_d
 %   config_struct     - Configuration struct
 %
 % Outputs:
-%   [Multiple Arrays] - Includes logical masks for valid_pts, clean arrays for
-%                       ADC_abs, D_abs, f_abs, and their delta percent variations,
-%                       as well as organized sets (metric_sets) for downstream analysis.
+%   baseline - Struct with fields: m_lf, m_total_time, m_total_follow_up_time,
+%              m_gtv_vol, m_adc_mean, m_d_mean, m_f_mean, m_dstar_mean,
+%              m_id_list, m_mrn_list, m_d95_gtvp, m_v50gy_gtvp,
+%              m_data_vectors_gtvp, lf_group, valid_pts, ADC_abs, D_abs,
+%              f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, nTp,
+%              metric_sets, set_names, time_labels, dtype_label, dl_provenance
 %
 
 % =========================================================================
@@ -433,34 +436,7 @@ exclude_outliers = true;
 % outliers below so the researcher can verify no systematic imbalance.
 baseline_metrics_oi   = {adc_mean(:,1,dtype), d_mean(:,1,dtype), f_mean(:,1,dtype), dstar_mean(:,1,dtype)};
 baseline_metric_names = {'ADC', 'D', 'f', 'D*'};
-is_outlier = false(size(lf));
-n_baseline_metrics = numel(baseline_metrics_oi);
-for metric_idx = 1:n_baseline_metrics
-    text_progress_bar(metric_idx, n_baseline_metrics, 'Detecting outliers');
-    col = baseline_metrics_oi{metric_idx};
-    col_clean = col(~isnan(col));
-    if numel(col_clean) < 3, continue; end
-    med_val = median(col_clean);
-    iqr_val = iqr(col_clean);
-    if iqr_val == 0, continue; end
-    lower_fence = med_val - 3 * iqr_val;
-    upper_fence = med_val + 3 * iqr_val;
-    outlier_flags = (col < lower_fence | col > upper_fence) & ~isnan(col);
-    if any(outlier_flags)
-        n_out = sum(outlier_flags);
-        n_out_lf = sum(outlier_flags & (lf == 1));
-        n_out_lc = sum(outlier_flags & (lf == 0));
-        n_out_cr = sum(outlier_flags & (lf == 2));
-        fprintf('  Outlier flag (%s): %d flagged (LF=%d, LC=%d, CR=%d)\n', ...
-            baseline_metric_names{metric_idx}, n_out, n_out_lf, n_out_lc, n_out_cr);
-    end
-    is_outlier = is_outlier | outlier_flags;
-end
-n_total_outliers = sum(is_outlier);
-if n_total_outliers > 0
-    fprintf('  Total outliers removed: %d / %d (%.1f%%)\n', ...
-        n_total_outliers, numel(lf), 100*n_total_outliers/numel(lf));
-end
+[is_outlier, n_total_outliers] = detect_baseline_outliers(baseline_metrics_oi, baseline_metric_names, lf);
 non_outlier = ~is_outlier;
 
 % =========================================================================
@@ -571,56 +547,10 @@ Dstar_abs = m_dstar_mean(:,:,dtype);
 % =========================================================================
 % COMPUTE TREATMENT-INDUCED CHANGES FROM BASELINE (PERCENT DELTA)
 % =========================================================================
-% Percent change = (value_at_timepoint - baseline) / baseline * 100
-% This normalises for inter-patient variation in baseline values, making
-% changes comparable across patients with different starting tumour
-% characteristics.  In radiotherapy response assessment, a 20% increase
-% in ADC after treatment suggests treatment-induced cell death (reduced
-% cellularity allows greater water diffusion), regardless of whether the
-% patient started at ADC=1.2 or ADC=1.8 mm^2/s.
-%
-% Use fixed, physiologically motivated epsilon values to prevent inflated
-% percent changes when baseline values are near zero.  Fixed thresholds
-% improve reproducibility across cohorts (previously used data-adaptive
-% 1% of IQR, which varied with cohort composition).
-% Values correspond to ~1% of typical physiological range:
-%   ADC: 0.001-0.003 mm^2/s → eps = 1e-5
-%   D:   0.001-0.003 mm^2/s → eps = 1e-5
-%   D*:  0.005-0.050 mm^2/s → eps = 5e-5
-adc_eps  = 1e-5;
-d_eps    = 1e-5;
-dstar_eps = 5e-5;
-% Exclude patients with near-zero or negative baselines from percent change
-% computation to avoid sign-flipped or inflated ratios.  These patients get
-% NaN percent change so they are excluded from downstream group comparisons.
-% Known trade-off: this creates a discontinuity — baselines just below
-% epsilon are excluded (NaN), while baselines just above may produce large
-% ratios that are subsequently winsorized to ±500%.
-adc_bl = ADC_abs(:,1);  adc_bl(adc_bl < adc_eps) = NaN;
-d_bl   = D_abs(:,1);    d_bl(d_bl < d_eps) = NaN;
-dstar_bl = Dstar_abs(:,1); dstar_bl(dstar_bl < dstar_eps) = NaN;
-ADC_pct = ((ADC_abs - ADC_abs(:,1)) ./ adc_bl) * 100;
-D_pct   = ((D_abs - D_abs(:,1)) ./ d_bl) * 100;
-% f uses ABSOLUTE delta instead of percent change because:
-%   1. Baseline f values are often near zero (0.05-0.15 in pancreatic tumours)
-%   2. Percent change from a baseline of 0.05 can be 200% from a tiny absolute
-%      shift of 0.10, creating misleadingly large values
-%   3. The physiological range of f is bounded [0,1], so absolute changes
-%      are directly interpretable (e.g., delta_f = 0.05 means 5% more
-%      blood volume fraction)
-f_delta = (f_abs - f_abs(:,1));
-Dstar_pct = ((Dstar_abs - Dstar_abs(:,1)) ./ dstar_bl) * 100;
-
-% Winsorize percent changes at +/-500% to limit influence of near-zero
-% baselines that passed the epsilon filter but still produce extreme ratios.
-% Without winsorization, a single patient with baseline ADC=0.00002 and
-% follow-up ADC=0.001 would produce a 4900% change, dominating group means
-% and inflating standard errors.  The 500% threshold is generous enough to
-% preserve clinically plausible large changes while capping artifacts.
-pct_clip = 500;
-ADC_pct(ADC_pct < -pct_clip) = -pct_clip;  ADC_pct(ADC_pct > pct_clip) = pct_clip;
-D_pct(D_pct < -pct_clip) = -pct_clip;      D_pct(D_pct > pct_clip) = pct_clip;
-Dstar_pct(Dstar_pct < -pct_clip) = -pct_clip;  Dstar_pct(Dstar_pct > pct_clip) = pct_clip;
+% Delegates to compute_percent_deltas.m for:
+%   - Percent change for ADC, D, D* (with epsilon floor and winsorization)
+%   - Absolute change for f (because f near zero makes % change unstable)
+[ADC_pct, D_pct, f_delta, Dstar_pct] = compute_percent_deltas(ADC_abs, D_abs, f_abs, Dstar_abs);
 
 % Patients with valid (non-NaN) local failure status can be used in
 % downstream group comparisons and survival models.  Patients with NaN
@@ -658,6 +588,37 @@ set_names = {
 % fractions (typically weekly during 5-fraction SBRT or daily during
 % conventional RT), Post = post-treatment follow-up scan (typically 3 months).
 time_labels = [arrayfun(@(x) sprintf('Fx%d', x), 1:(nTp-1), 'UniformOutput', false), {'Post'}];
+
+% Pack all outputs into a single struct for clean caller interface.
+baseline.m_lf = m_lf;
+baseline.m_total_time = m_total_time;
+baseline.m_total_follow_up_time = m_total_follow_up_time;
+baseline.m_gtv_vol = m_gtv_vol;
+baseline.m_adc_mean = m_adc_mean;
+baseline.m_d_mean = m_d_mean;
+baseline.m_f_mean = m_f_mean;
+baseline.m_dstar_mean = m_dstar_mean;
+baseline.m_id_list = m_id_list;
+baseline.m_mrn_list = m_mrn_list;
+baseline.m_d95_gtvp = m_d95_gtvp;
+baseline.m_v50gy_gtvp = m_v50gy_gtvp;
+baseline.m_data_vectors_gtvp = m_data_vectors_gtvp;
+baseline.lf_group = lf_group;
+baseline.valid_pts = valid_pts;
+baseline.ADC_abs = ADC_abs;
+baseline.D_abs = D_abs;
+baseline.f_abs = f_abs;
+baseline.Dstar_abs = Dstar_abs;
+baseline.ADC_pct = ADC_pct;
+baseline.D_pct = D_pct;
+baseline.f_delta = f_delta;
+baseline.Dstar_pct = Dstar_pct;
+baseline.nTp = nTp;
+baseline.metric_sets = metric_sets;
+baseline.set_names = set_names;
+baseline.time_labels = time_labels;
+baseline.dtype_label = dtype_label;
+baseline.dl_provenance = dl_provenance;
 
 % Restore global state modified at the top of this function
 diary off;

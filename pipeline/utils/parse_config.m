@@ -37,11 +37,31 @@ function config_struct = parse_config(json_path)
         error('parse_config:fileNotFound', 'Configuration file %s not found. Please copy, rename, and fill out config.example.json.', json_path);
     end
     try
-        % Read and parse the JSON config in one step.  jsondecode converts
-        % JSON objects to MATLAB structs, arrays to matrices, and strings
-        % to char arrays — the native MATLAB types used downstream.
-        raw_json = fileread(json_path);
-        config_struct = jsondecode(raw_json);
+        % Hard limit on config file size to prevent accidental memory
+        % exhaustion if a user mistakenly points config_path to a large
+        % data file.  A valid config.json should be well under 1 MB;
+        % anything larger is almost certainly a misconfigured path.
+        MAX_CONFIG_BYTES = 1e6;  % 1 MB hard limit
+        file_info = dir(json_path);
+        if file_info.bytes > MAX_CONFIG_BYTES
+            error('parse_config:fileTooLarge', ...
+                'Configuration file %s is too large (%d bytes, limit %d bytes). A valid config.json should be well under 1 MB. Check that config_path does not point to a data file.', ...
+                json_path, file_info.bytes, MAX_CONFIG_BYTES);
+        end
+        
+        % Read and parse the JSON config.  jsondecode converts JSON objects
+        % to MATLAB structs, arrays to matrices, and strings to char
+        % arrays — the native MATLAB types used downstream.  The try-catch
+        % around this specific call provides a user-friendly error message
+        % when the JSON is malformed (trailing commas, unquoted keys, etc.).
+        raw_text = fileread(json_path);
+        try
+            config_struct = jsondecode(raw_text);
+        catch ME
+            error('parse_config:invalidJSON', ...
+                'Failed to parse %s: %s\nPlease validate your JSON syntax (e.g., https://jsonlint.com/).', ...
+                json_path, ME.message);
+        end
 
         % ================================================================
         % Default value assignments for optional configuration fields.
@@ -291,63 +311,273 @@ function config_struct = parse_config(json_path)
             config_struct.use_firth_refit = true;
         end
 
+        % compute_fine_gray: When true, the survival analysis module fits a
+        % Fine-Gray subdistribution hazard model in addition to the default
+        % Cause-Specific Hazard Cox model.  The Fine-Gray model estimates
+        % cumulative incidence of local failure accounting for competing
+        % risks (death from other causes).  Default true.
+        if ~isfield(config_struct, 'compute_fine_gray')
+            config_struct.compute_fine_gray = true;
+        end
+
+        % exclude_motion_volumes: When true, DWI volumes flagged as motion-
+        % corrupted by detect_motion_artifacts are excluded from model
+        % fitting.  Default false (conservative: log warnings but include
+        % all volumes).
+        if ~isfield(config_struct, 'exclude_motion_volumes')
+            config_struct.exclude_motion_volumes = false;
+        end
+
+        % use_texture_features: When true, compute texture features (GLCM,
+        % first-order) on ADC maps and include them in the predictive model
+        % feature matrix.  Default false to preserve the existing 22-column
+        % layout for backward compatibility.
+        if ~isfield(config_struct, 'use_texture_features')
+            config_struct.use_texture_features = false;
+        end
+
+        % texture_3d: When true and the input volume is 3D, GLRLM texture
+        % features are computed using all 13 3D directions rather than
+        % the 4 in-plane directions from the largest 2D slice.  Default
+        % true for volumetric analysis; set false to restrict to 2D
+        % (faster, and appropriate when slice thickness >> in-plane
+        % resolution makes inter-slice runs physically less meaningful).
+        if ~isfield(config_struct, 'texture_3d')
+            config_struct.texture_3d = true;
+        end
+
+        % texture_quantization_method: Controls how continuous parameter
+        % values are discretised into grey levels for GLCM/GLRLM texture
+        % features.  IBSI specifies both methods and notes that the choice
+        % affects feature values (Section 3.4.1):
+        %   'fixed_bin_number' (default): rescales to [1, n_levels] using
+        %     the ROI min/max.  Good for cross-patient comparison.
+        %   'fixed_bin_width': bins at fixed intervals of (range/n_levels).
+        %     Good when absolute values are meaningful (e.g., ADC mm^2/s).
+        if ~isfield(config_struct, 'texture_quantization_method')
+            config_struct.texture_quantization_method = 'fixed_bin_number';
+        end
+
+        % run_imputation_sensitivity: When true, runs imputation sensitivity
+        % analysis comparing KNN against LOCF, mean, and linear interpolation.
+        % This is computationally expensive (4× LOOCV) so disabled by default.
+        if ~isfield(config_struct, 'run_imputation_sensitivity')
+            config_struct.run_imputation_sensitivity = false;
+        end
+
+        % fit_time_varying_cox: When true, fits stratified and extended Cox
+        % models as follow-up when Schoenfeld residual tests detect PH
+        % violations.  Includes covariate × log(time) interaction terms.
+        if ~isfield(config_struct, 'fit_time_varying_cox')
+            config_struct.fit_time_varying_cox = true;
+        end
+
+        % export_validation_model: When true, exports the trained elastic net
+        % model and preprocessing pipeline to a .mat file for external
+        % validation on independent datasets.
+        if ~isfield(config_struct, 'export_validation_model')
+            config_struct.export_validation_model = false;
+        end
+
+        % external_validation_data: Path to folder containing external
+        % validation dataset (same directory structure as training data).
+        % Empty string means disabled.
+        if ~isfield(config_struct, 'external_validation_data')
+            config_struct.external_validation_data = '';
+        end
+
+        % auxiliary_biomarker_csv: Path to CSV file with non-DWI biomarker
+        % data (columns: patient_id, biomarker_name, timepoint, value).
+        % Empty string means disabled.
+        if ~isfield(config_struct, 'auxiliary_biomarker_csv')
+            config_struct.auxiliary_biomarker_csv = '';
+        end
+
+        % use_auxiliary_biomarkers: When true, includes auxiliary biomarker
+        % features in the predictive model feature matrix.
+        if ~isfield(config_struct, 'use_auxiliary_biomarkers')
+            config_struct.use_auxiliary_biomarkers = false;
+        end
+
+        % use_gpu: When true, offloads computationally intensive operations
+        % to a CUDA-capable GPU via gpuArray.  Currently accelerates:
+        %   - ADC monoexponential WLS fitting (vectorized matrix ops)
+        %   - DnCNN deep learning inference (predict() on GPU)
+        % IVIM segmented fitting remains CPU-only because it relies on the
+        % read-only IVIMmodelfit dependency.  Default false to ensure the
+        % pipeline works on machines without a GPU or the Parallel Computing
+        % Toolbox.  When true but no GPU is available, falls back to CPU
+        % with a warning.
+        if ~isfield(config_struct, 'use_gpu')
+            config_struct.use_gpu = false;
+        end
+
+        % gpu_device: 1-based index of the CUDA GPU device to use when
+        % use_gpu is true.  On multi-GPU workstations, set this to select
+        % a specific card (e.g., 2 for the second GPU).  Default 1
+        % selects the first available device.
+        if ~isfield(config_struct, 'gpu_device')
+            config_struct.gpu_device = 1;
+        end
+
+        % run_trajectory_plots: generate waterfall, swimmer, and spider
+        % plots during the visualization step.  Default true.
+        if ~isfield(config_struct, 'run_trajectory_plots')
+            config_struct.run_trajectory_plots = true;
+        end
+
+        % ================================================================
+        % Type validation for critical configuration fields.
+        %
+        % jsondecode faithfully mirrors JSON types, but user errors in
+        % config.json (e.g., quoting a number as a string, or writing a
+        % comma-separated string instead of a JSON array) produce MATLAB
+        % types that silently misbehave downstream.  For example, MATLAB's
+        % '<' operator on a char array compares ASCII code points, not the
+        % numeric content of the string, so "adc < adc_thresh" would give
+        % wrong results if adc_thresh were accidentally a char.
+        %
+        % We validate types here, immediately after defaults are assigned,
+        % to fail fast with an actionable error message.  Where possible,
+        % we coerce recoverable types (e.g., char to double for numeric
+        % fields, numeric 0/1 to logical) rather than erroring, but we
+        % error if the coercion would be ambiguous or lossy.
+        % ================================================================
+
+        % --- Numeric scalar fields (thresholds and counts) ---
+        numeric_fields = {'adc_thresh', 'd_thresh', 'f_thresh', ...
+            'dstar_thresh', 'ivim_bthr', 'high_adc_thresh', ...
+            'adc_max', 'min_vox_hist', 'core_percentile', ...
+            'core_n_clusters', 'fdm_thresh', 'spectral_min_voxels', ...
+            'gpu_device'};
+        for i = 1:numel(numeric_fields)
+            fn = numeric_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if ischar(val) || isstring(val)
+                    % User likely quoted a number in JSON, e.g., "0.001".
+                    % Attempt to recover by converting to double.
+                    converted = str2double(val);
+                    if isnan(converted)
+                        error('parse_config:invalidType', ...
+                            'Configuration field "%s" must be a numeric scalar, but got non-numeric string "%s". Remove the quotes around the value in config.json.', ...
+                            fn, char(val));
+                    end
+                    config_struct.(fn) = converted;
+                elseif ~isnumeric(val) || ~isscalar(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a numeric scalar, but got %s (class: %s). Check your config.json — numeric values must not be quoted.', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- Logical / boolean fields ---
+        % JSON booleans become MATLAB logical via jsondecode.  We also
+        % accept numeric 0/1 (which is what you get if the user writes
+        % the JSON integer 0 or 1 instead of true/false) and coerce to
+        % logical.  Strings like "true"/"false" are also coerced.
+        logical_fields = {'skip_to_reload', 'skip_tests', 'use_checkpoints', ...
+            'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
+            'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
+            'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
+            'run_imputation_sensitivity', 'fit_time_varying_cox', ...
+            'export_validation_model', 'use_auxiliary_biomarkers', ...
+            'use_gpu', 'run_trajectory_plots'};
+        for i = 1:numel(logical_fields)
+            fn = logical_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if islogical(val) && isscalar(val)
+                    % Already correct type — nothing to do.
+                elseif isnumeric(val) && isscalar(val) && (val == 0 || val == 1)
+                    % Coerce numeric 0/1 to logical.
+                    config_struct.(fn) = logical(val);
+                elseif (ischar(val) || isstring(val))
+                    % User quoted a boolean, e.g., "true" or "false".
+                    val_lower = lower(strtrim(char(val)));
+                    if strcmp(val_lower, 'true')
+                        config_struct.(fn) = true;
+                    elseif strcmp(val_lower, 'false')
+                        config_struct.(fn) = false;
+                    else
+                        error('parse_config:invalidType', ...
+                            'Configuration field "%s" must be a logical (true/false), but got string "%s". In config.json, use true or false (unquoted).', ...
+                            fn, char(val));
+                    end
+                else
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a logical (true/false) or numeric 0/1, but got %s (class: %s). In config.json, use true or false (unquoted).', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- String fields ---
+        % These fields must be character vectors (or string scalars, which
+        % we coerce to char for consistency with the rest of the pipeline).
+        string_fields = {'cause_of_death_column', 'core_method', ...
+            'fdm_parameter', 'texture_quantization_method', ...
+            'external_validation_data', 'auxiliary_biomarker_csv'};
+        for i = 1:numel(string_fields)
+            fn = string_fields{i};
+            if isfield(config_struct, fn)
+                val = config_struct.(fn);
+                if isstring(val) && isscalar(val)
+                    % Coerce MATLAB string to char for downstream consistency.
+                    config_struct.(fn) = char(val);
+                elseif ~ischar(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "%s" must be a string, but got %s (class: %s).', ...
+                        fn, mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- Numeric vector / array fields ---
+        % td_scan_days must be a numeric vector (or empty).  A common
+        % mistake is writing "0,5,10,15,20,90" (a comma-separated string)
+        % instead of [0, 5, 10, 15, 20, 90] (a JSON array).
+        if isfield(config_struct, 'td_scan_days')
+            val = config_struct.td_scan_days;
+            if ~isempty(val)
+                if ischar(val) || isstring(val)
+                    % Attempt to parse comma-separated numeric string.
+                    val_str = strtrim(char(val));
+                    converted = str2double(strsplit(val_str, ','));
+                    if any(isnan(converted))
+                        error('parse_config:invalidType', ...
+                            'Configuration field "td_scan_days" must be a numeric vector (JSON array of numbers) or empty, but got string "%s". Use a JSON array like [0, 5, 10, 15, 20, 90], not a comma-separated string.', ...
+                            val_str);
+                    end
+                    config_struct.td_scan_days = converted;
+                elseif ~isnumeric(val) || ~isvector(val)
+                    error('parse_config:invalidType', ...
+                        'Configuration field "td_scan_days" must be a numeric vector (JSON array of numbers) or empty, but got %s (class: %s). Use a JSON array like [0, 5, 10, 15, 20, 90], not a comma-separated string.', ...
+                        mat2str(val), class(val));
+                end
+            end
+        end
+
+        % --- Cell array fields ---
+        % patient_ids should be a cell array of character vectors.
+        % jsondecode produces a cell array from a JSON array of strings,
+        % but a single-element array may produce a plain char.
+        if isfield(config_struct, 'patient_ids')
+            val = config_struct.patient_ids;
+            if ischar(val)
+                % Single string: wrap in a cell.
+                config_struct.patient_ids = {val};
+            elseif isstring(val)
+                % MATLAB string array: convert to cell of char.
+                config_struct.patient_ids = cellstr(val);
+            elseif ~iscell(val) && ~isempty(val)
+                error('parse_config:invalidType', ...
+                    'Configuration field "patient_ids" must be a cell array of strings (JSON array of strings) or empty, but got class: %s.', ...
+                    class(val));
+            end
+        end
+
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        % Any JSON syntax error or field-access failure is caught here.
-        % Re-throwing as a specific error ID allows callers to distinguish
-        % config parsing failures from other errors in their try/catch blocks.
-        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file: %s', ME.message);
-    end
-
-    % ================================================================
-    % Validate core_method against the set of implemented algorithms.
-    % ================================================================
-    valid_core_methods = {'adc_threshold', 'd_threshold', 'df_intersection', ...
-        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
-        'percentile', 'spectral', 'fdm'};
-    if ~any(strcmpi(config_struct.core_method, valid_core_methods))
-        error('parse_config:invalidCoreMethod', ...
-            'Unrecognized core_method "%s". Must be one of: %s', ...
-            config_struct.core_method, strjoin(valid_core_methods, ', '));
-    end
-
-    % ================================================================
-    % DWI type validation and mapping to numeric run indices.
-    %
-    % The pipeline supports three analysis modes that differ in how the
-    % raw DWI signal is preprocessed before IVIM/ADC model fitting:
-    %   1 = Standard: conventional voxel-wise fitting on raw DWI data.
-    %   2 = dnCNN:    DnCNN deep-learning denoiser applied to each b-value
-    %                 image before fitting, reducing thermal noise while
-    %                 preserving diffusion contrast.
-    %   3 = IVIMnet:  Neural-network-based IVIM parameter estimation that
-    %                 jointly learns D, f, D* from the full b-value series,
-    %                 avoiding the two-step segmented fitting bias.
-    %
-    % When dwi_type is omitted, all three modes run sequentially via
-    % execute_all_workflows, enabling head-to-head comparison of
-    % denoising strategies on the same patient cohort.
-    %
-    % Validation is intentionally placed AFTER the try/catch so that an
-    % unrecognized type produces a specific, actionable error rather than
-    % being swallowed by the generic "Failed to parse JSON" catch block.
-    % ================================================================
-    if isfield(config_struct, 'dwi_type')
-        switch lower(config_struct.dwi_type)
-            case 'standard', config_struct.dwi_types_to_run = 1;
-            case 'dncnn', config_struct.dwi_types_to_run = 2;
-            case 'ivimnet', config_struct.dwi_types_to_run = 3;
-            otherwise
-                error('parse_config:invalidJSON', ...
-                    'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
-                    config_struct.dwi_type);
-        end
-    else
-        % No dwi_type specified: run all three modes sequentially.
-        % This is the typical research workflow — comparing Standard vs
-        % dnCNN vs IVIMnet on the same cohort to assess whether DL
-        % denoising improves IVIM parameter precision and downstream
-        % predictive performance.
-        config_struct.dwi_types_to_run = 1:3;
-    end
-end
+        

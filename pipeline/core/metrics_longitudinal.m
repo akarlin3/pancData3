@@ -295,12 +295,14 @@ if exist('OCTAVE_VERSION', 'builtin')
     devs = dat - repmat(pop_mean, size(dat, 1), 1);
     devs_sq = devs.^2;
     devs_sq(~valid_mask) = 0;
-    pop_std = sqrt(sum(devs_sq, 1) ./ (N - 1));
-    pop_se = pop_std ./ sqrt(N);
+    pop_std = sqrt(sum(devs_sq, 1) ./ max(N - 1, 1));
+    pop_se = pop_std ./ sqrt(max(N, 1));
     pop_se(N < 2) = NaN;
 else
     pop_mean = mean(dat, 1, 'omitnan');
-    pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+    N_pop = sum(~isnan(dat), 1);
+    pop_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(max(N_pop, 1));
+    pop_se(N_pop < 2) = NaN;
 end
 
 % Plot individual patient trajectories (spaghetti plot).
@@ -373,7 +375,9 @@ if exist('OCTAVE_VERSION', 'builtin')
     grp_se(N < 2) = NaN;
 else
     grp_mean = mean(dat, 1, 'omitnan');
-    grp_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(sum(~isnan(dat), 1));
+    N_grp = sum(~isnan(dat), 1);
+    grp_se   = std(dat, 0, 1, 'omitnan') ./ sqrt(max(N_grp, 1));
+    grp_se(N_grp < 2) = NaN;
 end
 
 if exist('OCTAVE_VERSION', 'builtin')

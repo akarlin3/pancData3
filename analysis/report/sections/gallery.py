@@ -125,7 +125,7 @@ def _build_graph_analysis_html(r: dict) -> list[str]:
     trends_str = r.get("trends_json", "[]") or "[]"
     try:
         trends_list = json.loads(trends_str)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         trends_list = []
     if isinstance(trends_list, list) and trends_list:
         trend_parts = []
@@ -163,7 +163,7 @@ def _build_graph_analysis_html(r: dict) -> list[str]:
     issues_str = r.get("issues_json", "[]") or "[]"
     try:
         issues_list = json.loads(issues_str)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         issues_list = []
     if isinstance(issues_list, list) and issues_list:
         items = "".join(f"<li>{_esc(iss)}</li>" for iss in issues_list)
@@ -173,7 +173,7 @@ def _build_graph_analysis_html(r: dict) -> list[str]:
     ips_str = r.get("inflection_points_json", "[]") or "[]"
     try:
         ips_list = json.loads(ips_str)
-    except Exception:
+    except (json.JSONDecodeError, TypeError):
         ips_list = []
     if isinstance(ips_list, list) and ips_list:
         ip_items = []
@@ -317,7 +317,7 @@ def _section_figure_gallery(folder, rows=None) -> list[str]:
                 h.append('<dl class="graph-card-grid">')
                 h.extend(_build_graph_analysis_html(matched_row))
                 h.append('</dl></div>')
-        except Exception:
+        except (OSError, ValueError):
             # Skip files that can't be read
             pass
 

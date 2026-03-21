@@ -90,14 +90,22 @@ if ~exist('OCTAVE_VERSION', 'builtin')
 
     % Destroy any existing pool to ensure a clean state with exactly 2
     % workers and infinite idle timeout (the pipeline may take hours).
-    p = gcp('nocreate');
-    if ~isempty(p)
-        delete(p);
+    % Wrapped in try-catch so that misconfigured Parallel Computing Toolbox
+    % installations do not prevent the pipeline from running serially.
+    try
+        p = gcp('nocreate');
+        if ~isempty(p)
+            delete(p);
+        end
+        p = parpool('Processes', 2, 'IdleTimeout', Inf);
+        % Attach the main data-loading function so workers can access it without
+        % relying on path resolution, which can differ across workers.
+        addAttachedFiles(p, {fullfile(pipeline_root, 'core', 'load_dwi_data.m')});
+    catch ME_pool
+        fprintf('⚠️ Parallel pool creation failed: %s\n', ME_pool.message);
+        fprintf('   Pipeline will continue serially (parfor → for).\n');
     end
-    p = parpool('Processes', 2, 'IdleTimeout', Inf);
-    % Attach the main data-loading function so workers can access it without
-    % relying on path resolution, which can differ across workers.
-    addAttachedFiles(p, {fullfile(pipeline_root, 'core', 'load_dwi_data.m')});
+    try
     % Replicate the path setup on all workers so that utility functions
     % (parse_config, safe_load_mask, escape_shell_arg, etc.) and third-party
     % dependencies (IVIM fitting, DVH tools) are available inside parfor.
@@ -115,6 +123,9 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     pctRunOnAll warning('off', 'MATLAB:imagesci:niftiinfo:fileDoesNotExist');
     pctRunOnAll warning('off', 'MATLAB:DELETE:FileNotFound');
     warning(w_state_before_pct);   % restore client warnings (pctRunOnAll also executes on client)
+    catch ME_pct
+        fprintf('⚠️ Worker path/warning setup skipped: %s\n', ME_pct.message);
+    end
 end
 
 % Reset persistent output folder in run_dwi_pipeline so each full workflow

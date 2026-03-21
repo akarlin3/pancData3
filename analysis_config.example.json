@@ -1,16 +1,23 @@
 {
-    "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
-
+    "dwi_types": [
+        "Standard",
+        "dnCNN",
+        "IVIMnet"
+    ],
     "vision": {
         "gemini_model": "gemini-2.5-flash",
+        "claude_model": "claude-opus-4-6",
+        "provider": "claude",
+        "gemini_api_key": "",
+        "anthropic_api_key": "",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 10000,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
-        "script_timeout_seconds": 1800
+        "script_timeout_seconds": 1800,
+        "fallback_to_local": true
     },
-
     "statistics": {
         "p_highly_significant": 0.001,
         "p_significant": 0.01,
@@ -19,7 +26,6 @@
         "effect_size_medium": 0.5,
         "effect_size_large": 0.8
     },
-
     "priority_graphs": [
         "Dose_vs_Diffusion",
         "Longitudinal_Mean_Metrics",

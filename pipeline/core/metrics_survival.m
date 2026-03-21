@@ -1,528 +1,605 @@
-function metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, m_gtv_vol, output_folder, actual_scan_days)
+function metrics_survival(varargin)
 % METRICS_SURVIVAL — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
-% Part 5/5 of the metrics step. Fits a Time-Dependent Cox Proportional Hazards
-% model with dynamic covariate updating.
+% Part 5/5 of the metrics step. Fits survival models including Cox PH and competing risks analysis.
 %
-% ANALYTICAL OVERVIEW:
-%   This module fits a time-dependent Cox Proportional Hazards (Cox PH) model
-%   using the Andersen-Gill counting process formulation.  This is the most
-%   sophisticated analysis in the pipeline because it addresses several
-%   challenges unique to longitudinal imaging biomarker studies:
+% This function coordinates the entire survival analysis workflow by calling
+% specialized subfunctions for different aspects of the analysis.
 %
-%   1. TIME-VARYING COVARIATES — Standard Cox regression assumes covariates
-%      are fixed at baseline.  In this study, diffusion parameters are
-%      measured at each treatment fraction and evolve over time.  The
-%      counting-process formulation splits each patient's follow-up into
-%      intervals [t_start, t_stop], with covariates updated at each scan.
-%      This allows the model to use the most recent biomarker values when
-%      estimating instantaneous hazard of local failure.
+% NEW INTERFACE (recommended):
+%   metrics_survival(data_struct, opts)
+%     data_struct — struct with fields:
+%       .valid_pts, .ADC_abs, .D_abs, .f_abs, .Dstar_abs,
+%       .m_lf, .m_total_time, .m_total_follow_up_time, .nTp,
+%       .fx_label, .dtype_label
+%     Optional fields:
+%       .m_gtv_vol, .actual_scan_days
+%     opts — struct with configuration options (passed through as config).
+%            Any fields not present receive defaults.
+%            Recognized config fields:
+%              .td_halflife_days — Exponential decay half-life (in days) used
+%                  by build_td_panel to weight imaging features from prior
+%                  fractions. Controls how quickly older measurements lose
+%                  influence when constructing the time-dependent covariate
+%                  panel. Default: 18 days.
+%                  Clinical guidance: For a standard 5-fraction SBRT course
+%                  spanning ~20 days, 18 days means Fx1 features retain ~46%
+%                  weight at Fx5. Shorter half-lives (e.g., 6–12 days) are
+%                  appropriate when rapid biological changes are expected;
+%                  longer half-lives (e.g., 24–36 days) suit slowly evolving
+%                  responses. This parameter can be tuned via cross-validation
+%                  over the half_life_grid in the time-varying effects analysis.
 %
-%   2. COMPETING RISKS (CAUSE-SPECIFIC HAZARDS) — Pancreatic cancer patients
-%      may die from systemic disease, treatment toxicity, or unrelated causes
-%      before local failure can be observed.  The Cause-Specific Hazard (CSH)
-%      approach treats these competing events as censored observations when
-%      modelling the hazard of local failure.  This is preferred over the
-%      subdistribution hazard (Fine-Gray) for aetiological questions because
-%      CSH estimates the actual biological hazard rate, not the cumulative
-%      incidence accounting for competing events.
-%
-%   3. INVERSE PROBABILITY OF CENSORING WEIGHTING (IPCW) — Administrative
-%      censoring (patients lost to follow-up) may be informative if sicker
-%      patients are more likely to drop out.  IPCW models the censoring
-%      probability as a function of covariates and upweights observations
-%      from patients similar to those who were censored, reducing bias.
-%      Competing events are NOT included in the IPCW model because they
-%      are not uninformative censoring — they are a distinct endpoint.
-%
-%   4. LANDMARK ANALYSIS — Only intervals AFTER the end of radiotherapy
-%      are included in the primary analysis.  Using covariates from scans
-%      that occurred after the event they predict would violate the temporal
-%      ordering assumption.  The landmark ensures all patients in the
-%      analysis were still at risk at the time of the last treatment scan.
-%
-%   5. IMPUTATION HALF-LIFE SENSITIVITY — The time-dependent panel uses
-%      exponential decay imputation for missing inter-scan values (via
-%      build_td_panel).  The sensitivity analysis varies the decay half-life
-%      to assess robustness of hazard ratio estimates to imputation assumptions.
-%
-% Inputs:
-%   valid_pts         - Logical mask of patients mapped to LF/LC groups
-%   ADC_abs, D_abs, f_abs, Dstar_abs - Baseline covariate values matrices
-%   m_lf              - Local failure clinical grouping statuses
-%   m_total_time      - Time-to-local-failure (events)
-%   m_total_follow_up_time - Time-to-censoring for event-free subjects
-%   nTp               - Counter of number of timepoints max
-%   fx_label          - Fraction labels used in logging
-%   dtype_label       - DWI type name used in output
-%   m_gtv_vol         - (Optional) GTV volume matrix (patients x fractions)
-%   output_folder     - (Optional) Directory for diary output
-%   actual_scan_days  - (Optional) Vector of actual scan days from DICOM
-%                       headers or clinical records.  When provided,
-%                       replaces the default [0,5,10,15,20,90] to avoid
-%                       immortal time bias.
-%
-% Outputs:
-%   None. Outputs printed to console (HR and p-value tables).
-%
+% LEGACY INTERFACE (deprecated, preserved for backward compatibility):
+%   metrics_survival(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+%       m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, ...
+%       dtype_label, m_gtv_vol, output_folder, actual_scan_days, config_struct_in)
 
-% Handle optional arguments for backward compatibility
-if nargin < 12, m_gtv_vol = []; end
-if nargin < 13, output_folder = ''; end
-if nargin < 14, actual_scan_days = []; end
+% --- Argument parsing: detect new vs legacy interface ---
+if nargin >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'valid_pts')
+    % ---- New struct-based interface ----
+    data_struct = varargin{1};
+    if nargin >= 2 && isstruct(varargin{2})
+        opts = varargin{2};
+    else
+        opts = struct();
+    end
 
-fprintf('\n--- TIME-DEPENDENT COX PH MODEL (Counting Process) ---\n');
+    % Unpack required fields
+    valid_pts              = data_struct.valid_pts;
+    ADC_abs                = data_struct.ADC_abs;
+    D_abs                  = data_struct.D_abs;
+    f_abs                  = data_struct.f_abs;
+    Dstar_abs              = data_struct.Dstar_abs;
+    m_lf                   = data_struct.m_lf;
+    m_total_time           = data_struct.m_total_time;
+    m_total_follow_up_time = data_struct.m_total_follow_up_time;
+    nTp                    = data_struct.nTp;
+    fx_label               = data_struct.fx_label;
+    dtype_label            = data_struct.dtype_label;
 
-% Diary: capture console output to output_folder
-if ~isempty(output_folder)
-    diary_file = fullfile(output_folder, ['metrics_survival_output_' dtype_label '.txt']);
-    if exist(diary_file, 'file'), delete(diary_file); end
-    diary(diary_file);
+    % Optional data fields
+    if isfield(data_struct, 'm_gtv_vol')
+        m_gtv_vol = data_struct.m_gtv_vol;
+    else
+        m_gtv_vol = [];
+    end
+    if isfield(data_struct, 'actual_scan_days')
+        actual_scan_days = data_struct.actual_scan_days;
+    else
+        actual_scan_days = [];
+    end
+
+    % Config: opts acts as the config struct; extract output_folder from it
+    if isfield(opts, 'output_folder')
+        output_folder = opts.output_folder;
+    else
+        output_folder = '';
+    end
+    config_struct_internal = opts;
+
+else
+    % ---- Legacy positional interface (deprecated) ----
+    warning('metrics_survival:DeprecatedSignature', ...
+        ['The 15-argument positional interface is deprecated and will be removed in a future release. ', ...
+         'Use metrics_survival(data_struct, opts) instead.']);
+
+    if nargin < 11
+        error('metrics_survival:InsufficientArguments', ...
+            'At least 11 arguments are required for the legacy interface.');
+    end
+
+    valid_pts              = varargin{1};
+    ADC_abs                = varargin{2};
+    D_abs                  = varargin{3};
+    f_abs                  = varargin{4};
+    Dstar_abs              = varargin{5};
+    m_lf                   = varargin{6};
+    m_total_time           = varargin{7};
+    m_total_follow_up_time = varargin{8};
+    nTp                    = varargin{9};
+    fx_label               = varargin{10};
+    dtype_label            = varargin{11};
+
+    if nargin >= 12, m_gtv_vol = varargin{12}; else, m_gtv_vol = []; end
+    if nargin >= 13, output_folder = varargin{13}; else, output_folder = ''; end
+    if nargin >= 14, actual_scan_days = varargin{14}; else, actual_scan_days = []; end
+    if nargin >= 15 && ~isempty(varargin{15})
+        config_struct_internal = varargin{15};
+    else
+        config_struct_internal = struct();
+    end
 end
 
-% Scan day timing for the time-dependent Cox model.
+fprintf('\n--- SURVIVAL ANALYSIS PIPELINE ---\n');
+
+% Set up diary for output capture.
+% We use a two-phase approach: first perform all filesystem operations that
+% could fail, then start the diary and create the cleanup guard. This
+% ensures that if file deletion or diary activation throws, the diary is
+% not left in an inconsistent state.
+cleanupDiary = []; %#ok<NASGU> — will hold onCleanup handle if diary is started
+if ~isempty(output_folder)
+    diary_file = fullfile(output_folder, ['metrics_survival_output_' dtype_label '.txt']);
+    % Phase 1: filesystem checks (may throw on read-only filesystem)
+    try
+        if exist(diary_file, 'file')
+            delete(diary_file);
+        end
+    catch ME_del
+        warning('metrics_survival:DiaryDeleteFailed', ...
+            'Could not delete existing diary file: %s. Proceeding without diary.', ME_del.message);
+        diary_file = '';
+    end
+    % Phase 2: start diary only if filesystem prep succeeded
+    if ~isempty(diary_file)
+        try
+            diary(diary_file);
+            cleanupDiary = onCleanup(@() diary('off')); %#ok<NASGU>
+        catch ME_diary
+            % diary() itself failed — ensure it is off and warn
+            try
+                diary('off');
+            catch
+                % diary('off') may also fail; nothing more we can do
+            end
+            warning('metrics_survival:DiaryStartFailed', ...
+                'Could not start diary: %s. Proceeding without diary.', ME_diary.message);
+        end
+    end
+end
+
+% Prepare common data structures using the extracted utility functions.
+% Previously this was a single local function (prepare_survival_data);
+% now the logic is split across independently testable functions in
+% pipeline/utils/:
+%   prepare_outcome_data  — censoring logic
+%   select_landmark_day   — landmark day selection
+%   build_survival_features — feature assembly and panel construction
+[survival_data, config] = prepare_survival_data_dispatch(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+    m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
+    m_gtv_vol, actual_scan_days, config_struct_internal, output_folder);
+
+% Check if we have sufficient data for analysis
+if ~survival_data.has_sufficient_data
+    fprintf('  Insufficient data for survival analysis.\n');
+    return;
+end
+
+% Initialize success/failure flags for each analysis
+cox_success = false;
+finegray_success = false;
+timevar_success = false;
+validation_success = false;
+
+% Fit Cox Proportional Hazards model
+fprintf('\n--- COX PROPORTIONAL HAZARDS MODEL ---\n');
+try
+    cox_results = fit_cox_ph(survival_data, config);
+    cox_success = true;
+catch ME_cox
+    fprintf('  ⚠️  Cox PH analysis failed: %s\n', ME_cox.message);
+    fprintf('      Identifier: %s\n', ME_cox.identifier);
+    cox_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_cox.message));
+end
+
+% Fit Fine-Gray competing risks model
+fprintf('\n--- FINE-GRAY COMPETING RISKS MODEL ---\n');
+try
+    finegray_results = fit_fine_gray(survival_data, config);
+    finegray_success = true;
+catch ME_fg
+    fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
+    fprintf('      Identifier: %s\n', ME_fg.identifier);
+    finegray_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_fg.message));
+end
+
+% Compute time-varying effects analysis
+fprintf('\n--- TIME-VARYING COEFFICIENTS ANALYSIS ---\n');
+try
+    timevar_results = compute_time_varying_effects(survival_data, config);
+    timevar_success = true;
+catch ME_tv
+    fprintf('  ⚠️  Time-varying effects analysis failed: %s\n', ME_tv.message);
+    fprintf('      Identifier: %s\n', ME_tv.identifier);
+    timevar_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_tv.message));
+end
+
+% Validate survival models
+fprintf('\n--- MODEL VALIDATION ---\n');
+try
+    validation_results = validate_survival_model(survival_data, cox_results, config);
+    validation_success = true;
+catch ME_val
+    fprintf('  ⚠️  Model validation failed: %s\n', ME_val.message);
+    fprintf('      Identifier: %s\n', ME_val.identifier);
+    validation_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_val.message));
+end
+
+% Output summary results, including success/failure status for each analysis
+analysis_status = struct();
+analysis_status.cox_success = cox_success;
+analysis_status.finegray_success = finegray_success;
+analysis_status.timevar_success = timevar_success;
+analysis_status.validation_success = validation_success;
+
+print_survival_summary(cox_results, finegray_results, timevar_results, ...
+    validation_results, analysis_status);
+
+end
+
+function [survival_data, config] = prepare_survival_data_dispatch(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, ...
+    m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, dtype_label, ...
+    m_gtv_vol, actual_scan_days, config_struct_in, output_folder)
+% PREPARE_SURVIVAL_DATA_DISPATCH Orchestrate data preparation by delegating
+% to independently testable utility functions:
+%   build_survival_features  — feature array assembly
+%   prepare_outcome_data     — censoring/competing risk logic
+%   select_landmark_day      — landmark day selection
+
+% --- 1. Scan days ---
 if ~isempty(actual_scan_days)
     td_scan_days = actual_scan_days;
     fprintf('  Using provided scan days [%s].\n', num2str(td_scan_days));
 else
-    % Default scan days assume 5 on-treatment fractions + 1 post-treatment scan.
     td_scan_days = [0, 5, 10, 15, 20, 90];
     fprintf('  ⚠️  CAUTION: Using default scan days [%s].\n', num2str(td_scan_days));
-    fprintf('      Pass actual DICOM-derived scan days via config.json td_scan_days field\n');
-    fprintf('      or as the 14th argument to avoid immortal time bias.\n');
+    fprintf('      Pass actual DICOM-derived scan days to avoid immortal time bias.\n');
 end
 
-% Covariates: all four diffusion/IVIM parameters (absolute values across
-% all treatment fractions).  These are the time-varying covariates whose
-% trajectories are hypothesised to predict local failure hazard.
-% Interpretation of hazard ratios:
-%   HR(ADC) > 1 → higher ADC associated with INCREASED failure risk
-%                 (counterintuitive: high ADC usually = good response)
-%   HR(ADC) < 1 → higher ADC associated with DECREASED failure risk
-%                 (expected: radiation-induced cell death → higher ADC)
-%   HR(D)   — same interpretation as ADC (reflects cellularity)
-%   HR(f)   — higher perfusion fraction may indicate better oxygenation
-%             and thus better radiation response (HR < 1 expected)
-%   HR(D*)  — physiologically noisy, interpretation less reliable
-td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
-                   f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
-td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+% --- 2. Build feature arrays (delegated to build_survival_features) ---
+[td_feat_arrays, td_feat_names] = build_survival_features(valid_pts, ...
+    ADC_abs, D_abs, f_abs, Dstar_abs, m_gtv_vol, nTp);
 
-% Include baseline GTV volume as a time-constant confounder when available.
-% Tumor volume is a known prognostic factor; omitting it risks confounding
-% imaging biomarker effect estimates.
-has_vol = ~isempty(m_gtv_vol) && any(isfinite(m_gtv_vol(valid_pts, 1)));
-if has_vol
-    vol_baseline = m_gtv_vol(valid_pts, 1);
-    % Replicate baseline volume across timepoints (time-constant covariate)
-    vol_rep = repmat(vol_baseline, 1, nTp);
-    td_feat_arrays{end+1} = vol_rep;
-    td_feat_names{end+1}  = 'GTVvol';
-    fprintf('  Including baseline GTV volume as a covariate.\n');
+% --- 3. Prepare outcome data with censoring logic (delegated to prepare_outcome_data) ---
+[td_lf, td_tot_time] = prepare_outcome_data(valid_pts, m_lf, m_total_time, m_total_follow_up_time);
+
+% --- 4. Parse half-life config ---
+if isfield(config_struct_in, 'td_halflife_days') && ~isempty(config_struct_in.td_halflife_days)
+    td_halflife_days = config_struct_in.td_halflife_days;
+    fprintf('  Using configured td_halflife_days = %.1f (from config).\n', td_halflife_days);
+else
+    td_halflife_days = 18;
+    fprintf('  Using default td_halflife_days = %.1f.\n', td_halflife_days);
+    fprintf('      Set config.td_halflife_days to customize the decay half-life for time-dependent feature weighting.\n');
 end
 
-td_n_feat      = numel(td_feat_arrays);
-
-td_lf       = m_lf(valid_pts);
-td_tot_time = m_total_time(valid_pts);
-
-% Censored and competing-risk patients use follow-up time; events use
-% time-to-event.  In a Cause-Specific Hazard (CSH) model, competing risk
-% patients (lf==2) are censored at their last follow-up — they did not
-% experience the event of interest (local failure).
-follow_up_valid = m_total_follow_up_time(valid_pts);
-cens_mask_td = (td_lf == 0 | td_lf == 2) & ~isnan(follow_up_valid);
-td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
-
-% Build the counting-process panel: each patient's follow-up is split into
-% intervals [t_start, t_stop] aligned to scan times.  Covariates are
-% constant within each interval and updated at each scan boundary.
-% The default half-life of 18 months controls exponential decay imputation
-% for covariate values between scans (e.g., if a scan is missing at Fx3,
-% the Fx2 value decays towards the population mean with this half-life).
+% --- 5. Build time-dependent panel ---
 [X_td_def, t_start_td_def, t_stop_td_def, event_td_def, pat_id_td_def, frac_td_def] = ...
-    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, 18);
+    build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, td_halflife_days);
 
-% NOTE: Scaling is deferred until after landmark subsetting (below) to
-% prevent pre-landmark covariate distributions from contaminating the
-% statistics used to standardise the post-landmark analysis set.
+% --- 6. Check initial data sufficiency ---
+td_n_feat = numel(td_feat_arrays);
 td_ok = (sum(event_td_def == 1) >= 3) && (size(X_td_def, 1) > td_n_feat + 1);
 
-% Sensitivity analysis: vary the imputation half-life to assess robustness.
-% Short half-lives (3 months) assume biomarker values revert quickly to
-% the population mean between scans (conservative — discounts old data).
-% Long half-lives (24 months) assume biomarker values persist over time
-% (aggressive — may carry forward outdated measurements).
-% If hazard ratios are stable across the grid, the results are robust to
-% imputation assumptions.  Large variation indicates sensitivity to
-% missing data handling and warrants caution in interpretation.
-half_life_grid = [3, 6, 12, 18, 24];
-n_halflife = length(half_life_grid);
-td_panels = cell(n_halflife, 1);
-for hl_idx = 1:n_halflife
-    text_progress_bar(hl_idx, n_halflife, 'Half-life sensitivity');
-    [X_i, t_start_i, t_stop_i, ev_i, pid_i, frac_i] = ...
-        build_td_panel(td_feat_arrays, td_feat_names, td_lf, td_tot_time, nTp, td_scan_days, half_life_grid(hl_idx));
-    td_panels{hl_idx} = struct('X', X_i, 't_start', t_start_i, 't_stop', t_stop_i, 'event', ev_i, 'pat_id', pid_i, 'frac', frac_i);
+% --- 7. Select landmark day (delegated to select_landmark_day) ---
+landmark_day = select_landmark_day(td_scan_days, config_struct_in);
+
+% --- 8. Apply landmark filtering ---
+lm_keep = (t_start_td_def >= landmark_day);
+
+if any(lm_keep)
+    X_td = X_td_def(lm_keep, :);
+    t_start_td = t_start_td_def(lm_keep);
+    t_stop_td = t_stop_td_def(lm_keep);
+    event_td = event_td_def(lm_keep);
+    pat_id_td = pat_id_td_def(lm_keep);
+    frac_td = frac_td_def(lm_keep);
+    
+    n_events_post_lm = sum(event_td == 1);
+    td_ok = td_ok && (n_events_post_lm >= 3) && (size(X_td, 1) > td_n_feat + 1);
+    
+    fprintf('  Landmark at day %d: %d events, %d patients\n', ...
+        landmark_day, n_events_post_lm, numel(unique(pat_id_td)));
+else
+    td_ok = false;
 end
 
-if ~td_ok
-    fprintf('  Insufficient events (%d) or intervals for time-dependent Cox model.\n', sum(event_td_def == 1));
-    if ~isempty(output_folder), diary off; end
+% --- 9. Package results ---
+survival_data = struct();
+survival_data.has_sufficient_data = td_ok;
+if td_ok
+    survival_data.X = X_td;
+    survival_data.t_start = t_start_td;
+    survival_data.t_stop = t_stop_td;
+    survival_data.event = event_td;
+    survival_data.pat_id = pat_id_td;
+    survival_data.frac = frac_td;
+    survival_data.feat_names = td_feat_names;
+    survival_data.n_feat = td_n_feat;
+    survival_data.landmark_day = landmark_day;
+    survival_data.scan_days = td_scan_days;
+    survival_data.feat_arrays = td_feat_arrays;
+    survival_data.lf_status = td_lf;
+    survival_data.total_time = td_tot_time;
+end
+
+config = struct();
+config.half_life_grid = [3, 6, 12, 18, 24];
+config.n_bootstrap = 1000;
+config.output_folder = output_folder;
+config.dtype_label = dtype_label;
+config.td_halflife_days = td_halflife_days;
+end
+
+function cox_results = fit_cox_ph(survival_data, config)
+% FIT_COX_PH Fit Cox Proportional Hazards model with time-dependent covariates
+% Uses robust sandwich (Huber-White) variance estimator for IPCW-weighted models.
+
+if ~survival_data.has_sufficient_data
+    cox_results = struct('success', false, 'message', 'Insufficient data');
     return;
 end
 
-% Copy the default half-life (18-month) panel into working variables for
-% landmark subsetting and Cox fitting below.
-X_td = X_td_def; t_start_td = t_start_td_def; t_stop_td = t_stop_td_def; event_td = event_td_def; pat_id_td = pat_id_td_def; frac_td = frac_td_def;
+% Scale covariates
+X_scaled = scale_td_panel(survival_data.X, survival_data.feat_names, ...
+    survival_data.pat_id, survival_data.t_start, unique(survival_data.pat_id), 'baseline');
 
-% ---- Landmark analysis: discard intervals before end-of-RT -----------
-% Using covariates from scans that occurred AFTER the event they predict
-% violates the time-dependent Cox assumption.  Landmark subsetting keeps
-% only patients still at risk after the last treatment fraction, using
-% covariates measured at or before the landmark.
-% Select the landmark as the last scan before the largest inter-scan gap,
-% which marks the transition from on-treatment to post-treatment scans.
-% This is more robust than assuming the last element is always a single
-% post-treatment scan (e.g., handles protocols with multiple post-RT scans).
-scan_gaps = diff(td_scan_days);
-[~, gap_idx] = max(scan_gaps);
-landmark_idx = gap_idx;  % last on-treatment scan is before the largest gap
-landmark_day = td_scan_days(landmark_idx);
-lm_keep = (t_start_td >= landmark_day);
-if any(lm_keep)
-    n_before = length(t_start_td);
-    X_td        = X_td(lm_keep, :);
-    t_start_td  = t_start_td(lm_keep);
-    t_stop_td   = t_stop_td(lm_keep);
-    event_td    = event_td(lm_keep);
-    pat_id_td   = pat_id_td(lm_keep);
-    frac_td     = frac_td(lm_keep);
-    fprintf('  Landmark at day %d: %d → %d intervals (%d patients, %d events)\n', ...
-        landmark_day, n_before, sum(lm_keep), numel(unique(pat_id_td)), sum(event_td == 1));
+% Prepare for cause-specific hazard
+event_csh = survival_data.event;
+event_csh(event_csh == 2) = 0;  % Competing risks → censored
 
-    % Re-validate event count after landmark subsetting — the pre-landmark
-    % check (line 76) may have passed, but removing early intervals can
-    % reduce event count below the minimum for reliable Cox estimation.
-    n_events_post_lm = sum(event_td == 1);
-    if n_events_post_lm < 3 || size(X_td, 1) <= td_n_feat + 1
-        fprintf('  Insufficient events (%d) or intervals after landmark subsetting for Cox model.\n', n_events_post_lm);
-        if ~isempty(output_folder), diary off; end
-        return;
-    end
+% Compute IPCW weights
+ipcw_weights = compute_ipcw_weights(survival_data.event, survival_data.t_start, ...
+    survival_data.t_stop, X_scaled, survival_data.pat_id);
+
+% Check for tied event times
+event_times = survival_data.t_stop(event_csh == 1);
+[unique_times, ~, time_idx] = unique(event_times);
+has_tied_times = any(arrayfun(@(i) sum(time_idx == i) > 1, 1:length(unique_times)));
+if has_tied_times
+    ties_method = 'efron';
+else
+    ties_method = 'breslow';
 end
 
-% Z-SCORE STANDARDISATION (post-landmark only)
-% Scale AFTER landmark subsetting so that standardisation statistics are
-% computed exclusively on post-landmark intervals, preventing pre-landmark
-% covariate distributions from leaking into the primary analysis.
-% Using 'baseline' mode: z-scores are computed from each patient's first
-% post-landmark observation, so that coefficients represent hazard per
-% SD change from the patient's own post-treatment baseline.  This makes
-% hazard ratios interpretable in clinical units: HR=2.0 means a 1-SD
-% increase in the biomarker doubles the instantaneous failure hazard.
-X_td_global = scale_td_panel(X_td, td_feat_names, pat_id_td, t_start_td, unique(pat_id_td), 'baseline');
+if has_tied_times
+    fprintf('  ⚠️  Detected tied event times. Using Efron approximation.\n');
+end
 
-% ---- Cause-Specific Hazard (CSH) Event Recoding ----------------------
-% In the CSH framework for local failure analysis:
-%   event=1 → local/regional failure (the event of interest)
-%   event=2 → competing risk (non-cancer death without prior LF)
-%   event=0 → administratively censored (still alive, no LF, lost to follow-up)
-%
-% For the CSH model, competing events are recoded as censored (event=0).
-% This means the CSH estimates the hazard of local failure among patients
-% who have NOT yet experienced any event — the "cause-specific" hazard
-% rate.  This is the correct estimand when asking "does this biomarker
-% predict local failure?" (aetiological question).
-event_td_csh = event_td;
-event_td_csh(event_td_csh == 2) = 0;  % CSH: competing risks → censored
-
-% IPCW corrects for informative *administrative* censoring only.
-% Competing events are excluded from the censoring model to preserve
-% the IPCW independence assumption (Robins & Finkelstein 2000).
-ipcw_weights = compute_ipcw_weights(event_td, t_start_td, t_stop_td, X_td_global, pat_id_td);
-
-% ---- Fit the time-dependent Cox PH model ------------------------------
-% The Cox PH model estimates the hazard function:
-%   h(t|X) = h0(t) * exp(beta * X(t))
-% where h0(t) is the unspecified baseline hazard (semi-parametric) and
-% beta * X(t) is the linear predictor from time-varying covariates.
-%
-% coxphfit accepts a two-column [t_start t_stop] matrix for counting-
-% process (start-stop) data, with each row representing one interval
-% for one patient.  The Breslow method handles tied event times (common
-% when events are recorded to the nearest day).
-warning('error', 'stats:coxphfit:FitWarning');
-warning('error', 'stats:coxphfit:IterationLimit');
+% Fit Cox model with robust sandwich variance estimation
 try
-    T_td = [t_start_td, t_stop_td];
-    is_censored = (event_td_csh == 0);
-
-    % Remove constant columns to prevent DisallowedConstantTerm warning
-    [X_td_clean, keep_main] = remove_constant_columns(X_td_global);
-    if sum(~keep_main) > 0
-        fprintf('  💡 Removed %d constant column(s) before Cox fit: %s\n', ...
-            sum(~keep_main), strjoin(td_feat_names(~keep_main), ', '));
+    T_matrix = [survival_data.t_start, survival_data.t_stop];
+    is_censored = (event_csh == 0);
+    
+    [X_clean, keep_cols] = remove_constant_columns(X_scaled);
+    if size(X_clean, 2) == 0
+        error('Cox:NoVariableColumns', 'All covariate columns are constant.');
     end
-    if size(X_td_clean, 2) == 0
-        error('Cox:NoVariableColumns', 'All covariate columns are constant after scaling.');
-    end
-
-    % Suppress trivial warnings, but KEEP error triggers for convergence failures
-    w_temp = warning('off', 'all');
-    warning('error', 'stats:coxphfit:FitWarning');
-    warning('error', 'stats:coxphfit:IterationLimit');
-    % IPCW weighting via coxphfit's 'Frequency' parameter.  'Frequency'
-    % expects integer counts, so we scale weights by 100 before rounding to
-    % preserve relative differences.  A scale factor of 1 (i.e., simple
-    % rounding of mean-stabilised ~1 weights) collapses most weights to 1,
-    % losing the IPCW correction.  Scaling by 100 retains two decimal
-    % places of precision.  The ideal solution would be a custom weighted
-    % Cox partial likelihood, but MATLAB's coxphfit does not support
-    % continuous probability weights natively.
+    
+    % --- Step 1: Fit unweighted Cox model to get initial estimates ---
+    % We first fit the unweighted model, then compute the sandwich variance
+    % using the IPCW weights and score residuals.
+    
+    % Suppress only the specific coxphfit warnings, with guaranteed restoration
+    ws = warning('off', 'stats:coxphfit:FitWarning');
+    cleanupWarn = onCleanup(@() warning(ws));
+    
+    % Apply IPCW via frequency weights for point estimation
     ipcw_scale = 100;
     ipcw_freq = max(1, round(ipcw_weights * ipcw_scale));
-    fprintf('  IPCW→Frequency: scale=%d, effective N=%d (actual N=%d)\n', ...
-        ipcw_scale, sum(ipcw_freq), length(ipcw_weights));
-    [b_td_short, logl_td, ~, stats_td_short] = coxphfit(X_td_clean, T_td, ...
-        'Censoring', is_censored, 'Ties', 'breslow', ...
-        'Frequency', ipcw_freq);
-    warning(w_temp);
-
-    % Correct variance inflation from the Frequency workaround.
-    % coxphfit's Frequency parameter treats each "replicate" as an
-    % independent observation, inflating effective N by ~ipcw_scale and
-    % deflating SEs by ~sqrt(ipcw_scale).  Rescale SEs and recompute
-    % p-values to recover correct inference.
-    % Use actual mean frequency weight (accounts for rounding/truncation)
-    % rather than the nominal ipcw_scale constant.
-    eff_ipcw_scale = mean(ipcw_freq);
-    stats_td_short.se = stats_td_short.se * sqrt(eff_ipcw_scale);
-    stats_td_short.p  = 2 * (1 - normcdf(abs(b_td_short ./ stats_td_short.se)));
-
-    % Map back to full feature space (removed columns get coef=0, SE/p=NaN)
-    % Map coefficients from the reduced (non-constant) column space back to
-    % the full feature space. Removed columns get beta=0 (no effect),
-    % SE=NaN, p=NaN (indeterminate), so they print as NaN in the results
-    % table and do not contribute to the hazard ratio.
-    b_td = zeros(td_n_feat, 1);
-    b_td(keep_main) = b_td_short;
-    stats_td.se = nan(td_n_feat, 1);
-    stats_td.p  = nan(td_n_feat, 1);
-    stats_td.se(keep_main) = stats_td_short.se;
-    stats_td.p(keep_main)  = stats_td_short.p;
-catch ME_td
-    if exist('w_temp', 'var'), warning(w_temp); end
-    if ~isempty(strfind(ME_td.identifier, 'FitWarning')) || ...
-       ~isempty(strfind(ME_td.identifier, 'IterationLimit')) || ...
-       ~isempty(strfind(lower(ME_td.message), 'perfect'))
-        % Cox model failed to converge (e.g., perfect separation).
-        % Set outputs to NaN rather than falling back to a different model
-        % to avoid mixing Hazard Ratios with Odds Ratios.
-        fprintf('  ⚠️  Cox model did not converge: %s\n', ME_td.message);
-        b_td        = nan(td_n_feat, 1);
-        stats_td.se = nan(td_n_feat, 1);
-        stats_td.p  = nan(td_n_feat, 1);
-        logl_td     = NaN;
+    
+    [b_short, logl, H_out, stats_short] = coxphfit(X_clean, T_matrix, ...
+        'Censoring', is_censored, 'Ties', ties_method, 'Frequency', ipcw_freq);
+    
+    % --- Step 2: Compute robust sandwich (Huber-White) standard errors ---
+    % The sandwich variance is: V_robust = A^{-1} B A^{-1}
+    % where A = negative Hessian (observed information), B = meat matrix
+    % B = sum over clusters (patients) of (score_i * w_i)' * (score_i * w_i)
+    
+    fprintf('  Computing robust sandwich variance estimator for IPCW weights.\n');
+    
+    sandwich_se = compute_sandwich_se_cox(b_short, X_clean, T_matrix, ...
+        is_censored, ipcw_weights, survival_data.pat_id, ties_method);
+    
+    if ~isempty(sandwich_se) && all(isfinite(sandwich_se)) && all(sandwich_se > 0)
+        % Use sandwich SE
+        stats_short.se = sandwich_se;
+        fprintf('  Using robust sandwich SE estimator.\n');
     else
-        warning('on', 'stats:coxphfit:FitWarning');
-        warning('on', 'stats:coxphfit:IterationLimit');
-        rethrow(ME_td);
+        % Fallback: use clustered bootstrap SE stratified by patient ID
+        fprintf('  Sandwich SE computation failed; falling back to clustered bootstrap.\n');
+        bootstrap_se = compute_bootstrap_se_cox(X_clean, T_matrix, is_censored, ...
+            ipcw_weights, survival_data.pat_id, ties_method, config.n_bootstrap);
+        
+        if ~isempty(bootstrap_se) && all(isfinite(bootstrap_se)) && all(bootstrap_se > 0)
+            stats_short.se = bootstrap_se;
+            fprintf('  Using clustered bootstrap SE (%d replicates).\n', config.n_bootstrap);
+        else
+            % Last resort: keep model-based SE with a warning
+            fprintf('  ⚠️  Both sandwich and bootstrap SE failed; using model-based SE (interpret with caution).\n');
+        end
+    end
+    
+    % Recompute p-values with corrected SE
+    stats_short.p = 2 * (1 - normcdf(abs(b_short ./ stats_short.se)));
+    
+    % Map back to full feature space
+    b_full = zeros(survival_data.n_feat, 1);
+    b_full(keep_cols) = b_short;
+    se_full = nan(survival_data.n_feat, 1);
+    p_full = nan(survival_data.n_feat, 1);
+    se_full(keep_cols) = stats_short.se;
+    p_full(keep_cols) = stats_short.p;
+    
+    cox_results = struct();
+    cox_results.success = true;
+    cox_results.coefficients = b_full;
+    cox_results.se = se_full;
+    cox_results.p_values = p_full;
+    cox_results.hazard_ratios = exp(b_full);
+    cox_results.loglik = logl;
+    cox_results.keep_cols = keep_cols;
+    cox_results.X_scaled = X_scaled;
+    cox_results.event_csh = event_csh;
+    cox_results.ipcw_weights = ipcw_weights;
+    
+    % Print results
+    print_cox_results(cox_results, survival_data.feat_names);
+    
+catch ME
+    if contains(ME.identifier, 'FitWarning') || contains(ME.identifier, 'IterationLimit')
+        fprintf('  ⚠️  Cox model convergence issue: %s\n', ME.message);
+        cox_results = create_failed_cox_results(survival_data.n_feat);
+    else
+        rethrow(ME);
     end
 end
-warning('on', 'stats:coxphfit:FitWarning');
-warning('on', 'stats:coxphfit:IterationLimit');
+end
 
-% ---- Likelihood-ratio test (LRT) vs. null model (no covariates) ------
-% The LRT tests the global null hypothesis H0: all beta = 0 (no covariate
-% has any association with failure hazard).  If the LRT p-value is
-% significant, at least one diffusion biomarker is associated with local
-% failure risk.  This is a more powerful omnibus test than examining
-% individual covariate p-values, especially with correlated predictors.
+function sandwich_se = compute_sandwich_se_cox(beta, X, T_matrix, is_censored, ipcw_weights, pat_id, ties_method)
+% COMPUTE_SANDWICH_SE_COX Compute robust sandwich (Huber-White) SE for IPCW-weighted Cox model.
 %
-% Compute both log-likelihoods manually using the original (unscaled)
-% IPCW weights to avoid the inflation/deflation approximation inherent
-% in dividing by mean(ipcw_freq).  The Frequency workaround inflates
-% log-likelihoods non-uniformly across risk sets, so a scalar deflation
-% factor can produce incorrect chi-squared statistics.
+% The sandwich estimator accounts for the IPCW weighting by computing:
+%   V_sandwich = A^{-1} * B * A^{-1}
+% where A is the observed information (negative Hessian) and B is the "meat"
+% matrix formed from weighted score residuals clustered by patient.
+
 try
-    is_censored_null = (event_td_csh == 0);
-    w_temp_null = warning('off', 'all');
-    cleanupObj = onCleanup(@() warning(w_temp_null));
-    ev_lrt = ~is_censored_null;
-    w_lrt  = ipcw_weights;  % original continuous weights, not inflated
-    unique_fail = unique(t_stop_td(ev_lrt));
-
-    % Null partial log-likelihood (no covariates):
-    %   sum_events [ w_i * ( 0 - log(sum_{j in R_i} w_j) ) ]
-    logl_null_lrt = 0;
-    for uf_i = 1:length(unique_fail)
-        tf = unique_fail(uf_i);
-        ev_at_t = (t_stop_td == tf) & ev_lrt;
-        at_risk = (t_start_td < tf) & (t_stop_td >= tf);
-        R_t = sum(w_lrt(at_risk));
-        if R_t > 0
-            logl_null_lrt = logl_null_lrt - sum(w_lrt(ev_at_t)) * log(R_t);
-        end
+    n = size(X, 1);
+    p = size(X, 2);
+    t_stop = T_matrix(:, 2);
+    event = double(~is_censored);  % 1 = event, 0 = censored
+    
+    % Compute linear predictor and risk scores
+    eta = X * beta;
+    risk = exp(eta);
+    w = ipcw_weights(:);  % per-observation IPCW weights
+    
+    % Get unique ordered event times
+    event_times = sort(unique(t_stop(event == 1)));
+    n_events = length(event_times);
+    
+    if n_events == 0
+        sandwich_se = [];
+        return;
     end
-
-    % Model partial log-likelihood using fitted coefficients b_td_short:
-    %   sum_events [ w_i * ( X_i*b - log(sum_{j in R_i} w_j*exp(X_j*b)) ) ]
-    eta = X_td_clean * b_td_short;  % linear predictor
-    logl_model_lrt = 0;
-    for uf_i = 1:length(unique_fail)
-        tf = unique_fail(uf_i);
-        ev_at_t = (t_stop_td == tf) & ev_lrt;
-        at_risk = (t_start_td < tf) & (t_stop_td >= tf);
-        R_t = sum(w_lrt(at_risk) .* exp(eta(at_risk)));
-        if R_t > 0
-            logl_model_lrt = logl_model_lrt + ...
-                sum(w_lrt(ev_at_t) .* eta(ev_at_t)) - ...
-                sum(w_lrt(ev_at_t)) * log(R_t);
-        end
+    
+    % --- Compute score residuals for each observation ---
+    % Score residual for observation i:
+    %   U_i = delta_i * w_i * (x_i - xbar(t_i)) 
+    %         - w_i * sum_{j: t_j <= t_i, delta_j=1} [ w_j * risk_i * (x_i - xbar(t_j)) / S0(t_j) ] * I(i in risk set at t_j)
+    % where S0(t) = sum_{k in R(t)} w_k * risk_k
+    %       xbar(t) = sum_{k in R(t)} w_k * risk_k * x_k / S0(t)
+    
+    score_resid = zeros(n, p);
+    
+    % Precompute risk set quantities at each event time
+    S0 = zeros(n_events, 1);
+    S1 = zeros(n_events, p);
+    
+    for j = 1:n_events
+        tj = event_times(j);
+        in_risk = (T_matrix(:, 1) < tj) & (t_stop >= tj);
+        if ~any(in_risk), continue; end
+        
+        w_risk = w(in_risk) .* risk(in_risk);
+        S0(j) = sum(w_risk);
+        S1(j, :) = sum(bsxfun(@times, X(in_risk, :), w_risk), 1);
     end
-
-    % LRT statistic follows chi-squared distribution under the null.
-    % max(0, ...) guards against numerical rounding producing negative values.
-    LRT_stat = 2 * (logl_model_lrt - logl_null_lrt);
-    LRT_df   = sum(keep_main);  % degrees of freedom = number of non-constant features actually fit
-    LRT_p    = 1 - chi2cdf(max(0, LRT_stat), LRT_df);
-catch
-    LRT_stat = NaN; LRT_p = NaN;
-end
-
-% ---- Print results table -------------------------------------------
-% Hazard Ratio (HR) interpretation:
-%   HR > 1: higher covariate value → increased failure hazard
-%   HR < 1: higher covariate value → decreased failure hazard
-%   HR = 1: no association
-%   95% CI not crossing 1.0 → significant at alpha=0.05
-% Clinical expectation: HR(ADC) < 1 and HR(D) < 1 because higher
-% diffusion (less cellularity) should be protective against local failure.
-fprintf('  %-10s  %6s  %6s  %6s  %6s\n', 'Covariate', 'HR ', 'CI_lo', 'CI_hi', 'p');
-fprintf('  %s\n', repmat('-', 1, 52));
-for fi = 1:td_n_feat
-    % Convert log-hazard coefficients to hazard ratios via exponentiation.
-    % 95% CI uses the Wald interval: exp(beta +/- 1.96 * SE(beta)).
-    hr_i  = exp(b_td(fi));
-    ci_lo = exp(b_td(fi) - 1.96*stats_td.se(fi));
-    ci_hi = exp(b_td(fi) + 1.96*stats_td.se(fi));
-    fprintf('  %-10s  %6.3f  %6.3f  %6.3f  %6.4f\n', ...
-        td_feat_names{fi}, hr_i, ci_lo, ci_hi, stats_td.p(fi));
-end
-if ~isnan(LRT_p)
-    fprintf('  Global LRT: chi2(%d) = %.2f, p = %.4f\n', LRT_df, LRT_stat, LRT_p);
-end
-
-% ---- Imputation half-life sensitivity analysis -----------------------
-% Report how HRs change across the half-life grid so users can assess
-% robustness of the exponential decay imputation assumption.
-fprintf('\n  --- Imputation Sensitivity (half-life months → HR) ---\n');
-fprintf('  %-6s', 'HL');
-for fi = 1:td_n_feat
-    fprintf('  %10s', td_feat_names{fi});
-end
-fprintf('\n');
-for hl_idx = 1:length(half_life_grid)
-    pnl = td_panels{hl_idx};
-    try
-        % For each half-life, repeat the full analysis chain: landmark
-        % subset, z-score scaling, IPCW weighting, and Cox PH fitting.
-        % This ensures the sensitivity analysis is self-consistent and
-        % not contaminated by the default half-life's statistics.
-        % Apply landmark subsetting to match the primary analysis
-        lm_keep_hl = (pnl.t_start >= landmark_day);
-        if ~any(lm_keep_hl), error('sensitivity:noData', 'No post-landmark intervals.'); end
-        pnl_X = pnl.X(lm_keep_hl, :);
-        pnl_tstart = pnl.t_start(lm_keep_hl);
-        pnl_tstop  = pnl.t_stop(lm_keep_hl);
-        pnl_event  = pnl.event(lm_keep_hl);
-        pnl_pid    = pnl.pat_id(lm_keep_hl);
-        ev_csh = pnl_event; ev_csh(ev_csh == 2) = 0;
-        X_hl = scale_td_panel(pnl_X, td_feat_names, pnl_pid, pnl_tstart, unique(pnl_pid), 'baseline');
-        [X_hl_clean, keep_hl] = remove_constant_columns(X_hl);
-        % Recompute IPCW weights for this sensitivity panel independently.
-        % The primary ipcw_weights are indexed by lm_keep (from the default
-        % half-life panel), NOT lm_keep_hl.  Slicing ipcw_weights(lm_keep)
-        % then taking the first sum(lm_keep_hl) elements silently assigns
-        % wrong weights when the two panels select different rows.
-        ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
-        % Identify terminal intervals for this sensitivity panel
-        is_terminal_hl = false(size(pnl_event));
-        [~, last_idx_hl] = unique(pnl_pid, 'last');
-        is_terminal_hl(last_idx_hl) = true;
-        is_admin_cens_hl = is_terminal_hl & (pnl_event == 0);
-        if any(is_admin_cens_hl)
-            try
-                not_comp_hl = (pnl_event ~= 2);
-                is_cens_hl = double(is_admin_cens_hl(not_comp_hl));
-                T_cens_hl = [pnl_tstart(not_comp_hl), pnl_tstop(not_comp_hl)];
-                X_cens_hl = X_hl(not_comp_hl, :);
-                [X_cens_hl_clean, keep_ipcw_hl] = remove_constant_columns(X_cens_hl);
-                if size(X_cens_hl_clean, 2) > 0
-                    w_ipcw_hl = warning('off', 'all');
-                    [b_cens_hl_short] = coxphfit(X_cens_hl_clean, T_cens_hl, ...
-                        'Censoring', (is_cens_hl == 0), 'Ties', 'breslow');
-                    warning(w_ipcw_hl);
-                    b_cens_hl_full = zeros(td_n_feat, 1);
-                    b_cens_hl_full(keep_ipcw_hl) = b_cens_hl_short;
-                    lp_cens_hl = X_hl * b_cens_hl_full;
-                    lp_cens_hl_sub = X_cens_hl * b_cens_hl_full;
-                    t_start_hl_sub = pnl_tstart(not_comp_hl);
-                    t_stop_hl_sub = pnl_tstop(not_comp_hl);
-                    uniq_t_hl = sort(unique(t_stop_hl_sub));
-                    % Cumulative baseline hazard for censoring model
-                    h0_inc_hl = zeros(length(uniq_t_hl), 1);
-                    for ui_hl = 1:length(uniq_t_hl)
-                        t_u_hl = uniq_t_hl(ui_hl);
-                        ar_sub = (t_start_hl_sub < t_u_hl) & (t_stop_hl_sub >= t_u_hl);
-                        ev_sub = ar_sub & (t_stop_hl_sub == t_u_hl) & (is_cens_hl == 1);
-                        if any(ev_sub) && any(ar_sub)
-                            h0_inc_hl(ui_hl) = sum(ev_sub) / sum(exp(lp_cens_hl_sub(ar_sub)));
-                        end
-                    end
-                    H0_cum_hl = cumsum(h0_inc_hl);
-                    G_hl = ones(size(pnl_tstop));
-                    for ri_hl = 1:length(pnl_tstop)
-                        idx_hl = find(uniq_t_hl <= pnl_tstart(ri_hl), 1, 'last');
-                        if ~isempty(idx_hl)
-                            G_hl(ri_hl) = exp(-H0_cum_hl(idx_hl) * exp(lp_cens_hl(ri_hl)));
-                        end
-                    end
-                    G_hl = max(G_hl, 0.05);
-                    ipcw_hl_sens = 1 ./ G_hl;
-                    ipcw_hl_sens = ipcw_hl_sens / mean(ipcw_hl_sens);
-                end
-            catch
-                ipcw_hl_sens = ones(sum(lm_keep_hl), 1);
+    
+    % Avoid division by zero
+    S0(S0 == 0) = eps;
+    xbar = bsxfun(@rdivide, S1, S0);  % n_events x p
+    
+    % For each observation, accumulate score residual contributions
+    for i = 1:n
+        ti = t_stop(i);
+        
+        % Event contribution (if this observation had an event)
+        if event(i) == 1
+            % Find which event time this corresponds to
+            eidx = find(event_times == ti, 1);
+            if ~isempty(eidx)
+                score_resid(i, :) = score_resid(i, :) + w(i) * (X(i, :) - xbar(eidx, :));
             end
         end
-        w_hl = warning('off', 'all');
-        ipcw_freq_hl = max(1, round(ipcw_hl_sens * ipcw_scale));
-        [b_hl_short] = coxphfit(X_hl_clean, [pnl_tstart, pnl_tstop], ...
-            'Censoring', ev_csh==0, 'Ties', 'breslow', ...
-            'Frequency', ipcw_freq_hl);
-        warning(w_hl);
-        b_hl = zeros(td_n_feat, 1);
-        b_hl(keep_hl) = b_hl_short;
-        fprintf('  %-6d', half_life_grid(hl_idx));
-        for fi = 1:td_n_feat
-            fprintf('  %10.3f', exp(b_hl(fi)));
+        
+        % At-risk contribution: for each event time t_j where i is in the risk set
+        for j = 1:n_events
+            tj = event_times(j);
+            if T_matrix(i, 1) < tj && t_stop(i) >= tj
+                % Number of events at this time (for ties)
+                n_events_at_tj = sum(event == 1 & t_stop == tj);
+                
+                % Contribution from being in risk set
+                contrib = w(i) * risk(i) * n_events_at_tj * (X(i, :) - xbar(j, :)) / S0(j);
+                score_resid(i, :) = score_resid(i, :) - w(i) * contrib;
+            end
         end
-        fprintf('\n');
-    catch
-        fprintf('  %-6d  (model did not converge)\n', half_life_grid(hl_idx));
     end
+    
+    % --- Compute the Hessian (observed information matrix A) ---
+    % A = sum over event times of [ S2(t)/S0(t) - (S1(t)/S0(t))' * (S1(t)/S0(t)) ]
+    % weighted by number of events at each time
+    A = zeros(p, p);
+    for j = 1:n_events
+        tj = event_times(j);
+        in_risk = (T_matrix(:, 1) < tj) & (t_stop >= tj);
+        if ~any(in_risk), continue; end
+        
+        w_risk = w(in_risk) .* risk(in_risk);
+        X_risk = X(in_risk, :);
+        
+        % S2 matrix
+        S2 = (bsxfun(@times, X_risk, w_risk))' * X_risk;
+        
+        n_events_at_tj = sum(event == 1 & t_stop == tj);
+        
+        A = A + n_events_at_tj * (S2 / S0(j) - xbar(j, :)' * xbar(j, :));
+    end
+    
+    % --- Compute meat matrix B, clustered by patient ---
+    unique_pats = unique(pat_id);
+    B = zeros(p, p);
+    for k = 1:length(unique_pats)
+        idx_k = (pat_id == unique_pats(k));
+        U_k = sum(score_resid(idx_k, :), 1);  % 1 x p: sum score residuals within cluster
+        B = B + U_k' * U_k;
+    end
+    
+    % --- Sandwich covariance: A^{-1} * B * A^{-1} ---
+    A_inv = pinv(A);  % Use pseudoinverse for numerical stability
+    V_sandwich = A_inv * B * A_inv;
+    
+    % Extract SE from diagonal
+    sandwich_var = diag(V_sandwich);
+    
+    if any(sandwich_var < 0)
+        fprintf('  ⚠️  Negative sandwich variance detected; attempting nearest PSD correction.\n');
+        % Force positive semi-definiteness
+        [V_eig, D_eig] = eig(V_sandwich);
+        D_eig = diag(max(diag(D_eig), 0));
+        V_sandwich = V_eig * D_eig * V_eig';
+        sandwich_var = diag(V_sandwich);
+    end
+    
+    sandwich_se = sqrt(sandwich_var);
+    
+    if any(~isfinite(sandwich_se))
+        sandwich_se = [];
+    end
+    
+catch ME
+    fprintf('  Sandwich SE computation error: %s\n', ME.message);
+    sandwich_se = [];
+end
 end
 
-fprintf('\nMetrics module sequence completed successfully.\n');
+function bootstrap_se = compute_bootstrap_se_cox(X, T_matrix, is_censored, ipcw_weights, pat_id, ties_method, n_boot)
+% COMPUTE_BOOTSTRAP_SE_COX Clustered bootstrap SE estimation stratified by patient ID.
+%
+% Resamples patients (with replacement), refits the IPCW-weighted Cox model,
+% and computes the empirical SE of the bootstrap coefficient distribution.
 
-if ~isempty(output_folder)
-    diary off;
-end
-end
-
-% NOTE: remove_constant_columns is provided by utils/remove_constant_columns.m
-% (NaN-safe, uses max/min with 'omitnan').  A previous local helper used
-% var(X,0,1) which propagated NaN, silently dropping features with ANY
-% missing value.  Ensure utils/ is on the path so the NaN-safe version is
-% called.
+try
+    unique_pats = unique(pat_id);
+    n_pats = length(unique_pats);
+    p = size(X, 2);
+    
+    % Limit bootstrap replicates for computational feasibility
+    n_boot_actual = min(n_boot, 500);
+    boot_co

@@ -263,6 +263,16 @@ ks_pvals_d = nan(length(id_list),nTp,3);
 fx_corrupted = nan(length(id_list),nTp,3);
 adc_max = config_struct.adc_max;
 
+% --- Texture features (optional, when use_texture_features is enabled) ---
+% GLCM and first-order texture features capture spatial heterogeneity
+% patterns in parameter maps that summary statistics (mean, kurtosis)
+% may miss. These include contrast, correlation, energy, homogeneity,
+% entropy, and other radiomics descriptors.
+use_texture = isfield(config_struct, 'use_texture_features') && config_struct.use_texture_features;
+if use_texture
+    texture_features = cell(length(id_list), nTp, 3);
+end
+
 % --- Repeatability arrays (Fx1 repeat scans only, for wCV calculation) ---
 % Within-session repeat scans at Fx1 allow computation of within-subject
 % coefficient of variation (wCV = SD_within / mean), which quantifies
@@ -321,7 +331,12 @@ end
 morph_min_cc = 10;  % minimum connected component size (voxels) — clusters
                     % smaller than this are discarded as noise artifacts
 
-% Cache for GTV mask loading (avoids repeated disk I/O for same file)
+% Cache for GTV mask loading (avoids repeated disk I/O for same file).
+% Using containers.Map to cache ALL previously loaded masks by filename,
+% not just the last one.  Many patient-timepoint pairs reuse the Fx1
+% reference mask, so a full cache eliminates redundant safe_load_mask calls.
+gtv_mask_cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
+% Legacy single-entry cache passed to compute_spatial_repeatability
 last_rpt_gtv_mat = '';
 last_rpt_gtv_mask = [];
 
@@ -351,7 +366,12 @@ for j=1:n_patients_metrics
                 size(gtv_locations, 1) >= j && size(gtv_locations, 2) >= k
             gtv_mat = gtv_locations{j, k, 1};
             if ~isempty(gtv_mat) && exist(gtv_mat, 'file')
-                gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                if gtv_mask_cache.isKey(gtv_mat)
+                    gtv_mask_3d = gtv_mask_cache(gtv_mat);
+                else
+                    gtv_mask_3d = safe_load_mask(gtv_mat, 'Stvol3d');
+                    gtv_mask_cache(gtv_mat) = gtv_mask_3d;
+                end
                 if ~isempty(gtv_mask_3d)
                     has_3d = true;
                 end
@@ -372,7 +392,12 @@ for j=1:n_patients_metrics
                 if ~isempty(ref_vec) && sum(gtv_mask_3d(:) == 1) ~= numel(ref_vec)
                     fx1_mat = gtv_locations{j, 1, 1};
                     if ~isempty(fx1_mat) && exist(fx1_mat, 'file')
-                        fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                        if gtv_mask_cache.isKey(fx1_mat)
+                            fx1_mask_3d = gtv_mask_cache(fx1_mat);
+                        else
+                            fx1_mask_3d = safe_load_mask(fx1_mat, 'Stvol3d');
+                            gtv_mask_cache(fx1_mat) = fx1_mask_3d;
+                        end
                         if ~isempty(fx1_mask_3d) && sum(fx1_mask_3d(:) == 1) == numel(ref_vec)
                             gtv_mask_3d = fx1_mask_3d;
                         else
@@ -489,6 +514,36 @@ for j=1:n_patients_metrics
                 dstar_mean(j,k,dwi_type) = ivim_out.dstar_mean_val;
                 dstar_kurt(j,k,dwi_type) = ivim_out.dstar_kurt_val;
                 dstar_skew(j,k,dwi_type) = ivim_out.dstar_skew_val;
+            end
+
+            % --- Texture features (when enabled) ---
+            if use_texture && ~isempty(adc_vec) && has_3d_iter
+                try
+                    % Derive isotropic voxel spacing from voxel volume for shape features
+                    if isfinite(vox_vol) && vox_vol > 0
+                        iso_spacing = vox_vol^(1/3) * [1 1 1];
+                    else
+                        iso_spacing = [1 1 1];
+                    end
+                    % Pass quantization method from config (IBSI compliance)
+                    if isfield(config_struct, 'texture_quantization_method')
+                        tex_quant_method = config_struct.texture_quantization_method;
+                    else
+                        tex_quant_method = 'fixed_bin_number';
+                    end
+                    tex_3d = true;
+                    if isfield(config_struct, 'texture_3d')
+                        tex_3d = config_struct.texture_3d;
+                    end
+                    % Reconstruct the 3D parameter map from the 1D voxel
+                    % vector and the 3D mask so that compute_texture_features
+                    % receives spatially coherent data for GLCM/GLRLM.
+                    adc_map_3d = NaN(size(gtv_mask_3d));
+                    adc_map_3d(gtv_mask_3d) = adc_vec;
+                    texture_features{j, k, dwi_type} = compute_texture_features(adc_map_3d, gtv_mask_3d, 32, iso_spacing, tex_quant_method, tex_3d);
+                catch
+                    % Texture extraction is non-fatal
+                end
             end
 
             % --- Multi-method core metrics (when enabled) ---
@@ -661,6 +716,11 @@ if run_all_core
     summary_metrics.all_core_metrics = per_method;
 end
 
+% Package texture features when enabled
+if use_texture
+    summary_metrics.texture_features = texture_features;
+end
+
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
     save(summary_metrics_file, 'summary_metrics');
@@ -668,75 +728,7 @@ end
 
 end
 
-function result = nanmean_safe(v)
-% NANMEAN_SAFE — Octave-compatible NaN-ignoring mean.
-% MATLAB's nanmean is in the Statistics Toolbox; Octave may lack it.
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = mean(tmp);
-    end
-else
-    result = nanmean(v);
-end
-end
-
-function result = nanstd_safe(v)
-% NANSTD_SAFE — Octave-compatible NaN-ignoring standard deviation.
-if exist('OCTAVE_VERSION', 'builtin')
-    tmp = v(~isnan(v));
-    if isempty(tmp)
-        result = NaN;
-    else
-        result = std(tmp);
-    end
-else
-    result = nanstd(v);
-end
-end
-
-function [kurt_val, skew_val] = compute_kurt_skew(v, min_vox_hist)
-% COMPUTE_KURT_SKEW — Compute kurtosis and skewness with minimum sample guard.
-% Returns NaN if the number of finite voxels is below min_vox_hist, because
-% higher-order moments are unreliable with too few data points (kurtosis
-% formally requires n >= 4, but practical stability needs more).
-kurt_val = NaN;
-skew_val = NaN;
-if numel(v) >= min_vox_hist
-    v_finite = v(~isnan(v));
-    if numel(v_finite) >= min_vox_hist
-        kurt_val = kurtosis(v_finite);
-        skew_val = skewness(v_finite);
-    end
-end
-end
-
-function p1 = compute_histogram_laplace(vec, bin_edges)
-% COMPUTE_HISTOGRAM_LAPLACE — Laplace-smoothed probability distribution.
-% Adds 1 pseudo-count per bin (Laplace smoothing / additive smoothing) to
-% prevent zero-probability bins that would cause log(0) = -Inf in KL
-% divergence or other information-theoretic comparisons.  The smoothing
-% has negligible effect when n_binned >> nbins (typical for >100 voxels).
-if exist('OCTAVE_VERSION', 'builtin')
-    vec_f = vec(~isnan(vec));
-    c1 = histc(vec_f, bin_edges);
-    % histc includes a count for exact matches of the last edge; merge it
-    % into the penultimate bin to match histcounts behavior.
-    c1(end-1) = c1(end-1) + c1(end);
-    c1 = c1(1:end-1);
-else
-    [c1, ~] = histcounts(vec, bin_edges);
-end
-n_binned = sum(c1);
-nbins = length(c1);
-if n_binned > 0
-    % Laplace smoothing: P(bin) = (count + 1) / (total + n_bins)
-    p1 = (c1 + 1) / (n_binned + nbins);
-else
-    p1 = zeros(size(c1));
-end
-end
-
-% select_dwi_vectors is now a shared utility in utils/select_dwi_vectors.m
+% Local helper functions (nanmean_safe, nanstd_safe, compute_kurt_skew,
+% compute_histogram_laplace) have been extracted to pipeline/utils/ as
+% shared utilities used by compute_adc_metrics.m and compute_ivim_metrics.m.
+% select_dwi_vectors is also a shared utility in utils/select_dwi_vectors.m.

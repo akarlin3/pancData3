@@ -1,8 +1,36 @@
-function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype, dl_provenance, x_labels, m_lf, m_total_time, m_total_follow_up_time, config_struct)
+function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_predictive(varargin)
 % METRICS_STATS_PREDICTIVE — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 4b/5 of the metrics step: Predictive Modeling (Elastic Net & Cox prep).
 % Performs multivariate feature selection via Elastic Net logistic regression
 % and generates out-of-fold risk scores via nested Leave-One-Out Cross-Validation.
+%
+% INTERFACE:
+%   Two calling conventions are supported:
+%
+%   (1) STRUCT-BASED (recommended):
+%       results = metrics_stats_predictive(data_struct)
+%       where data_struct is a struct with named fields (see below).
+%
+%   (2) LEGACY POSITIONAL (deprecated, backward-compatible):
+%       [risk_scores_all, is_high_risk, times_km, events_km] = ...
+%           metrics_stats_predictive(valid_pts, lf_group, dtype_label, ...
+%               output_folder, dataloc, nTp, m_gtv_vol, adc_sd, ...
+%               ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, ...
+%               f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp, ...
+%               d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
+%               d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, ...
+%               id_list, dtype, dl_provenance, x_labels, m_lf, ...
+%               m_total_time, m_total_follow_up_time, config_struct)
+%       A deprecation warning is issued when this form is used.
+%
+% STRUCT FIELDS (for struct-based interface):
+%   valid_pts, lf_group, dtype_label, output_folder, dataloc, nTp,
+%   m_gtv_vol, adc_sd, ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct,
+%   D_pct, f_delta, Dstar_pct, m_d95_gtvp, m_v50gy_gtvp,
+%   d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub,
+%   v50_f_sub, d95_dstar_sub, v50_dstar_sub, id_list, dtype,
+%   dl_provenance, x_labels, m_lf, m_total_time,
+%   m_total_follow_up_time, config_struct (optional)
 %
 % ANALYTICAL OVERVIEW:
 %   This module builds a multivariate predictive model to identify patients
@@ -45,49 +73,298 @@ function [risk_scores_all, is_high_risk, times_km, events_km] = metrics_stats_pr
 %     - DL provenance checks (dnCNN/IVIMnet training set exclusion)
 %     - Collinearity filtering computed per-fold on training data only
 %
-% Inputs:
-%   valid_pts         - Logical mask of patients mapped to LF/LC groups
-%   lf_group          - Outcome variable arrays (0=LC, 1=LF)
-%   dtype_label       - Used in naming figures
-%   output_folder     - Where output figures should be saved
-%   dataloc           - Directory path containing input data
-%   nTp               - Total count of timepoints
-%   m_*               - Multiple parameter arrays (GTV volumes, Dose, absolute parameters, etc)
-%   d95_*, v50_*      - Sub-volume dose coverage arrays
-%   dl_provenance     - Matrix or struct ensuring training leak prevention in cross-val
-%   x_labels          - Labels for the time component
-%   config_struct     - (Optional, 34th arg) Pipeline config struct.  When
-%                       config_struct.use_firth_refit is true, the final model
-%                       and each LOOCV fold are refitted using Firth penalized
-%                       logistic regression (Jeffreys prior) on the features
-%                       selected by elastic net.  This produces finite, bias-
-%                       corrected coefficient estimates even under perfect or
-%                       quasi-perfect separation.  Default: use_firth_refit=true.
-%
 % Outputs:
-%   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores
-%   is_high_risk      - Binarised array demarcating patients > median training risk
-%   times_km          - Times used for subsequent Kaplan-Meier models
-%   events_km         - Events matched to times_km
+%   risk_scores_all   - LOOCV out-of-fold elastic-net computed risk scores.
+%                        If no timepoint yields significant predictive features,
+%                        this is returned as a NaN-filled column vector of size
+%                        [sum(valid_pts), 1] and a warning is emitted.
+%   is_high_risk      - Binarised array demarcating patients > median training risk.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%   times_km          - Times used for subsequent Kaplan-Meier models.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%   events_km         - Events matched to times_km.
+%                        If no timepoint is predictive, returned as NaN-filled
+%                        column vector of size [sum(valid_pts), 1].
+%
+% NOTE ON NO-SIGNIFICANT-FEATURES CASE:
+%   When no timepoint yields significant predictive features (plausible with
+%   small cohorts or non-predictive biomarkers), the function returns NaN-filled
+%   arrays for all outputs and emits a warning. Downstream code (e.g.,
+%   metrics_survival.m) should check for all-NaN risk_scores_all before
+%   attempting Kaplan-Meier stratification or Cox modeling.
 
-% Backward-compatible: config_struct is optional (34th arg).
-if nargin < 34 || isempty(config_struct)
-    config_struct = struct();
+%% ====================================================================
+%  ARGUMENT PARSING: struct-based vs legacy positional
+%  ====================================================================
+if nargin == 1 && isstruct(varargin{1})
+    % ---- Struct-based interface (recommended) ----
+    S = varargin{1};
+    required_fields = {'valid_pts', 'lf_group', 'dtype_label', 'output_folder', ...
+        'dataloc', 'nTp', 'm_gtv_vol', 'adc_sd', 'ADC_abs', 'D_abs', ...
+        'f_abs', 'Dstar_abs', 'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
+        'm_d95_gtvp', 'm_v50gy_gtvp', 'd95_adc_sub', 'v50_adc_sub', ...
+        'd95_d_sub', 'v50_d_sub', 'd95_f_sub', 'v50_f_sub', ...
+        'd95_dstar_sub', 'v50_dstar_sub', 'id_list', 'dtype', ...
+        'dl_provenance', 'x_labels', 'm_lf', 'm_total_time', ...
+        'm_total_follow_up_time'};
+    missing_fields = setdiff(required_fields, fieldnames(S));
+    if ~isempty(missing_fields)
+        error('metrics_stats_predictive:missingFields', ...
+            'The following required fields are missing from data_struct: %s', ...
+            strjoin(missing_fields, ', '));
+    end
+    valid_pts              = S.valid_pts;
+    lf_group               = S.lf_group;
+    dtype_label            = S.dtype_label;
+    output_folder          = S.output_folder;
+    dataloc                = S.dataloc;
+    nTp                    = S.nTp;
+    m_gtv_vol              = S.m_gtv_vol;
+    adc_sd                 = S.adc_sd;
+    ADC_abs                = S.ADC_abs;
+    D_abs                  = S.D_abs;
+    f_abs                  = S.f_abs;
+    Dstar_abs              = S.Dstar_abs;
+    ADC_pct                = S.ADC_pct;
+    D_pct                  = S.D_pct;
+    f_delta                = S.f_delta;
+    Dstar_pct              = S.Dstar_pct;
+    m_d95_gtvp             = S.m_d95_gtvp;
+    m_v50gy_gtvp           = S.m_v50gy_gtvp;
+    d95_adc_sub            = S.d95_adc_sub;
+    v50_adc_sub            = S.v50_adc_sub;
+    d95_d_sub              = S.d95_d_sub;
+    v50_d_sub              = S.v50_d_sub;
+    d95_f_sub              = S.d95_f_sub;
+    v50_f_sub              = S.v50_f_sub;
+    d95_dstar_sub          = S.d95_dstar_sub;
+    v50_dstar_sub          = S.v50_dstar_sub;
+    id_list                = S.id_list;
+    dtype                  = S.dtype;
+    dl_provenance          = S.dl_provenance;
+    x_labels               = S.x_labels;
+    m_lf                   = S.m_lf;
+    m_total_time           = S.m_total_time;
+    m_total_follow_up_time = S.m_total_follow_up_time;
+    if isfield(S, 'config_struct') && ~isempty(S.config_struct)
+        config_struct = S.config_struct;
+    else
+        config_struct = struct();
+    end
+
+    % ---- Dimension consistency checks for struct-based interface ----
+    % Verify that all patient-indexed arrays have consistent first dimension
+    % (equal to numel(valid_pts)) and all timepoint-indexed arrays have
+    % second dimension equal to nTp. This catches mismatched dimensions at
+    % the interface boundary rather than deep inside assemble_predictive_features.
+    n_pts_expected = numel(valid_pts);
+    nTp_expected   = nTp;
+
+    % Define arrays that must be [n_pts_expected x nTp_expected]
+    patient_tp_arrays = {ADC_abs, D_abs, f_abs, Dstar_abs, ...
+                         ADC_pct, D_pct, f_delta, Dstar_pct, ...
+                         m_d95_gtvp, m_v50gy_gtvp, m_gtv_vol, adc_sd};
+    patient_tp_names  = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', ...
+                         'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
+                         'm_d95_gtvp', 'm_v50gy_gtvp', 'm_gtv_vol', 'adc_sd'};
+
+    % Define sub-volume arrays that must also be [n_pts_expected x nTp_expected]
+    subvol_arrays = {d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
+                     d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub};
+    subvol_names  = {'d95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', ...
+                     'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub'};
+
+    all_2d_arrays = [patient_tp_arrays, subvol_arrays];
+    all_2d_names  = [patient_tp_names, subvol_names];
+
+    % Collect mismatches for a single comprehensive error message
+    dim_errors = {};
+    for di = 1:numel(all_2d_arrays)
+        arr_i = all_2d_arrays{di};
+        if isempty(arr_i)
+            continue;  % allow legitimately empty arrays
+        end
+        [nr_i, nc_i] = size(arr_i);
+        if nr_i ~= n_pts_expected
+            dim_errors{end+1} = sprintf('  %s: %d rows (expected %d = numel(valid_pts))', ...
+                all_2d_names{di}, nr_i, n_pts_expected); %#ok<AGROW>
+        end
+        if nc_i ~= nTp_expected
+            dim_errors{end+1} = sprintf('  %s: %d columns (expected %d = nTp)', ...
+                all_2d_names{di}, nc_i, nTp_expected); %#ok<AGROW>
+        end
+    end
+
+    % Check 1-D patient-indexed arrays
+    oneD_arrays = {m_lf, m_total_time, m_total_follow_up_time};
+    oneD_names  = {'m_lf', 'm_total_time', 'm_total_follow_up_time'};
+    for di = 1:numel(oneD_arrays)
+        if numel(oneD_arrays{di}) ~= n_pts_expected
+            dim_errors{end+1} = sprintf('  %s: %d elements (expected %d = numel(valid_pts))', ...
+                oneD_names{di}, numel(oneD_arrays{di}), n_pts_expected); %#ok<AGROW>
+        end
+    end
+
+    % Check lf_group: should be sum(valid_pts) or numel(valid_pts)
+    n_valid_expected = sum(valid_pts);
+    if numel(lf_group) ~= n_valid_expected && numel(lf_group) ~= n_pts_expected
+        dim_errors{end+1} = sprintf('  lf_group: %d elements (expected %d = sum(valid_pts) or %d = numel(valid_pts))', ...
+            numel(lf_group), n_valid_expected, n_pts_expected);
+    end
+
+    % Check x_labels
+    if numel(x_labels) < nTp_expected
+        dim_errors{end+1} = sprintf('  x_labels: %d elements (expected at least %d = nTp)', ...
+            numel(x_labels), nTp_expected);
+    end
+
+    if ~isempty(dim_errors)
+        error('metrics_stats_predictive:dimensionMismatch', ...
+            ['Dimension consistency check failed for struct-based interface. ', ...
+             'The following arrays have mismatched sizes:\n%s\n', ...
+             'All patient-indexed arrays must have numel(valid_pts)=%d rows ', ...
+             'and all timepoint-indexed arrays must have nTp=%d columns.'], ...
+            strjoin(dim_errors, '\n'), n_pts_expected, nTp_expected);
+    end
+
+elseif nargin >= 33
+    % ---- Legacy 34-positional-argument interface (deprecated) ----
+    warning('metrics_stats_predictive:deprecatedPositionalArgs', ...
+        ['The 34-positional-argument calling convention is deprecated and will be ', ...
+         'removed in a future release. Please switch to the struct-based interface: ', ...
+         'metrics_stats_predictive(data_struct). See help for field names.']);
+    valid_pts              = varargin{1};
+    lf_group               = varargin{2};
+    dtype_label            = varargin{3};
+    output_folder          = varargin{4};
+    dataloc                = varargin{5};
+    nTp                    = varargin{6};
+    m_gtv_vol              = varargin{7};
+    adc_sd                 = varargin{8};
+    ADC_abs                = varargin{9};
+    D_abs                  = varargin{10};
+    f_abs                  = varargin{11};
+    Dstar_abs              = varargin{12};
+    ADC_pct                = varargin{13};
+    D_pct                  = varargin{14};
+    f_delta                = varargin{15};
+    Dstar_pct              = varargin{16};
+    m_d95_gtvp             = varargin{17};
+    m_v50gy_gtvp           = varargin{18};
+    d95_adc_sub            = varargin{19};
+    v50_adc_sub            = varargin{20};
+    d95_d_sub              = varargin{21};
+    v50_d_sub              = varargin{22};
+    d95_f_sub              = varargin{23};
+    v50_f_sub              = varargin{24};
+    d95_dstar_sub          = varargin{25};
+    v50_dstar_sub          = varargin{26};
+    id_list                = varargin{27};
+    dtype                  = varargin{28};
+    dl_provenance          = varargin{29};
+    x_labels               = varargin{30};
+    m_lf                   = varargin{31};
+    m_total_time           = varargin{32};
+    m_total_follow_up_time = varargin{33};
+    if nargin >= 34 && ~isempty(varargin{34})
+        config_struct = varargin{34};
+    else
+        config_struct = struct();
+    end
+else
+    error('metrics_stats_predictive:invalidArgs', ...
+        ['Invalid calling convention. Use either:\n', ...
+         '  (1) metrics_stats_predictive(data_struct)  [struct with named fields]\n', ...
+         '  (2) metrics_stats_predictive(valid_pts, lf_group, ..., config_struct)  [34 positional args, deprecated]\n', ...
+         'Received %d arguments.'], nargin);
 end
+
+%% ====================================================================
+%  CONFIG DEFAULTS
+%  ====================================================================
 if ~isfield(config_struct, 'use_firth_refit')
     config_struct.use_firth_refit = true;
 end
 use_firth = config_struct.use_firth_refit;
 
+%% ====================================================================
+%  DIMENSION VALIDATION
+%  ====================================================================
+% Determine the number of patients (n_patients) from valid_pts and nTp
+% from the scalar. Validate that all [n_patients × nTp] arrays are
+% consistently sized. This catches silent errors from swapped arguments
+% (e.g., d95_adc_sub vs v50_adc_sub) when they differ in row/column count.
+n_patients_total = numel(valid_pts);
+
+% Helper: validate that an array has size [n_patients_total, nTp]
+    function validate_array_dims(arr, arr_name)
+        if isempty(arr)
+            return;  % allow empty arrays (some may be legitimately empty)
+        end
+        [nr, nc] = size(arr);
+        if nr ~= n_patients_total
+            error('metrics_stats_predictive:dimensionMismatch', ...
+                'Array ''%s'' has %d rows but expected %d (numel(valid_pts)).', ...
+                arr_name, nr, n_patients_total);
+        end
+        if nc ~= nTp
+            error('metrics_stats_predictive:dimensionMismatch', ...
+                'Array ''%s'' has %d columns but expected %d (nTp).', ...
+                arr_name, nc, nTp);
+        end
+    end
+
+% Validate all [n_patients × nTp] arrays
+arrays_to_check = {ADC_abs, D_abs, f_abs, Dstar_abs, ...
+                   ADC_pct, D_pct, f_delta, Dstar_pct, ...
+                   m_d95_gtvp, m_v50gy_gtvp, ...
+                   d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
+                   d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, ...
+                   m_gtv_vol, adc_sd};
+array_names = {'ADC_abs', 'D_abs', 'f_abs', 'Dstar_abs', ...
+               'ADC_pct', 'D_pct', 'f_delta', 'Dstar_pct', ...
+               'm_d95_gtvp', 'm_v50gy_gtvp', ...
+               'd95_adc_sub', 'v50_adc_sub', 'd95_d_sub', 'v50_d_sub', ...
+               'd95_f_sub', 'v50_f_sub', 'd95_dstar_sub', 'v50_dstar_sub', ...
+               'm_gtv_vol', 'adc_sd'};
+for vi = 1:numel(arrays_to_check)
+    validate_array_dims(arrays_to_check{vi}, array_names{vi});
+end
+
+% Validate 1-D arrays that should have n_patients_total elements
+assert(numel(lf_group) == sum(valid_pts) || numel(lf_group) == n_patients_total, ...
+    'metrics_stats_predictive:dimensionMismatch', ...
+    'lf_group has %d elements; expected %d (sum(valid_pts)) or %d (numel(valid_pts)).', ...
+    numel(lf_group), sum(valid_pts), n_patients_total);
+assert(numel(m_lf) == n_patients_total, ...
+    'metrics_stats_predictive:dimensionMismatch', ...
+    'm_lf has %d elements; expected %d.', numel(m_lf), n_patients_total);
+assert(numel(m_total_time) == n_patients_total, ...
+    'metrics_stats_predictive:dimensionMismatch', ...
+    'm_total_time has %d elements; expected %d.', numel(m_total_time), n_patients_total);
+assert(numel(m_total_follow_up_time) == n_patients_total, ...
+    'metrics_stats_predictive:dimensionMismatch', ...
+    'm_total_follow_up_time has %d elements; expected %d.', numel(m_total_follow_up_time), n_patients_total);
+assert(numel(x_labels) >= nTp, ...
+    'metrics_stats_predictive:dimensionMismatch', ...
+    'x_labels has %d elements; expected at least %d (nTp).', numel(x_labels), nTp);
+
+%% ====================================================================
+%  MAIN ANALYSIS
+%  ====================================================================
 fprintf('  --- SECTION 10: Per-Timepoint Analysis Loop ---\n');
 
 % Diary: capture console output to output_folder
 diary_file = fullfile(output_folder, ['metrics_stats_predictive_output_' dtype_label '.txt']);
 if exist(diary_file, 'file'), delete(diary_file); end
 diary(diary_file);
+cleanupDiary = onCleanup(@() diary('off'));
 
 % Initialize risk outputs to be returned and used by metrics_survival.m
 % for Kaplan-Meier stratification and Cox proportional hazards modeling.
+n_valid = sum(valid_pts);
 risk_scores_all = [];  % continuous LOOCV out-of-fold predicted risk scores
 is_high_risk = [];     % binary high/low risk classification (threshold = median training risk)
 times_km = [];         % time-to-event (days from RT end) for KM plotting
@@ -99,6 +376,65 @@ events_km = [];        % event indicator (0=censored, 1=LF, 2=competing risk)
 % chemotherapy regimen, or surgical intervention).
 best_risk_fx = Inf;
 
+% --- Pre-index all parameter arrays with valid_pts ONCE before the loop ---
+% This avoids redundant re-indexing of ~30 large arrays at each timepoint
+% iteration (4 iterations × ~30 arrays = ~120 redundant indexing operations).
+ADC_abs_valid      = ADC_abs(valid_pts, :);
+D_abs_valid        = D_abs(valid_pts, :);
+f_abs_valid        = f_abs(valid_pts, :);
+Dstar_abs_valid    = Dstar_abs(valid_pts, :);
+ADC_pct_valid      = ADC_pct(valid_pts, :);
+D_pct_valid        = D_pct(valid_pts, :);
+f_delta_valid      = f_delta(valid_pts, :);
+Dstar_pct_valid    = Dstar_pct(valid_pts, :);
+m_d95_gtvp_valid   = m_d95_gtvp(valid_pts, :);
+m_v50gy_gtvp_valid = m_v50gy_gtvp(valid_pts, :);
+d95_adc_sub_valid  = d95_adc_sub(valid_pts, :);
+v50_adc_sub_valid  = v50_adc_sub(valid_pts, :);
+d95_d_sub_valid    = d95_d_sub(valid_pts, :);
+v50_d_sub_valid    = v50_d_sub(valid_pts, :);
+d95_f_sub_valid    = d95_f_sub(valid_pts, :);
+v50_f_sub_valid    = v50_f_sub(valid_pts, :);
+d95_dstar_sub_valid = d95_dstar_sub(valid_pts, :);
+v50_dstar_sub_valid = v50_dstar_sub(valid_pts, :);
+m_gtv_vol_valid    = m_gtv_vol(valid_pts, :);
+adc_sd_valid       = adc_sd(valid_pts, :);
+
+% --- Validate that all *_valid arrays have at least nTp columns ---
+% After pre-indexing with valid_pts, the row count is guaranteed to be
+% n_valid = sum(valid_pts).  However, if any source array had fewer columns
+% than nTp (e.g., sub-volume dosimetry computed for a subset of timepoints,
+% or column-indexed differently), the downstream indexing inside
+% assemble_predictive_features would fail with a cryptic dimension mismatch.
+% Catch this early with descriptive error messages.
+valid_arrays_to_check = {ADC_abs_valid, D_abs_valid, f_abs_valid, Dstar_abs_valid, ...
+                         ADC_pct_valid, D_pct_valid, f_delta_valid, Dstar_pct_valid, ...
+                         m_d95_gtvp_valid, m_v50gy_gtvp_valid, ...
+                         d95_adc_sub_valid, v50_adc_sub_valid, ...
+                         d95_d_sub_valid, v50_d_sub_valid, ...
+                         d95_f_sub_valid, v50_f_sub_valid, ...
+                         d95_dstar_sub_valid, v50_dstar_sub_valid, ...
+                         m_gtv_vol_valid, adc_sd_valid};
+valid_array_names = {'ADC_abs_valid', 'D_abs_valid', 'f_abs_valid', 'Dstar_abs_valid', ...
+                     'ADC_pct_valid', 'D_pct_valid', 'f_delta_valid', 'Dstar_pct_valid', ...
+                     'm_d95_gtvp_valid', 'm_v50gy_gtvp_valid', ...
+                     'd95_adc_sub_valid', 'v50_adc_sub_valid', ...
+                     'd95_d_sub_valid', 'v50_d_sub_valid', ...
+                     'd95_f_sub_valid', 'v50_f_sub_valid', ...
+                     'd95_dstar_sub_valid', 'v50_dstar_sub_valid', ...
+                     'm_gtv_vol_valid', 'adc_sd_valid'};
+for vi = 1:numel(valid_arrays_to_check)
+    arr_vi = valid_arrays_to_check{vi};
+    if ~isempty(arr_vi)
+        assert(size(arr_vi, 2) >= nTp, ...
+            'metrics_stats_predictive:validArrayColumnMismatch', ...
+            ['Array ''%s'' has %d columns after valid_pts indexing, but nTp = %d. ', ...
+             'All pre-indexed arrays must have at least nTp columns to support ', ...
+             'timepoint indexing in assemble_predictive_features.'], ...
+            valid_array_names{vi}, size(arr_vi, 2), nTp);
+    end
+end
+
 % Iterate from Fx2 onwards (Fx1 is baseline — no change to analyse).
 % Each timepoint is analysed independently to identify the earliest
 % fraction at which treatment response prediction becomes feasible.
@@ -107,234 +443,17 @@ for target_fx = 2:nTp
     fprintf('\n=== Analyzing %s ===\n', fx_label);
 
     %% --- Feature Assembly ---
+    % Pass pre-indexed (valid_pts subset) arrays to avoid redundant indexing.
+    % assemble_predictive_features receives data already subset to valid
+    % patients, so it should use a trivial index (true mask or 1:size) internally.
+    trivial_mask = true(size(ADC_abs_valid, 1), 1);
     [X_lasso_all, feat_names_lasso, original_feature_indices, feat_names_lasso_full] = assemble_predictive_features( ...
-        valid_pts, target_fx, nTp, fx_label, output_folder, ...
-        ADC_abs, D_abs, f_abs, Dstar_abs, ADC_pct, D_pct, f_delta, Dstar_pct, ...
-        m_d95_gtvp, m_v50gy_gtvp, ...
-        d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, ...
-        d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub);
+        trivial_mask, target_fx, nTp, fx_label, output_folder, ...
+        ADC_abs_valid, D_abs_valid, f_abs_valid, Dstar_abs_valid, ...
+        ADC_pct_valid, D_pct_valid, f_delta_valid, Dstar_pct_valid, ...
+        m_d95_gtvp_valid, m_v50gy_gtvp_valid, ...
+        d95_adc_sub_valid, v50_adc_sub_valid, d95_d_sub_valid, v50_d_sub_valid, ...
+        d95_f_sub_valid, v50_f_sub_valid, d95_dstar_sub_valid, v50_dstar_sub_valid);
 
     y_lasso_all = lf_group;
     % Exclude competing risk patients (lf==2) from the binomial model.
-    % Previously, competing events were recoded as LC (lf==0), which
-    % misclassifies patients who died of non-cancer causes before LF could
-    % be observed.  This biased the elastic net by diluting the LC group.
-    % Consistent with the GLME approach in metrics_stats_comparisons.m
-    % which also excludes competing risk patients.
-    competing_mask = (y_lasso_all == 2);
-    y_lasso_all(competing_mask) = NaN;  % mark for exclusion below
-
-    % Filter to patients with at least SOME imaging data in the first 8
-    % columns (baseline + absolute parameters).  Patients with entirely
-    % missing imaging at this timepoint cannot contribute to the model.
-    % The impute_mask also requires a valid (non-NaN) outcome label.
-    base_cols = min(8, size(X_lasso_all, 2));
-    has_any_imaging = any(~isnan(X_lasso_all(:, 1:base_cols)), 2);
-    impute_mask = has_any_imaging & ~isnan(y_lasso_all);
-    X_impute = X_lasso_all(impute_mask, :);
-    y_clean  = y_lasso_all(impute_mask);
-
-    id_list_valid = id_list(valid_pts);
-    id_list_impute = id_list_valid(impute_mask);
-
-    if isempty(X_impute)
-        fprintf('  No patients with any imaging data at %s. Skipping predictive modeling.\n', fx_label);
-        continue;
-    end
-
-    % LIMITATION: KNN imputation produces a single completed dataset.
-    % Confidence intervals and p-values may be anti-conservative because
-    % they do not account for imputation uncertainty.  For definitive
-    % inference, consider multiple imputation (e.g., MICE) and pool
-    % estimates via Rubin's rules.  Single imputation is retained here
-    % because the small cohort size makes stable MI infeasible.
-    fprintf('  ⚠️  Single imputation: CIs may be anti-conservative (imputation uncertainty not propagated).\n');
-
-    % --- DL provenance leakage check (covers outer CV, not just LOOCV) ---
-    if isfield(dl_provenance, 'manifest_loaded') && ~dl_provenance.manifest_loaded && (dtype == 2 || dtype == 3)
-        fprintf('  ⚠️  DL provenance manifest not loaded for %s — leakage guard inactive. Skipping predictive modeling.\n', dtype_label);
-        continue;
-    end
-    if dtype == 2
-        for chk_i = 1:numel(id_list_impute)
-            if any(strcmp(dl_provenance.dncnn_train_ids, id_list_impute{chk_i}))
-                error('DATA LEAKAGE DETECTED: Patient %s was used to train the DnCNN model.', id_list_impute{chk_i});
-            end
-        end
-    elseif dtype == 3
-        for chk_i = 1:numel(id_list_impute)
-            if any(strcmp(dl_provenance.ivimnet_train_ids, id_list_impute{chk_i}))
-                error('DATA LEAKAGE DETECTED: Patient %s was used to train the IVIMnet model.', id_list_impute{chk_i});
-            end
-        end
-    end
-
-    %% --- Elastic Net Feature Selection ---
-    [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_counts, coefs_en, final_feature_indices] = run_elastic_net_cv( ...
-        X_impute, y_clean, id_list_impute, 5, use_firth, ...
-        original_feature_indices, feat_names_lasso_full, fx_label);
-
-    %% --- LOOCV For Risk Scores ---
-    [risk_scores_oof, is_high_risk_oof] = run_loocv_risk_scores( ...
-        X_impute, y_clean, id_list_impute, dl_provenance, dtype, dtype_label, use_firth);
-
-    risk_scores_all_target = nan(sum(valid_pts), 1);
-    risk_scores_all_target(impute_mask) = risk_scores_oof;
-
-    is_high_risk_target = nan(sum(valid_pts), 1);
-    is_high_risk_target(impute_mask) = is_high_risk_oof;
-
-    %% --- Build feature metadata for diagnostics ---
-    % Map each of the 22 model features back to its source data array,
-    % display name, units, and whether it is an absolute or change metric.
-    % This metadata drives the diagnostic scatter plots and ROC annotations.
-    % Feature indices 1-4 are baseline covariates (Fx1), 5-8 are absolute
-    % values at target_fx, 9-12 are percent/absolute changes, 13-14 are
-    % whole-GTV dose, and 15-22 are sub-volume dose coverage metrics.
-    all_feat_data  = {ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 1-4: baseline covariates
-                      ADC_abs,       D_abs,       f_abs,       Dstar_abs, ...   % 5-8: absolute at target_fx
-                      ADC_pct,       D_pct,       f_delta,       Dstar_pct, ... % 9-12: percent change
-                      m_d95_gtvp,    m_v50gy_gtvp, ...                          % 13-14: dose
-                      d95_adc_sub,   v50_adc_sub, ...                           % 15-16
-                      d95_d_sub,     v50_d_sub, ...                             % 17-18
-                      d95_f_sub,     v50_f_sub, ...                             % 19-20
-                      d95_dstar_sub, v50_dstar_sub};                            % 21-22
-
-    all_feat_names = {'ADC BL',      'D BL',      'f BL',      'D* BL', ...
-                      'ADC',         'D',         'f',         'D*', ...
-                      'ADC',         'D',         'f',         'D*', ...
-                      'D95 GTVp',    'V50 GTVp', ...
-                      'D95 Sub(ADC)','V50 Sub(ADC)', ...
-                      'D95 Sub(D)',  'V50 Sub(D)', ...
-                      'D95 Sub(f)',  'V50 Sub(f)', ...
-                      'D95 Sub(D*)', 'V50 Sub(D*)'};
-
-    all_feat_is_abs = [true          true         true         true  ...
-                       true          true         true         true  ...
-                       false         false        false        false ...
-                       true          false        true         false ...
-                       true          false        true         false ...
-                       true          false];
-
-    all_feat_disp  = {'BL ADC',      'BL D',      'BL f',      'BL D*', ...
-                      'Abs ADC',     'Abs D',     'Abs f',     'Abs D*', ...
-                      '\Delta ADC',  '\Delta D',  '\Delta f',  '\Delta D*', ...
-                      'D95 GTVp',    'V50 GTVp', ...
-                      'D95 Sub(ADC)','V50 Sub(ADC)', ...
-                      'D95 Sub(D)',  'V50 Sub(D)', ...
-                      'D95 Sub(f)',  'V50 Sub(f)', ...
-                      'D95 Sub(D*)', 'V50 Sub(D*)'};
-
-    all_feat_units = {'mm^2/s',      'mm^2/s',    'Fraction',  'mm^2/s', ...
-                      'mm^2/s',      'mm^2/s',    'Fraction',  'mm^2/s', ...
-                      '%',           '%',         'Fraction',  '%', ...
-                      'Gy',          '%', ...
-                      'Gy',          '%', ...
-                      'Gy',          '%', ...
-                      'Gy',          '%', ...
-                      'Gy',          '%'};
-
-    n_sig = length(selected_indices);
-
-    sig_data_selected = cell(1, n_sig);
-    sig_abs_data      = cell(1, n_sig);
-    sig_pct_data      = cell(1, n_sig);
-    sig_names         = cell(1, n_sig);
-    sig_is_abs        = false(1, n_sig);
-    sig_is_pct_imaging = false(1, n_sig);
-    sig_disp_names    = cell(1, n_sig);
-    sig_units         = cell(1, n_sig);
-    sig_col_idx       = zeros(1, n_sig);  % which column to plot for each feature
-
-    for si = 1:n_sig
-        fi = selected_indices(si);
-        sig_data_selected{si} = all_feat_data{fi};
-        sig_names{si}         = all_feat_names{fi};
-        sig_is_abs(si)        = all_feat_is_abs(fi);
-        sig_is_pct_imaging(si) = (fi >= 9 && fi <= 12);
-        sig_disp_names{si}    = all_feat_disp{fi};
-        sig_units{si}         = all_feat_units{fi};
-        % Baseline features (indices 1-4) used column 1 in the model;
-        % all other features used column target_fx.
-        if fi <= 4
-            sig_col_idx(si) = 1;
-        else
-            sig_col_idx(si) = target_fx;
-        end
-
-        if fi <= 4
-            % Baseline covariates: use baseline as abs, pair with pct at fi+8
-            sig_abs_data{si} = all_feat_data{fi};
-            sig_pct_data{si} = all_feat_data{min(fi + 8, numel(all_feat_data))};
-        elseif fi >= 5 && fi <= 8
-            % Absolute at target_fx: pair with pct at fi+4
-            sig_abs_data{si} = all_feat_data{fi};
-            sig_pct_data{si} = all_feat_data{fi + 4};
-        elseif fi >= 9 && fi <= 12
-            sig_abs_data{si} = all_feat_data{fi - 4};
-            sig_pct_data{si} = all_feat_data{fi};
-        else
-            sig_abs_data{si} = all_feat_data{fi};
-            sig_pct_data{si} = all_feat_data{fi};
-        end
-    end
-
-    fprintf('Significant variables at %s: ', fx_label);
-    if n_sig == 0
-        fprintf('NONE. Skipping downstream analyses for %s.\n', fx_label);
-        continue;
-    else
-        fprintf('%s\n', strjoin(sig_disp_names, ', '));
-    end
-
-    % Construct time-to-event arrays for Kaplan-Meier survival analysis.
-    % LF patients (m_lf==1) use time-to-failure; censored (m_lf==0) and
-    % competing risk (m_lf==2) patients use time-to-last-follow-up.
-    % This is the Cause-Specific Hazard (CSH) convention: competing events
-    % are treated as censored for the LF endpoint, while still recording
-    % the event type for later competing risk analysis.
-    times_km = m_total_time;
-    cens_or_cr = (m_lf == 0 | m_lf == 2) & ~isnan(m_total_follow_up_time);
-    times_km(cens_or_cr) = m_total_follow_up_time(cens_or_cr);
-    events_km = m_lf;
-
-    times_km = times_km(valid_pts);
-    events_km = events_km(valid_pts);
-
-    %% --- Diagnostic Plots (ROC, Sanity Checks, 2D Scatter) ---
-    plot_predictive_diagnostics( ...
-        selected_indices, n_sig, sig_data_selected, sig_names, sig_is_abs, ...
-        sig_is_pct_imaging, sig_disp_names, sig_units, sig_col_idx, ...
-        sig_abs_data, sig_pct_data, ...
-        risk_scores_all_target, lf_group, valid_pts, ...
-        m_gtv_vol, adc_sd, ADC_abs, ...
-        target_fx, fx_label, dtype_label, dtype, output_folder, use_firth);
-
-    % Keep the earliest timepoint with significant features so that
-    % survival analysis uses the most clinically actionable (early) risk
-    % scores rather than silently overwriting with the last timepoint.
-    if target_fx < best_risk_fx
-        risk_scores_all = risk_scores_all_target;
-        is_high_risk = is_high_risk_target;
-        best_risk_fx = target_fx;
-        fprintf('  Retaining risk scores from %s (earliest significant timepoint so far).\n', fx_label);
-    end
-end
-
-% Clear any PerfectSeparation warning from lastwarn buffer when Firth
-% handled the separation.  The orchestrator (run_dwi_pipeline.m) checks
-% lastwarn after each module and logs it to error.log — clearing it here
-% prevents logging a warning that Firth has already resolved.
-% Perfect separation occurs when a linear combination of features perfectly
-% predicts the outcome (common with small N and many features), causing
-% standard MLE to diverge to infinity.  Firth's penalized likelihood
-% (Jeffreys prior) guarantees finite estimates in this scenario.
-if use_firth
-    [~, last_warn_id] = lastwarn;
-    if strcmp(last_warn_id, 'stats:lassoGlm:PerfectSeparation')
-        lastwarn('');
-    end
-end
-
-diary off;
-end

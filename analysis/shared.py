@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sys
+import warnings
 from collections import defaultdict
 from pathlib import Path
 
@@ -35,12 +36,17 @@ _DEFAULTS: dict = {
     "dwi_types": ["Standard", "dnCNN", "IVIMnet"],
     "vision": {
         "gemini_model": "gemini-2.5-flash",
+        "claude_model": "claude-opus-4-6",
+        "provider": "claude",
+        "gemini_api_key": "",
+        "anthropic_api_key": "",
         "max_concurrent_requests": 2,
         "max_retries": 4,
         "max_output_tokens": 10000,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
         "script_timeout_seconds": 1800,
+        "fallback_to_local": True,
     },
     "statistics": {
         "p_highly_significant": 0.001,
@@ -66,6 +72,35 @@ _DEFAULTS: dict = {
 # Resolved at first access via :func:`get_config`.
 _config_cache: dict | None = None
 
+# Map from provider name to (config key, environment variable name)
+_API_KEY_MAP: dict[str, tuple[str, str]] = {
+    "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
+    "claude": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+    "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
+}
+
+
+def get_api_key(provider: str, cfg: dict | None = None) -> str | None:
+    """Resolve an API key for *provider*, checking config then environment.
+
+    Resolution order:
+    1. ``vision.<provider>_api_key`` in the analysis config.
+    2. The corresponding environment variable (``GEMINI_API_KEY`` or
+       ``ANTHROPIC_API_KEY``).
+
+    Returns ``None`` if no key is found.
+    """
+    mapping = _API_KEY_MAP.get(provider.lower())
+    if mapping is None:
+        return os.environ.get(f"{provider.upper()}_API_KEY")
+    config_key, env_var = mapping
+    if cfg is None:
+        cfg = get_config()
+    key = cfg.get("vision", {}).get(config_key, "")
+    if key:
+        return key
+    return os.environ.get(env_var) or None
+
 
 def _deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge *override* into *base*, returning a new dict.
@@ -75,6 +110,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
     overriding only ``vision.gemini_model`` without touching the other
     vision keys).  Lists are shallow-copied to prevent mutation of the
     originals.
+
+    If *override* contains a ``None`` value for a key whose *base* value
+    is a dict, the ``None`` is skipped and the base dict is preserved.
+    More generally, if *override* contains a non-dict value for a key
+    whose *base* value is a dict, the override is skipped and a warning
+    is emitted.  This prevents downstream code from crashing with
+    ``AttributeError`` when it does e.g.
+    ``cfg.get('vision', {}).get(...)``.
     """
     import copy
     merged = {}
@@ -86,6 +129,17 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             merged[key] = val
     for key, val in override.items():
+        if key in merged and isinstance(merged[key], dict) and not isinstance(val, dict):
+            # Preserve the base dict — overwriting a section-level dict
+            # key with a non-dict value (None, list, scalar, etc.) is not
+            # allowed because downstream code expects a dict.
+            warnings.warn(
+                f"[config] Ignoring override for key '{key}': cannot replace "
+                f"a dict value with {type(val).__name__} ({val!r}). "
+                f"The base dict is preserved.",
+                stacklevel=2,
+            )
+            continue
         if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
             merged[key] = _deep_merge(merged[key], val)
         elif isinstance(val, list):
@@ -93,6 +147,119 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             merged[key] = val
     return merged
+
+
+def _normalize_dwi_type(dwi_type: str, canonical_types: list[str]) -> str:
+    """Return the canonical-case version of *dwi_type* if it matches an
+    existing entry (case-insensitive), otherwise return *dwi_type* unchanged.
+
+    This prevents duplicate entries like ``['Standard', 'standard']`` when
+    the MATLAB ``config.json`` uses a different capitalisation than the
+    built-in defaults.
+    """
+    lower_map = {ct.lower(): ct for ct in canonical_types}
+    return lower_map.get(dwi_type.lower(), dwi_type)
+
+
+def _strip_json_comments(text: str) -> str:
+    """Remove single-line (``//``) and block (``/* */``) comments from JSON
+    text while preserving string literals that may contain ``//``.
+
+    This is a token-aware stripper that tracks whether the current
+    position is inside a JSON string literal.  Content inside strings
+    (delimited by unescaped double quotes) is never modified, so URLs
+    like ``"https://example.com/tool"`` are preserved intact.
+
+    Block comments (``/* ... */``) are removed regardless of position
+    outside strings.  Single-line comments (``// ...``) are removed from
+    the current position to end-of-line when found outside strings.
+    """
+    result: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        # Check if we're entering a JSON string literal
+        if text[i] == '"':
+            # Consume the entire string literal, including escaped characters
+            result.append('"')
+            i += 1
+            while i < n:
+                if text[i] == '\\' and i + 1 < n:
+                    # Escaped character — consume both the backslash and
+                    # the following character unconditionally.
+                    result.append(text[i])
+                    result.append(text[i + 1])
+                    i += 2
+                elif text[i] == '"':
+                    result.append('"')
+                    i += 1
+                    break
+                else:
+                    result.append(text[i])
+                    i += 1
+        # Block comment outside a string
+        elif text[i] == '/' and i + 1 < n and text[i + 1] == '*':
+            # Skip until closing */
+            end = text.find('*/', i + 2)
+            if end == -1:
+                # Unterminated block comment — skip rest of text
+                break
+            i = end + 2
+        # Single-line comment outside a string
+        elif text[i] == '/' and i + 1 < n and text[i + 1] == '/':
+            # Skip until end of line
+            while i < n and text[i] != '\n':
+                i += 1
+            # Keep the newline itself to preserve line structure
+        else:
+            result.append(text[i])
+            i += 1
+    return ''.join(result)
+
+
+def _permissive_json_loads(text: str) -> dict:
+    """Attempt to parse JSON text, stripping comments and trailing commas.
+
+    Python's :func:`json.loads` is strict and rejects constructs that
+    MATLAB's ``jsondecode`` (and many editors) silently accept, such as:
+
+    - Single-line comments (``// ...``)
+    - Block comments (``/* ... */``)
+    - Trailing commas before closing ``}`` or ``]``
+
+    This helper strips those constructs and retries parsing when the
+    initial strict parse fails.  Importantly, comment stripping is
+    *token-aware*: ``//`` sequences inside JSON string values (e.g. URLs)
+    are preserved.
+
+    Parameters
+    ----------
+    text : str
+        Raw file content that is expected to be JSON (possibly with
+        non-standard extensions).
+
+    Returns
+    -------
+    dict
+        Parsed JSON object.
+
+    Raises
+    ------
+    json.JSONDecodeError
+        If the text cannot be parsed even after sanitisation.
+    """
+    # First, try strict parsing — fast path for well-formed JSON.
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Use token-aware comment stripping that preserves string contents
+    sanitised = _strip_json_comments(text)
+    # Strip trailing commas before } or ]
+    sanitised = re.sub(r",\s*([}\]])", r"\1", sanitised)
+
+    return json.loads(sanitised)
 
 
 def load_analysis_config(
@@ -103,7 +270,15 @@ def load_analysis_config(
 
     Resolution order (later wins):
     1. Built-in defaults (``_DEFAULTS``).
-    2. ``analysis_config.json`` (next to this file, or *config_path*).
+    2. ``analysis_config.json`` — when no explicit *config_path* is given,
+       the function searches two locations:
+
+       a. ``analysis/analysis_config.json`` (next to this module) — checked
+          first and takes priority.
+       b. ``analysis_config.json`` at the repository root (one level above
+          ``analysis/``).
+
+       If an explicit *config_path* is provided, only that path is used.
     3. MATLAB ``config.json`` at the repository root — only ``dwi_type``
        is read (mapped to ``dwi_types`` list for consistency).
 
@@ -111,8 +286,9 @@ def load_analysis_config(
     ----------
     config_path : str or Path, optional
         Explicit path to the analysis config JSON.  If ``None``, the
-        function looks for ``analysis_config.json`` in the same directory
-        as this module.
+        function searches for ``analysis_config.json`` in the
+        ``analysis/`` directory first, then falls back to the repository
+        root.
     matlab_config_path : str or Path, optional
         Explicit path to the MATLAB pipeline ``config.json``.  If
         ``None``, the function looks for ``config.json`` at the
@@ -131,7 +307,15 @@ def load_analysis_config(
 
     # ── Layer 2: analysis_config.json ──
     if config_path is None:
-        config_path = analysis_dir / "analysis_config.json"
+        # Check the analysis/ directory first (next to this file), then
+        # fall back to the repository root.  This ensures that a config
+        # placed alongside the analysis scripts takes priority.
+        local_config = analysis_dir / "analysis_config.json"
+        root_config = analysis_dir.parent / "analysis_config.json"
+        if local_config.is_file():
+            config_path = local_config
+        else:
+            config_path = root_config
     else:
         config_path = Path(config_path)
 
@@ -140,8 +324,10 @@ def load_analysis_config(
             with open(config_path, encoding="utf-8") as f:
                 overrides = json.load(f)
             cfg = _deep_merge(cfg, overrides)
-        except (json.JSONDecodeError, OSError):
-            pass  # Silently fall back to defaults on bad JSON.
+        except json.JSONDecodeError as e:
+            print(f'[WARN] Invalid JSON in {config_path}: {e}')
+        except OSError as e:
+            print(f'[WARN] Cannot read {config_path}: {e}')
 
     # ── Layer 3: MATLAB config.json (dwi_type only) ──
     if matlab_config_path is None:
@@ -152,22 +338,47 @@ def load_analysis_config(
     if matlab_config_path.is_file():
         try:
             with open(matlab_config_path, encoding="utf-8") as f:
-                matlab_cfg = json.load(f)
-            dwi_type = matlab_cfg.get("dwi_type")
-            if dwi_type and isinstance(dwi_type, str):
-                # The MATLAB config stores a single active type; we don't
-                # override the full list, but we can ensure it's present.
-                if dwi_type not in cfg["dwi_types"]:
-                    cfg["dwi_types"].append(dwi_type)
-        except (json.JSONDecodeError, OSError):
-            pass
+                raw_text = f.read()
+            try:
+                matlab_cfg = _permissive_json_loads(raw_text)
+            except json.JSONDecodeError as exc:
+                print(
+                    f"[WARN] Cannot parse MATLAB config {matlab_config_path}: "
+                    f"{exc.__class__.__name__}: {exc}"
+                )
+                matlab_cfg = None
+
+            if matlab_cfg is not None:
+                dwi_type = matlab_cfg.get("dwi_type")
+                if dwi_type and isinstance(dwi_type, str):
+                    # Normalize to canonical case to avoid duplicates like
+                    # ['Standard', 'standard'] when the MATLAB config uses
+                    # different capitalisation than the built-in defaults.
+                    dwi_type = _normalize_dwi_type(dwi_type, cfg["dwi_types"])
+                    # The MATLAB config stores a single active type; we don't
+                    # override the full list, but we can ensure it's present.
+                    existing_lower = [d.lower() for d in cfg["dwi_types"]]
+                    if dwi_type.lower() not in existing_lower:
+                        cfg["dwi_types"].append(dwi_type)
+        except OSError as exc:
+            print(
+                f"[WARN] Cannot read MATLAB config {matlab_config_path}: "
+                f"{exc.__class__.__name__}: {exc}"
+            )
 
     # ── Layer 4: Environment variable overrides ──
     # These allow run_analysis.py to propagate CLI flags (--gemini-model,
-    # --concurrency) to child scripts that run as separate subprocesses.
+    # --claude-model, --provider, --concurrency) to child scripts that run
+    # as separate subprocesses.
     env_model = os.environ.get("PANCDATA3_GEMINI_MODEL")
     if env_model:
         cfg["vision"]["gemini_model"] = env_model
+    env_claude_model = os.environ.get("PANCDATA3_CLAUDE_MODEL")
+    if env_claude_model:
+        cfg["vision"]["claude_model"] = env_claude_model
+    env_provider = os.environ.get("PANCDATA3_VISION_PROVIDER")
+    if env_provider:
+        cfg["vision"]["provider"] = env_provider
     env_concurrency = os.environ.get("PANCDATA3_GEMINI_CONCURRENCY")
     if env_concurrency:
         try:
@@ -210,18 +421,30 @@ def setup_utf8_stdout():
     interpreters we fall back to wrapping the underlying byte buffer.
     This is a no-op on non-Windows platforms.
     """
-    if sys.platform == "win32":
-        if hasattr(sys.stdout, "reconfigure"):
+    if sys.platform != "win32":
+        return
+    # Skip when running under test frameworks — modifying stdout/stderr
+    # interferes with capture mechanisms and causes teardown errors.
+    if "pytest" in sys.modules or "unittest" in sys.modules:
+        return
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
             sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-        elif getattr(sys.stdout, "encoding", "").lower() != "utf-8":
+        except Exception:
+            pass  # Captured/redirected streams may reject reconfigure
+    elif (getattr(sys.stdout, "encoding", "") or "").lower() != "utf-8":
             # Wrap the raw binary buffer with a new TextIOWrapper.
-            sys.stdout = io.TextIOWrapper(
-                sys.stdout.buffer, encoding="utf-8", errors="replace",
-            )
-            sys.stderr = io.TextIOWrapper(
-                sys.stderr.buffer, encoding="utf-8", errors="replace",
-            )
+            # Guard: stdout/stderr may lack .buffer when captured (e.g.,
+            # pytest StringIO or piped contexts).
+            if hasattr(sys.stdout, "buffer"):
+                sys.stdout = io.TextIOWrapper(
+                    sys.stdout.buffer, encoding="utf-8", errors="replace",
+                )
+            if hasattr(sys.stderr, "buffer"):
+                sys.stderr = io.TextIOWrapper(
+                    sys.stderr.buffer, encoding="utf-8", errors="replace",
+                )
 
 
 def find_latest_saved_folder(base_dir: str | None = None) -> Path:
@@ -373,7 +596,7 @@ def extract_pvalues(text: str) -> list[tuple[float, str]]:
         for m in re.finditer(pat, text, re.IGNORECASE):
             # Deduplicate overlapping matches (p-value pattern is a superset).
             span = (m.start(), m.end())
-            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+            if any(s[0] <= span[0] < s[1] or s[0] < span[1] <= s[1] for s in seen_spans):
                 continue
             seen_spans.add(span)
             try:
@@ -422,7 +645,7 @@ def extract_correlations(text: str) -> list[tuple[float, str]]:
     for pat in patterns:
         for m in re.finditer(pat, text, re.IGNORECASE):
             span = (m.start(), m.end())
-            if any(s[0] <= span[0] <= s[1] for s in seen_spans):
+            if any(s[0] <= span[0] < s[1] or s[0] < span[1] <= s[1] for s in seen_spans):
                 continue
             seen_spans.add(span)
             try:

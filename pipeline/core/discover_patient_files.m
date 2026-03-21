@@ -160,15 +160,25 @@ for j=1:n_pat_discover
                         % spreadsheet; StudyDate enables temporal analysis
                         % (e.g., days between fractions, treatment duration).
                         dicom_files = dir(fullfile(dwi_locations{j,fi,dwii}, '*.dcm'));
-                        dcm_idx = min(5, length(dicom_files));
-                        pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
-                        if have_mrn==0
-                            mrn_list{j} = pat_data.PatientID;
-                            id_list{j} = patlist(j).name;
-                            have_mrn=1;
+                        if isempty(dicom_files)
+                            fprintf('  ⚠️  No .dcm files found in %s — skipping MRN/date extraction.\n', dwi_locations{j,fi,dwii});
+                            continue;
                         end
-                        fx_dates{j,fi} = pat_data.StudyDate;
-                        have_fx_date=1;
+                        dcm_idx = min(5, length(dicom_files));
+                        try
+                            pat_data = dicominfo(fullfile(dicom_files(dcm_idx).folder, dicom_files(dcm_idx).name));
+                            if have_mrn==0
+                                mrn_list{j} = pat_data.PatientID;
+                                id_list{j} = patlist(j).name;
+                                have_mrn=1;
+                            end
+                            fx_dates{j,fi} = pat_data.StudyDate;
+                            have_fx_date=1;
+                        catch ME_dcm
+                            fprintf('  ⚠️  Failed to read DICOM header from %s: %s\n', ...
+                                dicom_files(dcm_idx).name, ME_dcm.message);
+                            continue;
+                        end
                     end
 
                     % --- Locate GTV mask .mat files for this DWI repeat ---

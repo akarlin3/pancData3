@@ -132,7 +132,18 @@ for j = 1:nPat
 
     % Read b-values from the accompanying text file (one line, space-delimited).
     % Force to column vector for consistent indexing below.
-    fid = fopen(bval_file); bvals = sscanf(fgetl(fid), '%f')'; fclose(fid);
+    fid = fopen(bval_file);
+    if fid < 0
+        fprintf('  ⚠️  Pt %d (%s): Cannot open bval file %s — skipping\n', j, id_list{j}, bval_file);
+        continue;
+    end
+    tline = fgetl(fid);
+    fclose(fid);
+    if ~ischar(tline)
+        fprintf('  ⚠️  Pt %d (%s): Empty bval file %s — skipping\n', j, id_list{j}, bval_file);
+        continue;
+    end
+    bvals = sscanf(tline, '%f')';
     bvals = bvals(:);
 
     % B-value validation: skip patients whose b-values do not match

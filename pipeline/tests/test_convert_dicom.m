@@ -42,7 +42,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
                 fid = fopen(testCase.MockScript, 'w');
                 fprintf(fid, '#!/bin/bash\nexit 0\n');
                 fclose(fid);
-                system(['chmod +x ' testCase.MockScript]);
+                system(['chmod +x ' escape_shell_arg(testCase.MockScript)]);
             end
         end
     end
@@ -81,7 +81,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
             end
             fclose(fid);
             if ~ispc
-                system(['chmod +x ' testCase.MockScript]);
+                system(['chmod +x ' escape_shell_arg(testCase.MockScript)]);
             end
 
             bad_dwi_found = convert_dicom(testCase.DicomLoc, testCase.OutLoc, scanID, testCase.MockScript, fx_id);
@@ -112,7 +112,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
             end
             fclose(fid);
             if ~ispc
-                system(['chmod +x ' testCase.MockScript]);
+                system(['chmod +x ' escape_shell_arg(testCase.MockScript)]);
             end
 
             % Suppress the expected warning about missing output files
@@ -152,7 +152,7 @@ classdef test_convert_dicom < matlab.unittest.TestCase
             end
             fclose(fid);
             if ~ispc
-                system(['chmod +x ' testCase.MockScript]);
+                system(['chmod +x ' escape_shell_arg(testCase.MockScript)]);
             end
 
             bad_dwi_found = convert_dicom(testCase.DicomLoc, testCase.OutLoc, scanID, testCase.MockScript, fx_id);

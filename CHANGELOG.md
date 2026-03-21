@@ -4,6 +4,259 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1.0] - 2026-03-20
+
+### Added
+- CI/CD pipeline with GitHub Actions — Python tests on Ubuntu, Windows, macOS; MATLAB file integrity check
+- Auxiliary biomarker wiring — non-DWI biomarker CSV data now flows through elastic net and Cox survival models when `use_auxiliary_biomarkers` is enabled
+- External validation round-trip — `apply_external_validation.m` now called from orchestrator when `external_validation_data` config field is set
+- Report sections for decision curve analysis, NRI/IDI, texture features, and registration quality
+- Longitudinal trajectory visualizations — waterfall, swimmer, and spider plots
+- Programmatic improvement loop orchestrator (`improvement_loop/orchestrator_v1.py`)
+- Structured finding schema with Pydantic validation
+- Diminishing returns detection in loop exit condition
+- Parallel implementation phase in orchestrator (configurable `--max-workers`)
+
+### Fixed
+- IPCW-weighted Cox standard error correction now uses sandwich variance ratio instead of naive `sqrt(mean(weights))` scaling (`metrics_survival.m`)
+- Command injection vulnerability in `escape_shell_arg.m` Windows Unicode short-path lookup — unescaped argument was passed to `system()` during 8.3 name resolution
+- Immortal time bias in competing risk censoring — competing event patients now use event time instead of total follow-up time (`metrics_survival.m`)
+- Landmark day selection in time-dependent Cox models — largest gap heuristic replaced with clinically meaningful landmark (`metrics_survival.m`)
+- Global `warning('off', 'all')` before `coxphfit` replaced with scoped warning suppression via `onCleanup` (`metrics_survival.m`)
+- IVIM fitting with insufficient b-values (< 4) now skips fitting entirely instead of producing unreliable parameters (`fit_models.m`)
+- Non-monotonic b-value validation relaxed to allow duplicate values, which are valid for averaging (`fit_models.m`)
+- Memory optimization in DWI volume reshaping — reduced peak memory via chunked processing (`fit_models.m`)
+- Diary file leak in `metrics_stats_predictive.m` — added `onCleanup` to ensure diary is turned off on error
+- API key masking regex in `run_analysis.py` expanded to cover additional secret patterns
+
+### Changed
+- `improvement_loop_log.json` moved to `.gitignore` as a runtime artifact
+- CLAUDE_WORKFLOWS.md updated — `orchestrator_v1.py` is now canonical loop driver
+
+---
+
+## [2.1.0-beta.2] - 2026-03-20
+
+### Added
+
+#### Improvement Loop Configuration System
+- **`improvement_loop/loop_config.py`**: Centralised configuration for the improvement loop via `improvement_loop_config.json` — all tuneable knobs in a single `LoopConfig` dataclass with built-in defaults (same pattern as `parse_config.m` for the MATLAB pipeline)
+- **`improvement_loop_config.example.json`**: Committed template with all configurable fields
+- **Configurable exit strategy**: `exit_strategy` field selects `"classic"` (threshold-only), `"diminishing_returns"` (staleness detector), or `"both"` (default) for loop termination
+- **Configurable API settings**: `anthropic_api_key`, `audit_model`, `fix_model`, `judge_model` fields — API key can live in the config file instead of requiring an environment variable
+- **Configurable thresholds**: All classic exit thresholds (`importance_threshold`, `min_coverage_score`) and diminishing returns parameters (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`) are tuneable via config
+
+#### Diminishing Returns Detection
+- **`evaluator.py` — `check_diminishing_returns()`**: Detects stale loops by checking four simultaneous conditions over the last N iterations (configurable via `dr_window`): low merge rate, low average importance, repeated file targeting, and no high audit scores
+- **`should_continue_loop()`** updated to call the diminishing returns detector after classic checks, controlled by `exit_strategy` config
+
+#### JSON Parsing Robustness
+- **`orchestrator_v1.py` — `_sanitize_json_escapes()`**: Pre-sanitises raw API responses by escaping invalid backslash sequences (e.g. Windows paths like `C:\Users`) before JSON parsing
+- **`_parse_findings()`**: Three-layer fallback chain — sanitised `json.loads()`, then `unicode_escape` decoding, then regex extraction of the JSON array
+
+### Changed
+
+#### Model Upgrade to Claude Opus 4.6
+- **Improvement loop**: Default `audit_model`, `fix_model`, and `judge_model` switched from `claude-sonnet-4-20250514` to `claude-opus-4-6`
+- **Vision analysis**: Default `claude_model` switched from `claude-sonnet-4-6` to `claude-opus-4-6` in `analysis_config.json`, `shared.py`, `batch_graph_analysis.py`, and `run_analysis.py`
+- All hardcoded model strings replaced with config-driven values
+
+#### Evaluator & Orchestrator Refactoring
+- **`evaluator.py`**: `score_audit()` and `should_continue_loop()` now read model names and thresholds from `LoopConfig` instead of hardcoded constants; Anthropic client created lazily via `_get_client()` with config API key support
+- **`orchestrator_v1.py`**: `_api_call_with_retry()`, `_run_audit()`, `_apply_single_fix()`, and `_collect_source_files()` all use `LoopConfig` for retries, delays, models, and file size limits; client created via `_get_client()`
+
+#### Documentation
+- **`README.md`**: Configuration section updated to mention both `config.json` and `improvement_loop_config.json`; new "Improvement Loop Configuration" subsection; Claude model example updated to Opus 4.6
+- **`CLAUDE.md`**, **`CLAUDE_REFERENCE.md`**: Updated file counts, module tables, and test suite numbers
+
+### Fixed
+- `improvement_loop_config.json` added to `.gitignore` (may contain API keys)
+
+### Test Suite
+- Python test suite: 36 → 37 files (1559 → 1576 tests)
+- New tests in `test_evaluator_finding.py`: `TestCheckDiminishingReturns` (5 unit tests), `TestShouldContinueLoopDiminishingReturns` (5 integration tests), `TestLoopConfig` (6 config tests)
+- New test in `test_orchestrator.py`: `test_parse_findings_handles_windows_paths_in_json`
+
+---
+
+## [2.1.0-beta.1] - 2026-03-19
+
+### Added
+
+#### Automated Improvement Loop
+- **`improvement_loop/` package**: Programmatic audit → fix → test → commit cycle with Claude API integration
+  - **`orchestrator_v1.py`**: Main loop driver with configurable max iterations and dry-run mode
+  - **`evaluator.py`**: Finding schema (Pydantic) and audit quality scoring with exit condition logic
+  - **`loop_tracker.py`**: Iteration logging, context generation for subsequent iterations, score drift detection
+  - **`git_utils.py`**: Subprocess-based git operations (branch management, test runners, commit helpers)
+- **Self-healing protocol**: When a fix causes test regressions, the orchestrator automatically attempts to fix the regression up to 2 times before reverting (`MAX_SELF_HEAL_ATTEMPTS`)
+- **Run summary**: End-of-loop summary with per-iteration stats, dimension breakdown, and convergence status
+
+#### New Report Sections
+- **`analysis/report/sections/analysis_cross_dwi.py`**: Cross-DWI comparison section builder
+- **`analysis/report/sections/analysis_features.py`**: Feature overlap analysis section builder
+
+#### New Test Files (4 Python)
+- `test_evaluator_finding.py`, `test_git_utils.py`, `test_loop_tracker.py`, `test_orchestrator.py` for the improvement loop package
+- Python test suite: 32 → 36 files (~1559 tests)
+
+### Changed
+
+#### Correctness Fixes (Improvement Loop — 5 iterations)
+- **`metrics_survival.m`**: Replaced invalid MATLAB ternary syntax (`? :`) with proper if/else blocks
+- **`compute_calibration_metrics.m`**: Replaced 3 invalid MATLAB ternary expressions with if/else blocks
+- **`fit_time_varying_cox.m`**: Replaced 2 invalid MATLAB ternaries; guard empty finite values before median; fixed entry weight denominator; changed log(0) minimum from 0.5 to 1 day
+- **`extract_tumor_core.m`**: NaN/zero `max_adc` guard in active contours; small-sample fallback in region growing
+- **`detect_motion_artifacts.m`**: Zero noise floor fallback to 1% of masked signal median; NaN NMI flagging
+- **`bootstrap_ci.m`**: Consolidated BCa fallback; clamped quantile indices; removed redundant degenerate check
+- **`apply_external_validation.m`**: Center zero-variance features; warn on padded missing features
+- **`build_td_panel.m`**: Warning when scan_days exceeds available timepoints
+- **`metrics_stats_comparisons.m`**: Guard before ranksum when fewer than 2 groups
+- **`metrics_longitudinal.m`**: Fixed Octave SEM computation for N=1 case
+- **`compute_texture_features.m`**: Constant-image guard for 3D GLRLM; existence check before `compute_glrlm_3d`
+- **`make_grouped_folds.m`**: Warning on k≤1 degenerate fallback
+- **`imputation_sensitivity.m`**: Case-insensitive patient ID matching (`strcmpi`)
+- **`compute_nri.m`**: Minimum 3 events/non-events threshold; `isfinite` guards on variance and z-score
+- **`fit_models.m`**: `rcond` check to skip warm start on singular matrices
+- **`process_single_scan.m`**: Check `mkdir` return code with error on failure
+- **`decision_curve_analysis.m`**: Floating-point safety for threshold comparison
+- **`compute_ipcw_weights.m`**: Guard against division by zero risk sum
+
+#### Analysis Pipeline
+- **`batch_graph_analysis.py`**: Moved `queue.task_done()` into `finally:` block to prevent asyncio deadlock on interruption
+- **`cross_dwi_agreement.py`**: Fisher z-transform requires n>3; replaced manual exp formula with `math.tanh()` for overflow safety
+- **`run_analysis.py`**: `TeeWriter.fileno()` wrapped in try/except for captured streams (pytest compatibility)
+
+#### Documentation
+- **`CLAUDE_WORKFLOWS.md`**: Added self-healing protocol documentation to the Validation Protocol section
+- **`CLAUDE.md`**, **`CLAUDE_REFERENCE.md`**: Updated file counts and module tables
+
+### Fixed
+- 5 instances of invalid MATLAB ternary syntax (`? :`) that would crash at runtime
+- Asyncio queue deadlock when `batch_graph_analysis.py` is interrupted via KeyboardInterrupt
+- CCC confidence interval overflow when sample size ≤ 3
+- IPCW weight computation NaN propagation from exp() underflow
+
+---
+
+## [2.1.0-alpha.2] - 2026-03-17
+
+### Added
+
+#### Pipeline Infrastructure
+- **`suppress_core_warnings.m`** (`pipeline/utils/`): Extracted duplicate warning suppression into a reusable utility for cleaner core module code
+- **`CLAUDE_WORKFLOWS.md`**: Extracted workflow and process documentation from `CLAUDE.md` into a dedicated file for better separation of concerns
+
+#### Input Validation & Error Handling
+- **`extract_tumor_core.m`**: Input validation for mask dimensions and method parameters
+- **`filter_collinear_features.m`**: Input validation for feature matrix and threshold arguments
+- **`load_auxiliary_biomarkers.m`**: Column dimension validation and data loss warnings
+- **`fit_models.m`**: Early b-value validation moved to function entry for fail-fast behavior
+- **`load_dwi_data.m`**: Guard against empty DICOM arrays
+- **`compute_texture_features.m`**: GLCM error logging with message IDs
+- **`discover_patient_files.m`**: Error instead of warning when clinical spreadsheet has no patient column
+
+### Changed
+- **`compute_summary_metrics.m`**: Cache all GTV masks using `containers.Map` for improved performance on large cohorts
+- **`scale_td_panel.m`**: Added `omitnan` flag to baseline scaling path for consistency with other scaling operations
+- **`build_td_panel.m`**: Clarified NaN propagation behavior in decay imputation documentation
+- **`compute_schoenfeld_residuals.m`**: Improved LOWESS smoother numerical stability
+- **`assemble_predictive_features.m`**, **`compute_percent_deltas.m`**: Pre-allocated arrays to avoid repeated memory reallocation in loops
+- **`dispatch_pipeline_steps.m`**: Simplified by extracting warning suppression to `suppress_core_warnings.m`
+- **`batch_graph_analysis.py`**: Re-raise `KeyboardInterrupt` and `CancelledError` in batch worker instead of silently swallowing; added error logging to silent exceptions
+- **CLAUDE.md**: Split workflow documentation into `CLAUDE_WORKFLOWS.md`
+
+### Fixed
+- **`dispatch_pipeline_steps.m`**: Fixed critical bugs — undefined variable reference and empty struct initialization
+- **`compare_core_methods.m`**: Fixed incorrect variable name `nTp` in bootstrap CI loop
+- **`detect_motion_artifacts.m`**: Flag motion artifacts when NMI is `NaN` due to insufficient voxels
+- **`process_single_scan.m`**, **`metrics_dosimetry.m`**, **`metrics_longitudinal.m`**: Fixed `fopen` return value checks and division-by-zero in standard error computation
+- **`batch_graph_analysis.py`**: Fixed regex deduplication overlap in error handling
+- **`test_convert_dicom.m`**: Escaped shell arguments in `chmod` calls for path safety
+
+---
+
+## [2.1.0-alpha.1] - 2026-03-17
+
+### Added
+
+#### Advanced Modeling Framework
+- **Imputation sensitivity analysis** (`imputation_sensitivity.m`): Compare KNN imputation against LOCF, Mean, and Linear Interpolation alternatives; controlled via `run_imputation_sensitivity` config field
+- **Time-varying Cox models** (`fit_time_varying_cox.m`): Stratified and extended Cox models for when proportional hazards assumption is violated; controlled via `fit_time_varying_cox` config field
+- **Decision curve analysis** (`decision_curve_analysis.m`): Net benefit calculation and treat-all/none comparison for clinical utility assessment
+- **Net reclassification improvement** (`compute_nri.m`): NRI, continuous NRI, and IDI for comparing predictive models
+- **External validation** (`prepare_external_validation.m`, `apply_external_validation.m`): Export trained models and apply to external datasets; controlled via `export_validation_model` and `external_validation_data` config fields
+- **Auxiliary biomarker integration** (`load_auxiliary_biomarkers.m`): Load non-DWI biomarker data from CSV for multi-modal predictive modeling; controlled via `auxiliary_biomarker_csv` and `use_auxiliary_biomarkers` config fields
+
+#### Survival & Predictive Enhancements
+- **Schoenfeld residuals** (`compute_schoenfeld_residuals.m`): Scaled Schoenfeld residuals and PH assumption testing via Spearman correlation with diagnostic figures
+- **Fine-Gray subdistribution hazard model**: Proper subdistribution weights replacing ad-hoc 0.5 multiplier
+- **Calibration metrics** (`compute_calibration_metrics.m`): Brier score, Hosmer-Lemeshow test, calibration slope/intercept
+- **Bootstrap confidence intervals** (`bootstrap_ci.m`): BCa bootstrap CIs for arbitrary scalar metric functions; vectorized resampling with parfor support
+- **Forest plot section** (`analysis/report/sections/forest_plot.py`): Hazard ratio extraction and matplotlib forest plot generation for the HTML report
+
+#### Radiomics & Image Quality
+- **Texture features** (`compute_texture_features.m`): First-order, GLCM, GLRLM (3D with 13 directions), shape, and uniformity features (24 total); IBSI-compliant quantization; controlled via `use_texture_features` and `texture_quantization_method` config fields
+- **Registration quality metrics** (`compute_registration_quality.m`): Jacobian determinant, NCC, mutual information; configurable `voxel_spacing` parameter
+- **Motion artifact detection** (`detect_motion_artifacts.m`): DWI volume quality assessment — CV, NMI, signal dropout detection; controlled via `exclude_motion_volumes` config field
+
+#### GPU Acceleration
+- **GPU-accelerated fitting** (`gpu_available.m`): Offload ADC WLS fitting and DnCNN inference to CUDA GPUs via `gpuArray`; graceful CPU fallback; controlled via `use_gpu` and `gpu_device` config fields
+- **GPU memory safety**: Automatic memory checks and fallback in `fit_models.m` when GPU memory is insufficient
+
+#### Docker Support
+- **Dockerfile**: Multi-stage Docker build with MATLAB Runtime and Python environment
+- **docker-compose.yml**: Pipeline and analysis service definitions
+- **`docker/entrypoint.sh`**: Container entrypoint with mode dispatch, validation, and `--dry-run` flag
+- **`docs/DOCKER.md`**: Comprehensive Docker usage guide
+- Configurable MCR version build arg (`.matlab_version`) with runtime version check
+- MATLAB/Python pre-flight checks in Docker entrypoint
+- Relaxed apt-get version pins to prevent stale build failures
+
+#### Vision Analysis
+- **Claude API provider** (`analysis/parsers/batch_graph_analysis.py`): Anthropic Claude vision analysis alongside Gemini; `--provider gemini|claude|both` for single or dual-provider comparison with per-image difference CSV
+- **Local Gemini fallback**: Automatic retry with local Gemini when API calls fail
+- **Cross-DWI agreement analysis** (`analysis/cross_reference/cross_dwi_agreement.py`): Bland-Altman, Lin's CCC, and ICC agreement metrics between DWI types
+
+#### Interactive Reporting
+- **Interactive HTML report** (`analysis/report/generate_interactive_report.py`): Client-side filtering, Chart.js visualizations, patient drill-down, sortable tables, and DWI/core-method comparison
+- **Interactive report constants** (`analysis/report/interactive_constants.py`): CSS and JavaScript for sidebar, tabs, chart rendering, and filter logic
+
+#### Pipeline Infrastructure
+- **`prepare_pipeline_session.m`**: Pipeline session initialization with try-catch error handling
+- **`dispatch_load_and_sanity.m`**, **`dispatch_pipeline_steps.m`**: Extracted pipeline step dispatch logic
+- **`compute_percent_deltas.m`**: Treatment-induced percent/absolute changes from baseline (extracted from metrics_baseline)
+- **`compute_histogram_laplace.m`**: Laplace-smoothed histogram probability distribution
+- **`compute_kurt_skew.m`**: Kurtosis/skewness computation with minimum sample guard
+- **`detect_baseline_outliers.m`**: Outcome-blinded IQR outlier detection for baseline metrics
+- **`nanmean_safe.m`**, **`nanstd_safe.m`**: Octave-compatible NaN-ignoring mean/std
+
+#### New Test Files (14 MATLAB, 10 Python)
+- MATLAB: `test_gpu_available.m`, `test_imputation_sensitivity.m`, `test_initialize_pipeline.m`, `test_load_auxiliary_biomarkers.m`, `test_normalize_patient_ids.m`, `test_octave_shims.m`, `test_parfor_progress.m`, `test_plot_predictive_diagnostics.m`, `test_prepare_external_validation.m`, `test_prepare_pipeline_session.m`, `test_progress_gui.m`, `test_run_elastic_net_cv.m`, `test_run_loocv_risk_scores.m`, `test_schoenfeld_residuals.m`, `test_select_dwi_vectors.m`, `test_time_varying_cox.m`, `test_write_sentinel_file.m`
+- Python: `test_cross_dwi_agreement.py`, `test_forest_plot.py`, `test_generate_report_helpers.py`, `test_generate_report_integration.py`, `test_generate_report_manuscript.py`, `test_generate_report_sections.py`, `test_integration.py`, `test_parse_imputation_and_tv_cox.py`, `test_report_sections_robustness.py`, `test_interactive_report.py`
+- MATLAB test suite: 106 → 120 files; Python test suite: 22 → 32 files (~1482 tests)
+
+### Changed
+- **`metrics_baseline.m`**: Refactored to return a single struct instead of 29 positional outputs
+- **Pipeline step functions**: Refactored to use `baseline_results` and `session` structs for cleaner parameter passing
+- **`run_dwi_pipeline.m`**: Further reduced from 60KB to 7KB by extracting orchestrator logic into `dispatch_load_and_sanity.m`, `dispatch_pipeline_steps.m`, and `prepare_pipeline_session.m`
+- **`bootstrap_ci.m`**: Optimized with vectorized resampling, pre-generated indices, and parfor support
+- **NMI computation**: Replaced hand-rolled NMI with `histcounts2` and added constant-signal guard
+- **`imputation_sensitivity.m`**: Refactored `evaluate_imputed` to delegate to `run_elastic_net_cv` and `run_loocv_risk_scores`
+- **Report section submodules**: Further split into finer-grained submodules for analysis, statistics, data, and discussion sections
+- **`analysis/__init__.py`**: Updated to import directly from sub-modules instead of wrappers
+- **Per-method dosimetry**: Extracted from disk loading when loading dosimetry results
+- **UTF-8 handling**: Replaced raw UTF-8 byte escape sequences with native Unicode emoji characters
+- **Python dependencies**: Added `numpy`, `matplotlib`; regenerated `requirements-lock.txt`; added upper version bounds
+- **CLAUDE.md**: Split into two files (`CLAUDE.md` + `CLAUDE_REFERENCE.md`) to reduce context window usage
+- **Changelog**: Archived pre-v2.0.0 entries to `CHANGELOG_ARCHIVE.md`
+
+### Fixed
+- **Fine-Gray weights**: Replaced ad-hoc 0.5 multiplier with proper subdistribution weights for competing risk modeling
+- **Dockerfile**: Relaxed apt-get version pins that caused stale build failures
+
+---
+
 ## [2.0.1] - 2026-03-16
 
 ### Added
@@ -47,276 +300,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [2.0.0-rc.1] - 2026-03-11
-
-### Changed
-- **Repository reorganization**: All MATLAB pipeline code moved under `pipeline/` directory — `core/`, `utils/`, `tests/`, `.octave_compat/`, `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m` now live at `pipeline/core/`, `pipeline/utils/`, etc. This establishes `pipeline/` and `analysis/` as equal top-level peers
-- **Analysis subpackage restructuring**: Flat analysis scripts reorganized into `parsers/`, `cross_reference/`, and `report/` subpackages with `__init__.py` modules for clean imports
-- **CI workflow** (`.github/workflows/ci.yml`): Updated paths to reflect new `pipeline/` layout
-
-### Added
-- **`assemble_predictive_features.m`** (`pipeline/utils/`): Extracted 22-column feature matrix assembly from `metrics_stats_predictive.m` for independent testing
-- **`test_assemble_predictive_features.m`**: Unit tests covering column counts, NaN removal, and index mapping for the predictive feature builder
-- **`test_compute_adc_metrics.m`**: Unit tests for ADC metric computation (volume, sub-volume, histogram, KS)
-- **`test_source_code_standards.m`**: Source code standards enforcement tests
-- **`remove_constant_columns.m`** (`pipeline/utils/`): Zero-variance and all-NaN column removal utility
-- **`plot_feature_distribution.m`** enhancements: Updated histogram/boxplot rendering with ANOVA p-value annotation
-- New plotting functions for dose-diffusion analysis and DWI data visualization
-- Report section generation modules with shared helper utilities
-
----
-
-## [2.0.0-beta.1] - 2026-03-10
-
-### Added
-
-#### Report — PDF Layout
-- **Cover page** (`_section_cover_page`): Print-only title page with run timestamp, DWI types, and graph count; hidden on screen via `display:none`
-- **Table of Contents** (`_section_print_toc`): Grouped two-column TOC (screen + PDF); driven by `NAV_GROUPS` so it automatically stays in sync with the navigation bar; occupies its own page in print (`page-break-after: always`)
-- **Part-break dividers** (`_part_break`): 6 dividers separating Overview / Data / Statistics / Outcomes / Discussion / Appendix; hidden on screen, force a page break in PDF with styled chapter heading
-- **PDF page numbers**: WeasyPrint-native `@page { @bottom-center { content: "Page " counter(page) " of " counter(pages) } }`; suppressed on cover page via `@page :first`; bottom-left footer shows report title
-
-#### Report — Section Content
-- **Cohort overview**: LF/LC outcome balance stat cards, imbalance warning when ratio > 3:1, attrition note, cross-DWI patient count consistency check
-- **Patient flow**: Parse-failure badge sourced from new `parse_warnings` list; CR exclusion label with explanatory text
-- **MAT data**: Hausdorff distance table alongside Dice; dosimetry displayed as `mean ± std`; RTOG clinical context box with D95/V50 pass/fail benchmarks; core method recommendation box
-- **Correlations**: Causation caveat info-box; Bonferroni correction note; CI width caveat
-- **Cross-DWI comparison**: Sample size mismatch warning; 80% agreement context note; "Notable Disagreements" subsection
-- **Graph issues**: Critical / High / Low severity stratification with stat cards
-- **Feature overlap**: Stability interpretation note; duplicate feature detection
-- **Multiple comparisons**: BH formula disclosed; expected vs. observed rejections displayed; collapsible comparison against Bonferroni correction
-- **Effect sizes**: Competing-risk HR interpretation; CI width guidance; AUC literature benchmark (0.68–0.82 for pancreatic RT)
-- **Model diagnostics**: KNN imputation note; elastic net 1SE caveat; PH assumption untested warning
-- **Methods section**: All 11 core delineation methods described with `<code>` tags; full GLME model specification; nested CV/LOOCV clarified; KNN imputation paragraph; DnCNN/IVIMnet training disclosure
-- **Limitations section**: 5 new limitations — PH assumption untested, imputation unvalidated in this cohort, Fine–Gray model not computed, tumor core not expert-validated, AI graph analysis may misclassify
-- **Executive summary**: AUC card shows DWI type + timepoint; GLME card notes direction not parsed; FDR card shows per-DWI breakdown (Standard / dnCNN / IVIMnet)
-- **Hypothesis section**: Evidence hierarchy (High / Moderate / Exploratory confidence levels); prominent "Research Use Only" warning at end of treatment plan
-
-#### Parsers
-- **`parse_log_metrics.py`**: `parse_warnings` list when expected patterns find zero matches; `_parse_float()` handles `"Inf"` / `"NaN"` strings; IPCW weight-range ratio computed with warning if > 5×; competing-risk and outlier group validation checks
-- **`parse_csv_results.py`**: Case-insensitive column lookup (`_find_column`); timepoint normalization (`Fx5` / `FX5` → `fx5`); p-value and effect size extraction per row; temporal pattern analysis (`_temporal_pattern`)
-- **`statistical_relevance.py`**: Tighter p-value regex requiring `p =`/`p <` context; Bonferroni alpha computed as `0.05 / n_tests`; findings that survive Bonferroni tagged `[Bonferroni]`
-
-### Changed
-- **Gemini model**: `analysis_config.json` corrected from invalid `"gemini-3.1-pro-preview"` to `"gemini-2.5-flash"` — this was the cause of all vision API failures
-- **Manuscript Information section removed**: The fill-in-the-blank publication metadata block (`_section_publication_header`) is no longer rendered in the report
-- **Manuscript Findings section removed**: `_section_manuscript_ready_findings` removed from report output and navigation bar
-- **`report_sections` package split into 7 submodules**: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (previously a single `report_sections.py` file); all names re-exported from `__init__.py` for backward compatibility
-- **Python test suite**: 388 tests across 10 files (up from 126 / 6 files in alpha.1); updated assertions for new dosimetry dict format, timepoint normalization, and NaN→null serialization
-
-### Fixed
-- **`parse_mat_metrics.py`**: NaN/Inf serialized as `None` (JSON `null`) instead of `0`; shape inference corrected (`num_patients = shape[0]`, `num_timepoints = shape[-1]`); Hausdorff matrix extracted alongside Dice; dosimetry metrics returned as `{"mean": X, "std": Y}` dicts; method descriptions pulled from MAT field or built-in fallback dict; NxN matrix dimensions validated against method count before access
-
----
-
-## [2.0.0-alpha.1] - 2026-03-09
-
-### Added
-- **Python post-hoc analysis scripts** (`analysis/`): Five new scripts for automated graph extraction and cross-DWI comparison using Google Gemini vision API
-  - `batch_graph_analysis.py`: Async batch processing of pipeline graph images via Google Gemini vision API; outputs structured CSV with axes, trends, and inflection points
-  - `cross_reference_dwi.py`: Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries
-  - `cross_reference_summary.py`: Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement
-  - `statistical_relevance.py`: Extracts p-values and correlation coefficients; reports significant findings and cross-DWI significance
-  - `statistical_by_graph_type.py`: Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map)
-- **Analysis orchestrator** (`run_analysis.py`): Full analysis workflow runner with `--folder`, `--skip-vision`, `--report-only` CLI flags
-- **Shared utilities** (`shared.py`): Folder discovery, DWI type parsing, p-value/correlation regex extraction for analysis scripts
-- **Direct log parsing** (`parse_log_metrics.py`): Extracts Wilcoxon p-values, AUC, hazard ratios, and GLME interaction terms from MATLAB log files
-- **CSV export parsing** (`parse_csv_results.py`): Parses pipeline CSV exports (Significant_LF_Metrics.csv, FDR_Sig_Global.csv) with cross-DWI comparison
-- **HTML report generator** (`generate_report.py`): Combines all data sources into a comprehensive `analysis_report.html`
-- **Report formatting** (`report_formatters.py`): CSS, escaping, badges, nav bar, stat cards, and HTML template for the analysis report
-- **Report sections** (`report_sections.py`): Section builder functions for the HTML report (executive summary, cohort overview, hypothesis, statistics, cross-DWI, correlations, treatment response, predictive performance, supplemental MAT data, appendix)
-- **MAT file parser** (`parse_mat_metrics.py`): Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON for downstream analysis
-- **Python test suite** (`analysis/tests/`): 6 test files with 126 tests using pytest, covering shared utilities, log/CSV parsing, batch graph analysis, report generation, and script output validation
-
-### Changed
-- Updated documentation (`CLAUDE.md`, `README.md`) with analysis script descriptions and requirements
-
-## [1.1.1] - 2026-03-09
-
-### Fixed
-- Cache clearing (`run_dwi_pipeline.m`) deleted manually curated `dwi_vectors_ea.mat` because the `dwi_vectors*.mat` glob matched it; added a protected-files guard to skip it during cache clearing
-
-## [1.1.0] - 2026-03-08
-
-### Added
-- **Predictive modeling** (`metrics_stats_predictive.m`): Elastic Net with nested LOOCV for pancreatic cancer treatment response prediction, integrated into pipeline orchestration
-- **Centralized configuration** (`parse_config.m`): Configuration parsing with field defaults and file I/O error handling, integrated into `run_dwi_pipeline.m` and `execute_all_workflows.m`
-- New tests for `process_single_scan`, `metrics_stats_comparisons`, `format_p_value`, `PipelineProgressGUI`, `plot_feature_distribution`, and `filter_collinear_features`
-
-### Fixed
-- Error message in `execute_all_workflows.m` incorrectly referenced `'gqae run'` instead of `'dnCNN run'`
-- Extraneous characters in `metrics_stats_predictive.m` file header
-- Missing `spectral_min_voxels` field in `config.example.json`
-- Missing `patient_ids` backwards-compatible default in `parse_config.m`
-- Windows `%` characters in paths not escaped for cmd.exe (`escape_shell_arg.m`)
-- `compute_dice_hausdorff.m` did not validate mask dimensions before comparison
-- `build_td_panel.m` did not validate feature array row counts against patient count
-
-### Test Suite
-- Upgraded `test_metrics_survival.m` assertions from `verifyTrue(true)` to actual content verification via `evalc()`
-- Added n=24 LOOCV path test with signal injection to `test_metrics_stats_predictive.m`
-- Added content assertions to `test_dwi_pipeline.m` end-to-end test (load `.mat` files, verify finite values)
-
-## [1.1.0-rc.1] - 2026-03-08
-
-### Added
-- **Predictive modeling** (`metrics_stats_predictive.m`): Elastic Net with nested LOOCV for pancreatic cancer treatment response prediction, integrated into pipeline orchestration
-- **Centralized configuration** (`parse_config.m`): Configuration parsing with field defaults and file I/O error handling, integrated into `run_dwi_pipeline.m` and `execute_all_workflows.m`
-- New tests for `process_single_scan`, `metrics_stats_comparisons`, `format_p_value`, `PipelineProgressGUI`, `plot_feature_distribution`, and `filter_collinear_features`
-
-### Fixed
-- Error message in `execute_all_workflows.m` incorrectly referenced `'gqae run'` instead of `'dnCNN run'`
-- Extraneous characters in `metrics_stats_predictive.m` file header
-- Missing `spectral_min_voxels` field in `config.example.json`
-
-## [1.1.0-beta.1] - 2026-03-07
-
-### Added
-- **Tumor core method comparison** (`compare_core_methods.m`): Pairwise comparison of all 11 tumor core delineation methods with Dice coefficient and Hausdorff distance metrics, integrated as an optional `compare_cores` pipeline step
-- **Patient data check** (`patient_data_check.m`): Pre-pipeline data integrity scanner that validates directory structure, DICOM availability, GTV masks, and RT dose folders
-- **Pipeline progress GUI** (`PipelineProgressGUI.m`): Pipeline-aware progress bar wrapper that maps step keys to display names
-- **Professional progress bar** (`ProgressGUI.m`): Custom-figure progress bar for MATLAB pipelines and test suite runs
-- **Longitudinal summary metrics** (`compute_summary_metrics.m`): Voxel-to-summary-metric aggregation for tumor and dosimetry analysis
-- **Single scan processing** (`process_single_scan.m`): Per-scan DICOM conversion, model fitting, and caching module
-- **Cross-DWI subvolume comparison** (`plot_cross_dwi_subvolume_comparison.m`): Visualization for cross-DWI-type ADC subvolume comparison
-- **Dice/Hausdorff utility** (`compute_dice_hausdorff.m`): Dice coefficient and Hausdorff distance computation between 3D binary masks
-- **JSON field utility** (`json_set_field.m`): Targeted regex replacement of field values in raw JSON strings
-- New config fields: `core_method`, `core_percentile`, `core_n_clusters`, `fdm_parameter`, `fdm_thresh`
-- Documentation maintenance guidelines in `CLAUDE.md`
-
-### Changed
-- Professional progress bar GUI replaces basic waitbar for test suite and pipeline steps
-
-## [1.0.0-beta.2] - 2026-03-06
-
-### Fixed
-- **Baseline ref_col selection**: `ref_col` used wrong column instead of earliest fraction as baseline (`metrics_baseline.m`)
-- **Iteration limit warning**: `lassoglm`/`fitglm` calls hit iteration cap with `MaxIter` 1e5; increased to 1e7 (`metrics_stats_predictive.m`)
-- **Config restore after execute_all_workflows**: `config.json` was not restored after multi-type pipeline execution (`execute_all_workflows.m`)
-- **Config .bak overwrite**: `.bak` file restore silently overwrote user config edits between pipeline runs (`execute_all_workflows.m`)
-- **Config formatting loss**: `config.json` formatting was not preserved during pipeline execution
-- **DnCNN mat2gray normalization**: `mat2gray` normalization was missing for DnCNN-denoised DWI loading (`load_dwi_data.m`)
-- **Warning log pollution**: `KFoldMissingGrp` and `defaultScanDays` warnings leaked to pipeline error log
-
-### Changed
-- Removed `.bak` file mechanism from `execute_all_workflows` in favor of in-memory config preservation
-
-### Test Suite
-- Fix `testDefaultOutputFolder` deleting `execute_all_workflows` output folder during concurrent runs
-- Add test for empty string field preservation (`cause_of_death_column`)
-
-## [1.0.0-beta.1] - 2026-03-06
-
-### Added
-- `clear_cache` config option to delete all cached pipeline files before execution
-- `CauseOfDeath` column support for competing risk classification in survival analysis
-- Detailed analytical comments across all 39 non-dependency MATLAB files explaining medical physics and statistical rationale
-- Protocol deviation check in `plot_parameter_maps.m` that skips patients with non-standard b-values
-- Config backwards-compatibility rule in `CLAUDE.md` covering both field addition and removal
-
-### Fixed
-
-#### Analytical / Logical Errors
-- **Immortal time bias**: Scan days were derived from folder names instead of DICOM headers, inflating early-timepoint survival estimates (`metrics_survival.m`)
-- **Anti-conservative LRT p-value**: IPCW frequency-weight scaling inflated both the log-likelihood and degrees of freedom, producing artificially small p-values in survival analysis (`metrics_survival.m`)
-- **IPCW censoring model**: Non-terminal intervals were misclassified as censoring events, biasing inverse-probability weights (`metrics_survival.m`)
-- **Competing risk event counting**: Events were miscounted in survival analysis, and dosimetry used incorrect indexing (`metrics_survival.m`, `metrics_dosimetry.m`)
-- **NaN-unsafe column removal**: `remove_constant_columns` in survival dropped columns containing NaN instead of ignoring them, and imputation used decay-to-zero instead of proper fill (`metrics_survival.m`)
-- **Repeatability bias**: Failed IVIM fits (f=0, D*=0/NaN) were included in summary metrics instead of being filtered to NaN, biasing voxel-level statistics (`compute_summary_metrics.m`)
-- **Simpson's paradox risk**: KS test was applied with k≤1 preventing meaningful distribution comparison; added guard requiring k>1 (`compute_summary_metrics.m`)
-- **ROC inflation**: Audit identified inflated ROC curves from data leakage in predictive modeling (`metrics_stats_predictive.m`)
-- **Baseline scaling after landmark subsetting**: Hardcoded `t_start==0` failed after landmark subsetting removed time-zero rows; replaced with `min(t_start)` (`scale_td_panel.m`)
-- **scale_td_panel zeroing features**: Features with zero standard deviation were zeroed out instead of being clamped to σ=1 (`scale_td_panel.m`)
-- **Silent patient dropout**: Missing quote stripping in clinical spreadsheet matching caused patients with quoted IDs to silently drop from analysis (`metrics_baseline.m`)
-- **wCV dimension mismatch crash**: Compound masking caused reshape errors during IVIMnet within-coefficient-of-variation computation (`metrics_baseline.m`)
-- **Reshape crash in wCV for IVIMnet**: Used self-referential reshape dimensions instead of deriving from potentially stale arrays (`metrics_baseline.m`)
-- **Hardcoded DWI type index**: ADC SD heterogeneity check used a hardcoded pipeline index instead of the current DWI type (`metrics_stats_predictive.m`)
-- **NaN risk scores from failed LOOCV**: Risk score array initialized as logical (cannot hold NaN); changed to double (`metrics_stats_predictive.m`)
-- **Missing dosimetry univariate analysis**: Univariate dose-response analysis was skipped silently (`metrics_dosimetry.m`)
-- **GTVn DVH spatial mismatch**: Dose-volume histogram computed on misaligned GTVn masks (`metrics_dosimetry.m`)
-- **LF rate denominator error**: Local failure rate denominator was incorrect (`metrics_dosimetry.m`)
-- **DVH running-mean accumulation error**: DVH values accumulated incorrectly for patients with 3+ repeat scans (`metrics_dosimetry.m`)
-- **Dosimetry 3D mask mismatch**: DIR-warped fraction masks had spatial dimension mismatches (`metrics_dosimetry.m`)
-- **Division-by-zero in metrics**: Unguarded division produced Inf/NaN in edge cases (`metrics_stats_comparisons.m`)
-- **Silent GLME failure**: Generalized linear mixed-effects model failures were silently swallowed (`metrics_stats_comparisons.m`)
-- **Swapped ADC threshold defaults**: `adc_thresh` and `high_adc_thresh` config defaults were inverted (`parse_config.m`)
-- **Missing IVIMnet repeat ADC**: IVIMnet repeat ADC vectors were not loaded (`load_dwi_data.m`)
-- **Fraction folder substring matching**: `'Fx1'` incorrectly matched `'Fx10'` due to `strfind` substring semantics; switched to exact matching (`discover_patient_files.m`, `load_dwi_data.m`)
-- **Stale checkpoint dimensions**: Cached summary metrics with mismatched cohort dimensions were silently loaded instead of recomputed (`compute_summary_metrics.m`)
-- **IVIM squeeze vs reshape**: `squeeze()` on IVIM output could collapse wrong dimensions; replaced with explicit `reshape()` (`fit_models.m`)
-- **Scatter plot column indexing**: Baseline feature scatter plots indexed wrong columns (`plot_scatter_correlations.m`)
-- **Silent dtype clamping and trend line extrapolation**: Plot data was silently clamped to display range, and trend lines extrapolated beyond data bounds (`visualize_results.m`)
-- **Colorbar range error**: Parameter map colorbar limits were set incorrectly (`plot_parameter_maps.m`)
-- **Competing risk fold counting**: Competing risk patients (y=2) were miscounted as events during fold stratification (`make_grouped_folds.m`)
-- **Collinear feature scan-day leakage**: Scan day columns leaked into feature matrix (`filter_collinear_features.m`)
-- **wCV denominator floor guard**: Applied floor guard before division to prevent transient Inf values (`metrics_baseline.m`)
-- **Hardcoded constants in load path**: Fixed hardcoded b-value and indexing constants (`load_dwi_data.m`)
-- **CauseOfDeath case-insensitive mismatch**: Column lookup failed silently when spreadsheet header casing differed across MATLAB versions (`metrics_survival.m`)
-- **NaN-to-logical conversion**: Risk score stratification crashed when assigning NaN to a logical array (`metrics_stats_predictive.m`)
-- **Missing summary_metrics in sanity-skip fallback**: Pipeline crashed when both load and sanity steps were skipped (`run_dwi_pipeline.m`)
-- **Diary restart after load step**: Orchestrator diary was not restarted after load module overrode it (`run_dwi_pipeline.m`)
-- **skip_to_reload fallback for typed DWI runs**: First-run of dnCNN/IVIMnet failed because skip_to_reload was true but no prior .mat files existed (`load_dwi_data.m`)
-
-#### Octave Compatibility
-- `hist()` bin-count vs bin-edge semantics difference producing wrong numerical results (`plot_feature_distribution.m`)
-- SEM computation inconsistency across MATLAB/Octave (`metrics_baseline.m`)
-
-#### Test Suite
-- Boxplot crash when only one outcome group is present (`plot_feature_distribution.m`)
-- Swapped `adc_thresh`/`high_adc_thresh` in 7 test files
-- Test cleanup deleting orchestrator output folder during pipeline runs (`run_all_tests.m`, test files)
-- `testVis_DeviationExcludesPatient` false regex match on comment text
-- `testCauseOfDeathNoWarningWhenPresent` failures from `readtable` dropping empty columns and `verifyWarningFree` conflicts
-- `test_modularity` RepoRoot path computation bug
-- 11 additional test fixes across pipeline modules for consistent error IDs and threshold values
-
-#### UI
-- Waitbar text centering and layout in test suite GUI
-- Test progress bar window sizing and axes centering
-
-### Changed
-- Version references updated to 1.0.0 pre-release scheme
-- Parallel pool now shuts down at end of standalone test suite runs
-
-## [1.0.0-alpha.1] - 2026-03-03
-
-### Added
-- Time-dependent Cox PH model for survival analysis with IPCW weighting
-- DICOM-to-NIfTI conversion module (`convert_dicom.m`) using `dcm2niix`
-- Per-scan processing module (`process_single_scan.m`) for modular scan handling
-- Scan data structure initialization utility (`init_scan_structs.m`)
-- Octave compatibility guards across core, utils, and tests
-- Octave-compatible test runner (`run_all_tests_octave.m`) and `matlab.unittest` shim layer
-- Comprehensive unit and integration tests for DWI data loading, model fitting, mask propagation, and pipeline metrics
-- Tests for safe mask loading, statistical methods, and grouped folds
-- Core scripts for DWI/IVIM metrics baseline, statistical comparisons, and predictive analysis
-- `CONTRIBUTING.md` with contribution guidelines
-- `CITATION.cff` for machine-readable academic citation
-- `SECURITY.md` with vulnerability reporting policy
-- `CHANGELOG.md` for tracking version history
-- `.editorconfig` for consistent cross-editor formatting
-- `.gitattributes` for consistent line endings and diff behavior
-- GitHub Actions CI workflow for automated testing
-- GitHub issue and pull request templates
-- Improved `README.md` with badges, table of contents, and structured documentation
-
-### Fixed
-- Octave compatibility issues across core, utils, and test modules
-
-## [0.0.0] - 2026-01-01
-
-### Added
-- Master orchestrator pipeline (`run_dwi_pipeline.m`) with modular step execution
-- Multi-type sequential runner (`execute_all_workflows.m`) for Standard, dnCNN, and IVIMnet
-- IVIM and ADC model fitting (`fit_models.m`)
-- Deep learning denoising integration (DnCNN, IVIMnet)
-- Sanity checks with convergence validation and spatial alignment
-- Visualization suite: parameter maps, feature distributions, scatter correlations
-- Metrics pipeline: baseline, longitudinal, dosimetry, statistical comparisons, predictive modeling
-- Survival analysis with competing risks (Cause-Specific Hazards) and IPCW weighting
-- Comprehensive test suite with code coverage
-- Octave compatibility shims
-- Checkpointing system for large cohort recovery
-- Security utilities: `safe_load_mask`, `escape_shell_arg`
-- Data leakage prevention: patient-stratified folds, temporal KNN bounds, DL provenance tracking
-- Configuration-driven pipeline via `config.json`
+For older versions (v2.0.0-rc.1 and earlier), see [CHANGELOG_ARCHIVE.md](CHANGELOG_ARCHIVE.md).

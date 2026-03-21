@@ -128,6 +128,21 @@ This is a research pipeline with strict leakage prevention requirements. When mo
 - No unsanitized strings passed to `system()`
 - Octave compatibility preserved (no MATLAB-only syntax without shims in `.octave_compat/`)
 
+## Python Dependencies
+
+When modifying `analysis/requirements.txt`, you **must** regenerate the lock file to keep pinned versions in sync:
+
+```bash
+python3.12 -m venv /tmp/venv
+/tmp/venv/bin/pip install -r analysis/requirements.txt
+/tmp/venv/bin/pip freeze > analysis/requirements-lock.txt
+rm -rf /tmp/venv
+```
+
+Commit both `requirements.txt` and `requirements-lock.txt` together. The lock file ensures reproducible installs across environments.
+
+---
+
 ## Important Constraints
 
 > **Do not modify files in the `dependencies/` folder.** These are third-party scripts maintained under their own licenses.
