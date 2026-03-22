@@ -58,10 +58,8 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
-% --- Parallel capability cache (persistent, declared at script scope) ---
-% Must be declared outside any conditional block so that MATLAB always
-% initialises the variable on the first call regardless of code path.
-persistent cached_can_run_parallel;
+% --- Parallel capability check (evaluated once per invocation) ---
+cached_can_run_parallel = [];
 
 % --- Parallel execution configuration ---
 % Tests listed here are safe to run concurrently: they do not open diary
