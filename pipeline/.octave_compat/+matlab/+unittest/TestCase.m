@@ -125,29 +125,69 @@ classdef TestCase < handle
         % ----- verifyGreaterThan -----
         function verifyGreaterThan(testCase, actual, expected, varargin)
             % VERIFYGREATERTHAN  Assert all(actual > expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) > expected(:)), msg);
+            if isscalar(expected)
+                assert(all(actual(:) > expected), msg);
+            elseif isscalar(actual)
+                assert(all(actual > expected(:)), msg);
+            else
+                assert(isequal(size(actual), size(expected)), ...
+                    'verifyGreaterThan: size mismatch between actual and expected');
+                assert(all(actual(:) > expected(:)), msg);
+            end
         end
 
         % ----- verifyGreaterThanOrEqual -----
         function verifyGreaterThanOrEqual(testCase, actual, expected, varargin)
             % VERIFYGREATERTHANOREQUAL  Assert all(actual >= expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) >= expected(:)), msg);
+            if isscalar(expected)
+                assert(all(actual(:) >= expected), msg);
+            elseif isscalar(actual)
+                assert(all(actual >= expected(:)), msg);
+            else
+                assert(isequal(size(actual), size(expected)), ...
+                    'verifyGreaterThanOrEqual: size mismatch between actual and expected');
+                assert(all(actual(:) >= expected(:)), msg);
+            end
         end
 
         % ----- verifyLessThan -----
         function verifyLessThan(testCase, actual, expected, varargin)
             % VERIFYLESSTHAN  Assert all(actual < expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) < expected(:)), msg);
+            if isscalar(expected)
+                assert(all(actual(:) < expected), msg);
+            elseif isscalar(actual)
+                assert(all(actual < expected(:)), msg);
+            else
+                assert(isequal(size(actual), size(expected)), ...
+                    'verifyLessThan: size mismatch between actual and expected');
+                assert(all(actual(:) < expected(:)), msg);
+            end
         end
 
         % ----- verifyLessThanOrEqual -----
         function verifyLessThanOrEqual(testCase, actual, expected, varargin)
             % VERIFYLESSSTHANOREQUAL  Assert all(actual <= expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) <= expected(:)), msg);
+            if isscalar(expected)
+                assert(all(actual(:) <= expected), msg);
+            elseif isscalar(actual)
+                assert(all(actual <= expected(:)), msg);
+            else
+                assert(isequal(size(actual), size(expected)), ...
+                    'verifyLessThanOrEqual: size mismatch between actual and expected');
+                assert(all(actual(:) <= expected(:)), msg);
+            end
         end
 
         % ----- verifyError -----
