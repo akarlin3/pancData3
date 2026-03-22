@@ -655,5 +655,10 @@ function test_confidence_intervals()
     assert(intercept_ci_width > 0 && intercept_ci_width < 1, 'Intercept CI should have reasonable width');
     
     fprintf('✓ Confidence interval tests passed\n');
+    slope_tag = '✗'; if slope_in_ci, slope_tag = '✓'; end
+    intercept_tag = '✗'; if intercept_in_ci, intercept_tag = '✓'; end
     fprintf('  True slope: %.3f, Estimated: %.3f [%.3f, %.3f] %s\n', ...
-            true_slope, cal.calibration_slope, cal.calibration_slope
+            true_slope, cal.calibration_slope, cal.calibration_slope_ci(1), cal.calibration_slope_ci(2), slope_tag);
+    fprintf('  True intercept: %.3f, Estimated: %.3f [%.3f, %.3f] %s\n', ...
+            true_intercept, cal.calibration_intercept, cal.calibration_intercept_ci(1), cal.calibration_intercept_ci(2), intercept_tag);
+end
