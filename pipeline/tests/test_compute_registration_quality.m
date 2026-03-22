@@ -33,8 +33,7 @@ classdef test_compute_registration_quality < matlab.unittest.TestCase
             vol = rand(20, 20, 10);
 
             % Identity deformation field (zero displacement)
-            [xx, yy, zz] = meshgrid(1:20, 1:20, 1:10);
-            def_field = cat(4, xx, yy, zz);
+            def_field = zeros(20, 20, 10, 3);
 
             quality = compute_registration_quality(vol, vol, def_field);
 

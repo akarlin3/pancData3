@@ -18,11 +18,11 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, times, n_bins,
 %   cal           - Struct with calibration metrics
 
     % Handle input arguments for backward compatibility
-    if nargin < 7 && nargin >= 3 && (ischar(times) || isempty(times))
+    if nargin < 7 && nargin >= 3 && (ischar(times) || isempty(times) || isscalar(times))
         % Old interface: risk_scores, outcomes, n_bins, output_folder, dtype_label, fx_label
-        fx_label = dtype_label;
-        dtype_label = output_folder;
-        output_folder = n_bins;
+        if nargin >= 6, fx_label = dtype_label; else, fx_label = ''; end
+        if nargin >= 5, dtype_label = output_folder; else, dtype_label = ''; end
+        if nargin >= 4, output_folder = n_bins; else, output_folder = ''; end
         n_bins = times;
         times = [];
     end
