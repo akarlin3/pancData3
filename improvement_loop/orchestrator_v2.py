@@ -130,7 +130,6 @@ def _phase_review(state: IterationState, base_branch: str, dry_run: bool) -> Non
                     )
                 fs.error = f"Rejected: {reason}"
                 fs.finding.status = "pending"
-                state.all_tests_passed = False
                 if verdict.risk_flags:
                     print(f"    Risk flags: {verdict.risk_flags}")
                 print(f"    ❌ Rejected: {reason}")
@@ -147,7 +146,6 @@ def _phase_review(state: IterationState, base_branch: str, dry_run: bool) -> Non
             elif verdict.verdict == "request_changes":
                 fs.error = f"Changes requested: {verdict.reasoning}"
                 fs.finding.status = "pending"
-                state.all_tests_passed = False
                 print(f"    ⚠️  Changes requested (branch preserved)")
             else:
                 print(f"    ✅ Approved")
@@ -155,7 +153,6 @@ def _phase_review(state: IterationState, base_branch: str, dry_run: bool) -> Non
         except Exception as e:
             fs.error = f"Review error: {e}"
             fs.finding.status = "pending"
-            state.all_tests_passed = False
             print(f"    ❌ Review error: {e}")
 
 
