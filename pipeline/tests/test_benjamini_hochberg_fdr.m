@@ -225,16 +225,16 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
                 'Sorted q-values should be non-decreasing.');
         end
 
-        function test_monotonicity_random_input(testCase)
-            % Monotonicity with a wider range of values
-            rng(42);  % reproducible
-            p = rand(50, 1);
+        function test_monotonicity_deterministic_input(testCase)
+            % Monotonicity with a wider range of deterministic values
+            % Uses a deterministic sequence instead of rand for Octave compatibility
+            p = mod((1:50)' * 0.6180339887, 1);  % golden-ratio hash for pseudo-random spread
             q = benjamini_hochberg_fdr(p);
             [~, sort_idx] = sort(p);
             q_sorted = q(sort_idx);
             diffs = diff(q_sorted);
             testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
-                'Sorted q-values should be non-decreasing for random input.');
+                'Sorted q-values should be non-decreasing for deterministic pseudo-random input.');
         end
 
         function test_monotonicity_already_sorted(testCase)
@@ -278,10 +278,50 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
         end
 
         function test_large_n_clamped_and_monotone(testCase)
-            % Large array: verify clamping and monotonicity together
+            % Large array: verify clamping, monotonicity, and known values
+            % Uses deterministic linspace instead of rand for Octave compatibility
             n = 500;
-            rng(123);
-            p = rand(n, 1);
+            p = linspace(0.001, 0.999, n)';
+            q = benjamini_hochberg_fdr(p);
+
+            % All in [0, 1]
+            testCase.verifyGreaterThanOrEqual(q, 0.0);
+            testCase.verifyLessThanOrEqual(q, 1.0);
+
+            % Monotonicity in sorted-p order (p is already sorted here)
+            diffs = diff(q);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Sorted q-values must be non-decreasing for large input.');
+
+            % Known-values check for specific elements of this deterministic array
+            % For already-sorted p with n=500, adjusted(i) = p(i) * n/i
+            % before cumulative min enforcement.
+            % Check first element: p(1) = 0.001, adjusted = 0.001 * 500/1 = 0.5
+            % After cummin from the end, q(1) <= q(2) <= ... so q(1) = min of
+            % all adjusted values. We verify a few specific values:
+            % p(1) = 0.001, rank=1 => raw_adj = 0.001 * 500 = 0.5
+            % The final q(1) may be smaller due to cummin, but must be <= 0.5
+            testCase.verifyLessThanOrEqual(q(1), 0.5 + 1e-10, ...
+                'First q-value for p=0.001 in n=500 should be <= 0.5.');
+
+            % Last element: p(500) = 0.999, rank=500 => raw_adj = 0.999 * 500/500 = 0.999
+            % No cummin correction needed for the last element
+            testCase.verifyEqual(q(500), 0.999, 'AbsTol', 1e-10, ...
+                'Last q-value should equal p(500) * n/n = 0.999.');
+
+            % q-values should always be >= p-values (BH only inflates)
+            testCase.verifyGreaterThanOrEqual(q, p - 1e-12, ...
+                'All q-values must be >= corresponding p-values.');
+        end
+
+        function test_large_n_scrambled_clamped_and_monotone(testCase)
+            % Large array in non-sorted order using deterministic scramble
+            % for Octave compatibility
+            n = 500;
+            p_sorted = linspace(0.001, 0.999, n)';
+            % Deterministic permutation via golden-ratio index scramble
+            idx = mod((0:n-1)' * 311, n) + 1;  % prime multiplier modular scramble
+            p = p_sorted(idx);
             q = benjamini_hochberg_fdr(p);
 
             % All in [0, 1]
@@ -293,7 +333,7 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
             q_sorted = q(sort_idx);
             diffs = diff(q_sorted);
             testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
-                'Sorted q-values must be non-decreasing for large input.');
+                'Sorted q-values must be non-decreasing for large scrambled input.');
         end
 
         function test_mixed_significant_nonsignificant(testCase)
