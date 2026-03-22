@@ -63,6 +63,8 @@ def implement(finding: Finding, base_branch: str, dry_run: bool = False) -> Impl
     if dry_run:
         return ImplementResult(success=True, original_content="", new_content="")
 
+    cfg = _get_loop_config()
+
     # Check if branch already exists
     if git_utils.branch_exists(finding.branch_name):
         return ImplementResult(
