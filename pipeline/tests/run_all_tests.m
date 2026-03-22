@@ -22,13 +22,17 @@ if exist('OCTAVE_VERSION', 'builtin')
     addpath(fullfile(repoRoot, '.octave_compat'));
 else
     % Defensive: remove octave_compat from path if it was added by a
-    % previous session or startup.m.  The @table shim inside octave_compat
-    % conflicts with MATLAB's built-in table class and causes
-    % 'MATLAB:dispatcher:InvalidObjtagReuse' errors.
+    % previous session, startup.m, or a test that forgot to clean up.
+    % The @table shim inside octave_compat conflicts with MATLAB's built-in
+    % table class, and the +matlab/+unittest/TestSuite shim shadows the
+    % built-in TestSuite (breaking fromFolder's internal fromFolderCore_).
+    % Use unconditional rmpath wrapped in warning suppression instead of
+    % contains(path, ...) which can miss due to path separator mismatches
+    % on Windows.
     oc_dir = fullfile(repoRoot, '.octave_compat');
-    if contains(path, oc_dir)
-        rmpath(genpath(oc_dir));
-    end
+    w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
+    rmpath(genpath(oc_dir));
+    warning(w_state);
 end
 addpath(repoRoot);
 

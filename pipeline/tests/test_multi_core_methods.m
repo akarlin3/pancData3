@@ -20,7 +20,7 @@ function test_multi_core_methods()
     addpath(fullfile(dir_path, '..', 'core'));
     addpath(fullfile(dir_path, '..', 'utils'));
     addpath(fullfile(dir_path, '..', 'dependencies'));
-    if exist(fullfile(dir_path, '..', '.octave_compat'), 'dir')
+    if exist('OCTAVE_VERSION', 'builtin') && exist(fullfile(dir_path, '..', '.octave_compat'), 'dir')
         addpath(genpath(fullfile(dir_path, '..', '.octave_compat')));
     end
 
