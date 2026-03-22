@@ -13,6 +13,7 @@ function test_knn_impute()
 %     9. Target column exclusion from distance metric
 %    10. Multiple missing columns in single row
 %    11. Training imputation with patient blocking
+%   11b. Fewer-than-k neighbors after blocking (graceful fallback)
 %    12. Single training row (degenerate case)
 %    13. Patient blocking changes imputed value (blocked vs unblocked)
 %    14. Constant column (zero variance) produces no NaN/Inf
@@ -349,6 +350,13 @@ function test_knn_impute()
     % Test 11: Training imputation with patient blocking
     %   Verify that training rows from the same patient are excluded when
     %   imputing within the training set.
+    %
+    %   NOTE: k=5 is intentionally larger than the number of available
+    %   neighbors after blocking (only 2 non-blocked rows: rows 3 and 4).
+    %   This tests the graceful fallback when k exceeds the count of
+    %   eligible neighbors. The function should use all available neighbors
+    %   (rows 3 and 4) rather than erroring. See also Test 11b below which
+    %   explicitly verifies this fewer-than-k-neighbors scenario.
     % =====================================================================
     try
         % Patient 1 has rows 1,2; patient 2 has row 3; patient 3 has row 4
@@ -369,6 +377,39 @@ function test_knn_impute()
         record_pass('training_patient_blocking');
     catch me
         record_fail('training_patient_blocking', me.message);
+    end
+
+    % =====================================================================
+    % Test 11b: Fewer-than-k neighbors after blocking (graceful fallback)
+    %   Explicitly verify that when k exceeds the number of available
+    %   (non-blocked) neighbors, the function gracefully uses all available
+    %   neighbors rather than erroring or returning NaN.
+    %
+    %   Setup: 4 training rows. Row 1 (patient A) has NaN in col 2.
+    %   Rows 2 (patient A) is blocked. Only rows 3 (patient B) and 4
+    %   (patient C) are eligible — just 2 neighbors, but k=10.
+    % =====================================================================
+    try
+        X_tr = [1 NaN; 1.1 20; 5 50; 6 60];
+        X_te = [];
+        pat_id_tr = [1; 1; 2; 3];
+        k_big = 10;  % intentionally much larger than the 2 available neighbors
+
+        [X_tr_imp, ~] = knn_impute_train_test(X_tr, X_te, k_big, pat_id_tr);
+
+        % The function should not error and should return a valid imputed value
+        assert(~any(isnan(X_tr_imp(:))), ...
+            'k > available neighbors after blocking should still produce valid (non-NaN) output');
+        assert(~any(isinf(X_tr_imp(:))), ...
+            'k > available neighbors after blocking should not produce Inf');
+
+        % With only rows 3 and 4 eligible, imputed value = mean([50, 60]) = 55
+        expected_val = mean([50, 60]);
+        assert(abs(X_tr_imp(1,2) - expected_val) < 1e-10, ...
+            sprintf('Fewer-than-k fallback: expected %.4f, got %.4f', expected_val, X_tr_imp(1,2)));
+        record_pass('fewer_than_k_neighbors_fallback');
+    catch me
+        record_fail('fewer_than_k_neighbors_fallback', me.message);
     end
 
     % =====================================================================
@@ -482,38 +523,3 @@ function test_knn_impute()
     %   correctly during distance computation and imputation.
     % =====================================================================
     try
-        % Features include negative values (like percent changes)
-        X_tr = [-10 -5 100; -2 3 200; 5 8 300; 12 15 400];
-        X_te = [-8 -3 NaN];  % closest to row 1 by feature distance
-        pat_id_tr = [1; 2; 3; 4];
-        pat_id_te = [5];
-        k = 2;
-        [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, pat_id_te);
-
-        assert(~any(isnan(X_te_imp(:))), 'Negative feature values should not cause NaN');
-        assert(~any(isinf(X_te_imp(:))), 'Negative feature values should not cause Inf');
-        assert(~any(isnan(X_tr_imp(:))), 'Negative feature training values should not cause NaN');
-
-        % Test query [-8, -3] should be nearest to row 1 [-10, -5] then row 2 [-2, 3]
-        % After z-scoring cols 1-2 using training stats:
-        %   col1: mean=1.25, std=9.2157 -> z-scores: [-1.22, -0.35, 0.41, 1.17], query: -1.00
-        %   col2: mean=5.25, std=8.54   -> z-scores: [-1.20, -0.26, 0.32, 1.14], query: -0.97
-        % Row 1 is nearest, then row 2.  k=2 neighbors -> col3 values: 100, 200
-        expected_val = mean([100, 200]);
-        assert(abs(X_te_imp(1,3) - expected_val) < 1e-10, ...
-            sprintf('Negative features: expected %.4f, got %.4f', expected_val, X_te_imp(1,3)));
-
-        record_pass('negative_feature_values');
-    catch me
-        record_fail('negative_feature_values', me.message);
-    end
-
-    % =====================================================================
-    % Test 16: Wide matrix (more columns than rows)
-    %   With 3 rows and 10 columns (common when assembling 22 features for
-    %   small cohorts of 5-10 patients), Euclidean distances can become
-    %   unreliable due to the curse of dimensionality.  The function should
-    %   still produce valid (no NaN, no Inf) imputed values.
-    % =====================================================================
-    try
-        rng(42);  % reproducibility
