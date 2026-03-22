@@ -213,6 +213,11 @@ class TestGenerateFix:
             "improvement_loop.agents.implementer.api_call_with_retry",
             lambda kwargs: expected_content,
         )
+        # Disable RAG to avoid ChromaDB initialization during tests
+        monkeypatch.setattr(
+            "improvement_loop.agents.implementer._get_loop_config",
+            lambda: type("Cfg", (), {"rag_enabled": False, "fix_model": "test", "fix_max_tokens": 100})(),
+        )
         finding = _make_finding()
         result = _generate_fix(finding, "% original content")
         assert result == expected_content
@@ -228,6 +233,11 @@ class TestGenerateFix:
         monkeypatch.setattr(
             "improvement_loop.agents.implementer.api_call_with_retry",
             mock_api,
+        )
+        # Disable RAG to avoid ChromaDB initialization during tests
+        monkeypatch.setattr(
+            "improvement_loop.agents.implementer._get_loop_config",
+            lambda: type("Cfg", (), {"rag_enabled": False, "fix_model": "test", "fix_max_tokens": 100})(),
         )
         finding = _make_finding(
             file="pipeline/utils/parse_config.m",
