@@ -18,7 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**Version:** 2.2.0
+**Version:** 2.2.0-rc.2
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three

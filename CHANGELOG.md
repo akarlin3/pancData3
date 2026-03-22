@@ -4,7 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [2.2.0] - 2026-03-22
+## [2.2.0-rc.2] - 2026-03-22
+
+### Changed
+
+#### Improvement Loop Extracted to External Package
+- **`improvement_loop/`** directory removed — now installed as [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop) via `pip install -r analysis/requirements.txt`
+- **`project_config.yaml`** (gitignored) + **`project_config.example.yaml`** (committed) replace inline agent prompts and key file lists; contains full audit/review/judge system prompts, safety flags, RAG collection config
+- **`improvement_loop_config.json`** retained for runtime tuning (API models, token limits, exit strategy)
+- 12 improvement loop test files moved to the external package; pancData3 Python test suite: 46 → 34 files
+
+#### Bug Fixes & Stability
+- **`knn_impute_train_test.m`**: Restored after truncation; NaN handling in BH FDR correction
+- **`load_dwi_data.m`**: Restored after truncation
+- **`test_statistical_methods.m`**: Restored after truncation
+- **`test_octave_shims.m`**: Moved to serial execution to avoid parallel conflicts
+- **`test_source_code_standards.m`**: Updated to match actual implementations
+- **`run_all_tests.m`**: Persistent variable scope fix for parallel capability caching
+- Three improvement-loop regressions repaired (16 tests fixed)
+
+### Documentation
+- Updated CLAUDE.md, CLAUDE_WORKFLOWS.md, CLAUDE_REFERENCE.md, README.md for external improvement loop
+- Python test suite count: 46 → 34 files (loop tests moved to external package)
+- Repository structure updated to reflect `project_config.yaml` / `project_config.example.yaml`
+
+---
+
+## [2.2.0-rc.1] - 2026-03-22
 
 ### Changed
 
