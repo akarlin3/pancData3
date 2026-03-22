@@ -58,6 +58,11 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
+% --- Parallel capability cache (persistent, declared at script scope) ---
+% Must be declared outside any conditional block so that MATLAB always
+% initialises the variable on the first call regardless of code path.
+persistent cached_can_run_parallel;
+
 % --- Parallel execution configuration ---
 % Tests listed here are safe to run concurrently: they do not open diary
 % files, do not call core modules that open diary files, and do not share
@@ -138,7 +143,6 @@ is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
 
 can_run_parallel = false;
 if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
-    persistent cached_can_run_parallel;
     if isempty(cached_can_run_parallel)
         has_pct = license('test', 'Distrib_Computing_Toolbox');
         % Check if runInParallel method exists (R2018a+) via metaclass introspection
