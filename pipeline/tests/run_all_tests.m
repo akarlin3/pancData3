@@ -58,6 +58,11 @@ import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
 
+% --- Parallel capability cache (persistent, declared at script scope) ---
+% Must be declared outside any conditional block so that MATLAB always
+% initialises the variable on the first call regardless of code path.
+persistent cached_can_run_parallel;
+
 % --- Parallel execution configuration ---
 % Tests listed here are safe to run concurrently: they do not open diary
 % files, do not call core modules that open diary files, and do not share
@@ -97,6 +102,7 @@ parallel_safe_classes = { ...
 };
 
 % 1. Discover all tests in the tests/ directory (including subdirectories)
+
 suite = TestSuite.fromFolder(testsDir, 'IncludingSubfolders', true);
 
 if isempty(suite)
@@ -136,9 +142,12 @@ end
 %    introspection and license query after the first call.
 is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
 
+if is_preflight
+    fprintf('WARNING: Preflight mode active — parallel tests disabled.\n');
+end
+
 can_run_parallel = false;
 if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
-    persistent cached_can_run_parallel;
     if isempty(cached_can_run_parallel)
         has_pct = license('test', 'Distrib_Computing_Toolbox');
         % Check if runInParallel method exists (R2018a+) via metaclass introspection
@@ -190,6 +199,7 @@ if can_run_parallel
     if ~isempty(hGUI) && hGUI.isValid()
         ser_runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
     end
+
 
     % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
     % not compatible with runInParallel.  Serial tests exercise all core
@@ -288,6 +298,7 @@ fprintf('===================================================\n');
 failureSummaryFile = fullfile(repoRoot, 'failure_summary.out');
 if ~isempty(failedIdx)
     fprintf('\n  Failed tests:\n');
+
     for fi = 1:numel(failedIdx)
         fprintf('    ❌ %s\n', results(failedIdx(fi)).Name);
     end
