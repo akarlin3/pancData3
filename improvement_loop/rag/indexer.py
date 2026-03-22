@@ -45,7 +45,7 @@ def _get_client(db_path: Optional[str] = None) -> chromadb.ClientAPI:
 
 def _chunk_id(chunk: CodeChunk) -> str:
     """Deterministic ID for a code chunk."""
-    return f"{chunk.file_path}::{chunk.name}"
+    return f"{chunk.file_path}::{chunk.name}::L{chunk.start_line}"
 
 
 def _chunk_metadata(chunk: CodeChunk, file_mtime: float) -> dict:

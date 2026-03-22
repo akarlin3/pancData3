@@ -9,7 +9,7 @@ import pytest
 # Add repo root so modules are importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from improvement_loop.rag.chunker import chunk_repo
+from improvement_loop.rag.chunker import chunk_file, chunk_repo
 from improvement_loop.rag.indexer import (
     COLLECTION_NAME,
     build_index,
@@ -393,3 +393,53 @@ class TestUpdateIndexForFiles:
         py_chunks = [m for m in all_data["metadatas"]
                      if m and m.get("file_path") == "analysis.py"]
         assert len(py_chunks) == 0
+
+
+# ---------------------------------------------------------------------------
+# Duplicate chunk ID regression — same function name in one file
+# ---------------------------------------------------------------------------
+
+class TestDuplicateChunkIds:
+    def test_same_name_different_lines_produce_unique_ids(self, tmp_path):
+        """Two functions with the same name in one file get distinct chunk IDs."""
+        m_file = tmp_path / "duplicate_names.m"
+        m_file.write_text(
+            "function out = impute(x)\n"
+            "% IMPUTE Applies KNN imputation to fill missing values in the input\n"
+            "% feature matrix using patient-stratified neighbour selection.\n"
+            "    out = x + 1;\n"
+            "end\n"
+            "\n"
+            "function out = impute(y)\n"
+            "% IMPUTE Applies linear interpolation imputation to fill temporal\n"
+            "% gaps in longitudinal feature vectors for survival modelling.\n"
+            "    out = y * 2;\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        chunks = chunk_file("duplicate_names.m", m_file.read_text(encoding="utf-8"))
+        assert len(chunks) >= 2
+
+        ids = [_chunk_id(c) for c in chunks]
+        assert len(ids) == len(set(ids)), f"Duplicate IDs found: {ids}"
+
+    def test_build_index_with_duplicate_names_no_crash(self, tmp_path):
+        """build_index completes without DuplicateIDError on same-name functions."""
+        m_file = tmp_path / "duplicate_names.m"
+        m_file.write_text(
+            "function out = impute(x)\n"
+            "% IMPUTE Applies KNN imputation to fill missing values in the input\n"
+            "% feature matrix using patient-stratified neighbour selection.\n"
+            "    out = x + 1;\n"
+            "end\n"
+            "\n"
+            "function out = impute(y)\n"
+            "% IMPUTE Applies linear interpolation imputation to fill temporal\n"
+            "% gaps in longitudinal feature vectors for survival modelling.\n"
+            "    out = y * 2;\n"
+            "end\n",
+            encoding="utf-8",
+        )
+        db_path = str(tmp_path / ".chromadb")
+        collection = build_index(str(tmp_path), force_rebuild=True, db_path=db_path)
+        assert collection.count() >= 2
