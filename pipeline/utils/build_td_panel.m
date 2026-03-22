@@ -205,14 +205,18 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
     tp_vec = tp_grid(:);
     pat_idx_vec = pat_grid(:);
     
-    % Map to actual patient indices
+    % Map to actual patient indices (force column to avoid orientation
+    % mismatches when valid_pts, scan_days, or total_time_vec are row vectors)
     actual_pat_vec = valid_pts(pat_idx_vec);
-    
+    actual_pat_vec = actual_pat_vec(:);
+
     % Get scan days for all combinations
     scan_day_vec = scan_days(tp_vec);
-    
+    scan_day_vec = scan_day_vec(:);
+
     % Get event times for all combinations
     event_time_vec = total_time_vec(actual_pat_vec);
+    event_time_vec = event_time_vec(:);
     
     % Filter for valid intervals (scan_day < event_time)
     valid_intervals = scan_day_vec < event_time_vec;
@@ -230,19 +234,23 @@ function [X_td, t_start, t_stop, event_td, pat_id_td, frac_td] = build_td_panel(
         return;
     end
     
-    % Pre-allocate output arrays
+    % Pre-allocate output arrays (all column vectors)
     X_td = nan(n_intervals, n_feat);
-    t_start = scan_day_vec;
+    t_start = scan_day_vec(:);
     t_stop = nan(n_intervals, 1);
     event_td = zeros(n_intervals, 1);
-    pat_id_td = actual_pat_vec;
+    pat_id_td = actual_pat_vec(:);
     frac_td = tp_map(tp_vec);
+    frac_td = frac_td(:);
     
     % --- Vectorized Covariate Extraction ---
-    % Extract all covariates at once using logical indexing
+    % Extract all covariates at once using linear indexing.
+    % Force tp_map(tp_vec) to column to match actual_pat_vec orientation.
+    tp_col = tp_map(tp_vec);
+    tp_col = tp_col(:);
     for fi = 1:n_feat
         arr = feat_arrays{fi};
-        linear_idx = sub2ind(size(arr), actual_pat_vec, tp_map(tp_vec));
+        linear_idx = sub2ind(size(arr), actual_pat_vec, tp_col);
         X_td(:, fi) = arr(linear_idx);
     end
     

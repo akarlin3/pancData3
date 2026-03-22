@@ -603,3 +603,12 @@ function clean_mask = apply_morphological_cleanup(input_mask, morphology_params)
         
         % Keep only regions above minimum size
         for i = 1:cc.NumObjects
+            if numel(cc.PixelIdxList{i}) < morphology_params.min_region_size
+                clean_mask(cc.PixelIdxList{i}) = false;
+            end
+        end
+    catch
+        % If morphological operations fail, return the original mask
+        clean_mask = input_mask;
+    end
+end
