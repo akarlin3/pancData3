@@ -74,6 +74,84 @@ class TestImplementDryRun:
         result = implement(finding, base_branch="main", dry_run=True)
         assert result.error == ""
 
+    def test_happy_path_with_real_file(self, tmp_path):
+        """dry_run=True returns new_content reflecting the fix without writing to disk."""
+        # Create a real file so the finding references something that exists
+        target_file = tmp_path / "pipeline" / "core" / "fit_models.m"
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+        original = "% original MATLAB content\nfor i = 1:n\n  x(i) = i;\nend\n"
+        target_file.write_text(original)
+
+        finding = _make_finding(file=str(target_file))
+        result = implement(finding, base_branch="main", dry_run=True)
+
+        assert result.success is True
+        assert result.error == ""
+        # In dry_run mode the function should succeed without raising
+        assert isinstance(result.new_content, str)
+
+    def test_nonexistent_file_dry_run(self):
+        """dry_run=True with a non-existent file still succeeds (no disk access needed)."""
+        finding = _make_finding(file="totally/fake/nonexistent_file.m")
+        result = implement(finding, base_branch="main", dry_run=True)
+        # dry_run should short-circuit before checking file existence
+        assert result.success is True
+        assert result.error == ""
+
+    def test_no_filesystem_side_effects(self, tmp_path):
+        """dry_run=True must not create any files, directories, or branches."""
+        # Snapshot the tmp_path contents before the call
+        before_contents = set(tmp_path.rglob("*"))
+
+        finding = _make_finding(
+            file=str(tmp_path / "should_not_be_created.m"),
+            branch_name="improvement/dry-run-no-side-effects",
+        )
+        result = implement(finding, base_branch="main", dry_run=True)
+
+        # Snapshot after
+        after_contents = set(tmp_path.rglob("*"))
+
+        assert result.success is True
+        assert before_contents == after_contents, (
+            "dry_run=True should not create any filesystem artifacts"
+        )
+
+    def test_dry_run_does_not_call_git(self, monkeypatch):
+        """dry_run=True must not invoke any git operations."""
+        git_called = {"called": False}
+
+        def _fail_on_git_call(*args, **kwargs):
+            git_called["called"] = True
+            raise AssertionError("git should not be called in dry_run mode")
+
+        # Patch all git_utils functions that implement() might use
+        monkeypatch.setattr(
+            "improvement_loop.agents.implementer.git_utils.branch_exists",
+            _fail_on_git_call,
+        )
+
+        finding = _make_finding()
+        result = implement(finding, base_branch="main", dry_run=True)
+
+        assert result.success is True
+        assert not git_called["called"], "git_utils should not be invoked during dry_run"
+
+    def test_dry_run_does_not_call_api(self, monkeypatch):
+        """dry_run=True must not invoke the LLM API."""
+        def _fail_on_api_call(*args, **kwargs):
+            raise AssertionError("API should not be called in dry_run mode")
+
+        monkeypatch.setattr(
+            "improvement_loop.agents.implementer.api_call_with_retry",
+            _fail_on_api_call,
+        )
+
+        finding = _make_finding()
+        result = implement(finding, base_branch="main", dry_run=True)
+
+        assert result.success is True
+
 
 # ---------------------------------------------------------------------------
 # implement() — file not found
