@@ -131,21 +131,28 @@ end
 % 3. Check whether parallel execution is available.
 %    Parallel mode is disabled during preflight (quick sanity runs invoked by
 %    the pipeline before a full data run) and in Octave (no PCT support).
+%    The capability check result is cached in a persistent variable so that
+%    repeated invocations (e.g., CI matrix builds) skip the metaclass
+%    introspection and license query after the first call.
 is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
 
 can_run_parallel = false;
 if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
-    has_pct = license('test', 'Distrib_Computing_Toolbox');
-    % Check if runInParallel method exists (R2018a+) via metaclass introspection
-    has_method = false;
-    try
-        m = ?matlab.unittest.TestRunner;
-        method_names = {m.MethodList.Name};
-        has_method = ismember('runInParallel', method_names);
-    catch
+    persistent cached_can_run_parallel;
+    if isempty(cached_can_run_parallel)
+        has_pct = license('test', 'Distrib_Computing_Toolbox');
+        % Check if runInParallel method exists (R2018a+) via metaclass introspection
         has_method = false;
+        try
+            m = ?matlab.unittest.TestRunner;
+            method_names = {m.MethodList.Name};
+            has_method = ismember('runInParallel', method_names);
+        catch
+            has_method = false;
+        end
+        cached_can_run_parallel = has_pct && has_method;
     end
-    can_run_parallel = has_pct && has_method;
+    can_run_parallel = cached_can_run_parallel;
 end
 
 % 4. Configure code coverage for core and utils directories
@@ -199,14 +206,21 @@ if can_run_parallel
     results = [parallel_results, serial_results];
 else
     % --- Fallback: fully sequential execution (original behavior) ---
+    % Run the full suite (parallel_suite + serial_suite) so that no tests
+    % are silently skipped when PCT is unavailable.
     if ~isempty(parallel_suite) && ~is_preflight
         disp('Parallel execution not available; running all tests sequentially.');
     end
 
+    % Reconstruct the complete suite to guarantee every test is executed.
+    % `suite` already contains all tests; use it directly so that the
+    % parallel-safe partition is not accidentally dropped.
+    full_suite = suite;
+
     runner = TestRunner.withTextOutput();
-    runner.addPlugin(ProgressBarPlugin(numel(suite)));
+    runner.addPlugin(ProgressBarPlugin(numel(full_suite)));
     if ~isempty(hGUI) && hGUI.isValid()
-        runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), 0));
+        runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
     end
 
     if is_preflight
@@ -219,7 +233,7 @@ else
         disp('CodeCoveragePlugin not available in this MATLAB version.');
     end
 
-    results = runner.run(suite);
+    results = runner.run(full_suite);
 end
 
 disp('===================================================');
@@ -378,4 +392,3 @@ else
         error('pancData3:testFailure', '%d of %d tests failed.', num_failed, numel(results));
     end
 end
-
