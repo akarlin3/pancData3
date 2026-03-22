@@ -84,14 +84,24 @@ def collect_source_files() -> str:
 
 def _call_audit_api(iteration: int, context: str) -> str:
     """Call the Claude API to run a code audit. Returns raw audit text."""
-    source_context = collect_source_files()
+    cfg = _get_loop_config()
+
+    if cfg.rag_enabled:
+        try:
+            from improvement_loop.rag.retriever import get_context_for_audit
+            source_context = get_context_for_audit(context)
+        except Exception as e:
+            print(f"⚠️  RAG context failed, falling back to static files: {e}")
+            source_context = collect_source_files()
+    else:
+        source_context = collect_source_files()
+
     user_message = (
         f"## Iteration context\n{context}\n\n"
         f"## Source files\n{source_context}\n\n"
         "Return your findings as a JSON array."
     )
 
-    cfg = _get_loop_config()
     return api_call_with_retry({
         "model": cfg.audit_model,
         "max_tokens": cfg.audit_max_tokens,

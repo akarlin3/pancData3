@@ -147,6 +147,18 @@ def review(finding: Finding, original_content: str, new_content: str,
     diff_text = _generate_diff(original_content, new_content, filename=finding.file)
 
     cfg = _get_loop_config()
+
+    # Build the review prompt with optional RAG context
+    codebase_context = ""
+    if cfg.rag_enabled:
+        try:
+            from improvement_loop.rag.retriever import get_context_for_review
+            codebase_context = get_context_for_review(
+                finding.description, finding.file,
+            )
+        except Exception as e:
+            print(f"⚠️  RAG context for review failed (continuing without): {e}")
+
     user_message = (
         f"## Finding being addressed\n"
         f"**Dimension:** {finding.dimension}\n"
@@ -154,8 +166,10 @@ def review(finding: Finding, original_content: str, new_content: str,
         f"**Description:** {finding.description}\n"
         f"**Proposed fix:** {finding.fix}\n\n"
         f"## Unified diff\n```diff\n{diff_text}\n```\n\n"
-        f"Review this change and return your verdict as JSON."
     )
+    if codebase_context:
+        user_message += f"## Codebase context\n{codebase_context}\n\n"
+    user_message += "Review this change and return your verdict as JSON."
 
     raw_response = api_call_with_retry({
         "model": cfg.review_model,

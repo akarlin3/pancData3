@@ -32,19 +32,29 @@ class ImplementResult:
 def _generate_fix(finding: Finding, original_content: str) -> str:
     """Call the Claude API to generate a code fix. Returns new file content."""
     cfg = _get_loop_config()
+
+    # Build the user message with optional RAG context
+    user_content = (
+        f"File: {finding.file}\n"
+        f"Problem: {finding.description}\n"
+        f"Fix: {finding.fix}\n\n"
+        f"Original file content:\n{original_content}"
+    )
+
+    if cfg.rag_enabled:
+        try:
+            from improvement_loop.rag.retriever import get_context_for_fix
+            related = get_context_for_fix(finding.description, finding.file)
+            if related:
+                user_content += f"\n\n## Related context\n{related}"
+        except Exception as e:
+            print(f"⚠️  RAG context for fix failed (continuing without): {e}")
+
     return api_call_with_retry({
         "model": cfg.fix_model,
         "max_tokens": cfg.fix_max_tokens,
         "system": FIX_SYSTEM_PROMPT,
-        "messages": [{
-            "role": "user",
-            "content": (
-                f"File: {finding.file}\n"
-                f"Problem: {finding.description}\n"
-                f"Fix: {finding.fix}\n\n"
-                f"Original file content:\n{original_content}"
-            ),
-        }],
+        "messages": [{"role": "user", "content": user_content}],
     })
 
 
@@ -95,6 +105,14 @@ def implement(finding: Finding, base_branch: str, dry_run: bool = False) -> Impl
             success=False, original_content=original_content,
             new_content=new_content, error="syntax check failed",
         )
+
+    # Update RAG index for the modified file
+    if cfg.rag_enabled:
+        try:
+            from improvement_loop.rag.indexer import update_index_for_files
+            update_index_for_files([finding.file])
+        except Exception as e:
+            print(f"⚠️  RAG index update failed (non-fatal): {e}")
 
     return ImplementResult(
         success=True, original_content=original_content, new_content=new_content,

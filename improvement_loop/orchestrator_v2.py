@@ -378,6 +378,7 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
 
     Returns the list of log entries produced during this run.
     """
+    cfg = _get_loop_config()
     mode = "DRY RUN" if dry_run else "LIVE"
     print(f"\n{'='*60}")
     print(f"  Improvement Loop v2 — {mode} (max {max_iterations} iterations)")
@@ -385,6 +386,18 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
 
     base_branch = git_utils.current_branch() if not dry_run else "main"
     entries: list = []
+
+    # Build / update the RAG index before the first iteration
+    if cfg.rag_enabled and not dry_run:
+        try:
+            from improvement_loop.rag.indexer import (
+                build_index, index_improvement_history, REPO_ROOT as _IDX_ROOT,
+            )
+            print("  Building/updating codebase index...")
+            build_index(_IDX_ROOT)
+            index_improvement_history()
+        except Exception as e:
+            print(f"⚠️  RAG index build failed (continuing without): {e}")
 
     for i in range(1, max_iterations + 1):
         print(f"\n{'─'*60}")
@@ -399,6 +412,19 @@ def run_loop(max_iterations: int = 10, dry_run: bool = False) -> list:
         _phase_implement(state, base_branch, dry_run)
         _phase_review(state, base_branch, dry_run)
         _phase_test_and_merge(state, base_branch, dry_run)
+
+        # Update RAG index for merged files before logging
+        if cfg.rag_enabled and not dry_run:
+            merged_files = [
+                fs.finding.file for fs in state.findings if fs.merged
+            ]
+            if merged_files:
+                try:
+                    from improvement_loop.rag.indexer import update_index_for_files
+                    update_index_for_files(merged_files)
+                except Exception as e:
+                    print(f"⚠️  RAG index update failed (non-fatal): {e}")
+
         entry = _phase_log(state, dry_run)
 
         entries.append(entry)

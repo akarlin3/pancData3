@@ -32,7 +32,7 @@ This repository uses a multi-agent architecture:
 |---|---|---|
 | **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
-| **Improvement Loop Agents** | Autonomous audit → implement → review → merge | API-driven, no patient data access |
+| **Improvement Loop Agents** | Autonomous audit → implement → review → merge (RAG-enhanced) | API-driven, no patient data access |
 
 ### Critical Safety Rules
 
@@ -82,12 +82,22 @@ pancData3/
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (18 files)
 │   └── tests/                          # Python test suite — 37 test files, 1576 tests (pytest)
-├── improvement_loop/                    # Automated audit/fix loop (6 files)
-│   ├── orchestrator_v1.py              #   Main loop driver
+├── improvement_loop/                    # Automated audit/fix loop
+│   ├── orchestrator_v2.py              #   Pipeline orchestrator (audit → implement → review → merge)
+│   ├── orchestrator_v1.py              #   Legacy single-pass orchestrator
 │   ├── evaluator.py                    #   Finding schema + audit scoring + exit logic
 │   ├── loop_tracker.py                 #   Iteration logging + context generation
 │   ├── loop_config.py                  #   Centralised config (LoopConfig dataclass)
-│   └── git_utils.py                    #   Subprocess-based git operations
+│   ├── git_utils.py                    #   Subprocess-based git operations
+│   ├── agents/                         #   Agent modules
+│   │   ├── auditor.py                 #     Code audit agent (RAG-enhanced)
+│   │   ├── implementer.py            #     Fix implementation agent (RAG-enhanced)
+│   │   ├── reviewer.py               #     Code review quality gate (RAG-enhanced)
+│   │   └── _api.py                   #     Shared API retry helper
+│   └── rag/                           #   Retrieval-Augmented Generation
+│       ├── chunker.py                 #     Semantic code chunker (MATLAB/Python/MD/JSON)
+│       ├── indexer.py                 #     ChromaDB vector index (build/update/query)
+│       └── retriever.py               #     Query interface + agent context builders
 ├── improvement_loop_config.example.json # Improvement loop config template (committed)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules

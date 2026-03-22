@@ -184,7 +184,7 @@ class TestBuildIndex:
 class TestIncrementalUpdate:
     def test_unchanged_files_skipped(self, sample_repo):
         """A second build_index with no file changes upserts 0 chunks."""
-        db_path = str(sample_repo / ".chromadb_incr")
+        db_path = str(sample_repo / ".chromadb_unchanged")
         build_index(str(sample_repo), force_rebuild=True, db_path=db_path)
 
         # Second run — incremental, nothing changed
@@ -199,7 +199,7 @@ class TestIncrementalUpdate:
 
     def test_modified_file_reindexed(self, sample_repo):
         """Touching one file's mtime causes only that file's chunks to be re-indexed."""
-        db_path = str(sample_repo / ".chromadb")
+        db_path = str(sample_repo / ".chromadb_modified")
         col = build_index(str(sample_repo), force_rebuild=True, db_path=db_path)
         count_before = col.count()
 
@@ -222,7 +222,7 @@ class TestIncrementalUpdate:
 
     def test_deleted_file_removed(self, sample_repo):
         """Deleting a file removes its chunks on incremental rebuild."""
-        db_path = str(sample_repo / ".chromadb")
+        db_path = str(sample_repo / ".chromadb_deleted")
         col = build_index(str(sample_repo), force_rebuild=True, db_path=db_path)
         count_before = col.count()
 

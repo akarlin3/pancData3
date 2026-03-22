@@ -232,8 +232,31 @@ The loop is tracked by several modules in `improvement_loop/`:
   - **`agents/implementer.py`** — Implementer agent: `implement()` creates a branch, generates a code fix via the Claude API, writes it to disk, commits, and runs a syntax check. Returns an `ImplementResult` dataclass with `success`, `original_content`, `new_content`, and `error` fields.
   - **`agents/reviewer.py`** — Reviewer agent: `review()` generates a unified diff between original and new file content, sends it to the Claude API for code review, and returns a `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`). Acts as a quality gate between implementation and merge — "approve" proceeds to merge, "request_changes" skips merge, "reject" deletes the branch. Critical risk flags (`LEAKAGE_RISK`, `PHI_RISK`) force rejection regardless of the LLM's verdict.
   - **`agents/_api.py`** — Shared `api_call_with_retry()` helper used by the auditor, implementer, and reviewer agents.
+- **`rag/`** — Retrieval-Augmented Generation subpackage for semantic code search:
+  - **`rag/chunker.py`** — Semantic code chunker: splits MATLAB, Python, Markdown, and JSON files into meaningful chunks (functions, classes, sections) via `chunk_file()` and `chunk_repo()`. Returns `CodeChunk` dataclass instances.
+  - **`rag/indexer.py`** — ChromaDB vector index: `build_index()` (full or incremental), `get_collection()`, `update_index_for_files()`, `index_improvement_history()`. Stores chunks with metadata (file path, type, language, line range, mtime) for incremental updates.
+  - **`rag/retriever.py`** — Query interface: `query()` with filtering (type, language, file, exclusions, min_relevance). Agent-specific context builders: `get_context_for_audit()`, `get_context_for_fix()`, `get_context_for_review()`. Formats results as `=== file ===` blocks. All queries catch ChromaDB exceptions and fall back gracefully.
 
-**Requirement:** `pip install anthropic` and `ANTHROPIC_API_KEY` must be set.
+**Requirement:** `pip install anthropic chromadb` and `ANTHROPIC_API_KEY` must be set.
+
+## RAG Index Management
+
+The RAG index is automatically built/updated on the first `orchestrator_v2` run when `rag_enabled` is `True` (the default). Manual management:
+
+```bash
+# View index statistics
+python -m improvement_loop.rag.indexer --stats
+
+# Force full rebuild (drops and recreates)
+python -m improvement_loop.rag.indexer --force-rebuild --stats
+```
+
+When RAG is enabled, each agent receives enriched context:
+- **Auditor** — receives semantically relevant code chunks across the full codebase (replaces the hardcoded 10-file list)
+- **Implementer** — receives the target file, related callers/callees, past merged findings, and documentation as a `## Related context` section
+- **Reviewer** — receives sibling functions, test files, documentation, and past safety-flagged findings as a `## Codebase context` section
+
+RAG can be disabled by setting `"rag_enabled": false` in `improvement_loop_config.json`, in which case all agents fall back to their original non-RAG behavior.
 
 ## Trigger
 When asked to run the improvement loop, execute the following cycle autonomously without pausing for confirmation.
