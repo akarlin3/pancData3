@@ -171,6 +171,15 @@ finegray_success = false;
 timevar_success = false;
 validation_success = false;
 
+% Initialize all result variables before the try-catch blocks so that they
+% are always defined in the outer scope regardless of which analyses
+% succeed or fail. This prevents 'Undefined function or variable' errors
+% in print_survival_summary.
+cox_results        = struct('success', false);
+finegray_results   = struct('success', false);
+timevar_results    = struct('success', false);
+validation_results = struct('success', false);
+
 % Fit Cox Proportional Hazards model
 fprintf('\n--- COX PROPORTIONAL HAZARDS MODEL ---\n');
 try
