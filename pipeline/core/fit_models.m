@@ -326,7 +326,18 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
                 % This avoids the ill-conditioning of simultaneous 3-parameter
                 % nonlinear fitting, which is especially problematic for D* because
                 % the pseudo-diffusion signal decays rapidly and has low SNR.
-                ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+
+                % Strip fields that IVIMmodelfit does not recognise (e.g.
+                % optimoptions, d_initial) to avoid its strict allowlist error.
+                ivim_opts = struct();
+                ivim_allowed = {'bthr','lim','dispprog','its','burns','rician','meanonly','prior','outfile'};
+                fnames = fieldnames(opts);
+                for fi = 1:numel(fnames)
+                    if ismember(fnames{fi}, ivim_allowed)
+                        ivim_opts.(fnames{fi}) = opts.(fnames{fi});
+                    end
+                end
+                ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, ivim_opts);
 
                 % Restructure output back to strictly 1D and snip padding.
                 % IVIMmodelfit returns a 4-column output: [D, S0, f, D*].

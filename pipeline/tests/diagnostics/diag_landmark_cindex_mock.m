@@ -1,4 +1,4 @@
-% test_landmark_cindex_mock.m
+% diag_landmark_cindex_mock.m
 % End-to-end mock validation of the Competing-Risks Concordance Index
 % (Wolbers' CIF-Weighted IPCW) using synthetic patient data.
 %

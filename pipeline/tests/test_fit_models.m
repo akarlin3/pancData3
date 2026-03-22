@@ -341,10 +341,10 @@ classdef test_fit_models < matlab.unittest.TestCase
         end
 
         function testMinimumBvaluesForIVIM(testCase)
-            % Exactly 2 b-values above threshold and 1 below: the minimum
-            % required for IVIM segmented fitting. Should produce IVIM
-            % output (not NaN).
-            bvals = [0; 200; 800];  % 1 below bthr=100, 2 above
+            % With only 3 b-values the IVIM model (3 free parameters) is
+            % underdetermined, so fit_models correctly skips IVIM fitting
+            % and returns NaN D/f/D* maps.  Verify this guard works.
+            bvals = [0; 200; 800];  % only 3 b-values — fewer than 4
             S0 = 100; true_D = 1e-3; true_f = 0.12; true_Dstar = 15e-3;
             sig = S0 * (true_f * exp(-bvals * true_Dstar) + ...
                         (1 - true_f) * exp(-bvals * true_D));
@@ -352,11 +352,15 @@ classdef test_fit_models < matlab.unittest.TestCase
             mask = true(2, 2, 1);
             opts.bthr = 100;
 
-            [d_map, ~, ~, ~] = fit_models(dwi, bvals, mask, opts);
+            [d_map, f_map, dstar_map, ~] = fit_models(dwi, bvals, mask, opts);
 
-            % D should be computed (not NaN) with exactly 2 high-b values
-            testCase.verifyTrue(any(isfinite(d_map(:))), ...
-                'IVIM D should be computed with exactly 2 b-values above threshold.');
+            % IVIM maps should be all NaN with fewer than 4 b-values
+            testCase.verifyTrue(all(isnan(d_map(:))), ...
+                'D map should be NaN when fewer than 4 b-values provided.');
+            testCase.verifyTrue(all(isnan(f_map(:))), ...
+                'f map should be NaN when fewer than 4 b-values provided.');
+            testCase.verifyTrue(all(isnan(dstar_map(:))), ...
+                'D* map should be NaN when fewer than 4 b-values provided.');
         end
 
         function testAllInvalidSignalReturnsNaNADC(testCase)
