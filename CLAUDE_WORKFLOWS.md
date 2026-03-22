@@ -146,6 +146,42 @@ run('pipeline/tests/run_all_tests.m')
 | `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
 | `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
 | `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
+| `test_IVIMmodelfit.m` | IVIM model fitting dependency validation |
+| `test_convert_dicom.m` | DICOM-to-NIfTI conversion via dcm2niix |
+| `test_corr_filter.m` | Correlation-based feature filtering |
+| `test_data_integrity_check.m` | Pre-pipeline data integrity validation |
+| `test_discover_gtv_file.m` | GTV mask file discovery with flexible naming |
+| `test_dispatch_pipeline_steps.m` | Pipeline step dispatch logic |
+| `test_dvh.m` | Dose-volume histogram computation |
+| `test_escape_shell_arg.m` | Cross-platform shell argument escaping |
+| `test_execute_all_workflows.m` | Multi-DWI-type sequential workflow |
+| `test_external_validation_wiring.m` | External validation model export/import wiring |
+| `test_find_gtv_files.m` | GTVp/GTVn mask file discovery |
+| `test_fit_adc_mono.m` | Mono-exponential ADC fitting |
+| `test_fix_verify.m` | Post-fix regression verification |
+| `test_landmark_cindex_mock.m` | Landmark concordance index with mocked data |
+| `test_load_dl_provenance.m` | DL training provenance loading and leakage detection |
+| `test_mask_loading.m` | Secure mask loading from .mat files |
+| `test_normalize_patient_ids.m` | Patient ID normalization for spreadsheet/folder matching |
+| `test_normalization_logic.m` | Feature normalization logic validation |
+| `test_octave.m` | GNU Octave compatibility smoke tests |
+| `test_octave_shims.m` | Octave compatibility shim function validation |
+| `test_parfor_progress.m` | Parallel loop progress reporting |
+| `test_parsave_dir_cache.m` | Parallel-safe save wrapper for parfor |
+| `test_perf_knn.m` | KNN imputation performance benchmarks |
+| `test_plot_feature_distributions.m` | Feature distribution visualization (multi-plot) |
+| `test_plot_parameter_maps.m` | Parameter map overlay visualization |
+| `test_plot_predictive_diagnostics.m` | ROC curve and predictive diagnostic panels |
+| `test_plot_scatter_correlations.m` | Correlation scatter plot rendering |
+| `test_prepare_pipeline_session.m` | Pipeline session initialization |
+| `test_progress_gui.m` | Custom figure progress bar lifecycle |
+| `test_run_elastic_net_cv.m` | Elastic net cross-validation fitting |
+| `test_run_loocv_risk_scores.m` | Nested LOOCV risk score computation |
+| `test_select_dwi_vectors.m` | DWI vector extraction by processing type |
+| `test_text_progress_bar.m` | Text-based progress bar display |
+| `test_trajectory_visualizations.m` | Waterfall, swimmer, and spider plot rendering |
+| `test_visualize_refactor.m` | Visualization module refactoring validation |
+| `test_write_sentinel_file.m` | Pipeline sentinel file writing |
 
 ---
 

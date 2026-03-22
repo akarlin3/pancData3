@@ -66,7 +66,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (72 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (121 test files)
+│   ├── tests/                          # Full test suite (122 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
@@ -80,8 +80,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (18 files)
-│   └── tests/                          # Python test suite — 37 test files, 1576 tests (pytest)
+│   │   └── sections/                   # Section builders (37 files)
+│   └── tests/                          # Python test suite — 45 test files, 1790 tests (pytest)
 ├── improvement_loop/                    # Automated audit/fix loop
 │   ├── orchestrator_v2.py              #   Pipeline orchestrator (audit → implement → review → merge)
 │   ├── orchestrator_v1.py              #   Legacy single-pass orchestrator
@@ -276,6 +276,9 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `apply_external_validation.m` | Apply saved model to external dataset |
 | `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
 | `suppress_core_warnings.m` | Suppress expected warnings from `extract_tumor_core` during batch operations |
+| `dispatch_load_and_sanity.m` | Extracted dispatch logic for load and sanity check pipeline steps |
+| `dispatch_pipeline_steps.m` | Extracted dispatch logic for metrics, visualization, and comparison pipeline steps |
+| `prepare_pipeline_session.m` | Pipeline session initialization with try-catch error handling |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -308,7 +311,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report, split into 17 submodules: `metadata.py`, `main_results.py`, `statistical_reporting.py`, `manuscript.py`, `enrollment.py`, `supplemental.py`, `gallery.py`, `graph_overview.py`, `cross_dwi.py`, `correlations.py`, `effect_sizes.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `discussion.py`, `publication.py`, `_helpers.py` (shared utility functions). Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
+| `report/sections/` | Section builder package for the HTML report (36 submodules). Core modules: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -316,7 +319,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 37 test files with 1576 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 45 test files with 1790 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -357,7 +360,16 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
 | `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
 | `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
-For the full list of 106 MATLAB test files and 37 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
+| `test_auditor_agent.py` | Improvement loop auditor agent: RAG-enhanced code audit, source file collection, finding parsing |
+| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking |
+| `test_reviewer_agent.py` | Improvement loop reviewer agent: diff generation, quality gate verdicts, risk flag enforcement |
+| `test_orchestrator_v2.py` | Improvement loop v2 orchestrator: four-agent pipeline (audit → implement → review → merge), RAG integration |
+| `test_chunker.py` | RAG semantic code chunker: MATLAB/Python/Markdown/JSON splitting, oversized chunk handling, metadata extraction |
+| `test_retriever.py` | RAG retriever: ChromaDB query interface, agent-specific context builders, deduplication, relevance filtering |
+| `test_rag_integration.py` | RAG integration: end-to-end chunk → index → retrieve pipeline, incremental updates, history indexing |
+| `test_indexer.py` | RAG indexer: ChromaDB build/update, incremental indexing, duplicate chunk ID handling, improvement history |
+For the full list of 105 MATLAB test files and 45 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -459,4 +471,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (18 files), utility modules (72 files), Octave compatibility shims (21 files), analysis scripts, and Python test files, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (18 files), utility modules (72 files), Octave compatibility shims (21 files), analysis scripts (37 report section files), and Python test files (45 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

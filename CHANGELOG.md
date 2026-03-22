@@ -4,6 +4,63 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0-alpha.1] - 2026-03-21
+
+### Added
+
+#### Multi-Agent Improvement Loop (v2)
+- **`improvement_loop/orchestrator_v2.py`**: Four-agent pipeline orchestrator (audit → implement → review → test & merge) replacing the single-pass v1 architecture
+- **`improvement_loop/agents/` subpackage**: Extracted agent modules from the orchestrator:
+  - **`auditor.py`** — RAG-enhanced code audit agent returning structured `Finding` objects
+  - **`implementer.py`** — Fix implementation agent with branch creation, code generation, and syntax checking
+  - **`reviewer.py`** — Code review quality gate with approve/request_changes/reject verdicts and critical risk flag enforcement (`LEAKAGE_RISK`, `PHI_RISK`)
+  - **`_api.py`** — Shared API retry helper used by all agents
+
+#### RAG (Retrieval-Augmented Generation)
+- **`improvement_loop/rag/` subpackage**: Semantic code search via ChromaDB vector store:
+  - **`chunker.py`** — Splits MATLAB, Python, Markdown, and JSON files into semantically meaningful chunks (functions, classes, sections) via regex-based parsing
+  - **`indexer.py`** — ChromaDB persistent index with full/incremental build, improvement history indexing, and `--force-rebuild` / `--stats` CLI interface
+  - **`retriever.py`** — Query interface with type/language/file filtering, relevance scoring, and agent-specific context builders (`get_context_for_audit`, `get_context_for_fix`, `get_context_for_review`)
+- RAG-enhanced agents receive semantically relevant code context instead of hardcoded file lists; can be disabled via `rag_enabled: false` in config
+
+#### New Report Section Builders (16 files)
+- `data_overview.py`, `data_quality.py`, `data_supplemental.py` — Data inspection sections
+- `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py` — Granular main results
+- `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py` — Manuscript-ready sub-sections
+- `analysis_cross_dwi.py`, `analysis_graphs.py`, `analysis_features.py` — Analysis sub-sections
+- `statistics_diagnostics.py`, `statistics_effects.py`, `statistics_robustness.py` — Statistics sub-sections
+- `model_diagnostics.py` — Model diagnostic section builder
+
+#### New Test Files (9 Python)
+- `test_auditor_agent.py`, `test_implementer_agent.py`, `test_reviewer_agent.py` — Agent module tests
+- `test_orchestrator_v2.py` — v2 orchestrator pipeline tests
+- `test_chunker.py`, `test_indexer.py`, `test_retriever.py`, `test_rag_integration.py` — RAG subsystem tests
+- `test_new_report_sections.py` — New report section builder tests
+
+#### Configuration
+- **`improvement_loop_config.example.json`**: Added `review_model`, `review_max_tokens`, `rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance` fields
+- **`loop_config.py`**: `LoopConfig` dataclass extended with review agent and RAG settings (all with sensible defaults)
+
+### Fixed
+- **`improvement_loop/rag/indexer.py`**: Fixed duplicate chunk ID crash when a file has multiple functions with the same name (e.g., `imputation_sensitivity.m` has four local functions named `impute`). Chunk IDs now include start line: `file_path::name::L{start_line}`
+
+### Changed
+- `orchestrator_v2.py` is now the canonical loop driver; `orchestrator_v1.py` retained as legacy fallback
+- Session cleanup and encapsulation improvements from improvement loop iterations
+- Safe load variable name checking hardened
+- JSON comment stripping edge cases fixed
+- Windows shell escape ampersand handling fixed
+- Survival result variable initialization guards added
+
+### Documentation
+- Updated all documentation files (CLAUDE.md, CLAUDE_REFERENCE.md, CLAUDE_WORKFLOWS.md, README.md) with accurate file counts
+- MATLAB test suite: 121 → 122 files; Python test suite: 37 → 45 files (1576 → 1790 tests)
+- Report sections: 18 → 37 files (16 new sub-section builders)
+- Added 37 previously undocumented MATLAB test files to reference tables
+- Expanded improvement loop documentation with v2 pipeline, RAG subsystem, and agent architecture
+
+---
+
 ## [2.1.0] - 2026-03-20
 
 ### Added

@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.1.0-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-121%20MATLAB%20%2B%2037%20Python%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.2.0--alpha.1-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-122%20MATLAB%20%2B%2045%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.1.0 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.2.0-alpha.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -322,7 +322,7 @@ The automated improvement loop has its own config file. Copy the example and cus
 cp improvement_loop_config.example.json improvement_loop_config.json
 ```
 
-Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`), and orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`). All fields have sensible defaults — the file is optional. See [`improvement_loop_config.example.json`](improvement_loop_config.example.json) for the full template.
+Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`improvement_loop_config.example.json`](improvement_loop_config.example.json) for the full template.
 
 ---
 
@@ -442,7 +442,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 120 test files covering:
+The test suite includes 122 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -582,7 +582,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (17 submodules: metadata, main_results, statistical_reporting, manuscript, enrollment, supplemental, gallery, graph_overview, cross_dwi, correlations, effect_sizes, model_diagnostics, model_robustness, power_analysis, discussion, publication, _helpers) |
+| `report/sections/` | Section builder modules for the HTML report (36 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
 
 ### Report Features
 
@@ -597,7 +597,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (1482 tests across 32 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (1790 tests across 45 files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -609,41 +609,54 @@ cd analysis/tests && python -m pytest -v
 
 The `improvement_loop/` package provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase. It audits source files, parses structured findings, applies fixes on isolated git branches, runs tests, and logs each iteration to a persistent JSON log.
 
+The v2 orchestrator (`orchestrator_v2.py`) uses a four-agent pipeline with RAG-enhanced context retrieval via ChromaDB, while the v1 orchestrator (`orchestrator_v1.py`) remains as a simpler single-pass fallback.
+
 ### Requirements
 
 - `ANTHROPIC_API_KEY` environment variable set
-- Python packages: `anthropic`, `pydantic` (already in `analysis/requirements.txt`)
+- Python packages: `anthropic`, `pydantic`, `chromadb` (already in `analysis/requirements.txt`)
 
 ### Usage
 
 All commands must be run from the repository root (`pancData3/`), since the package uses relative imports:
 
 ```bash
-# Live run — audits codebase, applies fixes on branches, runs tests
-python -m improvement_loop.orchestrator_v1
+# v2 pipeline (recommended) — four-agent RAG-enhanced loop
+python -m improvement_loop.orchestrator_v2
 
 # Dry run — no API calls, no code changes, validates plumbing
-python -m improvement_loop.orchestrator_v1 --dry-run
+python -m improvement_loop.orchestrator_v2 --dry-run
 
 # Limit to 3 audit/fix cycles
-python -m improvement_loop.orchestrator_v1 --max-iterations 3
+python -m improvement_loop.orchestrator_v2 --max-iterations 3
+
+# Single iteration mode
+python -m improvement_loop.orchestrator_v2 --single-iteration
+
+# v1 fallback — single-pass orchestrator
+python -m improvement_loop.orchestrator_v1
 
 # View iteration history
 python -m improvement_loop.loop_tracker summary
 
 # Print context for the next iteration (what's already been done)
 python -m improvement_loop.loop_tracker context
+
+# RAG index management
+python -m improvement_loop.rag.indexer --stats
+python -m improvement_loop.rag.indexer --force-rebuild --stats
 ```
 
 ### How It Works
 
-Each iteration of the loop:
+**v2 pipeline** — each iteration runs four agent phases:
 
-1. **Audit** — Collects key pipeline and analysis source files, sends them to Claude Sonnet with context from prior iterations, and receives a JSON array of structured findings (dimension, file, description, fix, importance, branch name).
-2. **Parse** — Validates each finding against a Pydantic schema (`Finding` model in `evaluator.py`). Malformed findings are skipped with a warning.
-3. **Fix** — For each finding, creates a git branch (`improvement/<slug>`), calls Claude to generate the updated file, commits, and runs the Python test suite. Findings are tagged as `implemented` (tests pass) or `pending` (tests fail).
-4. **Evaluate** — Sends the raw audit output to a judge model (`evaluator.score_audit`) that scores it on 6 dimensions (specificity, accuracy, coverage, prioritization, domain appropriateness, overall). Flags like `LEAKAGE_RISK` or `PHI_RISK` are surfaced.
-5. **Exit check** — The loop stops when no findings have importance >= 2, audit coverage is adequate (>= 6/10), and no critical flags are raised.
+1. **Audit** (`agents/auditor.py`) — Scans the codebase with RAG-enhanced context and returns structured `Finding` objects. When RAG is enabled, receives semantically relevant code chunks instead of a hardcoded file list.
+2. **Implement** (`agents/implementer.py`) — Creates a branch, generates a fix via the Claude API with related code context (callers/callees, past findings, documentation), commits, and runs a syntax check.
+3. **Review** (`agents/reviewer.py`) — Generates a unified diff, sends it to a reviewer model for quality assessment. Returns approve/request_changes/reject. Critical risk flags (`LEAKAGE_RISK`, `PHI_RISK`) force rejection regardless of the LLM's verdict.
+4. **Test & Merge** — Runs the Python test suite, merges approved branches, performs post-merge sanity checks.
+
+**v1 pipeline** — simpler single-pass: audit → parse → fix → evaluate → exit check.
 
 All iterations are logged to `improvement_loop_log.json` (gitignored). The log tracks audit scores, findings with unique IDs, branch status, and exit conditions.
 
@@ -651,10 +664,19 @@ All iterations are logged to `improvement_loop_log.json` (gitignored). The log t
 
 | File | Purpose |
 |---|---|
-| `orchestrator_v1.py` | Main loop: audit → parse → fix → evaluate → exit check |
+| `orchestrator_v2.py` | v2 loop: four-agent pipeline (audit → implement → review → merge) |
+| `orchestrator_v1.py` | v1 loop: single-pass audit → parse → fix → evaluate → exit check |
 | `evaluator.py` | `Finding` schema, Claude-based audit scoring, exit condition logic |
 | `loop_tracker.py` | Persistent JSON logging, iteration context generation, CLI interface |
+| `loop_config.py` | Centralised config (`LoopConfig` dataclass) with sensible defaults |
 | `git_utils.py` | Branch management, test runners, commit helpers |
+| `agents/auditor.py` | Code audit agent (RAG-enhanced) |
+| `agents/implementer.py` | Fix implementation agent (RAG-enhanced) |
+| `agents/reviewer.py` | Code review quality gate (RAG-enhanced) |
+| `agents/_api.py` | Shared API retry helper |
+| `rag/chunker.py` | Semantic code chunker (MATLAB/Python/MD/JSON) |
+| `rag/indexer.py` | ChromaDB vector index (build/update/query) |
+| `rag/retriever.py` | Query interface + agent context builders |
 
 ---
 
@@ -682,13 +704,13 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (71 files)
+│   ├── utils/                      #   Helper utilities (72 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (120 test files)
+│   ├── tests/                      #   Test suite (122 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (5 files)
@@ -714,13 +736,23 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (37 test files, 1576 tests)
+│   └── tests/                      #   Python test suite (45 test files, 1790 tests)
 ├── improvement_loop/               # Automated audit-fix-evaluate loop
-│   ├── orchestrator_v1.py          #   Main loop orchestrator
+│   ├── orchestrator_v2.py          #   v2 pipeline orchestrator (four-agent RAG-enhanced)
+│   ├── orchestrator_v1.py          #   v1 single-pass orchestrator (legacy)
 │   ├── evaluator.py                #   Finding schema & audit scoring
 │   ├── loop_tracker.py             #   Persistent JSON logging & CLI
 │   ├── loop_config.py              #   Centralised config (LoopConfig dataclass)
-│   └── git_utils.py                #   Branch management & test runners
+│   ├── git_utils.py                #   Branch management & test runners
+│   ├── agents/                     #   Agent modules
+│   │   ├── auditor.py              #     Code audit agent (RAG-enhanced)
+│   │   ├── implementer.py          #     Fix implementation agent
+│   │   ├── reviewer.py             #     Code review quality gate
+│   │   └── _api.py                 #     Shared API retry helper
+│   └── rag/                        #   Retrieval-Augmented Generation
+│       ├── chunker.py              #     Semantic code chunker
+│       ├── indexer.py              #     ChromaDB vector index
+│       └── retriever.py            #     Query interface & context builders
 ├── improvement_loop_config.example.json  # Loop config template
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
@@ -744,7 +776,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.1.0},
+  version   = {2.2.0-alpha.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {AGPL-3.0}
 }
