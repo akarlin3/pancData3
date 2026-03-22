@@ -49,7 +49,9 @@ classdef TestCase < handle
             %   Called by the TestRunner shim after each test method to
             %   convert accumulated soft failures into a hard error.
             if ~isempty(testCase.VerificationFailures)
-                msgs = strjoin(testCase.VerificationFailures, '\n  ');
+                safeStrs = cellfun(@(x) char(string(x)), ...
+                    testCase.VerificationFailures, 'UniformOutput', false);
+                msgs = strjoin(safeStrs, '\n  ');
                 error('TestCase:verificationFailed', ...
                     '%d verification failure(s):\n  %s', ...
                     numel(testCase.VerificationFailures), msgs);
