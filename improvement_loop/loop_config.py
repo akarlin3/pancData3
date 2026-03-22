@@ -57,6 +57,12 @@ class LoopConfig:
     max_self_heal_attempts: int = 2
     max_file_chars: int = 8000
 
+    # ── RAG ───────────────────────────────────────────────────────────────
+    rag_enabled: bool = True
+    rag_db_path: str = ""           # empty = default .chromadb/ in repo root
+    rag_top_k: int = 15             # chunks to retrieve per query
+    rag_min_relevance: float = 0.3  # minimum similarity score to include
+
 
 def load_loop_config(path: str | None = None) -> LoopConfig:
     """Load config from JSON, falling back to defaults for missing keys."""

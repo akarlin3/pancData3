@@ -74,3 +74,6 @@ analysis_config.json
 improvement_loop_log.json
 improvement_loop_config.json
 octave-workspace
+
+# RAG vector index (local, regenerated on demand)
+.chromadb/
