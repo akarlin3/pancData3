@@ -176,6 +176,21 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         dwi_flat = reshape(dwi, [], size(dwi, 4));       % [n_spatial x n_bvals]
         dwi_valid = dwi_flat(valid_voxels_idx, :);       % [n_valid x n_bvals]
         clear dwi_flat;
+    else
+        % No valid voxels in the mask — nothing to fit. Log a warning and
+        % return NaN-initialized maps immediately. This can occur during
+        % testing or with corrupt/empty mask files.
+        warn_msg = 'Mask contains no valid (non-zero) voxels. Returning NaN-initialized maps for all parameters.';
+        warning('fit_models:emptyMask', '%s', warn_msg);
+        fit_metadata.warnings{end+1} = warn_msg;
+        fit_metadata.ivim_reliable = false;
+
+        % Initialize all output maps as NaN with the correct spatial dimensions
+        d_map = nan(sz3);
+        f_map = nan(sz3);
+        dstar_map = nan(sz3);
+        adc_map = nan(sz3);
+        return;
     end
 
     % Release the large 4D dwi array now that voxel signals are extracted.
