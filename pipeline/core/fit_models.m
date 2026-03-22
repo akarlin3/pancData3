@@ -18,6 +18,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
 %   the ADC weighted least-squares computation is offloaded to the GPU via
 %   gpuArray for faster vectorized matrix operations.
 %
+%   Optimizer settings (all optional, read from opts / config.json):
+%     opts.optim_tol             — OptimalityTolerance  (default 1e-8)
+%     opts.func_tol              — FunctionTolerance    (default 1e-8)
+%     opts.step_tol              — StepTolerance        (default 1e-10)
+%     opts.max_iterations        — MaxIterations        (default 400)
+%     opts.max_func_evals        — MaxFunctionEvaluations (default 800)
+%
 % ANALYTICAL RATIONALE — TWO-MODEL APPROACH
 %   This function fits two complementary diffusion models to multi-b-value
 %   DWI data within the GTV mask:
@@ -141,15 +148,25 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     % These defaults are only applied when the caller has not provided
     % custom optimoptions (e.g., for debugging with Display='iter' or
     % site-specific tolerance adjustments).
+    %
+    % Optimizer tolerances and iteration limits are configurable through
+    % config.json (via opts), falling back to the hardcoded defaults below.
     if ~isfield(opts, 'optimoptions') || isempty(opts.optimoptions)
+        % Read configurable optimizer parameters from opts, with defaults
+        optim_tol      = getfield_default(opts, 'optim_tol',      1e-8);
+        func_tol       = getfield_default(opts, 'func_tol',       1e-8);
+        step_tol       = getfield_default(opts, 'step_tol',       1e-10);
+        max_iterations = getfield_default(opts, 'max_iterations', 400);
+        max_func_evals = getfield_default(opts, 'max_func_evals', 800);
+
         optimized_opts = optimoptions('lsqnonlin', ...
             'UseParallel', false, ...                % Avoid nested parallelism; parfor handles voxel-level parallelism
-            'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
-            'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
-            'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
-            'MaxIterations', 400, ...               % Increased max iterations
-            'MaxFunctionEvaluations', 800, ...      % Increased max function evaluations
-            'Display', 'off');                      % Suppress individual fit output
+            'OptimalityTolerance', optim_tol, ...    % Optimality tolerance for convergence
+            'FunctionTolerance', func_tol, ...       % Function tolerance
+            'StepTolerance', step_tol, ...           % Step tolerance for precision
+            'MaxIterations', max_iterations, ...     % Max iterations
+            'MaxFunctionEvaluations', max_func_evals, ... % Max function evaluations
+            'Display', 'off');                       % Suppress individual fit output
         opts.optimoptions = optimized_opts;
     end
 
@@ -467,4 +484,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
 
     % Release the pre-extracted voxel signals
     clear dwi_valid;
+end
+
+function val = getfield_default(s, field, default)
+% GETFIELD_DEFAULT Return s.(field) if it exists and is non-empty, else default.
+    if isfield(s, field) && ~isempty(s.(field))
+        val = s.(field);
+    else
+        val = default;
+    end
 end
