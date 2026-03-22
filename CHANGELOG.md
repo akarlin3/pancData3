@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-03-22
+
+### Changed
+
+#### Test Quality & Cross-Platform Hardening (13 improvement loop iterations)
+- **`test_benjamini_hochberg_fdr.m`**: Cross-platform RNG determinism — replaced `rng(123)` with platform-independent test data; added edge case tests; tests now call the production `benjamini_hochberg_fdr` function instead of reimplementing inline; assertions upgraded to `verifyEqual` with `AbsTol`
+- **`test_parsave_dir_cache.m`**: Improved `parfor` test assertions
+- **`test_text_progress_bar.m`**: Progress bar test assertions tightened
+- **`test_statistical_methods.m`**: Added `k > available neighbors` edge case for KNN imputation; unsorted b-value test data fix
+- **Octave compatibility**: Robust `strjoin` fallback, non-fatal `verify*` assertions with scalar expansion
+- **`run_all_tests.m`**: Persistent variable scope fix for parallel capability caching
+- **`initialize_pipeline.m`**: Preflight mode now logs active status
+- **Vision skip assertions**: Tightened `test_script_outputs.py` skip condition
+
+### Documentation
+- Updated all documentation for v2.2.0 release
+- Corrected MATLAB test suite count: 119 files (106 root + 7 benchmarks + 6 diagnostics); Python test suite: 46 files (1795 tests)
+
+---
+
 ## [2.2.0-beta.1] - 2026-03-22
 
 ### Added

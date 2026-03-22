@@ -18,6 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
+**Version:** 2.2.0
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
@@ -66,10 +67,10 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (72 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (21 files)
-│   ├── tests/                          # Full test suite (122 test files)
+│   ├── tests/                          # Full test suite (119 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
-│   │   └── diagnostics/                # Diagnostic spot-check scripts (5 files)
+│   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
 │   └── dependencies/                   # Third-party scripts — DO NOT MODIFY
 ├── analysis/                            # Python post-hoc analysis scripts
 │   ├── run_analysis.py                 # Orchestrator entry point
@@ -81,7 +82,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (37 files)
-│   └── tests/                          # Python test suite — 45 test files, 1795 tests (pytest)
+│   └── tests/                          # Python test suite — 46 test files, 1795 tests (pytest)
 ├── improvement_loop/                    # Automated audit/fix loop
 │   ├── orchestrator_v2.py              #   Pipeline orchestrator (audit → implement → review → merge)
 │   ├── orchestrator_v1.py              #   Legacy single-pass orchestrator
@@ -319,7 +320,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 45 test files with 1795 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 46 test files with 1795 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -369,7 +370,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_retriever.py` | RAG retriever: ChromaDB query interface, agent-specific context builders, deduplication, relevance filtering |
 | `test_rag_integration.py` | RAG integration: end-to-end chunk → index → retrieve pipeline, incremental updates, history indexing |
 | `test_indexer.py` | RAG indexer: ChromaDB build/update, incremental indexing, duplicate chunk ID handling, improvement history |
-For the full list of 105 MATLAB test files and 45 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 105 MATLAB test files and 46 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 

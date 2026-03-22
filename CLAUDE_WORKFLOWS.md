@@ -159,7 +159,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_find_gtv_files.m` | GTVp/GTVn mask file discovery |
 | `test_fit_adc_mono.m` | Mono-exponential ADC fitting |
 | `test_fix_verify.m` | Post-fix regression verification |
-| `test_landmark_cindex_mock.m` | Landmark concordance index with mocked data |
+| `diagnostics/diag_landmark_cindex_mock.m` | Landmark concordance index with mocked data |
 | `test_load_dl_provenance.m` | DL training provenance loading and leakage detection |
 | `test_mask_loading.m` | Secure mask loading from .mat files |
 | `test_normalize_patient_ids.m` | Patient ID normalization for spreadsheet/folder matching |
