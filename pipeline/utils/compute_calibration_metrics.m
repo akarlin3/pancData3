@@ -18,7 +18,8 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, times, n_bins,
 %   cal           - Struct with calibration metrics
 
     % Handle input arguments for backward compatibility
-    if nargin < 7 && nargin >= 3 && (ischar(times) || isempty(times) || isscalar(times))
+    old_interface = nargin < 7 && nargin >= 3 && (ischar(times) || isempty(times) || isscalar(times));
+    if old_interface
         % Old interface: risk_scores, outcomes, n_bins, output_folder, dtype_label, fx_label
         if nargin >= 6, fx_label = dtype_label; else, fx_label = ''; end
         if nargin >= 5, dtype_label = output_folder; else, dtype_label = ''; end
@@ -26,11 +27,15 @@ function cal = compute_calibration_metrics(risk_scores, outcomes, times, n_bins,
         n_bins = times;
         times = [];
     end
-    
-    if nargin < 4 || isempty(n_bins), n_bins = 5; end
-    if nargin < 5, output_folder = ''; end
-    if nargin < 6, dtype_label = ''; end
-    if nargin < 7, fx_label = ''; end
+
+    if ~old_interface
+        if nargin < 4 || isempty(n_bins), n_bins = 5; end
+        if nargin < 5, output_folder = ''; end
+        if nargin < 6, dtype_label = ''; end
+        if nargin < 7, fx_label = ''; end
+    else
+        if isempty(n_bins), n_bins = 5; end
+    end
 
     cal = struct();
     cal.brier_score = NaN;

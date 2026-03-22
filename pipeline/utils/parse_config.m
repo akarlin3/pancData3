@@ -580,4 +580,42 @@ function config_struct = parse_config(json_path)
 
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        
+        % If the error was already wrapped with our ID, rethrow as-is.
+        % Otherwise, wrap any unexpected field-access or type error with
+        % a descriptive message so callers can distinguish config parsing
+        % failures from other errors in their try/catch blocks.
+        if strncmp(ME.identifier, 'parse_config:', 13)
+            rethrow(ME);
+        end
+        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file %s: %s', json_path, ME.message);
+    end
+
+    % ================================================================
+    % Validate core_method against the set of implemented algorithms.
+    % ================================================================
+    valid_core_methods = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+    if ~any(strcmpi(config_struct.core_method, valid_core_methods))
+        error('parse_config:invalidCoreMethod', ...
+            'Unrecognized core_method "%s". Must be one of: %s', ...
+            config_struct.core_method, strjoin(valid_core_methods, ', '));
+    end
+
+    % ================================================================
+    % DWI type validation and mapping to numeric run indices.
+    % ================================================================
+    if isfield(config_struct, 'dwi_type')
+        switch lower(config_struct.dwi_type)
+            case 'standard', config_struct.dwi_types_to_run = 1;
+            case 'dncnn', config_struct.dwi_types_to_run = 2;
+            case 'ivimnet', config_struct.dwi_types_to_run = 3;
+            otherwise
+                error('parse_config:invalidJSON', ...
+                    'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
+                    config_struct.dwi_type);
+        end
+    else
+        config_struct.dwi_types_to_run = 1:3;
+    end
+end

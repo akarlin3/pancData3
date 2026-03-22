@@ -598,4 +598,90 @@ end
 
 
 function surface_area = compute_surface_area_gradient(mask, voxel_spacing)
-%COMPUTE_
+%COMPUTE_SURFACE_AREA_GRADIENT  Gradient-based surface area for 3D binary masks.
+%   Uses the magnitude of the gradient of the distance transform at the
+%   boundary to estimate surface area, weighted by voxel face areas.
+
+    mask = logical(mask);
+    dx = voxel_spacing(1);
+    dy = voxel_spacing(2);
+    dz = voxel_spacing(3);
+
+    % Detect boundary voxels using 6-connectivity erosion
+    se = false(3,3,3);
+    se(2,2,1) = true; se(2,2,3) = true;
+    se(2,1,2) = true; se(2,3,2) = true;
+    se(1,2,2) = true; se(3,2,2) = true;
+    se(2,2,2) = true;
+
+    eroded = imerode(mask, se);
+    boundary = mask & ~eroded;
+
+    % Each boundary voxel contributes face area for each exposed face
+    surface_area = 0;
+    [rows, cols, slices] = ind2sub(size(mask), find(boundary));
+    for idx = 1:length(rows)
+        r = rows(idx); c = cols(idx); s = slices(idx);
+        % Check each of 6 neighbors; exposed face contributes area
+        if r == 1 || ~mask(r-1, c, s), surface_area = surface_area + dy * dz; end
+        if r == size(mask,1) || ~mask(r+1, c, s), surface_area = surface_area + dy * dz; end
+        if c == 1 || ~mask(r, c-1, s), surface_area = surface_area + dx * dz; end
+        if c == size(mask,2) || ~mask(r, c+1, s), surface_area = surface_area + dx * dz; end
+        if s == 1 || ~mask(r, c, s-1), surface_area = surface_area + dx * dy; end
+        if s == size(mask,3) || ~mask(r, c, s+1), surface_area = surface_area + dx * dy; end
+    end
+end
+
+
+function perimeter = compute_perimeter_2d(mask, dx, dy)
+%COMPUTE_PERIMETER_2D  Estimate perimeter of a 2D binary mask.
+
+    mask = logical(mask);
+    perimeter = 0;
+    [rows, cols] = find(mask);
+    for idx = 1:length(rows)
+        r = rows(idx); c = cols(idx);
+        if r == 1 || ~mask(r-1, c), perimeter = perimeter + dx; end
+        if r == size(mask,1) || ~mask(r+1, c), perimeter = perimeter + dx; end
+        if c == 1 || ~mask(r, c-1), perimeter = perimeter + dy; end
+        if c == size(mask,2) || ~mask(r, c+1), perimeter = perimeter + dy; end
+    end
+end
+
+
+function elongation = compute_elongation_optimized(mask, voxel_spacing)
+%COMPUTE_ELONGATION_OPTIMIZED  Elongation from covariance matrix eigenvalues.
+%   Elongation = 1 - sqrt(lambda_min / lambda_max), where lambda are the
+%   eigenvalues of the spatial covariance matrix of mask voxel coordinates.
+
+    elongation = NaN;
+    mask = logical(mask);
+    if ~any(mask(:))
+        return;
+    end
+
+    is_3d = ndims(mask) == 3 && size(mask, 3) > 1;
+
+    if is_3d
+        [r, c, s] = ind2sub(size(mask), find(mask));
+        coords = [r * voxel_spacing(1), c * voxel_spacing(2), s * voxel_spacing(3)];
+    else
+        [r, c] = find(mask);
+        coords = [r * voxel_spacing(1), c * voxel_spacing(2)];
+    end
+
+    if size(coords, 1) < 2
+        elongation = 0;
+        return;
+    end
+
+    C = cov(coords);
+    eigenvalues = sort(eig(C), 'descend');
+    eigenvalues = eigenvalues(eigenvalues > 0);
+
+    if isempty(eigenvalues) || eigenvalues(1) == 0
+        elongation = 0;
+    else
+        elongation = 1 - sqrt(eigenvalues(end) / eigenvalues(1));
+    end
+end
