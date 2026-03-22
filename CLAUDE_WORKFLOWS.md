@@ -209,9 +209,17 @@ After **every feature implementation** (adding a new file, adding a config field
 
 # Pipeline Improvement Loop
 
-> **Canonical driver:** `orchestrator_v1.py` is the programmatic loop driver.
-> Run it with `python orchestrator_v1.py [--max-iterations N] [--dry-run] [--single-iteration]`.
+> **Canonical driver:** `orchestrator_v2.py` is the primary loop driver (four-agent pipeline).
+> Run it with `python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]`.
+> **Legacy fallback:** `orchestrator_v1.py` remains as a working single-pass orchestrator.
+> Run it with `python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]`.
 > The manual phase instructions below are retained as the fallback reference for manual operation only.
+>
+> **v2 pipeline flow:** Each iteration runs four agent phases in sequence:
+> 1. **Audit** — `auditor.audit()` scans the codebase and returns `Finding` objects
+> 2. **Implement** — `implementer.implement()` creates a branch, generates a fix, commits
+> 3. **Review** — `reviewer.review()` diffs original vs new content, returns approve/request_changes/reject
+> 4. **Test & Merge** — runs `git_utils.run_python_tests()`, merges approved branches, post-merge sanity check
 
 ## Tracking infrastructure
 
@@ -222,7 +230,8 @@ The loop is tracked by several modules in `improvement_loop/`:
 - **`agents/`** — Subpackage containing agent modules extracted from the orchestrator:
   - **`agents/auditor.py`** — Audit agent: `audit()` runs a code audit via the Claude API and returns parsed `Finding` objects. Also exposes `collect_source_files()` and `parse_findings()` for direct use.
   - **`agents/implementer.py`** — Implementer agent: `implement()` creates a branch, generates a code fix via the Claude API, writes it to disk, commits, and runs a syntax check. Returns an `ImplementResult` dataclass with `success`, `original_content`, `new_content`, and `error` fields.
-  - **`agents/_api.py`** — Shared `api_call_with_retry()` helper used by the auditor and implementer agents.
+  - **`agents/reviewer.py`** — Reviewer agent: `review()` generates a unified diff between original and new file content, sends it to the Claude API for code review, and returns a `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`). Acts as a quality gate between implementation and merge — "approve" proceeds to merge, "request_changes" skips merge, "reject" deletes the branch. Critical risk flags (`LEAKAGE_RISK`, `PHI_RISK`) force rejection regardless of the LLM's verdict.
+  - **`agents/_api.py`** — Shared `api_call_with_retry()` helper used by the auditor, implementer, and reviewer agents.
 
 **Requirement:** `pip install anthropic` and `ANTHROPIC_API_KEY` must be set.
 

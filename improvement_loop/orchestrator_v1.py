@@ -66,43 +66,81 @@ def _apply_fixes(findings: List[Finding], dry_run: bool) -> bool:
             print("    Running Python tests...")
             py_ok = git_utils.run_python_tests()
 
-            if py_ok:
-                print("    ✅ Tests passed on branch")
-
-                # Merge back into the original branch
-                print(f"    ⚙️  Attempting merge: {finding.branch_name}")
-                try:
-                    git_utils.merge_branch(
-                        finding.branch_name, target=original_branch,
-                        delete_after=True,
-                    )
-                    finding.status = "merged"
-                    print(f"    ✅  Merged: {finding.branch_name}")
-
-
-                    # Post-merge sanity check
-                    print(f"    ⚙️  cwd after merge: {os.getcwd()}")
-                    print(f"    ⚙️  Post-merge test run on {original_branch}")
-                    print(f"    ⚙️  Post-merge cwd: {os.getcwd()}")
-                    if not git_utils.run_syntax_check():
-                        print(f"    ❌  Post-merge syntax error — merge may have introduced issues")
-                        all_passed = False
-                        continue
-                    post_ok = git_utils.run_python_tests()
-                    print(f"    ⚙️  Post-merge test result: {post_ok}")
-                    if post_ok:
-                        print(f"    ✅  Post-merge tests passed")
-                    else:
-                        print(f"    ❌  Post-merge tests FAILED — merge may have introduced issues")
-                        all_passed = False
-                except Exception as e:
-                    print(f"    ❌  Merge failed: {finding.branch_name} — {e}")
-                    finding.status = "implemented"
-                    all_passed = False
-            else:
+            if not py_ok:
                 finding.status = "pending"
                 all_passed = False
                 print("    ❌ Tests failed — fix needs review")
+                continue
+
+            print("    ✅ Tests passed on branch")
+
+            # Code review gate
+            print("    ⚙️  Running code review...")
+            review_verdict = _review_change(
+                finding,
+                original_content=result.original_content,
+                new_content=result.new_content,
+                dry_run=dry_run,
+            )
+            print(f"    Review verdict: {review_verdict.verdict}")
+            if review_verdict.reasoning:
+                print(f"    Review reasoning: {review_verdict.reasoning}")
+
+            if review_verdict.verdict == "reject":
+                print(f"    ❌ Review rejected: {review_verdict.reasoning}")
+                if review_verdict.risk_flags:
+                    print(f"    Risk flags: {review_verdict.risk_flags}")
+                finding.status = "pending"
+                all_passed = False
+                # Delete the rejected branch
+                try:
+                    git_utils.checkout(original_branch)
+                    import subprocess
+                    subprocess.run(
+                        ["git", "branch", "-D", finding.branch_name],
+                        check=False, capture_output=True, text=True,
+                    )
+                    print(f"    Deleted rejected branch: {finding.branch_name}")
+                except Exception:
+                    pass
+                continue
+
+            if review_verdict.verdict == "request_changes":
+                print(f"    ⚠️  Review requested changes: {review_verdict.reasoning}")
+                finding.status = "pending"
+                all_passed = False
+                continue
+
+            # verdict == "approve" — proceed to merge
+            print(f"    ⚙️  Attempting merge: {finding.branch_name}")
+            try:
+                git_utils.merge_branch(
+                    finding.branch_name, target=original_branch,
+                    delete_after=True,
+                )
+                finding.status = "merged"
+                print(f"    ✅  Merged: {finding.branch_name}")
+
+
+                # Post-merge sanity check
+                print(f"    ⚙️  cwd after merge: {os.getcwd()}")
+                print(f"    ⚙️  Post-merge test run on {original_branch}")
+                print(f"    ⚙️  Post-merge cwd: {os.getcwd()}")
+                if not git_utils.run_syntax_check():
+                    print(f"    ❌  Post-merge syntax error — merge may have introduced issues")
+                    all_passed = False
+                    continue
+                post_ok = git_utils.run_python_tests()
+                print(f"    ⚙️  Post-merge test result: {post_ok}")
+                if post_ok:
+                    print(f"    ✅  Post-merge tests passed")
+                else:
+                    print(f"    ❌  Post-merge tests FAILED — merge may have introduced issues")
+                    all_passed = False
+            except Exception as e:
+                print(f"    ❌  Merge failed: {finding.branch_name} — {e}")
+                finding.status = "implemented"
+                all_passed = False
 
         except Exception as e:
             print(f"    ❌ Error applying fix: {e}")

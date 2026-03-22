@@ -26,12 +26,13 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 
 ## Multi-Agent Collaboration Model
 
-This repository uses a three-agent architecture:
+This repository uses a multi-agent architecture:
 
 | Agent | Role | Scope |
 |---|---|---|
 | **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
+| **Improvement Loop Agents** | Autonomous audit → implement → review → merge | API-driven, no patient data access |
 
 ### Critical Safety Rules
 
