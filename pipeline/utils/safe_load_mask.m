@@ -96,7 +96,76 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         return;
     end
 
-    target_info = file_info(idx);
+    % Check for duplicate variable name entries. In well-formed .mat files
+    % each variable name appears exactly once in the whos listing. However,
+    % .mat v7.3 (HDF5-based) files that are manually constructed or
+    % corrupted via HDF5 tools or matfile operations can contain multiple
+    % entries with the same name but different sizes or classes. If we only
+    % validated the first entry, an unsafe duplicate could slip through
+    % undetected. We therefore validate ALL duplicate entries or reject the
+    % file outright.
+    if numel(idx) > 1
+        warning('safe_load_mask:DuplicateVariable', ...
+            ['Variable ''%s'' appears %d times in %s. ' ...
+             'This may indicate a corrupted or tampered .mat file. ' ...
+             'All duplicate entries will be validated before proceeding.'], ...
+            varname, numel(idx), filepath);
+
+        % Define safe classes here as well so we can validate all entries
+        safe_classes_dup = {'double', 'single', 'logical', ...
+                        'int8', 'uint8', 'int16', 'uint16', ...
+                        'int32', 'uint32', 'int64', 'uint64'};
+
+        % Validate every duplicate entry for class safety and size limits
+        for dup_i = 1:numel(idx)
+            dup_info = file_info(idx(dup_i));
+
+            % Check class safety for this duplicate
+            if ~ismember(dup_info.class, safe_classes_dup)
+                warning('safe_load_mask:SecurityRisk', ...
+                    ['Security Risk: Duplicate entry %d of variable ''%s'' has unsafe class ''%s''. ' ...
+                     'Aborting load due to potentially corrupted/tampered file.'], ...
+                    dup_i, varname, dup_info.class);
+                return;
+            end
+
+            % Check size limit for this duplicate
+            dup_size_mb = dup_info.bytes / (1024 * 1024);
+            if dup_size_mb > max_file_size_mb
+                warning('safe_load_mask:VariableTooLarge', ...
+                    ['Duplicate entry %d of variable ''%s'' in-memory size (%.1f MB) ' ...
+                     'exceeds safety limit (%.1f MB). Aborting load.'], ...
+                    dup_i, varname, dup_size_mb, max_file_size_mb);
+                return;
+            end
+        end
+
+        % Check that all duplicates agree on class and size. If they
+        % differ, the file is likely corrupted or tampered with and we
+        % should not trust any single entry.
+        dup_classes = {file_info(idx).class};
+        dup_sizes = {file_info(idx).size};
+        classes_match = all(strcmp(dup_classes, dup_classes{1}));
+        sizes_match = true;
+        for dup_i = 2:numel(idx)
+            if ~isequal(dup_sizes{dup_i}, dup_sizes{1})
+                sizes_match = false;
+                break;
+            end
+        end
+
+        if ~classes_match || ~sizes_match
+            warning('safe_load_mask:DuplicateMismatch', ...
+                ['Duplicate entries for variable ''%s'' have inconsistent class or size. ' ...
+                 'File is likely corrupted or tampered. Aborting load for security.'], ...
+                varname);
+            return;
+        end
+    end
+
+    % Use the first matching entry for subsequent checks (all duplicates
+    % have been validated above if there were multiple).
+    target_info = file_info(idx(1));
     
     % Additional validation: check if the reported in-memory variable
     % size is reasonable.  We use the same threshold as the file-level
