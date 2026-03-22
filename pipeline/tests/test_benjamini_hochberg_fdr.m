@@ -6,6 +6,7 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
 %   - Edge cases (empty, single, all-ones, all-zeros)
 %   - Monotonicity and cap-at-1 properties
 %   - Order preservation (output matches input ordering)
+%   - Invalid input handling (NaN, negative values)
 
     methods (TestMethodSetup)
         function addPaths(testCase)
@@ -26,6 +27,13 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
                 'Single p-value should be returned unchanged.');
         end
 
+        function test_single_pvalue_005(testCase)
+            % Single p-value of 0.05: q should equal p for scalar input
+            q = benjamini_hochberg_fdr(0.05);
+            testCase.verifyEqual(q, 0.05, 'AbsTol', 1e-12, ...
+                'Single p-value of 0.05 should be returned unchanged.');
+        end
+
         function test_single_pvalue_one(testCase)
             % Single p-value of 1.0
             q = benjamini_hochberg_fdr(1.0);
@@ -40,18 +48,79 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
 
         function test_all_ones(testCase)
             % All p-values = 1.0 => all q-values should be 1.0
+            p = ones(5, 1);
+            q = benjamini_hochberg_fdr(p);
+            testCase.verifyEqual(q, ones(5, 1), 'AbsTol', 1e-12, ...
+                'All p=1 input should return all q=1.');
+        end
+
+        function test_all_ones_larger(testCase)
+            % All p-values = 1.0 with larger array
             p = ones(10, 1);
             q = benjamini_hochberg_fdr(p);
             testCase.verifyEqual(q, ones(10, 1), 'AbsTol', 1e-12, ...
-                'All p=1 input should return all q=1.');
+                'All p=1 input (n=10) should return all q=1.');
         end
 
         function test_all_zeros(testCase)
             % All p-values = 0.0 => all q-values should be 0.0
+            % This tests division-by-zero edge behavior: 0 * (n/i) = 0 for all i
             p = zeros(5, 1);
             q = benjamini_hochberg_fdr(p);
+            testCase.verifyFalse(any(isnan(q)), ...
+                'All p=0 input should not produce NaN values.');
+            testCase.verifyFalse(any(isinf(q)), ...
+                'All p=0 input should not produce Inf values.');
             testCase.verifyEqual(q, zeros(5, 1), 'AbsTol', 1e-12, ...
                 'All p=0 input should return all q=0.');
+        end
+
+        function test_invalid_input_nan(testCase)
+            % p-values containing NaN — verify graceful handling
+            % The function should either propagate NaN or raise an error.
+            p = [0.01; NaN; 0.05];
+            threw_error = false;
+            q = [];
+            try
+                q = benjamini_hochberg_fdr(p);
+            catch
+                threw_error = true;
+            end
+
+            if threw_error
+                % Raising an error on NaN input is acceptable behavior
+                testCase.verifyTrue(true, ...
+                    'Function raised error on NaN input — acceptable.');
+            else
+                % If no error, NaN should propagate (not silently become a number)
+                testCase.verifyTrue(any(isnan(q)), ...
+                    'NaN in input should propagate to output if no error is raised.');
+            end
+        end
+
+        function test_invalid_input_negative(testCase)
+            % p-values containing negative values — invalid for probabilities
+            % The function should either raise an error or handle gracefully.
+            p = [0.01; -0.05; 0.10];
+            threw_error = false;
+            q = [];
+            try
+                q = benjamini_hochberg_fdr(p);
+            catch
+                threw_error = true;
+            end
+
+            if threw_error
+                % Raising an error on negative input is acceptable behavior
+                testCase.verifyTrue(true, ...
+                    'Function raised error on negative input — acceptable.');
+            else
+                % If no error, output should still have finite values
+                testCase.verifyFalse(any(isnan(q)), ...
+                    'Negative input should not produce NaN if no error is raised.');
+                testCase.verifyFalse(any(isinf(q)), ...
+                    'Negative input should not produce Inf if no error is raised.');
+            end
         end
 
         function test_known_reference(testCase)
