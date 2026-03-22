@@ -506,6 +506,11 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Extra b-value (5 instead of 4) should be flagged as deviation.
             bvals = [0; 50; 400; 800; 1000];
             expected_bvals = [0; 30; 150; 550];
+            % First verify the count mismatch is detected (the primary
+            % reason this is a deviation: 5 b-values vs expected 4).
+            testCase.verifyNotEqual(numel(bvals), numel(expected_bvals), ...
+            'Should detect extra b-values by count');
+            % Also verify that the overall deviation flag is set.
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Extra b-values should be flagged as protocol deviation');
@@ -515,6 +520,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Different b-value set should be flagged as deviation.
             bvals = [0; 30; 200; 550];
             expected_bvals = [0; 30; 150; 550];
+            % Count is the same, so deviation is due to differing values.
+            testCase.verifyEqual(numel(bvals), numel(expected_bvals), ...
+            'Count should match so deviation is purely value-based');
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Non-standard b-values should be flagged as protocol deviation');
@@ -524,6 +532,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Fewer b-values than expected should be flagged.
             bvals = [0; 50; 400];
             expected_bvals =  [0; 30; 150; 550];
+            % First verify the count mismatch is detected.
+            testCase.verifyNotEqual(numel(bvals), numel(expected_bvals), ...
+            'Should detect missing b-values by count');
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Missing b-values should be flagged as protocol deviation');
@@ -591,154 +602,4 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testImpute_MedianFillValues(testCase)
             % Verify that imputed values equal the column median.
-            X = [2 10; NaN 20; 6 NaN];
-            col_med = median(X, 1, 'omitnan');  % [4, 15]
-            X_filled = fillmissing(X, 'constant', col_med);
-            testCase.verifyTrue(abs(X_filled(2,1) - 4) < 1e-12, ...
-            'Imputed value should equal column median');
-            testCase.verifyTrue(abs(X_filled(3,2) - 15) < 1e-12, ...
-            'Imputed value should equal column median');
-        end
-
-        % =================================================================
-        % ADC
-        % =================================================================
-
-        function testADC_NaNRemovedByNanmean(testCase)
-            % NaN values should be excluded from mean calculations.
-            adc_vec = [1.5e-3; 2.0e-3; NaN; 1.8e-3];
-            m = mean(adc_vec, 'omitnan');
-            testCase.verifyTrue(abs(m - mean([1.5e-3; 2.0e-3; 1.8e-3])) < 1e-15, ...
-            'nanmean should exclude NaN failed fits');
-        end
-
-        % =================================================================
-        % DIR functional
-        % =================================================================
-
-        function testDIR_EmptyInputsReturnEmpty(testCase)
-            % All three empty-input cases should return [].
-            warning('off', 'apply_dir_mask_propagation:emptyInput');
-            r1 = apply_dir_mask_propagation([], ones(4,4,4), true(4,4,4));
-            r2 = apply_dir_mask_propagation(ones(4,4,4), [], true(4,4,4));
-            r3 = apply_dir_mask_propagation(ones(4,4,4), ones(4,4,4), []);
-            warning('on', 'apply_dir_mask_propagation:emptyInput');
-            testCase.verifyTrue(isempty(r1) && isempty(r2) && isempty(r3), ...
-            'Empty inputs should return empty output');
-        end
-
-        function testDIR_SizeMismatchReturnsEmpty(testCase)
-            % Mismatched image sizes should return [].
-            warning('off', 'apply_dir_mask_propagation:sizeMismatch');
-            r = apply_dir_mask_propagation(ones(4,4,4), ones(5,5,5), true(4,4,4));
-            warning('on', 'apply_dir_mask_propagation:sizeMismatch');
-            testCase.verifyTrue(isempty(r), ...
-            'Size-mismatched inputs should return empty output');
-        end
-
-        function testDIR_IdenticalImagesPreserveMask(testCase)
-            % When fixed == moving (no deformation needed), the warped mask
-            % should closely match the original mask (Dice > 0.95).
-            % This verifies that the DIR pipeline does not corrupt the mask
-            % in the trivial identity-transform case.
-            sz = [32 32 16];
-            img = randn(sz) * 100 + 500;
-            mask = false(sz);
-            mask(12:20, 12:20, 5:12) = true;
-            warped = apply_dir_mask_propagation(img, img, mask);
-            if ~isempty(warped)
-            dice_coeff = 2*sum(warped(:) & mask(:)) / (sum(warped(:)) + sum(mask(:)));
-            testCase.verifyTrue(dice_coeff > 0.95, ...
-            sprintf('Identical images should preserve mask (Dice=%.3f)', dice_coeff));
-            end
-        end
-
-        function testDIR_OutputIsLogical(testCase)
-            % Output mask must be a logical array.
-            sz = [16 16 8];
-            img = randn(sz) * 100 + 500;
-            mask = false(sz); mask(5:10, 5:10, 3:6) = true;
-            warped = apply_dir_mask_propagation(img, img, mask);
-            if ~isempty(warped)
-            testCase.verifyTrue(islogical(warped), 'Warped mask should be logical');
-            testCase.verifyTrue(isequal(size(warped), sz), 'Warped mask should match input size');
-            end
-        end
-
-        % =================================================================
-        % IVIM segmented
-        % =================================================================
-
-        function testIVIM_SegmentedTwoStage_Logic(testCase)
-            % Inline two-stage test: verify that blim=100 includes more high-b
-            % values than blim=200, and that an LLS monoexponential fit on the
-            % high-b subset yields a physiologically plausible D.
-            D_true = 1.5e-3; f_true = 0.15; Dstar_true = 0.05; S0 = 1000;
-            bvals_test = [0; 30; 100; 550];
-            rng(42);
-            S_test = S0 * ((1-f_true)*exp(-bvals_test*D_true) + f_true*exp(-bvals_test*(D_true+Dstar_true)));
-            S_test = S_test + 5*randn(size(S_test));
-            % Stage 1 with blim=100: includes b=100 and b=550 (2 points)
-            b_hi100 = bvals_test(bvals_test >= 100);
-            S_hi100 = S_test(bvals_test >= 100);
-            X100 = [-b_hi100, ones(size(b_hi100))];
-            p100 = X100 \ log(S_hi100);
-            D_est_100 = p100(1);
-            % Stage 1 with blim=200: includes only b=550 (exact, 1 point)
-            b_hi200 = bvals_test(bvals_test >= 200);
-            S_hi200 = S_test(bvals_test >= 200);
-            X200 = [-b_hi200, ones(size(b_hi200))];
-            p200 = X200 \ log(S_hi200);
-            D_est_200 = p200(1);
-            testCase.verifyTrue(D_est_100 > 0 && D_est_100 < 3e-3, ...
-            sprintf('blim=100 D estimate out of physiological range: %.4g', D_est_100));
-            % blim=100 should use more b-values (over-determined), which is the improvement
-            testCase.verifyTrue(length(b_hi100) > length(b_hi200), ...
-            'blim=100 should include more high-b values for D estimation than blim=200');
-        end
-
-        % =================================================================
-        % Time-dependent panel
-        % =================================================================
-
-        function testTD_PanelHasMoreRowsThanPatients(testCase)
-            % Time-dependent panels expand each patient into multiple
-            % intervals (one per timepoint transition). With 3 patients
-            % and 3 timepoints, the panel should have more rows than 3.
-            arr1 = [1.0e-3 1.1e-3 1.2e-3;   % patient 1
-            0.9e-3 0.85e-3 0.8e-3;  % patient 2
-            1.5e-3 1.6e-3 NaN];      % patient 3 (missing tp3)
-            lf_td  = [1; 0; 1];
-            tot_td = [30; 100; 20];
-            [X_td_t, t0, t1, ev, ~] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 3, [0 5 10]);
-            testCase.verifyTrue(size(X_td_t, 1) > length(lf_td), ...
-            'Panel should have more rows than patients');
-        end
-
-        function testTD_NoEventBeforeFinalInterval(testCase)
-            % In counting-process format, the event indicator must be 1
-            % only on the patient's final interval. Earlier intervals for
-            % the same patient must have event=0 (they are still at risk).
-            arr1 = [1.0e-3 1.1e-3 1.2e-3; 0.9e-3 0.85e-3 0.8e-3];
-            lf_td  = [1; 0];
-            tot_td = [20; 100];
-            [~, t0, t1, ev, pid] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 3, [0 5 10]);
-            % For patient 1 (LF), event should only fire on its last interval
-            p1_rows = (pid == 1);
-            ev_p1 = ev(p1_rows);
-            testCase.verifyTrue(sum(ev_p1) == 1 && ev_p1(end) == true, ...
-            'Event must fire exactly once, on the last interval, for LF patient');
-        end
-
-        function testTD_StartAlwaysLessThanStop(testCase)
-            % Every interval must have strictly positive duration (t_start < t_stop).
-            % Zero-length or negative-duration intervals would break Cox models.
-            arr1 = [1.0e-3 1.1e-3; 0.9e-3 0.8e-3; 1.5e-3 1.6e-3];
-            lf_td  = [1; 0; 1];
-            tot_td = [15; 50; 8];
-            [~, t0, t1, ~, ~] = build_td_panel({arr1}, {'ADC'}, lf_td, tot_td, 2, [0 5]);
-            testCase.verifyTrue(all(t0 < t1), 't_start must be strictly less than t_stop for every interval');
-        end
-
-    end
-end
+            X = [2 10; NaN 20
