@@ -55,9 +55,8 @@ classdef test_text_progress_bar < matlab.unittest.TestCase
             % suitable for use as a DataQueue afterEach callback. The returned
             % handle is called manually here to simulate two parallel workers
             % reporting completion.
-            if exist('OCTAVE_VERSION', 'builtin')
-                return;  % Skip in Octave (no DataQueue support)
-            end
+            testCase.assumeTrue(~exist('OCTAVE_VERSION', 'builtin'), ...
+                'Skipped in Octave — no DataQueue support');
             cb = parfor_progress(5, 'Test');
             testCase.verifyClass(cb, 'function_handle');
             % Simulate two afterEach callbacks (as if 2 parfor iterations completed)
