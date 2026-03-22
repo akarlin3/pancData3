@@ -597,7 +597,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (1795 tests across 46 files) using pytest:
+The analysis scripts have a comprehensive Python test suite (34 test files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -607,76 +607,33 @@ cd analysis/tests && python -m pytest -v
 
 ## Improvement Loop
 
-The `improvement_loop/` package provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase. It audits source files, parses structured findings, applies fixes on isolated git branches, runs tests, and logs each iteration to a persistent JSON log.
+The improvement loop is an **external package**: [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
 
-The v2 orchestrator (`orchestrator_v2.py`) uses a four-agent pipeline with RAG-enhanced context retrieval via ChromaDB, while the v1 orchestrator (`orchestrator_v1.py`) remains as a simpler single-pass fallback.
+### Installation
 
-### Requirements
+```bash
+pip install -r analysis/requirements.txt
+```
 
-- `ANTHROPIC_API_KEY` environment variable set
-- Python packages: `anthropic`, `pydantic`, `chromadb` (already in `analysis/requirements.txt`)
+### Configuration
+
+Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `improvement_loop_config.json`.
 
 ### Usage
 
-All commands must be run from the repository root (`pancData3/`), since the package uses relative imports:
-
 ```bash
 # v2 pipeline (recommended) — four-agent RAG-enhanced loop
-python -m improvement_loop.orchestrator_v2
-
-# Dry run — no API calls, no code changes, validates plumbing
-python -m improvement_loop.orchestrator_v2 --dry-run
-
-# Limit to 3 audit/fix cycles
-python -m improvement_loop.orchestrator_v2 --max-iterations 3
-
-# Single iteration mode
-python -m improvement_loop.orchestrator_v2 --single-iteration
+python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # v1 fallback — single-pass orchestrator
-python -m improvement_loop.orchestrator_v1
-
-# View iteration history
-python -m improvement_loop.loop_tracker summary
-
-# Print context for the next iteration (what's already been done)
-python -m improvement_loop.loop_tracker context
+python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # RAG index management
 python -m improvement_loop.rag.indexer --stats
 python -m improvement_loop.rag.indexer --force-rebuild --stats
 ```
 
-### How It Works
-
-**v2 pipeline** — each iteration runs four agent phases:
-
-1. **Audit** (`agents/auditor.py`) — Scans the codebase with RAG-enhanced context and returns structured `Finding` objects. When RAG is enabled, receives semantically relevant code chunks instead of a hardcoded file list.
-2. **Implement** (`agents/implementer.py`) — Creates a branch, generates a fix via the Claude API with related code context (callers/callees, past findings, documentation), commits, and runs a syntax check.
-3. **Review** (`agents/reviewer.py`) — Generates a unified diff, sends it to a reviewer model for quality assessment. Returns approve/request_changes/reject. Critical risk flags (`LEAKAGE_RISK`, `PHI_RISK`) force rejection regardless of the LLM's verdict.
-4. **Test & Merge** — Runs the Python test suite, merges approved branches, performs post-merge sanity checks.
-
-**v1 pipeline** — simpler single-pass: audit → parse → fix → evaluate → exit check.
-
-All iterations are logged to `improvement_loop_log.json` (gitignored). The log tracks audit scores, findings with unique IDs, branch status, and exit conditions.
-
-### Package Structure
-
-| File | Purpose |
-|---|---|
-| `orchestrator_v2.py` | v2 loop: four-agent pipeline (audit → implement → review → merge) |
-| `orchestrator_v1.py` | v1 loop: single-pass audit → parse → fix → evaluate → exit check |
-| `evaluator.py` | `Finding` schema, Claude-based audit scoring, exit condition logic |
-| `loop_tracker.py` | Persistent JSON logging, iteration context generation, CLI interface |
-| `loop_config.py` | Centralised config (`LoopConfig` dataclass) with sensible defaults |
-| `git_utils.py` | Branch management, test runners, commit helpers |
-| `agents/auditor.py` | Code audit agent (RAG-enhanced) |
-| `agents/implementer.py` | Fix implementation agent (RAG-enhanced) |
-| `agents/reviewer.py` | Code review quality gate (RAG-enhanced) |
-| `agents/_api.py` | Shared API retry helper |
-| `rag/chunker.py` | Semantic code chunker (MATLAB/Python/MD/JSON) |
-| `rag/indexer.py` | ChromaDB vector index (build/update/query) |
-| `rag/retriever.py` | Query interface + agent context builders |
+**Requirement:** `ANTHROPIC_API_KEY` environment variable must be set.
 
 ---
 
@@ -736,24 +693,9 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (46 test files, 1795 tests)
-├── improvement_loop/               # Automated audit-fix-evaluate loop
-│   ├── orchestrator_v2.py          #   v2 pipeline orchestrator (four-agent RAG-enhanced)
-│   ├── orchestrator_v1.py          #   v1 single-pass orchestrator (legacy)
-│   ├── evaluator.py                #   Finding schema & audit scoring
-│   ├── loop_tracker.py             #   Persistent JSON logging & CLI
-│   ├── loop_config.py              #   Centralised config (LoopConfig dataclass)
-│   ├── git_utils.py                #   Branch management & test runners
-│   ├── agents/                     #   Agent modules
-│   │   ├── auditor.py              #     Code audit agent (RAG-enhanced)
-│   │   ├── implementer.py          #     Fix implementation agent
-│   │   ├── reviewer.py             #     Code review quality gate
-│   │   └── _api.py                 #     Shared API retry helper
-│   └── rag/                        #   Retrieval-Augmented Generation
-│       ├── chunker.py              #     Semantic code chunker
-│       ├── indexer.py              #     ChromaDB vector index
-│       └── retriever.py            #     Query interface & context builders
-├── improvement_loop_config.example.json  # Loop config template
+│   └── tests/                      #   Python test suite (34 test files)
+├── project_config.example.yaml     # Improvement loop project config template
+├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

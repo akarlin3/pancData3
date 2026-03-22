@@ -245,35 +245,52 @@ After **every feature implementation** (adding a new file, adding a config field
 
 # Pipeline Improvement Loop
 
-> **Canonical driver:** `orchestrator_v2.py` is the primary loop driver (four-agent pipeline).
-> Run it with `python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]`.
-> **Legacy fallback:** `orchestrator_v1.py` remains as a working single-pass orchestrator.
-> Run it with `python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]`.
-> The manual phase instructions below are retained as the fallback reference for manual operation only.
->
-> **v2 pipeline flow:** Each iteration runs four agent phases in sequence:
-> 1. **Audit** — `auditor.audit()` scans the codebase and returns `Finding` objects
-> 2. **Implement** — `implementer.implement()` creates a branch, generates a fix, commits
-> 3. **Review** — `reviewer.review()` diffs original vs new content, returns approve/request_changes/reject
-> 4. **Test & Merge** — runs `git_utils.run_python_tests()`, merges approved branches, post-merge sanity check
+> The improvement loop is now an **external package**: [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop).
+> The package name (`improvement_loop`) is unchanged — it is now installed from an external source via `pip`.
 
-## Tracking infrastructure
+## Installation
 
-The loop is tracked by several modules in `improvement_loop/`:
+```bash
+pip install -r analysis/requirements.txt
+```
 
-- **`evaluator.py`** — Sends the audit text to the Claude API for independent scoring across 6 dimensions (specificity, accuracy, coverage, prioritization, domain_appropriateness, overall). Returns a structured JSON verdict with flags for risky suggestions.
-- **`loop_tracker.py`** — Logs each iteration (scores, findings, branches, test status) to `improvement_loop_log.json`. Provides `get_context_for_next_iteration()` to inject history into subsequent prompts so work is not repeated.
-- **`agents/`** — Subpackage containing agent modules extracted from the orchestrator:
-  - **`agents/auditor.py`** — Audit agent: `audit()` runs a code audit via the Claude API and returns parsed `Finding` objects. Also exposes `collect_source_files()` and `parse_findings()` for direct use.
-  - **`agents/implementer.py`** — Implementer agent: `implement()` creates a branch, generates a code fix via the Claude API, writes it to disk, commits, and runs a syntax check. Returns an `ImplementResult` dataclass with `success`, `original_content`, `new_content`, and `error` fields.
-  - **`agents/reviewer.py`** — Reviewer agent: `review()` generates a unified diff between original and new file content, sends it to the Claude API for code review, and returns a `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`). Acts as a quality gate between implementation and merge — "approve" proceeds to merge, "request_changes" skips merge, "reject" deletes the branch. Critical risk flags (`LEAKAGE_RISK`, `PHI_RISK`) force rejection regardless of the LLM's verdict.
-  - **`agents/_api.py`** — Shared `api_call_with_retry()` helper used by the auditor, implementer, and reviewer agents.
-- **`rag/`** — Retrieval-Augmented Generation subpackage for semantic code search:
-  - **`rag/chunker.py`** — Semantic code chunker: splits MATLAB, Python, Markdown, and JSON files into meaningful chunks (functions, classes, sections) via `chunk_file()` and `chunk_repo()`. Returns `CodeChunk` dataclass instances.
-  - **`rag/indexer.py`** — ChromaDB vector index: `build_index()` (full or incremental), `get_collection()`, `update_index_for_files()`, `index_improvement_history()`. Stores chunks with metadata (file path, type, language, line range, mtime) for incremental updates.
-  - **`rag/retriever.py`** — Query interface: `query()` with filtering (type, language, file, exclusions, min_relevance). Agent-specific context builders: `get_context_for_audit()`, `get_context_for_fix()`, `get_context_for_review()`. Formats results as `=== file ===` blocks. All queries catch ChromaDB exceptions and fall back gracefully.
+This installs `code-improvement-loop` from GitHub along with all other dependencies.
 
-**Requirement:** `pip install anthropic chromadb` and `ANTHROPIC_API_KEY` must be set.
+## Configuration
+
+Copy `project_config.example.yaml` to `project_config.yaml` at the repo root and edit as needed:
+
+```bash
+cp project_config.example.yaml project_config.yaml
+```
+
+The config file defines:
+- Project metadata and git default branch
+- Source directories and test commands
+- Key files for audit context
+- System prompts for audit, review, and judge agents
+- Safety critical flags (`LEAKAGE_RISK`, `PHI_RISK`)
+- RAG collection name
+
+Runtime tuning (API models, token limits, exit strategy thresholds, RAG settings) is still configured via `improvement_loop_config.json` at the repo root.
+
+## Running
+
+```bash
+# Full run
+python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
+
+# Legacy single-pass fallback
+python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
+```
+
+**v2 pipeline flow:** Each iteration runs four agent phases in sequence:
+1. **Audit** — `auditor.audit()` scans the codebase and returns `Finding` objects
+2. **Implement** — `implementer.implement()` creates a branch, generates a fix, commits
+3. **Review** — `reviewer.review()` diffs original vs new content, returns approve/request_changes/reject
+4. **Test & Merge** — runs test suite, merges approved branches, post-merge sanity check
+
+**Requirement:** `ANTHROPIC_API_KEY` must be set.
 
 ## RAG Index Management
 
@@ -287,103 +304,11 @@ python -m improvement_loop.rag.indexer --stats
 python -m improvement_loop.rag.indexer --force-rebuild --stats
 ```
 
-When RAG is enabled, each agent receives enriched context:
-- **Auditor** — receives semantically relevant code chunks across the full codebase (replaces the hardcoded 10-file list)
-- **Implementer** — receives the target file, related callers/callees, past merged findings, and documentation as a `## Related context` section
-- **Reviewer** — receives sibling functions, test files, documentation, and past safety-flagged findings as a `## Codebase context` section
-
-RAG can be disabled by setting `"rag_enabled": false` in `improvement_loop_config.json`, in which case all agents fall back to their original non-RAG behavior.
-
-## Trigger
-When asked to run the improvement loop, execute the following cycle autonomously without pausing for confirmation.
-
-## Phase 0: Load context
-Before the first audit, check for prior iteration history:
-```python
-from loop_tracker import get_context_for_next_iteration
-context = get_context_for_next_iteration()
-```
-Inject this context into your audit so you do not repeat already-implemented improvements.
-
-## Phase 1: Audit
-Analyze the entire codebase across these dimensions:
-- Performance/speed
-- Code quality/readability
-- Correctness/accuracy
-- Memory usage
-- Error handling
-- Modularity/structure
-
-For each finding, assign an importance score from 1-10.
-Compile a ranked improvement list. If no finding scores above 1/10, terminate the loop and report completion. Be as thorough as possible when finding improvements.
-
-## Phase 2: Plan
-Group findings into independent, non-conflicting work units.
-For each unit, create a feature branch off dev:
-  git checkout dev
-  git checkout -b improvement/<short-descriptor>
-
-## Phase 3: Implement (Parallel)
-Implement each improvement on its respective branch.
-After implementing, validate:
-- Run existing tests if present
-- Reason through correctness
-- Check for regressions against adjacent code
-
-## Phase 4: Merge
-For each completed branch, merge into dev sequentially:
-  git checkout dev
-  git merge improvement/<short-descriptor>
-  gh pr create --base dev --head improvement/<short-descriptor> --title "..." --body "..." --merge
-Resolve any conflicts before proceeding to the next branch.
-Delete merged feature branches.
-
-## Phase 5: Log & evaluate
-After merging all branches for this iteration, log the results via the tracker:
-```python
-from loop_tracker import log_iteration
-
-entry = log_iteration(
-    audit_output="<full audit text from Phase 1>",
-    findings=[
-        # One dict per finding from Phase 1:
-        {"dimension": "<dimension>", "description": "<what and where>", "importance": <1-10>},
-        # ...
-    ],
-    branches_created=["improvement/fix-X", "improvement/optimize-Y"],
-    branches_merged=["improvement/fix-X", "improvement/optimize-Y"],
-    tests_passed=True  # or False if any test failures occurred
-)
-```
-
-The tracker will:
-1. Send the audit to `evaluator.py` for independent scoring
-2. Tag each finding with a unique ID and iteration number
-3. Check the exit condition (see below)
-4. Warn if audit scores drifted >3 points from the previous iteration
-5. Print an iteration summary
-
-## Phase 6: Repeat or stop
-Check `entry["exit_condition_met"]`:
-- **False** — return to Phase 0 (context will now include this iteration's history)
-- **True** — proceed to Completion
-
-## Validation Protocol
-
-After every implementation on a feature branch, run the test suite before merging:
-```bash
-cd /path/to/pipeline
-matlab -batch "results = runtests('tests'); if any([results.Failed]), exit(1); else exit(0); end"
-```
-
-- If exit code 0: all tests pass, proceed to merge
-- If exit code 1: tests failed, diagnose and fix before merging
-- Never merge a branch with failing tests
-- If a fix causes a previously passing test to fail, treat this as a regression — revert and reassess
+RAG can be disabled by setting `"rag_enabled": false` in `improvement_loop_config.json`.
 
 ## Exit Condition
 
-The loop exits when `should_continue_loop()` in `evaluator.py` returns False, which requires ALL of:
+The loop exits when `should_continue_loop()` returns False, which requires ALL of:
 1. Every finding in the current audit has importance STRICTLY LESS THAN 2 out of 10
 2. The evaluator's coverage score is at least 6/10 (audit was thorough enough to trust)
 3. The evaluator raised no flags (other than EVALUATION_FAILED)
@@ -394,18 +319,11 @@ Additionally, you may ONLY stop when:
 6. You have written a one-sentence justification for why each finding is below 2/10
 
 If ANY finding scores 2/10 or higher, you MUST continue the loop.
-Do NOT round down scores to justify stopping.
-Do NOT aggregate findings to reduce their count.
-Do NOT stop because improvements are "minor" — only stop when scores are strictly below 2/10.
-
-Before declaring completion, state explicitly:
-"All findings score below 2/10. Listing them: [list]. Proceeding to exit."
-If you cannot complete that statement truthfully, continue the loop.
 
 ## Completion
 After the loop exits, print the full history:
 ```python
-from loop_tracker import print_full_summary
+from improvement_loop.loop_tracker import print_full_summary
 print_full_summary()
 ```
 
