@@ -18,6 +18,18 @@ from improvement_loop.agents.reviewer import (
     review,
 )
 from improvement_loop.evaluator import Finding
+from improvement_loop.loop_config import LoopConfig, reset_config
+
+
+@pytest.fixture(autouse=True)
+def _disable_rag(monkeypatch):
+    """Prevent review() from initialising ChromaDB via RAG retriever."""
+    monkeypatch.setattr(
+        "improvement_loop.agents.reviewer._get_loop_config",
+        lambda: LoopConfig(rag_enabled=False),
+    )
+    yield
+    reset_config()
 
 
 def _make_finding(**overrides) -> Finding:

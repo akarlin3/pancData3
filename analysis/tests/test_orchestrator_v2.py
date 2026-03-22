@@ -20,6 +20,7 @@ from improvement_loop.orchestrator_v2 import (
 from improvement_loop.evaluator import Finding
 from improvement_loop.agents.implementer import ImplementResult
 from improvement_loop.agents.reviewer import ReviewVerdict
+from improvement_loop.loop_config import LoopConfig, reset_config
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +28,17 @@ def _isolate_log(tmp_path, monkeypatch):
     """Point loop_tracker at a temp log file for every test."""
     log_file = str(tmp_path / "test_log.json")
     monkeypatch.setattr(loop_tracker, "LOG_FILE", log_file)
+
+
+@pytest.fixture(autouse=True)
+def _disable_rag(monkeypatch):
+    """Prevent tests from initialising ChromaDB."""
+    monkeypatch.setattr(
+        "improvement_loop.orchestrator_v2._get_loop_config",
+        lambda: LoopConfig(rag_enabled=False),
+    )
+    yield
+    reset_config()
 
 
 def _make_finding(**overrides) -> Finding:
