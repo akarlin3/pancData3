@@ -184,7 +184,7 @@ class TestBuildIndex:
 class TestIncrementalUpdate:
     def test_unchanged_files_skipped(self, sample_repo):
         """A second build_index with no file changes upserts 0 chunks."""
-        db_path = str(sample_repo / ".chromadb")
+        db_path = str(sample_repo / ".chromadb_incr")
         build_index(str(sample_repo), force_rebuild=True, db_path=db_path)
 
         # Second run — incremental, nothing changed
