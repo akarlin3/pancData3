@@ -93,18 +93,23 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % ----------------------------
     % Delegate config parsing, DWI type resolution, output folder setup,
     % diary/error log initialization, GUI, file paths, and cache clearing
-    % to prepare_pipeline_session.  onCleanup guards remain here because
-    % they must be scoped to this function (the caller).
+    % to prepare_pipeline_session.  The session struct includes a cleanup
+    % function handle that encapsulates all resource teardown logic, so
+    % the orchestrator does not depend on internal session field names.
     session = prepare_pipeline_session(pipeline_dir, config_path, master_output_folder, steps_to_run);
 
-    % onCleanup guards: restore figure visibility, close error log, close GUI, turn off diary
-    % These MUST be created before the abort check so that an early return
-    % still triggers all resource cleanup (diary, figure visibility, log
-    % file descriptor, GUI window).
-    cleanup_diary   = onCleanup(@() diary('off')); %#ok<NASGU>
-    cleanup_fig_vis = onCleanup(@() set(0, 'DefaultFigureVisible', session.prev_fig_vis)); %#ok<NASGU>
-    cleanup_log = onCleanup(@() safe_fclose_log(session.log_fid)); %#ok<NASGU>
-    cleanup_gui = onCleanup(@() closeIfValid(session.pipeGUI)); %#ok<NASGU>
+    % onCleanup guard: use the session-provided cleanup handle so that all
+    % resource teardown knowledge (diary, figure visibility, log file
+    % descriptor, GUI window) is encapsulated within the session creator.
+    % This MUST be created before the abort check so that an early return
+    % still triggers all resource cleanup.
+    if isfield(session, 'cleanup') && isa(session.cleanup, 'function_handle')
+        cleanup_guard = onCleanup(session.cleanup); %#ok<NASGU>
+    else
+        % Fallback: if session does not provide a cleanup handle, build
+        % guards from known fields (backwards compatibility).
+        cleanup_guard = onCleanup(@() fallback_cleanup(session)); %#ok<NASGU>
+    end
 
     if session.abort
         return;
@@ -131,7 +136,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     fprintf('%s Pipeline Execution Complete for parameter %s\n', safe_icon('done'), session.current_name);
     fprintf('=======================================================\n');
 
-    if session.log_fid > 0
+    if isfield(session, 'log_fid') && session.log_fid > 0
         fprintf(session.log_fid, '[%s] ===== Pipeline run completed (type: %s) =====\n', ...
             datestr(now, 'yyyy-mm-dd HH:MM:SS'), session.current_name);
     end
@@ -140,6 +145,22 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 end
 
 %% ===== Utility functions (remain in orchestrator) =====
+
+function fallback_cleanup(session)
+%FALLBACK_CLEANUP  Perform resource cleanup using known session fields.
+%   This is used only when prepare_pipeline_session does not provide a
+%   session.cleanup function handle (backwards compatibility).
+    try diary('off'); catch, end
+    if isfield(session, 'prev_fig_vis')
+        try set(0, 'DefaultFigureVisible', session.prev_fig_vis); catch, end
+    end
+    if isfield(session, 'log_fid')
+        safe_fclose_log(session.log_fid);
+    end
+    if isfield(session, 'pipeGUI')
+        closeIfValid(session.pipeGUI);
+    end
+end
 
 function closeIfValid(gui)
 %CLOSEIFVALID  Close a PipelineProgressGUI if it is still valid.
