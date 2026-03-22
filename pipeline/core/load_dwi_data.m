@@ -524,4 +524,376 @@ parfor j = 1:length(mrn_list)
                 fprintf('%s, no %s folder\n',id_list{j},fx_search{fi});
             end
 
-            % Retrieve previously discovered file paths
+            % Retrieve previously discovered file paths for this combination
+            dicomloc = dwi_locations{j,fi,rpi};
+            struct_file = gtv_locations{j,fi,rpi};
+            struct_file_gtvn = gtvn_locations{j,fi,rpi};
+            if fi<=size(rtdose_locations,2)
+                dicomdoseloc = rtdose_locations{j,fi};  % RT dose only for Fx1–Fx5
+            else
+                dicomdoseloc = [];  % no dose for post-treatment scan
+            end
+
+            % Build scan context for this fraction × repeat
+            scan_ctx = struct();
+            scan_ctx.fi = fi;
+            scan_ctx.rpi = rpi;
+            scan_ctx.dicomloc = dicomloc;
+            scan_ctx.struct_file = struct_file;
+            scan_ctx.struct_file_gtvn = struct_file_gtvn;
+            scan_ctx.dicomdoseloc = dicomdoseloc;
+            scan_ctx.basefolder = basefolder;
+            scan_ctx.dataloc = dataloc;
+            scan_ctx.patient_id = patient_id;
+            scan_ctx.id_j = id_list{j};
+            scan_ctx.mrn_j = mrn_list{j};
+            scan_ctx.pat_lf = pat_lf;
+            scan_ctx.pat_immuno = pat_immuno;
+            scan_ctx.dcm2nii_call = dcm2nii_call;
+            scan_ctx.ivim_bthr = ivim_bthr;
+            scan_ctx.use_gpu = use_gpu;
+            scan_ctx.n_rtdose_cols = size(rtdose_locations,2);
+            scan_ctx.b0_fx1_ref = b0_fx1_ref;
+            scan_ctx.gtv_mask_fx1_ref = gtv_mask_fx1_ref;
+            scan_ctx.gtvn_mask_fx1_ref = gtvn_mask_fx1_ref;
+
+            % Process this scan and collect results
+            [scan_result, b0_ref_upd, gtvp_ref_upd, gtvn_ref_upd] = ...
+                process_single_scan(scan_ctx);
+
+            % Update Fx1 reference volumes when returned
+            if ~isempty(b0_ref_upd),   b0_fx1_ref = b0_ref_upd;           end
+            if ~isempty(gtvp_ref_upd), gtv_mask_fx1_ref = gtvp_ref_upd;   end
+            if ~isempty(gtvn_ref_upd), gtvn_mask_fx1_ref = gtvn_ref_upd;  end
+
+            % Warn if baseline reference could not be established at Fx1.
+            % Subsequent fractions will silently skip DIR registration,
+            % producing spatially misaligned parameter and dose maps.
+            if fi == 1 && isempty(b0_fx1_ref)
+                warning('load_dwi_data:missingFx1Reference', ...
+                    'Baseline b0 reference not available for patient %s. DIR registration will be skipped for all subsequent fractions.', id_list{j});
+            end
+
+            % Collect bad DWI locations
+            for bi_bad = 1:length(scan_result.bad_dwi_list)
+                bad_dwi_idx_j = bad_dwi_idx_j + 1;
+                bad_dwi_list_j{bad_dwi_idx_j} = scan_result.bad_dwi_list{bi_bad};
+            end
+
+            % Assign scan results back to patient-level arrays
+            pat_data_vectors_gtvp(fi,rpi) = scan_result.data_gtvp;
+            pat_data_vectors_gtvn(fi,rpi) = scan_result.data_gtvn;
+            pat_adc_mean(1,fi,rpi) = scan_result.adc_mean;
+            pat_adc_kurtosis(1,fi,rpi) = scan_result.adc_kurtosis;
+            pat_d_mean(1,fi,rpi) = scan_result.d_mean;
+            pat_d_kurtosis(1,fi,rpi) = scan_result.d_kurtosis;
+            pat_d_mean_dncnn(1,fi,rpi) = scan_result.d_mean_dncnn;
+            pat_d_mean_ivimnet(1,fi,rpi) = scan_result.d_mean_ivimnet;
+            % Collect DVH metrics for this repeat (averaged after loop)
+            dvh_dmean_gtvp_rp(rpi)  = scan_result.dmean_gtvp;
+            dvh_dmean_gtvn_rp(rpi)  = scan_result.dmean_gtvn;
+            dvh_d95_gtvp_rp(rpi)    = scan_result.d95_gtvp;
+            dvh_d95_gtvn_rp(rpi)    = scan_result.d95_gtvn;
+            dvh_v50gy_gtvp_rp(rpi)  = scan_result.v50gy_gtvp;
+            dvh_v50gy_gtvn_rp(rpi)  = scan_result.v50gy_gtvn;
+        end
+        % Average DVH metrics across repeats (nanmean ignores missing repeats)
+        pat_dmean_gtvp(1,fi)  = nanmean(dvh_dmean_gtvp_rp);
+        pat_dmean_gtvn(1,fi)  = nanmean(dvh_dmean_gtvn_rp);
+        pat_d95_gtvp(1,fi)    = nanmean(dvh_d95_gtvp_rp);
+        pat_d95_gtvn(1,fi)    = nanmean(dvh_d95_gtvn_rp);
+        pat_v50gy_gtvp(1,fi)  = nanmean(dvh_v50gy_gtvp_rp);
+        pat_v50gy_gtvn(1,fi)  = nanmean(dvh_v50gy_gtvn_rp);
+    end
+    bad_dwi_list_j = bad_dwi_list_j(1:bad_dwi_idx_j);
+    bad_dwi_locations_per_patient{j} = bad_dwi_list_j;
+
+    % Collect output struct for checkpointing
+    pat_data_out = struct();
+    pat_data_out.data_vectors_gtvp = pat_data_vectors_gtvp;
+    pat_data_out.data_vectors_gtvn = pat_data_vectors_gtvn;
+    pat_data_out.dmean_gtvp = pat_dmean_gtvp;
+    pat_data_out.dmean_gtvn = pat_dmean_gtvn;
+    pat_data_out.d95_gtvp = pat_d95_gtvp;
+    pat_data_out.d95_gtvn = pat_d95_gtvn;
+    pat_data_out.v50gy_gtvp = pat_v50gy_gtvp;
+    pat_data_out.v50gy_gtvn = pat_v50gy_gtvn;
+    pat_data_out.adc_mean = pat_adc_mean;
+    pat_data_out.adc_kurtosis = pat_adc_kurtosis;
+    pat_data_out.d_mean = pat_d_mean;
+    pat_data_out.d_kurtosis = pat_d_kurtosis;
+    pat_data_out.d_mean_dncnn = pat_d_mean_dncnn;
+    pat_data_out.d_mean_ivimnet = pat_d_mean_ivimnet;
+    pat_data_out.lf = pat_lf;
+    pat_data_out.immuno = pat_immuno;
+    pat_data_out.bad_dwi_list = bad_dwi_list_j;
+
+    % Save checkpoint with lock-file protection to prevent race conditions
+    % in parfor: the .lock file signals that a write is in progress.
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
+    lock_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.lock', j, patient_id));
+    parsave_checkpoint(checkpoint_file, pat_data_out, lock_file);
+
+    % Signal progress to the client-side progress bar
+    if ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(dq_progress)
+        send(dq_progress, j);
+    end
+
+    fprintf('Finished processing patient %d/%d (MRN: %s)\n', j, length(mrn_list), mrn);
+end
+
+% Reconstruct global arrays from per-patient checkpoints.
+% Each checkpoint contains one patient's complete processing results
+% (all fractions, all repeats). This reconstruction step assembles the
+% individual patient results into cohort-wide arrays that downstream
+% analysis expects. The separation between per-patient checkpointing
+% (during parfor) and global reconstruction (sequential) is necessary
+% because parfor does not support direct assignment to shared struct arrays
+% with dynamic field sets.
+n_reconstruct = length(mrn_list);
+for j = 1:n_reconstruct
+    text_progress_bar(j, n_reconstruct, 'Reconstructing checkpoints');
+    mrn = mrn_list{j};
+    patient_id = id_list{j};
+    checkpoint_file = fullfile(checkpoint_dir, sprintf('patient_%03d_%s.mat', j, patient_id));
+
+    if exist(checkpoint_file, 'file')
+        % Load checkpoint with basic corruption detection
+        loaded_data = load(checkpoint_file);
+
+        required_fields = {'data_vectors_gtvp', 'data_vectors_gtvn', ...
+            'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', ...
+            'v50gy_gtvp', 'v50gy_gtvn', 'adc_mean', 'd_mean', ...
+            'd_mean_dncnn', 'd_mean_ivimnet', 'lf', 'immuno', 'bad_dwi_list'};
+        missing_fields = setdiff(required_fields, fieldnames(loaded_data));
+        if ~isempty(missing_fields)
+            warning('load_dwi_data:corruptCheckpoint', ...
+                'Checkpoint for patient %d (%s) is missing fields: %s. Skipping.', ...
+                j, patient_id, strjoin(missing_fields, ', '));
+            continue;
+        end
+
+        % Validate dimensions of checkpoint arrays against expected sizes
+        expected_n_fx = size(dwi_locations, 2);
+        expected_n_rp = size(dwi_locations, 3);
+        cp_adc_size = size(loaded_data.adc_mean);
+        if length(cp_adc_size) < 2 || cp_adc_size(2) ~= expected_n_fx
+            warning('load_dwi_data:checkpointSizeMismatch', ...
+                'Checkpoint for patient %d (%s): adc_mean has %d fractions, expected %d. Skipping.', ...
+                j, patient_id, cp_adc_size(2), expected_n_fx);
+            continue;
+        end
+        if length(cp_adc_size) >= 3 && cp_adc_size(3) ~= expected_n_rp
+            warning('load_dwi_data:checkpointSizeMismatch', ...
+                'Checkpoint for patient %d (%s): adc_mean has %d repeats, expected %d. Skipping.', ...
+                j, patient_id, cp_adc_size(3), expected_n_rp);
+            continue;
+        end
+
+        % Assign back to global arrays
+        % Struct arrays
+        data_vectors_gtvp = align_and_assign_struct(data_vectors_gtvp, loaded_data.data_vectors_gtvp, j);
+        data_vectors_gtvn = align_and_assign_struct(data_vectors_gtvn, loaded_data.data_vectors_gtvn, j);
+
+        % Scalar/Vector arrays (patient x fraction)
+        dmean_gtvp(j,:) = loaded_data.dmean_gtvp;
+        dmean_gtvn(j,:) = loaded_data.dmean_gtvn;
+        d95_gtvp(j,:) = loaded_data.d95_gtvp;
+        d95_gtvn(j,:) = loaded_data.d95_gtvn;
+        v50gy_gtvp(j,:) = loaded_data.v50gy_gtvp;
+        v50gy_gtvn(j,:) = loaded_data.v50gy_gtvn;
+
+        % Summary metrics (patient x fraction x repeat)
+        adc_mean(j,:,:) = loaded_data.adc_mean;
+        if isfield(loaded_data, 'adc_kurtosis')
+            adc_kurtosis(j,:,:) = loaded_data.adc_kurtosis;
+        end
+        d_mean(j,:,:) = loaded_data.d_mean;
+        if isfield(loaded_data, 'd_kurtosis')
+            d_kurtosis(j,:,:) = loaded_data.d_kurtosis;
+        end
+        d_mean_dncnn(j,:,:) = loaded_data.d_mean_dncnn;
+        d_mean_ivimnet(j,:,:) = loaded_data.d_mean_ivimnet;
+
+        % Clinical data and tracking
+        lf(j) = loaded_data.lf;
+        immuno(j) = loaded_data.immuno;
+        bad_dwi_locations_per_patient{j} = loaded_data.bad_dwi_list;
+    else
+        fprintf('Warning: No checkpoint found for patient %d (Patient ID %s) during reconstruction.\n', j, patient_id);
+    end
+end
+
+% Flatten bad_dwi_locations from per-patient cell arrays into a single
+% cohort-wide list.  These flagged acquisitions are reported in the
+% pipeline log for the physicist to review and decide on exclusion.
+bad_dwi_locations = [bad_dwi_locations_per_patient{:}];
+bad_dwi_count = length(bad_dwi_locations);
+
+%% ========================================================================
+fprintf('\n--- SECTION 3: Save Results ---\n');
+%  SECTION 3 — SAVE RESULTS
+%  [CHECKPOINT]: Saves the output of the computationally intensive Section 2.
+%  This .mat file serves as the input for Section 4, allowing the pipeline
+%  to resume from here in future runs.
+
+datasave = fullfile(dataloc, 'dwi_vectors.mat');
+% Create a date-stamped backup before overwriting to prevent accidental
+% data loss from re-running the pipeline.  Backups accumulate in dataloc
+% but are small relative to the imaging data (~10-50 MB per cohort).
+if exist(datasave,'file')
+    dt = datetime('now');
+    dateString = char(dt, 'yyyy_MMM_dd');
+    newfilename = fullfile(dataloc, ['dwi_vectors_', dateString, '.mat']);
+    copyfile(datasave,newfilename);
+    fprintf('backed up existing save to %s\n',newfilename);
+end
+% Save to a DWI-type-specific file so that Standard, dnCNN, and IVIMnet
+% results coexist on disk without overwriting each other.
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+% Persist all cohort-level arrays.  This .mat file is the checkpoint that
+% allows Section 4 (reload) to bypass the expensive Section 1-3 processing.
+save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
+fprintf('saved %s\n',datasave);
+
+else
+    %% ========================================================================
+    fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
+    %  SECTION 4 — RELOAD SAVED DATA
+    %  [ENTRY POINT]: If skip_to_reload=true, execution begins here.
+    %  Loads the pre-processed 'dwi_vectors.mat' containing voxel-level data.
+
+    % Set data path from configuration
+    dataloc = config_struct.dataloc;
+
+if isfield(config_struct, 'dwi_type_name')
+    file_prefix = ['_' config_struct.dwi_type_name];
+else
+    file_prefix = '';
+end
+datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+if ~exist(datasave, 'file') && ~isempty(file_prefix)
+    % Fallback to the default (un-typed) file when the variant-specific
+    % file has not been created yet (e.g. first run before per-type saves).
+    % NOTE: run_dwi_pipeline.m (reload branch, ~line 288) restricts this
+    % fallback to Standard (dtype==1) only, preventing cross-type
+    % contamination.  This path is only reached during the initial 'load'
+    % step or direct calls outside the orchestrator.
+    datasave_fallback = fullfile(dataloc, 'dwi_vectors.mat');
+    if exist(datasave_fallback, 'file')
+        fprintf('  %s not found — falling back to %s\n', ...
+            ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+        datasave = datasave_fallback;
+    end
+end
+if ~exist(datasave, 'file')
+    type_label = '';
+    if isfield(config_struct, 'dwi_type_name')
+        type_label = config_struct.dwi_type_name;
+    end
+    error('load_dwi_data:fileNotFound', ...
+        'Required data file ''%s'' not found. Run the load step for DWI type ''%s'' before reloading.', ...
+        datasave, type_label);
+end
+tmp_data = load(datasave);
+data_vectors_gtvn = tmp_data.data_vectors_gtvn; data_vectors_gtvp = tmp_data.data_vectors_gtvp; lf = tmp_data.lf;
+immuno = tmp_data.immuno; mrn_list = tmp_data.mrn_list; id_list = tmp_data.id_list; fx_dates = tmp_data.fx_dates;
+dwi_locations = tmp_data.dwi_locations; rtdose_locations = tmp_data.rtdose_locations; gtv_locations = tmp_data.gtv_locations;
+gtvn_locations = tmp_data.gtvn_locations; dmean_gtvp = tmp_data.dmean_gtvp; dmean_gtvn = tmp_data.dmean_gtvn;
+d95_gtvp = tmp_data.d95_gtvp; d95_gtvn = tmp_data.d95_gtvn; v50gy_gtvp = tmp_data.v50gy_gtvp; v50gy_gtvn = tmp_data.v50gy_gtvn;
+bad_dwi_locations = tmp_data.bad_dwi_locations; bad_dwi_count = tmp_data.bad_dwi_count;
+
+if exist('OCTAVE_VERSION', 'builtin') && ~exist('id_list', 'var')
+    warning('id_list not loaded from save file. This may occur during mock tests. Proceeding with dummy data.');
+    id_list = {}; mrn_list = {}; lf = []; immuno = {}; gtv_locations = []; dwi_locations = []; dmean_gtvp = []; d95_gtvp = []; v50gy_gtvp = []; data_vectors_gtvp = []; data_vectors_gtvn = [];
+end
+end % if ~skip_to_reload
+
+%% ========================================================================
+fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
+%  SECTION 5 — LONGITUDINAL SUMMARY METRICS
+%  This section bridges the gap between raw voxel-level data (thousands of
+%  values per patient per timepoint) and the patient-level summary statistics
+%  needed for clinical correlation analysis. compute_summary_metrics
+%  aggregates voxel distributions into mean, kurtosis, skewness, SD,
+%  sub-volume fractions, and KS-test statistics — the feature set used by
+%  downstream modules (metrics_baseline, metrics_longitudinal, survival).
+
+summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp, fx_dates);
+
+end
+
+function parsave_checkpoint(fname, data, lock_file)
+    % Parallel-safe checkpoint writer with lock-file protocol.
+    % In a parfor loop, multiple workers may finish near-simultaneously.
+    % The .lock file acts as a write-ahead indicator: if the pipeline
+    % crashes between lock creation and .mat completion, the recovery
+    % logic in the main function detects the orphaned .lock and re-processes
+    % the patient. This ensures data integrity even after unclean shutdowns.
+    % Create lock sentinel BEFORE writing to prevent race conditions.
+    % The lock is removed only after the .mat write completes successfully.
+    if nargin >= 3 && ~isempty(lock_file)
+        fid = fopen(lock_file, 'w');
+        if fid > 0, fclose(fid); end
+    end
+    save(fname, '-struct', 'data');
+    if nargin >= 3 && ~isempty(lock_file) && exist(lock_file, 'file')
+        delete(lock_file);
+    end
+end
+
+function global_struct = align_and_assign_struct(global_struct, new_struct, index)
+    % ALIGN_AND_ASSIGN_STRUCT Helper to assign struct arrays with potentially missing fields
+    %   Different patients may have different sets of available data (e.g.,
+    %   one patient has DnCNN results while another does not), resulting in
+    %   struct arrays with different field sets. MATLAB requires all elements
+    %   of a struct array to have identical fields. This helper reconciles
+    %   field differences by adding empty placeholders for missing fields in
+    %   both the global and new structs before performing the assignment.
+
+    % Per-patient checkpoint data is stored as nFx x nRp (no patient dim).
+    % Reshape to 1 x nFx x nRp so it can be slotted into the global
+    % nPatients x nFx x nRp array at (index, :, :).
+    if ndims(new_struct) <= 2 && size(new_struct, 1) > 1
+        new_struct = reshape(new_struct, [1, size(new_struct)]);
+    end
+
+    if isempty(fieldnames(global_struct))
+        % Initialise global struct: create a matching-fields template so
+        % MATLAB can perform subscripted assignment at any index.
+        fields = fieldnames(new_struct);
+        empty_vals = repmat({[]}, numel(fields), 1);
+        template = cell2struct(empty_vals, fields, 1);
+        sz_new = size(new_struct);
+        dims = [index, sz_new(2:end)];
+        global_struct = repmat(template, dims);
+        global_struct(index, :, :) = new_struct;
+        return;
+    end
+
+    fields_global = fieldnames(global_struct);
+    fields_new = fieldnames(new_struct);
+
+    % Add any fields that exist in global_struct but are missing in new_struct
+    missing_in_new = setdiff(fields_global, fields_new);
+    for i = 1:length(missing_in_new)
+        [new_struct.(missing_in_new{i})] = deal([]);
+    end
+
+    % Add any fields that exist in new_struct but are missing in global_struct
+    missing_in_global = setdiff(fields_new, fields_global);
+    for i = 1:length(missing_in_global)
+        [global_struct.(missing_in_global{i})] = deal([]);
+    end
+
+    % Order the new struct fields to match global_struct
+    new_struct = orderfields(new_struct, global_struct);
+
+    % Perform the assignment safely
+    global_struct(index, :, :) = new_struct;
+end
