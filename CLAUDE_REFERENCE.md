@@ -268,7 +268,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-45 test files with 1790 tests. Run with `cd analysis/tests && python -m pytest -v`.
+45 test files with 1795 tests. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -311,7 +311,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
 | `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
 | `test_auditor_agent.py` | Improvement loop auditor agent: RAG-enhanced code audit, source file collection, finding parsing |
-| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking |
+| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking, dry-run mode |
 | `test_reviewer_agent.py` | Improvement loop reviewer agent: diff generation, quality gate verdicts, risk flag enforcement |
 | `test_orchestrator_v2.py` | Improvement loop v2 orchestrator: four-agent pipeline (audit → implement → review → merge), RAG integration |
 | `test_chunker.py` | RAG semantic code chunker: MATLAB/Python/Markdown/JSON splitting, oversized chunk handling, metadata extraction |

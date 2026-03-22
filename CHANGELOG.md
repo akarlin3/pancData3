@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0-beta.1] - 2026-03-22
+
+### Added
+
+#### Configurable IVIM Optimizer Parameters
+- **`fit_models.m`**: IVIM `lsqnonlin` optimizer settings (tolerances, iteration limits) are now configurable via `opts` struct fields (`optim_tol`, `func_tol`, `step_tol`, `max_iterations`, `max_func_evals`) with backward-compatible defaults; extracted `getfield_default()` local helper for clean fallback logic
+
+#### Test Coverage
+- **`test_implementer_agent.py`**: 5 new tests for `implement()` dry-run mode — happy path with real file, nonexistent file, no filesystem side effects, no git calls, and no API calls
+- **`test_statistical_methods.m`**: Added explicit b-value count mismatch assertion in extra-value validation test
+
+### Fixed
+- **`implementer.py`**: Fixed `NameError` — `cfg` was referenced in `implement()` at line 110 but only defined inside `_generate_fix()`; added `cfg = _get_loop_config()` to `implement()` scope
+- **`fit_models.m`**: Empty mask guard — when GTV mask contains no valid voxels, returns NaN-initialized parameter maps with a warning instead of crashing on empty array indexing
+
+### Changed
+- **`run_all_tests.m`**: Parallel capability check cached in a persistent variable to avoid repeated metaclass introspection; serial fallback now runs the complete test suite (parallel + serial partitions) instead of silently dropping the parallel-safe partition
+- **`test_text_progress_bar.m`**: Octave skip converted from bare `return` to `assumeTrue()` for proper test framework skip reporting
+
+### Documentation
+- Python test suite: 1790 → 1795 tests
+
+---
+
 ## [2.2.0-alpha.1] - 2026-03-21
 
 ### Added

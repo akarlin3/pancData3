@@ -81,7 +81,7 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (37 files)
-│   └── tests/                          # Python test suite — 45 test files, 1790 tests (pytest)
+│   └── tests/                          # Python test suite — 45 test files, 1795 tests (pytest)
 ├── improvement_loop/                    # Automated audit/fix loop
 │   ├── orchestrator_v2.py              #   Pipeline orchestrator (audit → implement → review → merge)
 │   ├── orchestrator_v1.py              #   Legacy single-pass orchestrator
@@ -319,7 +319,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 45 test files with 1790 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 45 test files with 1795 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
 
 | File | What it covers |
 |---|---|
@@ -362,7 +362,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
 | `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
 | `test_auditor_agent.py` | Improvement loop auditor agent: RAG-enhanced code audit, source file collection, finding parsing |
-| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking |
+| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking, dry-run mode |
 | `test_reviewer_agent.py` | Improvement loop reviewer agent: diff generation, quality gate verdicts, risk flag enforcement |
 | `test_orchestrator_v2.py` | Improvement loop v2 orchestrator: four-agent pipeline (audit → implement → review → merge), RAG integration |
 | `test_chunker.py` | RAG semantic code chunker: MATLAB/Python/Markdown/JSON splitting, oversized chunk handling, metadata extraction |
