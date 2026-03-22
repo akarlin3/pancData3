@@ -481,7 +481,7 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testBval_ValidationLogic_UnsortedMatch(testCase)
             % Unsorted b-values that match after sorting should pass.
-            bvals = [0; 30; 150; 550];
+            bvals = [550; 30; 0; 150];
             expected_bvals = [0; 30; 150; 550];
             testCase.verifyTrue(isequal(sort(bvals), expected_bvals), ...
             'Unsorted but correct b-values should pass validation');
