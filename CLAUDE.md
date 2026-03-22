@@ -33,7 +33,7 @@ This repository uses a multi-agent architecture:
 |---|---|---|
 | **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
-| **Improvement Loop Agents** | Autonomous audit → implement → review → merge (RAG-enhanced) | API-driven, no patient data access |
+| **Improvement Loop** (external) | Autonomous audit → implement → review → merge (RAG-enhanced) | External package ([code-improvement-loop](https://github.com/akarlin3/improvementLoop)), configured via `project_config.yaml` |
 
 ### Critical Safety Rules
 
@@ -82,24 +82,10 @@ pancData3/
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (37 files)
-│   └── tests/                          # Python test suite — 46 test files, 1795 tests (pytest)
-├── improvement_loop/                    # Automated audit/fix loop
-│   ├── orchestrator_v2.py              #   Pipeline orchestrator (audit → implement → review → merge)
-│   ├── orchestrator_v1.py              #   Legacy single-pass orchestrator
-│   ├── evaluator.py                    #   Finding schema + audit scoring + exit logic
-│   ├── loop_tracker.py                 #   Iteration logging + context generation
-│   ├── loop_config.py                  #   Centralised config (LoopConfig dataclass)
-│   ├── git_utils.py                    #   Subprocess-based git operations
-│   ├── agents/                         #   Agent modules
-│   │   ├── auditor.py                 #     Code audit agent (RAG-enhanced)
-│   │   ├── implementer.py            #     Fix implementation agent (RAG-enhanced)
-│   │   ├── reviewer.py               #     Code review quality gate (RAG-enhanced)
-│   │   └── _api.py                   #     Shared API retry helper
-│   └── rag/                           #   Retrieval-Augmented Generation
-│       ├── chunker.py                 #     Semantic code chunker (MATLAB/Python/MD/JSON)
-│       ├── indexer.py                 #     ChromaDB vector index (build/update/query)
-│       └── retriever.py               #     Query interface + agent context builders
-├── improvement_loop_config.example.json # Improvement loop config template (committed)
+│   └── tests/                          # Python test suite — 34 test files, pytest
+├── project_config.yaml                  # Improvement loop project config (not committed)
+├── project_config.example.yaml          # Improvement loop project config template (committed)
+├── improvement_loop_config.example.json # Improvement loop runtime config template (committed)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -320,7 +306,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 46 test files with 1795 tests in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`.
+**Python Test Suite (pytest):** 34 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -357,20 +343,8 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
-| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic, diminishing returns detection, loop config loading |
-| `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
-| `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
-| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
 | `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
-| `test_auditor_agent.py` | Improvement loop auditor agent: RAG-enhanced code audit, source file collection, finding parsing |
-| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking, dry-run mode |
-| `test_reviewer_agent.py` | Improvement loop reviewer agent: diff generation, quality gate verdicts, risk flag enforcement |
-| `test_orchestrator_v2.py` | Improvement loop v2 orchestrator: four-agent pipeline (audit → implement → review → merge), RAG integration |
-| `test_chunker.py` | RAG semantic code chunker: MATLAB/Python/Markdown/JSON splitting, oversized chunk handling, metadata extraction |
-| `test_retriever.py` | RAG retriever: ChromaDB query interface, agent-specific context builders, deduplication, relevance filtering |
-| `test_rag_integration.py` | RAG integration: end-to-end chunk → index → retrieve pipeline, incremental updates, history indexing |
-| `test_indexer.py` | RAG indexer: ChromaDB build/update, incremental indexing, duplicate chunk ID handling, improvement history |
-For the full list of 105 MATLAB test files and 46 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 105 MATLAB test files and 34 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 

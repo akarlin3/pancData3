@@ -268,7 +268,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-46 test files with 1795 tests. Run with `cd analysis/tests && python -m pytest -v`.
+34 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -305,19 +305,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
-| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic, diminishing returns detection, loop config loading |
-| `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
-| `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
-| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
 | `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
-| `test_auditor_agent.py` | Improvement loop auditor agent: RAG-enhanced code audit, source file collection, finding parsing |
-| `test_implementer_agent.py` | Improvement loop implementer agent: branch creation, code fix generation, syntax checking, dry-run mode |
-| `test_reviewer_agent.py` | Improvement loop reviewer agent: diff generation, quality gate verdicts, risk flag enforcement |
-| `test_orchestrator_v2.py` | Improvement loop v2 orchestrator: four-agent pipeline (audit → implement → review → merge), RAG integration |
-| `test_chunker.py` | RAG semantic code chunker: MATLAB/Python/Markdown/JSON splitting, oversized chunk handling, metadata extraction |
-| `test_retriever.py` | RAG retriever: ChromaDB query interface, agent-specific context builders, deduplication, relevance filtering |
-| `test_rag_integration.py` | RAG integration: end-to-end chunk → index → retrieve pipeline, incremental updates, history indexing |
-| `test_indexer.py` | RAG indexer: ChromaDB build/update, incremental indexing, duplicate chunk ID handling, improvement history |
 
 ---
 
