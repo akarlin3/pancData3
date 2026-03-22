@@ -21,17 +21,18 @@ addpath(utilsDir);
 if exist('OCTAVE_VERSION', 'builtin')
     addpath(fullfile(repoRoot, '.octave_compat'));
 else
-    % Defensive: remove octave_compat from path if it was added by a
-    % previous session, startup.m, or a test that forgot to clean up.
+    % Defensive: remove ALL path entries containing 'octave_compat'.
     % The @table shim inside octave_compat conflicts with MATLAB's built-in
     % table class, and the +matlab/+unittest/TestSuite shim shadows the
     % built-in TestSuite (breaking fromFolder's internal fromFolderCore_).
-    % Use unconditional rmpath wrapped in warning suppression instead of
-    % contains(path, ...) which can miss due to path separator mismatches
-    % on Windows.
-    oc_dir = fullfile(repoRoot, '.octave_compat');
+    % Scan the full path string to catch entries regardless of how they
+    % were added (genpath, addpath, saved pathdef.m, etc.).
     w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
-    rmpath(genpath(oc_dir));
+    all_paths = strsplit(path, pathsep);
+    oc_paths = all_paths(contains(all_paths, 'octave_compat'));
+    for oc_i = 1:numel(oc_paths)
+        rmpath(oc_paths{oc_i});
+    end
     warning(w_state);
 end
 addpath(repoRoot);

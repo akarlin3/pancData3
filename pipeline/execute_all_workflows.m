@@ -65,13 +65,16 @@ config_file = fullfile(repo_root, 'config.json');
 % MATLAB's Parallel Computing Toolbox (parpool, parfor, pctRunOnAll).
 % Octave compatibility mode runs the pipeline serially instead.
 if ~exist('OCTAVE_VERSION', 'builtin')
-    % Remove .octave_compat from the MATLAB path if it was persisted in
-    % pathdef.m by a previous session.  The Octave shims shadow built-in
-    % classes (TestSuite, categorical, table) and must never be on the path
-    % in MATLAB.
-    oc_dir = fullfile(pipeline_root, '.octave_compat');
+    % Remove ALL path entries containing 'octave_compat'.  The Octave shims
+    % shadow built-in classes (TestSuite, categorical, table) and must never
+    % be on the path in MATLAB.  Scan the full path string to catch entries
+    % regardless of how they were added (genpath, addpath, saved pathdef.m).
     w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
-    rmpath(genpath(oc_dir));
+    all_paths = strsplit(path, pathsep);
+    oc_paths = all_paths(contains(all_paths, 'octave_compat'));
+    for oc_i = 1:numel(oc_paths)
+        rmpath(oc_paths{oc_i});
+    end
     warning(w_state);
 
     % Delete any stale parallel jobs before creating a new pool.
