@@ -150,15 +150,36 @@ function fallback_cleanup(session)
 %FALLBACK_CLEANUP  Perform resource cleanup using known session fields.
 %   This is used only when prepare_pipeline_session does not provide a
 %   session.cleanup function handle (backwards compatibility).
-    try diary('off'); catch, end
+%   Each cleanup operation is wrapped in try-catch to ensure partial
+%   cleanup succeeds even if individual operations fail.
+    try 
+        diary('off'); 
+    catch ME
+        warning('fallback_cleanup:DiaryFailed', 'Failed to turn off diary: %s', ME.message);
+    end
+    
     if isfield(session, 'prev_fig_vis')
-        try set(0, 'DefaultFigureVisible', session.prev_fig_vis); catch, end
+        try 
+            set(0, 'DefaultFigureVisible', session.prev_fig_vis); 
+        catch ME
+            warning('fallback_cleanup:FigureVisibilityFailed', 'Failed to restore figure visibility: %s', ME.message);
+        end
     end
+    
     if isfield(session, 'log_fid')
-        safe_fclose_log(session.log_fid);
+        try
+            safe_fclose_log(session.log_fid);
+        catch ME
+            warning('fallback_cleanup:LogCloseFailed', 'Failed to close log file: %s', ME.message);
+        end
     end
+    
     if isfield(session, 'pipeGUI')
-        closeIfValid(session.pipeGUI);
+        try
+            closeIfValid(session.pipeGUI);
+        catch ME
+            warning('fallback_cleanup:GUICloseFailed', 'Failed to close GUI: %s', ME.message);
+        end
     end
 end
 
