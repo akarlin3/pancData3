@@ -571,6 +571,12 @@ function config_struct = parse_config(json_path)
             elseif isstring(val)
                 % MATLAB string array: convert to cell of char.
                 config_struct.patient_ids = cellstr(val);
+            elseif isnumeric(val) && isempty(val)
+                % jsondecode converts JSON [] to double []; normalize to {}
+                config_struct.patient_ids = {};
+            elseif isnumeric(val) && ~isempty(val)
+                % jsondecode converts JSON [10, 20] to numeric array; convert to cell of strings
+                config_struct.patient_ids = arrayfun(@(x) num2str(x), val(:)', 'UniformOutput', false);
             elseif ~iscell(val) && ~isempty(val)
                 error('parse_config:invalidType', ...
                     'Configuration field "patient_ids" must be a cell array of strings (JSON array of strings) or empty, but got class: %s.', ...

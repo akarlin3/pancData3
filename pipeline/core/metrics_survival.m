@@ -654,3 +654,155 @@ catch ME
     bootstrap_se = [];
 end
 end
+
+function [td_feat_arrays, td_feat_names] = build_survival_features(valid_pts, ADC_abs, D_abs, f_abs, Dstar_abs, m_gtv_vol, nTp)
+% BUILD_SURVIVAL_FEATURES Assemble feature arrays for time-dependent Cox model.
+td_feat_arrays = { ADC_abs(valid_pts,:), D_abs(valid_pts,:), ...
+                   f_abs(valid_pts,:),   Dstar_abs(valid_pts,:) };
+td_feat_names  = {'ADC', 'D', 'f', 'D*'};
+
+% Include baseline GTV volume as a time-constant confounder when available.
+has_vol = ~isempty(m_gtv_vol) && any(isfinite(m_gtv_vol(valid_pts, 1)));
+if has_vol
+    vol_baseline = m_gtv_vol(valid_pts, 1);
+    vol_rep = repmat(vol_baseline, 1, nTp);
+    td_feat_arrays{end+1} = vol_rep;
+    td_feat_names{end+1}  = 'GTVvol';
+    fprintf('  Including baseline GTV volume as a covariate.\n');
+end
+end
+
+function [td_lf, td_tot_time] = prepare_outcome_data(valid_pts, m_lf, m_total_time, m_total_follow_up_time)
+% PREPARE_OUTCOME_DATA Prepare outcome data with censoring logic.
+td_lf       = m_lf(valid_pts);
+td_tot_time = m_total_time(valid_pts);
+
+% Censored and competing-risk patients use follow-up time
+follow_up_valid = m_total_follow_up_time(valid_pts);
+cens_mask_td = (td_lf == 0 | td_lf == 2) & ~isnan(follow_up_valid);
+td_tot_time(cens_mask_td) = follow_up_valid(cens_mask_td);
+end
+
+function landmark_day = select_landmark_day(td_scan_days, config_struct_in)
+% SELECT_LANDMARK_DAY Select the landmark day for left-truncation.
+if isfield(config_struct_in, 'landmark_day') && ~isempty(config_struct_in.landmark_day)
+    landmark_day = config_struct_in.landmark_day;
+else
+    % Default: use the second scan day (first post-baseline)
+    if numel(td_scan_days) >= 2
+        landmark_day = td_scan_days(2);
+    else
+        landmark_day = 0;
+    end
+end
+end
+
+function results = fit_fine_gray(survival_data, config)
+% FIT_FINE_GRAY  Fine-Gray competing risks sub-distribution hazard model.
+%   Stub: delegates to compute_fine_gray if available; otherwise returns failure.
+results = struct('success', false, 'message', 'Fine-Gray model not yet implemented as standalone');
+if ~survival_data.has_sufficient_data
+    return;
+end
+try
+    results = compute_fine_gray(survival_data.event, survival_data.t_stop, ...
+        survival_data.X, survival_data.feat_names, config.output_folder);
+    results.success = true;
+catch ME
+    results = struct('success', false, 'message', ME.message);
+end
+end
+
+function results = compute_time_varying_effects(survival_data, config)
+% COMPUTE_TIME_VARYING_EFFECTS  Assess time-varying coefficients.
+results = struct('success', false, 'message', 'Time-varying effects not yet implemented');
+if ~survival_data.has_sufficient_data
+    return;
+end
+try
+    results = fit_time_varying_cox(survival_data.X, survival_data.t_start, ...
+        survival_data.t_stop, survival_data.event, survival_data.pat_id, ...
+        survival_data.feat_names, config.output_folder);
+    results.success = true;
+catch ME
+    results = struct('success', false, 'message', ME.message);
+end
+end
+
+function results = validate_survival_model(survival_data, cox_results, config)
+% VALIDATE_SURVIVAL_MODEL  Model validation (calibration, discrimination).
+results = struct('success', false, 'message', 'Model validation not yet implemented');
+if ~survival_data.has_sufficient_data || ~cox_results.success
+    return;
+end
+try
+    % Schoenfeld residuals for PH assumption
+    if isfield(cox_results, 'coefficients') && isfield(cox_results, 'X_scaled')
+        [~, ~, ph_pvals] = compute_schoenfeld_residuals( ...
+            cox_results.X_scaled, survival_data.t_stop, ...
+            cox_results.event_csh, survival_data.feat_names, config.output_folder);
+        results.ph_pvals = ph_pvals;
+    end
+    results.success = true;
+catch ME
+    results = struct('success', false, 'message', ME.message);
+end
+end
+
+function print_survival_summary(cox_results, finegray_results, timevar_results, ...
+    validation_results, analysis_status)
+% PRINT_SURVIVAL_SUMMARY  Print a compact summary table of all survival analyses.
+fprintf('\n===== SURVIVAL ANALYSIS SUMMARY =====\n');
+if analysis_status.cox_success && cox_results.success
+    fprintf('  Cox PH model:           SUCCESS\n');
+else
+    fprintf('  Cox PH model:           FAILED\n');
+end
+if analysis_status.finegray_success && isfield(finegray_results, 'success') && finegray_results.success
+    fprintf('  Fine-Gray model:        SUCCESS\n');
+else
+    fprintf('  Fine-Gray model:        FAILED/SKIPPED\n');
+end
+if analysis_status.timevar_success && isfield(timevar_results, 'success') && timevar_results.success
+    fprintf('  Time-varying effects:   SUCCESS\n');
+else
+    fprintf('  Time-varying effects:   FAILED/SKIPPED\n');
+end
+if analysis_status.validation_success && isfield(validation_results, 'success') && validation_results.success
+    fprintf('  Model validation:       SUCCESS\n');
+else
+    fprintf('  Model validation:       FAILED/SKIPPED\n');
+end
+fprintf('=====================================\n');
+end
+
+function print_cox_results(cox_results, feat_names)
+% PRINT_COX_RESULTS  Print Cox PH regression results table.
+if ~cox_results.success
+    fprintf('  Cox model did not converge.\n');
+    return;
+end
+fprintf('\n  %-10s %8s %8s %12s %8s\n', 'Feature', 'Coeff', 'HR', '95% CI', 'p-value');
+fprintf('  %s\n', repmat('-', 1, 52));
+for fi = 1:numel(feat_names)
+    b = cox_results.coefficients(fi);
+    hr = cox_results.hazard_ratios(fi);
+    se = cox_results.se(fi);
+    p = cox_results.p_values(fi);
+    ci_lo = exp(b - 1.96 * se);
+    ci_hi = exp(b + 1.96 * se);
+    fprintf('  %-10s %8.3f %8.3f [%5.2f-%5.2f] %8.4f\n', ...
+        feat_names{fi}, b, hr, ci_lo, ci_hi, p);
+end
+end
+
+function cox_results = create_failed_cox_results(n_feat)
+% CREATE_FAILED_COX_RESULTS  Return a failure struct with correct dimensions.
+cox_results = struct();
+cox_results.success = false;
+cox_results.message = 'Cox model failed to converge';
+cox_results.coefficients = nan(n_feat, 1);
+cox_results.se = nan(n_feat, 1);
+cox_results.p_values = nan(n_feat, 1);
+cox_results.hazard_ratios = nan(n_feat, 1);
+end

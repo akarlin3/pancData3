@@ -11,7 +11,7 @@ classdef test_process_single_scan < matlab.unittest.TestCase
         function createTempDir(testCase)
             % Create a uniquely-named temp directory for each test to
             % avoid interference between parallel test runs.
-            testCase.TempDir = fullfile(tempdir, ['test_pss_' char(java.util.UUID.randomUUID)]);
+            testCase.TempDir = fullfile(tempdir, ['test_pss_' strrep(tempname, tempdir, '')]);
             mkdir(testCase.TempDir);
         end
     end

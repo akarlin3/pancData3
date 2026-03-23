@@ -20,6 +20,9 @@ addpath(coreDir);
 addpath(utilsDir);
 if exist('OCTAVE_VERSION', 'builtin')
     addpath(fullfile(repoRoot, '.octave_compat'));
+    % Load the Octave Forge statistics and image packages
+    try pkg('load', 'statistics'); catch; end
+    try pkg('load', 'image'); catch; end
 else
     % Defensive: remove ALL path entries containing 'octave_compat'.
     % The @table shim inside octave_compat conflicts with MATLAB's built-in

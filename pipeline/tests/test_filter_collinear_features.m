@@ -140,7 +140,11 @@ classdef test_filter_collinear_features < matlab.unittest.TestCase
             f2 = 0.7 * f1 + 0.7 * randn(n, 1);  % moderate correlation (~0.5-0.7)
             X = [f1, f2];
 
-            R = corr(X, 'Type', 'Spearman');
+            if exist('OCTAVE_VERSION', 'builtin')
+                R = spearman(X);
+            else
+                R = corr(X, 'Type', 'Spearman');
+            end
             if abs(R(1,2)) < 0.8
                 keep_idx = filter_collinear_features(X, y);
                 testCase.verifyEqual(numel(keep_idx), 2);
