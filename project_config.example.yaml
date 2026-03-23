@@ -1,34 +1,64 @@
 # project_config.yaml — Configuration for code-improvement-loop
 # See: https://github.com/akarlin3/improvementLoop
+#
+# All fields are flat top-level keys matching ProjectConfig dataclass fields.
+# Only the `prompts:` section is nested (the loader flattens it automatically).
 
-project:
-  name: "pancData3"
-  description: >-
-    MATLAB + Python medical-imaging research pipeline for pancreatic DWI
-    analysis at Memorial Sloan Kettering Cancer Center.
+name: "pancData3"
+description: >-
+  MATLAB + Python medical-imaging research pipeline for pancreatic DWI
+  analysis at Memorial Sloan Kettering Cancer Center.
+languages:
+  - "MATLAB"
+  - "Python"
 
-git:
-  default_branch: "v2.2-dev"
+default_branch: "v2.2-dev"
+branch_prefix: "improvement/"
 
-paths:
-  source_dirs:
-    - "pipeline/"
-    - "analysis/"
-  test_command: "python -m pytest analysis/tests/ -q --tb=short"
-  test_ignores: []
-  read_only_dirs:
-    - "pipeline/dependencies/"
-  key_files:
-    - "pipeline/run_dwi_pipeline.m"
-    - "pipeline/core/fit_models.m"
-    - "pipeline/core/metrics_survival.m"
-    - "pipeline/core/metrics_stats_predictive.m"
-    - "pipeline/utils/parse_config.m"
-    - "pipeline/utils/knn_impute_train_test.m"
-    - "pipeline/utils/safe_load_mask.m"
-    - "pipeline/utils/escape_shell_arg.m"
-    - "analysis/run_analysis.py"
-    - "analysis/shared.py"
+source_dirs:
+  - "pipeline/"
+  - "analysis/"
+test_command: "python -m pytest analysis/tests/ -q --tb=short"
+test_ignores: []
+read_only_dirs:
+  - "pipeline/dependencies/"
+skip_dirs:
+  - "pipeline/dependencies/"
+  - "pipeline/.octave_compat/"
+  - ".git/"
+key_files:
+  - "pipeline/run_dwi_pipeline.m"
+  - "pipeline/core/fit_models.m"
+  - "pipeline/core/metrics_survival.m"
+  - "pipeline/core/metrics_stats_predictive.m"
+  - "pipeline/utils/parse_config.m"
+  - "pipeline/utils/knn_impute_train_test.m"
+  - "pipeline/utils/safe_load_mask.m"
+  - "pipeline/utils/escape_shell_arg.m"
+  - "analysis/run_analysis.py"
+  - "analysis/shared.py"
+
+risk_flags:
+  - "LEAKAGE_RISK"
+  - "PHI_RISK"
+  - "DEPS_MODIFIED"
+  - "INCORRECT_FINDING"
+critical_flags:
+  - "LEAKAGE_RISK"
+  - "PHI_RISK"
+forbidden_patterns: []
+
+collection_name: "pancdata3_codebase"
+skip_extensions:
+  - ".mat"
+  - ".nii"
+  - ".nii.gz"
+  - ".dcm"
+  - ".xlsx"
+  - ".csv"
+  - ".png"
+  - ".jpg"
+  - ".pdf"
 
 prompts:
   audit_system: |
@@ -219,11 +249,3 @@ prompts:
       "flags": [<string>, ...],
       "reasoning": "<1-3 sentence justification for the overall score>"
     }
-
-safety:
-  critical_flags:
-    - "LEAKAGE_RISK"
-    - "PHI_RISK"
-
-rag:
-  collection_name: "pancdata3_codebase"
