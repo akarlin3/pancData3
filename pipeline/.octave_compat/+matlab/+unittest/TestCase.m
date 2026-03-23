@@ -156,6 +156,18 @@ classdef TestCase < handle
             end
         end
 
+        % ----- verifyNotEqual -----
+        function verifyNotEqual(testCase, actual, notExpected, varargin)
+            % VERIFYNOTEQUAL  Verify that actual is not equal to notExpected.
+            msg = testCase.extractMessage(varargin{:});
+            if isequal(actual, notExpected)
+                if isempty(msg)
+                    msg = 'verifyNotEqual failed: values are equal';
+                end
+                testCase.recordFailure(msg);
+            end
+        end
+
         % ----- verifyNotEmpty -----
         function verifyNotEmpty(testCase, actual, varargin)
             % VERIFYNOTEMPTY  Verify that 'actual' is not empty.
@@ -342,6 +354,20 @@ classdef TestCase < handle
             end
         end
 
+        % ----- verifySize -----
+        function verifySize(testCase, actual, expectedSize, varargin)
+            % VERIFYSIZE  Verify that size(actual) equals expectedSize.
+            msg = testCase.extractMessage(varargin{:});
+            actualSize = size(actual);
+            if ~isequal(actualSize, expectedSize)
+                if isempty(msg)
+                    msg = sprintf('verifySize: expected size [%s], got [%s]', ...
+                        num2str(expectedSize), num2str(actualSize));
+                end
+                testCase.recordFailure(msg);
+            end
+        end
+
         % ----- verifyFail -----
         function verifyFail(testCase, varargin)
             % VERIFYFAIL  Unconditionally record a failure with an optional message.
@@ -352,6 +378,33 @@ classdef TestCase < handle
                 msg = sprintf('Explicit failure. %s', msg);
             end
             testCase.recordFailure(msg);
+        end
+
+        % ----- assumeTrue / assumeFail -----
+        function assumeTrue(testCase, condition, varargin)
+            % ASSUMETRUE  Skip the test if condition is false.
+            %   In MATLAB, this marks the test as Incomplete (not Failed).
+            %   In this shim, we throw an error to skip the test.
+            if ~condition
+                msg = testCase.extractMessage(varargin{:});
+                if isempty(msg), msg = 'Assumption failed'; end
+                error('TestCase:assumptionFailed', 'Assumption failed: %s', msg);
+            end
+        end
+
+        function assumeFail(testCase, varargin)
+            % ASSUMEFAIL  Unconditionally skip the test.
+            msg = testCase.extractMessage(varargin{:});
+            if isempty(msg), msg = 'Assumption explicitly failed'; end
+            error('TestCase:assumptionFailed', 'Assumption failed: %s', msg);
+        end
+
+        % ----- addTeardown -----
+        function addTeardown(testCase, fcn, varargin)
+            % ADDTEARDOWN  Register a function to run at teardown.
+            %   This is a no-op shim; the Octave TestRunner handles teardown
+            %   via methods(TestMethodTeardown) blocks. For one-off teardown
+            %   actions, callers should use onCleanup instead.
         end
 
         % ----- applyFixture (PathFixture shim) -----

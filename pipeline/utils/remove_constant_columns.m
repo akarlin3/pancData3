@@ -52,7 +52,16 @@ function [X_clean, keep] = remove_constant_columns(X)
     % 'omitnan' ensures that NaN-heavy columns are evaluated based on their
     % finite values only; a column with 29 NaNs and one finite value is
     % still constant (range = 0) and should be removed.
-    col_range = max(X, [], 1, 'omitnan') - min(X, [], 1, 'omitnan');
+    if exist('OCTAVE_VERSION', 'builtin')
+        % Octave's max/min do not support 'omitnan'; replace NaN manually
+        Xmax = X; Xmax(isnan(Xmax)) = -Inf;
+        Xmin = X; Xmin(isnan(Xmin)) = Inf;
+        col_range = max(Xmax, [], 1) - min(Xmin, [], 1);
+        all_nan_cols = all(isnan(X), 1);
+        col_range(all_nan_cols) = NaN;
+    else
+        col_range = max(X, [], 1, 'omitnan') - min(X, [], 1, 'omitnan');
+    end
 
     % A column is kept only if it has nonzero range AND at least one finite
     % value. The isfinite check catches all-NaN columns where max and min

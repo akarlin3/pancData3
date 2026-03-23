@@ -165,7 +165,11 @@ classdef ProgressGUI < handle
                 'BackgroundColor', ProgressGUI.COLOR_BG);
 
             % 'limitrate' caps redraws at ~20 fps to avoid GUI overhead
-            drawnow('limitrate');
+            if exist('OCTAVE_VERSION', 'builtin')
+                drawnow();
+            else
+                drawnow('limitrate');
+            end
         end
 
         function update(obj, fraction, counts, detail, status)
@@ -218,7 +222,11 @@ classdef ProgressGUI < handle
             elapsed = toc(obj.StartTime);
             set(obj.ElapsedText, 'String', ['Elapsed: ' ProgressGUI.formatTime(elapsed)]);
 
-            drawnow('limitrate');
+            if exist('OCTAVE_VERSION', 'builtin')
+                drawnow();
+            else
+                drawnow('limitrate');
+            end
         end
 
         function setDetail(obj, text)
@@ -228,7 +236,11 @@ classdef ProgressGUI < handle
                 text = ['...' text(end-66:end)];
             end
             set(obj.DetailText, 'String', text);
-            drawnow('limitrate');
+            if exist('OCTAVE_VERSION', 'builtin')
+                drawnow();
+            else
+                drawnow('limitrate');
+            end
         end
 
         function close(obj)
