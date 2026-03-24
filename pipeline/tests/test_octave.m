@@ -32,6 +32,8 @@ config_struct.d_thresh = 0.001;            % D threshold for IVIM core (mm^2/s)
 config_struct.f_thresh = 0.1;              % f threshold for IVIM core (fraction)
 config_struct.adc_max = 0.003;             % Maximum plausible ADC (mm^2/s)
 config_struct.min_vox_hist = 5;            % Minimum voxels for histogram analysis
+config_struct.use_gpu = false;             % GPU acceleration (disabled for test)
+config_struct.gpu_device = 1;              % GPU device index
 
 % Single test patient
 id_list = {'test1'};

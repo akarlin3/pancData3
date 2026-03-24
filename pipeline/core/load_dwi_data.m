@@ -129,7 +129,11 @@ skip_to_reload = config_struct.skip_to_reload;
 % perfusion-sensitive low set, and b=100, 150, 550 in the diffusion-
 % dominated high set.
 ivim_bthr = config_struct.ivim_bthr;
-use_gpu = config_struct.use_gpu;
+if isfield(config_struct, 'use_gpu')
+    use_gpu = config_struct.use_gpu;
+else
+    use_gpu = false;
+end
 
 % When GPU is requested, validate availability once at startup rather than
 % per-scan to avoid redundant checks inside the parfor loop.

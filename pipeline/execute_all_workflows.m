@@ -76,6 +76,13 @@ if ~exist('OCTAVE_VERSION', 'builtin')
         rmpath(oc_paths{oc_i});
     end
     warning(w_state);
+    % Clear cached TestRunner/TestSuite/TestCase class definitions that may
+    % have been resolved from octave_compat shims earlier in this session.
+    % rmpath does NOT invalidate MATLAB's class metadata cache, so stale
+    % shim definitions can persist and shadow the real MATLAB TestRunner
+    % (whose private method handlePluginExceptionInProhibitedScope is
+    % required by the plugin framework).
+    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
 
     % Delete any stale parallel jobs before creating a new pool.
     % Stale jobs can occur when a previous pipeline run was killed (kill -9)
