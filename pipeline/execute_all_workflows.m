@@ -69,20 +69,33 @@ if ~exist('OCTAVE_VERSION', 'builtin')
     % shadow built-in classes (TestSuite, categorical, table) and must never
     % be on the path in MATLAB.  Scan the full path string to catch entries
     % regardless of how they were added (genpath, addpath, saved pathdef.m).
+    % Check if ANY octave_compat path is present BEFORE removal, so we
+    % know whether stale shim class definitions might be cached.
+    had_oc_on_path = contains(path, 'octave_compat');
     w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
     all_paths = strsplit(path, pathsep);
     oc_paths = all_paths(contains(all_paths, 'octave_compat'));
     for oc_i = 1:numel(oc_paths)
         rmpath(oc_paths{oc_i});
     end
+    % Also proactively remove the .octave_compat directory and ALL its
+    % subdirectories.  A previous addpath(genpath(pipeline_root)) or
+    % savepath can leave .octave_compat/ on the path; its +matlab/+unittest
+    % shims shadow the real TestRunner/TestSuite and break the plugin
+    % framework (handlePluginExceptionInProhibitedScope not found).
+    oc_dir = fullfile(pipeline_root, '.octave_compat');
+    if exist(oc_dir, 'dir')
+        rmpath(genpath(oc_dir));
+    end
     warning(w_state);
-    % Clear cached TestRunner/TestSuite/TestCase class definitions that may
-    % have been resolved from octave_compat shims earlier in this session.
-    % rmpath does NOT invalidate MATLAB's class metadata cache, so stale
-    % shim definitions can persist and shadow the real MATLAB TestRunner
-    % (whose private method handlePluginExceptionInProhibitedScope is
-    % required by the plugin framework).
-    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+    % If shim paths were on the path, clear cached class definitions so
+    % MATLAB re-resolves TestRunner/TestSuite from the real toolbox.
+    % Only clear when shims were actually present — unconditional clearing
+    % discards correctly-loaded classes and can trigger re-resolution to
+    % the shim if removal was incomplete.
+    if had_oc_on_path
+        clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+    end
 
     % Delete any stale parallel jobs before creating a new pool.
     % Stale jobs can occur when a previous pipeline run was killed (kill -9)

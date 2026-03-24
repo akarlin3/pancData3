@@ -46,15 +46,18 @@ classdef test_compute_registration_quality < matlab.unittest.TestCase
         end
 
         function testKnownShift(testCase)
-            % Known uniform shift: NCC should still be high for shifted versions.
-            rng(42);
-            vol = rand(20, 20, 10);
+            % Known uniform shift: NCC should still be high for shifted versions
+            % of a spatially smooth volume. Random noise has no spatial
+            % correlation, so we use a smooth gradient to ensure NCC >> 0
+            % after a 1-voxel circular shift.
+            [X, Y, Z] = meshgrid(1:20, 1:20, 1:10);
+            vol = sin(X/3) .* cos(Y/4) + 0.5 * Z/10;
             shifted = circshift(vol, [1, 0, 0]);
 
             quality = compute_registration_quality(vol, shifted, []);
 
             testCase.verifyGreaterThan(quality.ncc, 0.5, ...
-                'NCC should be reasonably high for small shift.');
+                'NCC should be reasonably high for small shift of smooth volume.');
             testCase.verifyTrue(isfinite(quality.mutual_information), ...
                 'MI should be finite.');
         end

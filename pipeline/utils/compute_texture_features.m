@@ -685,3 +685,158 @@ function elongation = compute_elongation_optimized(mask, voxel_spacing)
         elongation = 1 - sqrt(eigenvalues(end) / eigenvalues(1));
     end
 end
+
+
+%% ===== 2D GLRLM computation (4 directions) =====
+
+function [sre, lre, gln, rln, rp] = compute_glrlm(quantized, mask, n_levels)
+%COMPUTE_GLRLM  2D Gray-Level Run-Length Matrix features at 4 directions.
+%   Computes SRE, LRE, GLN, RLN, RP averaged over 4 in-plane directions
+%   (0, 45, 90, 135 degrees).
+
+    directions = [0 1; 1 0; 1 1; 1 -1];
+    [nrows, ncols] = size(quantized);
+    max_run = max(nrows, ncols);
+
+    % Accumulate GLRLM across all directions
+    R = zeros(n_levels, max_run);
+
+    for d = 1:size(directions, 1)
+        dr = directions(d, 1);
+        dc = directions(d, 2);
+
+        visited = false(nrows, ncols);
+
+        for r = 1:nrows
+            for c = 1:ncols
+                if visited(r, c) || quantized(r, c) == 0 || ~mask(r, c)
+                    continue;
+                end
+
+                gl = quantized(r, c);
+                run_len = 1;
+                visited(r, c) = true;
+
+                % Extend run in the current direction
+                cr = r + dr;
+                cc = c + dc;
+                while cr >= 1 && cr <= nrows && cc >= 1 && cc <= ncols && ...
+                      mask(cr, cc) && quantized(cr, cc) == gl
+                    visited(cr, cc) = true;
+                    run_len = run_len + 1;
+                    cr = cr + dr;
+                    cc = cc + dc;
+                end
+
+                if gl >= 1 && gl <= n_levels && run_len >= 1 && run_len <= max_run
+                    R(gl, run_len) = R(gl, run_len) + 1;
+                end
+            end
+        end
+    end
+
+    [sre, lre, gln, rln, rp] = glrlm_features(R, sum(mask(:)));
+end
+
+
+%% ===== 3D GLRLM computation (13 directions) =====
+
+function [sre, lre, gln, rln, rp] = compute_glrlm_3d(quantized, mask, n_levels)
+%COMPUTE_GLRLM_3D  3D Gray-Level Run-Length Matrix features at 13 directions.
+%   Computes SRE, LRE, GLN, RLN, RP averaged over 13 unique 3D directions.
+
+    % 13 unique directions in a 3x3x3 neighbourhood
+    directions = [
+        0  0  1;   % z
+        0  1  0;   % y
+        1  0  0;   % x
+        0  1  1;   % yz diagonal
+        0  1 -1;   % yz anti-diagonal
+        1  0  1;   % xz diagonal
+        1  0 -1;   % xz anti-diagonal
+        1  1  0;   % xy diagonal
+        1 -1  0;   % xy anti-diagonal
+        1  1  1;   % body diagonal
+        1  1 -1;   % body anti-diagonal
+        1 -1  1;   % body anti-diagonal
+        1 -1 -1;   % body anti-diagonal
+    ];
+
+    [nr, nc, ns] = size(quantized);
+    max_run = max([nr, nc, ns]);
+
+    R = zeros(n_levels, max_run);
+
+    for d = 1:size(directions, 1)
+        dr = directions(d, 1);
+        dc = directions(d, 2);
+        ds = directions(d, 3);
+
+        visited = false(nr, nc, ns);
+
+        for r = 1:nr
+            for c = 1:nc
+                for s = 1:ns
+                    if visited(r,c,s) || quantized(r,c,s) == 0 || ~mask(r,c,s)
+                        continue;
+                    end
+
+                    gl = quantized(r, c, s);
+                    run_len = 1;
+                    visited(r, c, s) = true;
+
+                    cr = r + dr; cc = c + dc; cs = s + ds;
+                    while cr >= 1 && cr <= nr && cc >= 1 && cc <= nc && ...
+                          cs >= 1 && cs <= ns && mask(cr,cc,cs) && ...
+                          quantized(cr,cc,cs) == gl
+                        visited(cr, cc, cs) = true;
+                        run_len = run_len + 1;
+                        cr = cr + dr; cc = cc + dc; cs = cs + ds;
+                    end
+
+                    if gl >= 1 && gl <= n_levels && run_len >= 1 && run_len <= max_run
+                        R(gl, run_len) = R(gl, run_len) + 1;
+                    end
+                end
+            end
+        end
+    end
+
+    [sre, lre, gln, rln, rp] = glrlm_features(R, sum(mask(:)));
+end
+
+
+%% ===== GLRLM feature extraction from run-length matrix =====
+
+function [sre, lre, gln, rln, rp] = glrlm_features(R, n_voxels)
+%GLRLM_FEATURES  Compute SRE, LRE, GLN, RLN, RP from a run-length matrix.
+
+    total_runs = sum(R(:));
+    if total_runs == 0
+        sre = NaN; lre = NaN; gln = NaN; rln = NaN; rp = NaN;
+        return;
+    end
+
+    n_gl = size(R, 1);
+    max_run = size(R, 2);
+    j = 1:max_run;
+
+    % SRE = sum R(i,j)/j^2 / total_runs
+    j2_inv = 1 ./ (j.^2);
+    sre = sum(R * j2_inv') / total_runs;
+
+    % LRE = sum j^2 * R(i,j) / total_runs
+    j2 = j.^2;
+    lre = sum(R * j2') / total_runs;
+
+    % GLN = sum_i (sum_j R(i,j))^2 / total_runs
+    gl_sums = sum(R, 2);
+    gln = sum(gl_sums.^2) / total_runs;
+
+    % RLN = sum_j (sum_i R(i,j))^2 / total_runs
+    rl_sums = sum(R, 1);
+    rln = sum(rl_sums.^2) / total_runs;
+
+    % RP = total_runs / n_voxels
+    rp = total_runs / max(n_voxels, 1);
+end
