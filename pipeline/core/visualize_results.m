@@ -411,7 +411,14 @@ for i = 1:3  % Parameters
                 plot(x_trend, y_trend, 'k--', 'LineWidth', 1.5);
                 
                 % Calculate Spearman correlation
-                [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
+                if exist('OCTAVE_VERSION', 'builtin')
+                    rho = spearman(dose_clean, param_clean);
+                    n_c = numel(dose_clean);
+                    t_c = rho * sqrt((n_c - 2) / (1 - rho^2 + eps));
+                    p_val = 2 * (1 - tcdf(abs(t_c), n_c - 2));
+                else
+                    [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
+                end
                 text(0.05, 0.95, sprintf('ρ = %.3f\np = %.3f', rho, p_val), ...
                     'Units', 'normalized', 'FontSize', 10, 'BackgroundColor', 'white');
             catch

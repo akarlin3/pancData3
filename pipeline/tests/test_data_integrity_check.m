@@ -54,21 +54,18 @@ classdef test_data_integrity_check < matlab.unittest.TestCase
             fclose(fid);
         end
 
-        function createPatientDir(~, dataDir, patName, fractions, options)
+        function createPatientDir(testCase, dataDir, patName, fractions, varargin) %#ok<INUSL>
             % Create a synthetic patient directory with optional data.
             %   fractions: cell array of fraction names, e.g. {'Fx1_date', 'Fx2_date'}
-            %   options: struct with fields:
-            %     .dwi   - logical array matching fractions (create DWI DICOM files)
-            %     .gtv   - logical array matching fractions (create GTV mask files)
-            %     .dose  - logical array matching fractions (create RT dose files)
-            arguments
-                ~
-                dataDir
-                patName
-                fractions
-                options.dwi = true(size(fractions))
-                options.gtv = true(size(fractions))
-                options.dose = true(size(fractions))
+            %   Name-value pairs:
+            %     'dwi'  - logical array matching fractions (create DWI DICOM files)
+            %     'gtv'  - logical array matching fractions (create GTV mask files)
+            %     'dose' - logical array matching fractions (create RT dose files)
+            options = struct('dwi', true(size(fractions)), ...
+                             'gtv', true(size(fractions)), ...
+                             'dose', true(size(fractions)));
+            for vi = 1:2:numel(varargin)
+                options.(varargin{vi}) = varargin{vi+1};
             end
 
             patDir = fullfile(dataDir, patName);

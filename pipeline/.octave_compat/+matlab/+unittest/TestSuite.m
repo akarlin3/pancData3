@@ -37,13 +37,21 @@ classdef TestSuite
                 end
             end
 
+            files = dir(fullfile(folder, 'test_*.m'));
             if includeSubfolders
-                files = dir(fullfile(folder, '**', 'test_*.m'));
+                files_sub = dir(fullfile(folder, '**', 'test_*.m'));
+                files = [files; files_sub];
                 % Also pick up benchmark_*.m from subfolders
-                files2 = dir(fullfile(folder, '**', 'benchmark_*.m'));
-                files = [files; files2];
-            else
-                files = dir(fullfile(folder, 'test_*.m'));
+                files2 = dir(fullfile(folder, 'benchmark_*.m'));
+                files2_sub = dir(fullfile(folder, '**', 'benchmark_*.m'));
+                files = [files; files2; files2_sub];
+                % De-duplicate by full path
+                fpaths = cell(numel(files), 1);
+                for di = 1:numel(files)
+                    fpaths{di} = fullfile(files(di).folder, files(di).name);
+                end
+                [~, ui] = unique(fpaths, 'stable');
+                files = files(ui);
             end
 
             % Build the suite by iterating over discovered files.
@@ -63,7 +71,7 @@ classdef TestSuite
 
                 % Find all Test methods by parsing the file's source text.
                 % MATLAB introspects class metadata; we parse regex instead.
-                methods_list = TestSuite.parseTestMethods(fpath);
+                methods_list = matlab.unittest.TestSuite.parseTestMethods(fpath);
                 for j = 1:numel(methods_list)
                     entry = struct();
                     entry.Name = [className '/' methods_list{j}];

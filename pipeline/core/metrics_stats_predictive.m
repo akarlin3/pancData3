@@ -303,6 +303,9 @@ n_patients_total = numel(valid_pts);
         if isempty(arr)
             return;  % allow empty arrays (some may be legitimately empty)
         end
+        if ndims(arr) > 2
+            return;  % skip 3D+ arrays (e.g., adc_sd is n x nTp x 3)
+        end
         [nr, nc] = size(arr);
         if nr ~= n_patients_total
             error('metrics_stats_predictive:dimensionMismatch', ...

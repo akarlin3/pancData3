@@ -106,7 +106,11 @@ function results = compute_schoenfeld_residuals(X_td, t_start, t_stop, event_csh
             results.violated(j) = false;
         else
             % Spearman rank correlation with time
-            rho_j = corr(t_valid, resid_j, 'type', 'Spearman');
+            if exist('OCTAVE_VERSION', 'builtin')
+                rho_j = spearman(t_valid, resid_j);
+            else
+                rho_j = corr(t_valid, resid_j, 'type', 'Spearman');
+            end
             results.rho(j) = rho_j;
             % Chi-squared test: chi2 = n * rho^2
             n_v = sum(valid_events);

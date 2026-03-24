@@ -20,7 +20,7 @@ classdef test_plot_predictive_diagnostics < matlab.unittest.TestCase
         end
 
         function setupOutputFolder(testCase)
-            testCase.OutputFolder = fullfile(tempdir, ['test_pred_diag_' char(java.util.UUID.randomUUID())]);
+            testCase.OutputFolder = fullfile(tempdir, ['test_pred_diag_' strrep(tempname, tempdir, '')]);
             mkdir(testCase.OutputFolder);
             % Suppress figure display during tests
             testCase.OldFigVis = get(0, 'DefaultFigureVisible');

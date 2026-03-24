@@ -10,9 +10,8 @@
 %   - Plugins are accepted (addPlugin) but ignored -- no coverage or
 %     diagnostic output beyond simple text.
 %   - withTextOutput() returns a plain TestRunner (text output is the only mode).
-%   - Setup/teardown methods are discovered by naming convention ('setup' /
-%     'teardown', case-insensitive) rather than by methods block attributes,
-%     because Octave cannot introspect method attributes at runtime.
+%   - Setup/teardown methods are discovered by parsing source files for
+%     methods(TestMethodSetup) and methods(TestMethodTeardown) blocks.
 %   - Results are returned as a struct array, not matlab.unittest.TestResult objects.
 classdef TestRunner < handle
     % TestRunner  Minimal shim for matlab.unittest.TestRunner under Octave.
@@ -24,9 +23,6 @@ classdef TestRunner < handle
     methods (Static)
         function runner = withTextOutput()
             % WITHTEXTOUTPUT  Create a runner with console text output.
-            %   In MATLAB, this configures verbose text diagnostics. Here it
-            %   simply returns a default TestRunner since text output is the
-            %   only mode available.
             runner = matlab.unittest.TestRunner();
         end
     end
@@ -34,20 +30,18 @@ classdef TestRunner < handle
     methods
         function addPlugin(runner, plugin)
             % ADDPLUGIN  Register a plugin (no-op in this shim).
-            %   Plugins are stored but never invoked. This allows test runner
-            %   code that adds CodeCoveragePlugin to work without errors.
             runner.Plugins{end+1} = plugin;
         end
 
         function results = run(runner, suite)
             % RUN  Execute all tests in the suite sequentially.
-            %   Iterates over each entry in the suite struct array, creates
-            %   a test class instance, runs setup -> test -> teardown, and
-            %   records the outcome. Teardown runs even if the test fails.
-            % Run test suite entries and collect results
             nTests = numel(suite);
             results = struct('Name', {}, 'Passed', {}, 'Failed', {}, ...
                 'Incomplete', {}, 'Duration', {}, 'Details', {});
+
+            % Cache parsed setup/teardown methods per file
+            setup_cache = struct();
+            teardown_cache = struct();
 
             for i = 1:nTests
                 entry = suite(i);
@@ -57,6 +51,7 @@ classdef TestRunner < handle
 
                 passed = false;
                 failMsg = '';
+                obj = [];
                 try
                     % Ensure the test file's folder is on path
                     if ~isempty(entry.Folder)
@@ -66,21 +61,33 @@ classdef TestRunner < handle
                     % Create instance of the test class
                     obj = feval(entry.TestClass);
 
-                    % Run TestMethodSetup if it exists
-                    runner.runSetup(obj);
+                    % Reset verification failures before each test
+                    if ismethod(obj, 'resetVerifications')
+                        obj.resetVerifications();
+                    end
+
+                    % Run TestMethodSetup methods (parsed from source)
+                    runner.runSetup(obj, entry);
 
                     % Run the test method
                     feval(entry.TestMethod, obj);
 
-                    % Run TestMethodTeardown if it exists
-                    runner.runTeardown(obj);
+                    % Run TestMethodTeardown methods
+                    runner.runTeardown(obj, entry);
+
+                    % Check for accumulated verification failures
+                    if ismethod(obj, 'hasVerificationFailures') && obj.hasVerificationFailures()
+                        obj.assertNoFailures();
+                    end
 
                     passed = true;
                     fprintf('PASSED (%.2fs)\n', toc(t0));
                 catch e
                     % Run teardown even on failure
                     try
-                        runner.runTeardown(obj);
+                        if ~isempty(obj)
+                            runner.runTeardown(obj, entry);
+                        end
                     catch
                     end
                     failMsg = sprintf('%s: %s', e.identifier, e.message);
@@ -104,16 +111,20 @@ classdef TestRunner < handle
     end
 
     methods (Access = private)
-        function runSetup(runner, obj)
-            % RUNSETUP  Find and call the test class's setup method if it exists.
-            %   Uses a naming convention (case-insensitive 'setup') because
-            %   Octave's classdef does not expose method block attributes
-            %   (TestMethodSetup) for runtime introspection.
-            % Call the setup method if the class defines one.
-            % In Octave classdef, we look for a method named after
-            % the TestMethodSetup convention. Since we cannot introspect
-            % methods blocks by attribute, we use a naming convention:
-            % look for a method called 'setup' (case-insensitive).
+        function runSetup(runner, obj, entry)
+            % RUNSETUP  Find and call setup methods.
+            %   First tries to parse methods(TestMethodSetup) blocks from the
+            %   source file. Falls back to looking for a method named 'setup'.
+            setup_meths = runner.parseBlockMethods(entry, 'TestMethodSetup');
+            if ~isempty(setup_meths)
+                for k = 1:numel(setup_meths)
+                    if ismethod(obj, setup_meths{k})
+                        feval(setup_meths{k}, obj);
+                    end
+                end
+                return;
+            end
+            % Fallback: look for method named 'setup'
             meths = methods(obj);
             for k = 1:numel(meths)
                 if strcmpi(meths{k}, 'setup')
@@ -123,14 +134,67 @@ classdef TestRunner < handle
             end
         end
 
-        function runTeardown(runner, obj)
-            % RUNTEARDOWN  Find and call the test class's teardown method.
-            %   Mirror of runSetup; looks for a method named 'teardown'.
+        function runTeardown(runner, obj, entry)
+            % RUNTEARDOWN  Find and call teardown methods.
+            teardown_meths = runner.parseBlockMethods(entry, 'TestMethodTeardown');
+            if ~isempty(teardown_meths)
+                for k = 1:numel(teardown_meths)
+                    if ismethod(obj, teardown_meths{k})
+                        feval(teardown_meths{k}, obj);
+                    end
+                end
+                return;
+            end
+            % Fallback: look for method named 'teardown'
             meths = methods(obj);
             for k = 1:numel(meths)
                 if strcmpi(meths{k}, 'teardown')
                     feval(meths{k}, obj);
                     return;
+                end
+            end
+        end
+
+        function method_names = parseBlockMethods(runner, entry, blockType)
+            % PARSEBLOCKMETHODS  Parse method names from a specific methods block.
+            %   Reads the test source file and extracts function names from
+            %   methods(TestMethodSetup) or methods(TestMethodTeardown) blocks.
+            method_names = {};
+            if ~isfield(entry, 'FilePath') || isempty(entry.FilePath)
+                return;
+            end
+            fid = fopen(entry.FilePath, 'r');
+            if fid == -1; return; end
+            txt = fread(fid, '*char')';
+            fclose(fid);
+
+            in_block = false;
+            brace_depth = 0;
+            lines = strsplit(txt, '\n');
+            % Build regex pattern for the block type
+            pat = ['^\s*methods\s*\(\s*' blockType '\s*\)'];
+            for li = 1:numel(lines)
+                ln = strtrim(lines{li});
+                if ~isempty(regexp(ln, pat, 'once'))
+                    in_block = true;
+                    brace_depth = 0;
+                    continue;
+                end
+                if in_block
+                    if ~isempty(regexp(ln, '^\s*end\s*$', 'once'))
+                        if brace_depth <= 0
+                            in_block = false;
+                            continue;
+                        else
+                            brace_depth = brace_depth - 1;
+                            continue;
+                        end
+                    end
+                    tokens = regexp(ln, '^\s*function\s+(?:\w+\s*=\s*)?(\w+)\s*\(', 'tokens');
+                    if ~isempty(tokens)
+                        method_names{end+1} = tokens{1}{1};
+                        brace_depth = brace_depth + 1;
+                    end
                 end
             end
         end

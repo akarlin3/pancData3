@@ -89,7 +89,27 @@ function [keep_idx] = filter_collinear_features(X, y, frac_vec)
     % 'Rows','pairwise' handles NaN values by computing each pairwise
     % correlation using only rows where both features are non-NaN,
     % maximizing data usage in the presence of missing scans.
-    R = corr(X_corr, 'Type', 'Spearman', 'Rows', 'pairwise');
+    if exist('OCTAVE_VERSION', 'builtin')
+        % Octave's corr() does not support name-value pairs.
+        % Use spearman() from the statistics package if available,
+        % otherwise compute via rank transformation.
+        if exist('spearman', 'file')
+            R = spearman(X_corr);
+        else
+            X_ranked = X_corr;
+            for ci = 1:size(X_ranked, 2)
+                valid_r = ~isnan(X_ranked(:, ci));
+                [~, si] = sort(X_ranked(valid_r, ci));
+                ranks = zeros(sum(valid_r), 1);
+                ranks(si) = 1:sum(valid_r);
+                X_ranked(valid_r, ci) = ranks;
+            end
+            R = corr(X_ranked);
+        end
+        R(isnan(R)) = 0;
+    else
+        R = corr(X_corr, 'Type', 'Spearman', 'Rows', 'pairwise');
+    end
     n_feats = size(X, 2);
     drop_idx = false(1, n_feats);
 

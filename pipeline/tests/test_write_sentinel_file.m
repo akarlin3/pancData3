@@ -17,7 +17,7 @@ classdef test_write_sentinel_file < matlab.unittest.TestCase
         end
 
         function createTempDir(testCase)
-            testCase.TempDir = fullfile(tempdir, ['test_sentinel_' char(java.util.UUID.randomUUID())]);
+            testCase.TempDir = fullfile(tempdir, ['test_sentinel_' strrep(tempname, tempdir, '')]);
             mkdir(testCase.TempDir);
         end
     end
