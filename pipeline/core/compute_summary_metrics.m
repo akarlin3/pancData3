@@ -706,7 +706,11 @@ summary_metrics.dmean_gtvp = dmean_gtvp;
 summary_metrics.gtv_locations = gtv_locations;
 summary_metrics.dwi_locations = dwi_locations;
 summary_metrics.fx_dates = fx_dates;
-summary_metrics.core_method = config_struct.core_method;
+if isfield(config_struct, 'core_method')
+    summary_metrics.core_method = config_struct.core_method;
+else
+    summary_metrics.core_method = 'adc_threshold';
+end
 summary_metrics.fdm_responding_pc = fdm_responding_pc;
 summary_metrics.fdm_progressing_pc = fdm_progressing_pc;
 summary_metrics.fdm_stable_pc = fdm_stable_pc;

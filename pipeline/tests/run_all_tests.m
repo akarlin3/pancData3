@@ -49,14 +49,12 @@ else
         rmpath(genpath(oc_dir));
     end
     warning(w_state);
-    % If shim paths were on the path, clear cached class definitions so
-    % MATLAB re-resolves TestRunner/TestSuite from the real toolbox.
-    % Only clear when shims were actually present — unconditional clearing
-    % discards correctly-loaded classes and can trigger re-resolution to
-    % the shim if removal was incomplete.
-    if had_oc_on_path
-        clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
-    end
+    % Always clear cached class definitions so MATLAB re-resolves
+    % TestRunner/TestSuite from the real toolbox.  Stale shim definitions
+    % can persist from a previous session even when octave_compat is not
+    % currently on the path, causing handlePluginExceptionInProhibitedScope
+    % errors when the CodeCoveragePlugin encounters a test failure.
+    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
 end
 addpath(repoRoot);
 
@@ -228,13 +226,54 @@ if can_run_parallel
     % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
     % not compatible with runInParallel.  Serial tests exercise all core
     % modules, so coverage remains meaningful.
+    has_coverage_plugin = false;
     if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
         coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
         ser_runner.addPlugin(coveragePlugin);
+        has_coverage_plugin = true;
         disp('Code coverage plugin added (serial tests only).');
     end
 
-    serial_results = ser_runner.run(serial_suite);
+    try
+        serial_results = ser_runner.run(serial_suite);
+    catch ME_serial
+        % In R2025a, the CodeCoveragePlugin can trigger cascading internal
+        % framework errors (handlePluginExceptionInProhibitedScope,
+        % evaluateMethodOnPlugins, deletePluginData) when a test throws.
+        % The crash can also corrupt class definitions if octave_compat
+        % shims were ever on the path.  Fall back to running without
+        % coverage instrumentation after recovering class resolution.
+        if has_coverage_plugin
+            warning('run_all_tests:coverageFallback', ...
+                'CodeCoveragePlugin caused framework error; retrying without coverage.');
+            % Re-clean octave_compat paths and clear cached class
+            % definitions to recover from potential class corruption.
+            w_cleanup = warning('off', 'MATLAB:rmpath:DirNotFound');
+            all_paths_cleanup = strsplit(path, pathsep);
+            oc_cleanup = all_paths_cleanup(contains(all_paths_cleanup, 'octave_compat'));
+            for ci = 1:numel(oc_cleanup)
+                rmpath(oc_cleanup{ci});
+            end
+            oc_dir_cleanup = fullfile(repoRoot, '.octave_compat');
+            if exist(oc_dir_cleanup, 'dir')
+                rmpath(genpath(oc_dir_cleanup));
+            end
+            warning(w_cleanup);
+            clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+            ser_runner2 = matlab.unittest.TestRunner.withTextOutput();
+            try
+                ser_runner2.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+            catch; end
+            if ~isempty(hGUI) && hGUI.isValid()
+                try
+                    ser_runner2.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
+                catch; end
+            end
+            serial_results = ser_runner2.run(serial_suite);
+        else
+            rethrow(ME_serial);
+        end
+    end
 
     % Merge results from both phases
     results = [parallel_results, serial_results];
@@ -257,17 +296,50 @@ else
         runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
     end
 
+    has_coverage_plugin = false;
     if is_preflight
         disp('Pre-flight mode — skipping code coverage plugin.');
     elseif exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
         coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
         runner.addPlugin(coveragePlugin);
+        has_coverage_plugin = true;
         disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
     else
         disp('CodeCoveragePlugin not available in this MATLAB version.');
     end
 
-    results = runner.run(full_suite);
+    try
+        results = runner.run(full_suite);
+    catch ME_seq
+        if has_coverage_plugin
+            warning('run_all_tests:coverageFallback', ...
+                'CodeCoveragePlugin caused framework error; retrying without coverage.');
+            w_cleanup = warning('off', 'MATLAB:rmpath:DirNotFound');
+            all_paths_cleanup = strsplit(path, pathsep);
+            oc_cleanup = all_paths_cleanup(contains(all_paths_cleanup, 'octave_compat'));
+            for ci = 1:numel(oc_cleanup)
+                rmpath(oc_cleanup{ci});
+            end
+            oc_dir_cleanup = fullfile(repoRoot, '.octave_compat');
+            if exist(oc_dir_cleanup, 'dir')
+                rmpath(genpath(oc_dir_cleanup));
+            end
+            warning(w_cleanup);
+            clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+            runner2 = matlab.unittest.TestRunner.withTextOutput();
+            try
+                runner2.addPlugin(ProgressBarPlugin(numel(full_suite)));
+            catch; end
+            if ~isempty(hGUI) && hGUI.isValid()
+                try
+                    runner2.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
+                catch; end
+            end
+            results = runner2.run(full_suite);
+        else
+            rethrow(ME_seq);
+        end
+    end
 end
 
 disp('===================================================');

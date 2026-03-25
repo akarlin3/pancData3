@@ -88,14 +88,12 @@ if ~exist('OCTAVE_VERSION', 'builtin')
         rmpath(genpath(oc_dir));
     end
     warning(w_state);
-    % If shim paths were on the path, clear cached class definitions so
-    % MATLAB re-resolves TestRunner/TestSuite from the real toolbox.
-    % Only clear when shims were actually present — unconditional clearing
-    % discards correctly-loaded classes and can trigger re-resolution to
-    % the shim if removal was incomplete.
-    if had_oc_on_path
-        clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
-    end
+    % Always clear cached class definitions so MATLAB re-resolves
+    % TestRunner/TestSuite from the real toolbox.  Stale shim definitions
+    % can persist from a previous session even when octave_compat is not
+    % currently on the path, causing handlePluginExceptionInProhibitedScope
+    % errors when the CodeCoveragePlugin encounters a test failure.
+    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
 
     % Delete any stale parallel jobs before creating a new pool.
     % Stale jobs can occur when a previous pipeline run was killed (kill -9)
