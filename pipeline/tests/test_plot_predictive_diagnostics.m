@@ -86,8 +86,8 @@ classdef test_plot_predictive_diagnostics < matlab.unittest.TestCase
         function test_asterisk_sanitized_in_filename(testCase)
             % D* feature name should produce 'Dstar' in filename, not '*'
             [args] = testCase.makeValidArgs(1, testCase.OutputFolder);
-            % Override feature name to include asterisk
-            args{6} = {'D*'};  % sig_names
+            % Override feature name to include asterisk (position 4 = sig_names)
+            args{4} = {'D*'};
 
             plot_predictive_diagnostics(args{:});
 

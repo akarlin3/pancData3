@@ -36,6 +36,9 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardownEnvironment(testCase)
+            % Close diary first — sanity_checks opens its own diary file,
+            % which must be closed before rmdir on Windows (file locking).
+            diary off;
             cd(testCase.OriginalPwd);
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
@@ -242,6 +245,9 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
             % Should pass and complete
             testCase.verifyTrue(is_valid, 'Fallback defaults should not invalidate run');
+
+            % Close diary before cleanup (sanity_checks opens its own)
+            diary off;
 
             % Cleanup: only remove saved_files_* dirs that did not exist
             % before the call (i.e., created by this test).

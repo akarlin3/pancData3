@@ -59,34 +59,54 @@ classdef test_convert_dicom < matlab.unittest.TestCase
     methods (Test)
 
         function test_success_three_files(testCase)
-            % Verifies the success path: the mock script creates the 3
-            % expected output files (.nii.gz, .bval, .bvec).  convert_dicom
-            % counts the directory listing delta (3 new files + 1 dir entry
-            % for '.' = 4) and should return bad_dwi_found = 0.
+            % Verifies the success path: valid .nii.gz, .bval, and .bvec
+            % files are present after conversion, so convert_dicom returns 0.
+            %
+            % Strategy: pre-create .bval and .bvec from MATLAB (reliable),
+            % then use the mock script to create only .nii.gz (>= 1000 bytes).
+            % convert_dicom only checks .nii.gz for the skip condition, so
+            % pre-existing .bval/.bvec won't cause a skip.
             scanID = 'scan_001';
             fx_id = 'fx_test';
 
-            % Update mock script to generate the 3 expected output files (.nii.gz, .bval, .bvec)
+            nii_file = fullfile(testCase.OutLoc, [scanID '.nii.gz']);
+            bval_file = fullfile(testCase.OutLoc, [scanID '.bval']);
+            bvec_file = fullfile(testCase.OutLoc, [scanID '.bvec']);
+
+            % Pre-create valid bval and bvec from MATLAB
+            fid = fopen(bval_file, 'w');
+            fprintf(fid, '0 500 1000\n');
+            fclose(fid);
+
+            fid = fopen(bvec_file, 'w');
+            fprintf(fid, '1 0 0\n0 1 0\n0 0 1\n');
+            fclose(fid);
+
+            % Mock script: only needs to create .nii.gz >= 1000 bytes
+            pad = repmat('0', 1, 100);
             fid = fopen(testCase.MockScript, 'w');
             if ispc
                 fprintf(fid, '@echo off\n');
-                fprintf(fid, 'echo dummy > "%s\\%s.nii.gz"\n', testCase.OutLoc, scanID);
-                fprintf(fid, 'echo dummy > "%s\\%s.bval"\n', testCase.OutLoc, scanID);
-                fprintf(fid, 'echo dummy > "%s\\%s.bvec"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'echo %s>"%s"\n', pad, nii_file);
+                for k = 2:11
+                    fprintf(fid, 'echo %s>>"%s"\n', pad, nii_file);
+                end
             else
                 fprintf(fid, '#!/bin/bash\n');
-                fprintf(fid, 'touch "%s/%s.nii.gz"\n', testCase.OutLoc, scanID);
-                fprintf(fid, 'touch "%s/%s.bval"\n', testCase.OutLoc, scanID);
-                fprintf(fid, 'touch "%s/%s.bvec"\n', testCase.OutLoc, scanID);
+                fprintf(fid, 'dd if=/dev/zero of="%s" bs=1024 count=2 2>/dev/null\n', nii_file);
             end
             fclose(fid);
             if ~ispc
                 system(['chmod +x ' escape_shell_arg(testCase.MockScript)]);
             end
 
+            % Suppress validation warnings from mock-generated files
+            ws = warning('off', 'convert_dicom:niftiValidation');
+            restoreWarn = onCleanup(@() warning(ws));
+
             bad_dwi_found = convert_dicom(testCase.DicomLoc, testCase.OutLoc, scanID, testCase.MockScript, fx_id);
 
-            testCase.verifyEqual(bad_dwi_found, 0, 'Should return 0 when dir length increases by exactly 4.');
+            testCase.verifyEqual(bad_dwi_found, 0, 'Should return 0 when valid output files are created.');
         end
 
         function test_failure_wrong_files(testCase)

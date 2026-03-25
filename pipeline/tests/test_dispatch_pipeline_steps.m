@@ -40,7 +40,9 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
 
         function test_load_skip_with_data_succeeds(testCase)
             % Skipping load when data file exists should succeed.
-            session = build_test_session(testCase, {'sanity'});
+            % Use 'visualize' (not 'sanity') so sanity_checks is not
+            % invoked on the minimal fake data.
+            session = build_test_session(testCase, {'visualize'});
 
             % Create fake DWI vectors file
             data_vectors_gtvp = struct('adc', {1}); %#ok<NASGU>

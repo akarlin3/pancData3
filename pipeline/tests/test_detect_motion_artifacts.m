@@ -126,8 +126,10 @@ classdef test_detect_motion_artifacts < matlab.unittest.TestCase
             testCase.verifyEqual(motion.n_flagged, 0);
         end
 
-        function testIdenticalVolumeNMINearOne(testCase)
-            % A volume identical to the reference (b=0) should yield NMI ≈ 1.
+        function testIdenticalVolumeNMINearTwo(testCase)
+            % A volume identical to the reference (b=0) should yield NMI ≈ 2.
+            % NMI = (H(X)+H(Y))/H(X,Y); for identical signals H(X,Y)=H(X),
+            % so NMI = 2*H(X)/H(X) = 2.
             rng(99);
             sz = [20, 20, 5];
             b_values = [0, 100];
@@ -142,8 +144,8 @@ classdef test_detect_motion_artifacts < matlab.unittest.TestCase
 
             motion = detect_motion_artifacts(dwi_4d, b_values, mask);
 
-            testCase.verifyEqual(motion.per_volume(2).nmi, 1.0, 'AbsTol', 0.05, ...
-                'Identical volume should have NMI close to 1.');
+            testCase.verifyEqual(motion.per_volume(2).nmi, 2.0, 'AbsTol', 0.1, ...
+                'Identical volume should have NMI close to 2.');
         end
 
         function testRandomNoiseVolumeNMINearZero(testCase)

@@ -10,6 +10,11 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
     %   - Saves results to a .mat file
     %   - Handles edge cases: all-NaN patient data, fDM fallback at baseline,
     %     mask size mismatches with Fx1 fallback logic
+    %
+    % Performance: uses TestClassSetup to run compare_core_methods once with
+    % the default data and shares the results across 14 test methods that
+    % validate different properties.  Only tests requiring custom inputs
+    % call compare_core_methods individually.
 
     properties
         TempDir
@@ -18,9 +23,51 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         SummaryMetrics
     end
 
+    properties (SetAccess = private)
+        % Shared results from a single compare_core_methods call with the
+        % default bimodal test data.  Populated once in TestClassSetup.
+        SharedResults
+        SharedTempDir
+    end
+
+    methods(TestClassSetup)
+        function runSharedComparison(testCase)
+            % Run compare_core_methods ONCE with the default test data and
+            % cache the results.  This avoids repeating the expensive
+            % 11-method comparison 14+ times (each takes ~30-60s with
+            % bootstrap CIs and figure generation).
+            testCase.SharedTempDir = tempname;
+            mkdir(testCase.SharedTempDir);
+
+            repoRoot = fullfile(fileparts(mfilename('fullpath')), '..');
+            addpath(fullfile(repoRoot, 'core'));
+            addpath(fullfile(repoRoot, 'utils'));
+            if exist('OCTAVE_VERSION', 'builtin')
+                addpath(fullfile(repoRoot, '.octave_compat'));
+            end
+
+            set(0, 'DefaultFigureVisible', 'off');
+
+            [cfg, dv, sm] = buildDefaultTestData(testCase.SharedTempDir);
+
+            testCase.SharedResults = compare_core_methods(dv, sm, cfg);
+            diary off;  % compare_core_methods opens a diary
+        end
+    end
+
+    methods(TestClassTeardown)
+        function cleanupShared(testCase)
+            diary off;
+            close all;
+            if ~isempty(testCase.SharedTempDir) && exist(testCase.SharedTempDir, 'dir')
+                rmdir(testCase.SharedTempDir, 's');
+            end
+        end
+    end
+
     methods(TestMethodSetup)
         function setupEnvironment(testCase)
-            % Create isolated temp directory and add project paths
+            % Create isolated temp directory for tests that need custom data
             testCase.TempDir = tempname;
             mkdir(testCase.TempDir);
 
@@ -31,92 +78,10 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
                 addpath(fullfile(repoRoot, '.octave_compat'));
             end
 
-            % Suppress figures during testing
             set(0, 'DefaultFigureVisible', 'off');
 
-            % Build mock config with all thresholds needed by extract_tumor_core
-            testCase.ConfigStruct = struct();
-            testCase.ConfigStruct.output_folder = testCase.TempDir;
-            testCase.ConfigStruct.dwi_types_to_run = 1;
-            testCase.ConfigStruct.dwi_type_name = 'Standard';
-            testCase.ConfigStruct.adc_thresh = 0.001;
-            testCase.ConfigStruct.high_adc_thresh = 0.00115;
-            testCase.ConfigStruct.d_thresh = 0.001;
-            testCase.ConfigStruct.f_thresh = 0.1;
-            testCase.ConfigStruct.dstar_thresh = 0.01;
-            testCase.ConfigStruct.min_vox_hist = 20;  % low for small test data
-            testCase.ConfigStruct.core_method = 'adc_threshold';
-            testCase.ConfigStruct.core_percentile = 25;
-            testCase.ConfigStruct.core_n_clusters = 2;
-            testCase.ConfigStruct.fdm_parameter = 'adc';
-            testCase.ConfigStruct.fdm_thresh = 0.0004;
-            testCase.ConfigStruct.adc_max = 0.003;
-
-            % Build mock data_vectors_gtvp (2 patients, 2 timepoints).
-            % Patient 1 has bimodal ADC (simulating core + margin).
-            % Patient 2 has all-NaN data (edge case for graceful skipping).
-            rng(42);
-            n_vox = 100;
-
-            % Create a 10x10x1 3D GTV mask and save to temp .mat file
-            % (required by 3D-aware methods like active_contours)
-            Stvol3d = true(10, 10, 1); %#ok<NASGU>
-            gtv_mat_file = fullfile(testCase.TempDir, 'gtv_p1.mat');
-            save(gtv_mat_file, 'Stvol3d');
-
-            % Init struct with all required fields
-            empty_entry = struct( ...
-                'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
-                'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
-                'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
-                'd_vector_ivimnet', [], 'f_vector_ivimnet', [], ...
-                'dstar_vector_ivimnet', [], ...
-                'vox_vol', [], 'vox_dims', []);
-            testCase.DataVectors = repmat(empty_entry, 2, 2, 1);
-
-            % Patient 1, Fx1 -- bimodal ADC (30 core + 70 margin)
-            adc1 = [0.0005 + 0.0001*randn(30,1); 0.0015 + 0.0002*randn(70,1)];
-            d1 = [0.0004 + 0.0001*randn(30,1); 0.0014 + 0.0002*randn(70,1)];
-            f1 = [0.05 + 0.01*randn(30,1); 0.2 + 0.05*randn(70,1)];
-            dstar1 = 0.02 * ones(n_vox, 1);
-            testCase.DataVectors(1,1,1).adc_vector = adc1;
-            testCase.DataVectors(1,1,1).d_vector = d1;
-            testCase.DataVectors(1,1,1).f_vector = f1;
-            testCase.DataVectors(1,1,1).dstar_vector = dstar1;
-            testCase.DataVectors(1,1,1).vox_vol = 0.008;
-            testCase.DataVectors(1,1,1).vox_dims = [2 2 2];
-
-            % Patient 1, Fx2 (shifted ADC for fDM testing)
-            testCase.DataVectors(1,2,1).adc_vector = adc1 + 0.0003 * randn(n_vox, 1);
-            testCase.DataVectors(1,2,1).d_vector = d1 + 0.0002 * randn(n_vox, 1);
-            testCase.DataVectors(1,2,1).f_vector = f1 + 0.02 * randn(n_vox, 1);
-            testCase.DataVectors(1,2,1).dstar_vector = dstar1;
-            testCase.DataVectors(1,2,1).vox_vol = 0.008;
-            testCase.DataVectors(1,2,1).vox_dims = [2 2 2];
-
-            % Patient 2, Fx1 -- all NaN (edge case)
-            testCase.DataVectors(2,1,1).adc_vector = nan(50, 1);
-            testCase.DataVectors(2,1,1).d_vector = nan(50, 1);
-            testCase.DataVectors(2,1,1).f_vector = nan(50, 1);
-            testCase.DataVectors(2,1,1).dstar_vector = nan(50, 1);
-            testCase.DataVectors(2,1,1).vox_vol = 0.008;
-            testCase.DataVectors(2,1,1).vox_dims = [2 2 2];
-
-            % Patient 2, Fx2 -- empty
-            testCase.DataVectors(2,2,1).adc_vector = [];
-            testCase.DataVectors(2,2,1).d_vector = [];
-            testCase.DataVectors(2,2,1).f_vector = [];
-            testCase.DataVectors(2,2,1).dstar_vector = [];
-
-            % Summary metrics
-            testCase.SummaryMetrics = struct();
-            testCase.SummaryMetrics.id_list = {'P01', 'P02'};
-            gtv_locs = cell(2, 2, 1);
-            gtv_locs{1, 1, 1} = gtv_mat_file;
-            gtv_locs{1, 2, 1} = gtv_mat_file;
-            gtv_locs{2, 1, 1} = '';
-            gtv_locs{2, 2, 1} = '';
-            testCase.SummaryMetrics.gtv_locations = gtv_locs;
+            [testCase.ConfigStruct, testCase.DataVectors, testCase.SummaryMetrics] = ...
+                buildDefaultTestData(testCase.TempDir);
         end
     end
 
@@ -137,8 +102,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testBasicExecution(testCase)
             % Verify that compare_core_methods runs without error and
             % returns a struct containing results for all 11 core methods.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             testCase.verifyTrue(isstruct(results), 'Output should be a struct.');
             testCase.verifyEqual(numel(results.method_names), 11, ...
@@ -148,10 +112,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testDiceMatrixProperties(testCase)
             % Verify mathematical properties of the mean Dice coefficient
             % matrix: symmetric, values in [0,1], self-comparison = 1.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            D = results.mean_dice_matrix;
+            D = testCase.SharedResults.mean_dice_matrix;
             % Diagonal should be 1
             for i = 1:11
                 if ~isnan(D(i,i))
@@ -175,10 +136,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testVolumeFractionsRange(testCase)
             % Volume fractions (core volume / total GTV volume) must be
             % in [0, 1] for all valid (non-NaN) entries.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            vf = results.volume_fractions;
+            vf = testCase.SharedResults.volume_fractions;
             valid_vf = vf(~isnan(vf));
             testCase.verifyTrue(all(valid_vf >= 0 & valid_vf <= 1), ...
                 'Volume fractions should be in [0, 1].');
@@ -187,6 +145,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testFigureGeneration(testCase)
             % Verify that compare_core_methods produces the expected
             % output PNG figures in the output folder.
+            % Uses its own call since it checks files in TempDir.
             compare_core_methods(testCase.DataVectors, ...
                 testCase.SummaryMetrics, testCase.ConfigStruct);
 
@@ -202,10 +161,8 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testMATFileSaved(testCase)
             % Verify that results are persisted to a .mat file and the
             % saved struct contains the expected compare_results variable.
-            compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            mat_file = fullfile(testCase.TempDir, 'compare_core_results_Standard.mat');
+            % Uses shared run — checks files in SharedTempDir.
+            mat_file = fullfile(testCase.SharedTempDir, 'compare_core_results_Standard.mat');
             testCase.verifyTrue(exist(mat_file, 'file') > 0, ...
                 'Results MAT file should be created.');
 
@@ -218,8 +175,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
             % Patient 2 has all-NaN voxel data (simulating missing scan).
             % All 11 methods should produce NaN volume fractions for this
             % patient rather than erroring.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             % Patient 2 has all-NaN data; volume fractions should be NaN
             for m = 1:11
@@ -233,8 +189,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
             % timepoints to compute voxel-wise changes. At baseline (k=1),
             % there is no prior timepoint, so it should fall back to
             % adc_threshold and be flagged accordingly.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             % fDM at baseline (k=1) should be flagged as fallback
             fdm_idx = find(strcmp(results.method_names, 'fdm'));
@@ -335,10 +290,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testHD95MatrixProperties(testCase)
             % HD95 matrix should be symmetric with zero diagonal (self-
             % distance is always 0) and non-negative off-diagonal values.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            H = results.mean_hd95_matrix;
+            H = testCase.SharedResults.mean_hd95_matrix;
             % Check symmetry for non-NaN entries
             for i = 1:11
                 for j2 = (i+1):11
@@ -364,8 +316,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         function testDiceCountTracked(testCase)
             % dice_count should track how many valid observations were
             % used for each pairwise comparison.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             % Patient 1 Fx1 has valid data, so dice_count should be >= 1
             testCase.verifyTrue(all(results.dice_count(:) >= 0), ...
@@ -377,8 +328,7 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
 
         function testResultsStructFields(testCase)
             % Verify all expected fields are present in output struct.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             expected = {'method_names', 'mean_dice_matrix', 'mean_hd95_matrix', ...
                 'dice_count', 'hd95_count', 'volume_fractions', ...
@@ -392,28 +342,21 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
 
         function testDiceMatrixDimensions(testCase)
             % Mean Dice matrix should be 11x11 (one per method).
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            testCase.verifyEqual(size(results.mean_dice_matrix), [11 11], ...
+            testCase.verifyEqual(size(testCase.SharedResults.mean_dice_matrix), [11 11], ...
                 'Mean Dice matrix should be 11x11.');
         end
 
         function testVolumeFractionsDimensions(testCase)
             % Volume fractions should be nPatients x nTp x 11.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
             expected_size = [2, 2, 11];  % 2 patients, 2 timepoints, 11 methods
-            testCase.verifyEqual(size(results.volume_fractions), expected_size, ...
+            testCase.verifyEqual(size(testCase.SharedResults.volume_fractions), expected_size, ...
                 'Volume fractions should be nPatients x nTp x nMethods.');
         end
 
         function testFDMatFx2NotFallback(testCase)
             % fDM at Fx2 (k=2) should NOT be flagged as fallback because
             % baseline data is available for comparison.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
+            results = testCase.SharedResults;
 
             fdm_idx = find(strcmp(results.method_names, 'fdm'));
             testCase.verifyFalse(results.fallback_flags(1, 2, fdm_idx), ...
@@ -422,29 +365,20 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
 
         function testAllDiceCellArraySize(testCase)
             % all_dice cell array should match nPatients x nTp.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            testCase.verifyEqual(size(results.all_dice), [2, 2], ...
+            testCase.verifyEqual(size(testCase.SharedResults.all_dice), [2, 2], ...
                 'all_dice should be 2x2 cell array.');
         end
 
         function testEmptyPatientDiceIsEmpty(testCase)
             % Patient 2 has empty Fx2 data; its dice matrix should be empty.
-            results = compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-
-            testCase.verifyTrue(isempty(results.all_dice{2, 2}), ...
+            testCase.verifyTrue(isempty(testCase.SharedResults.all_dice{2, 2}), ...
                 'Empty patient Fx2 should have empty Dice matrix.');
         end
 
         function testDiaryFileCreated(testCase)
             % compare_core_methods should create a diary log file.
-            compare_core_methods(testCase.DataVectors, ...
-                testCase.SummaryMetrics, testCase.ConfigStruct);
-            diary off;
-
-            diary_file = fullfile(testCase.TempDir, 'compare_core_methods_output_Standard.txt');
+            % Uses shared run — checks files in SharedTempDir.
+            diary_file = fullfile(testCase.SharedTempDir, 'compare_core_methods_output_Standard.txt');
             testCase.verifyTrue(exist(diary_file, 'file') > 0, ...
                 'Diary log file should be created.');
         end
@@ -488,7 +422,6 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
             % When dwi_types_to_run=2, compare_core_methods should read
             % from the _dncnn vector fields and produce valid output.
             rng(42);
-            n_vox = 100;
 
             dv = testCase.DataVectors;
             % Populate DnCNN fields for Patient 1 Fx1
@@ -554,4 +487,87 @@ classdef test_compare_core_methods < matlab.unittest.TestCase
         end
 
     end
+end
+
+
+function [cfg, dv, sm] = buildDefaultTestData(tempDir)
+% Build mock test data shared across tests.
+% Returns config struct, data vectors, and summary metrics.
+
+    cfg = struct();
+    cfg.output_folder = tempDir;
+    cfg.dwi_types_to_run = 1;
+    cfg.dwi_type_name = 'Standard';
+    cfg.adc_thresh = 0.001;
+    cfg.high_adc_thresh = 0.00115;
+    cfg.d_thresh = 0.001;
+    cfg.f_thresh = 0.1;
+    cfg.dstar_thresh = 0.01;
+    cfg.min_vox_hist = 20;
+    cfg.core_method = 'adc_threshold';
+    cfg.core_percentile = 25;
+    cfg.core_n_clusters = 2;
+    cfg.fdm_parameter = 'adc';
+    cfg.fdm_thresh = 0.0004;
+    cfg.adc_max = 0.003;
+
+    rng(42);
+    n_vox = 100;
+
+    % Create a 10x10x1 3D GTV mask
+    Stvol3d = true(10, 10, 1); %#ok<NASGU>
+    gtv_mat_file = fullfile(tempDir, 'gtv_p1.mat');
+    save(gtv_mat_file, 'Stvol3d');
+
+    empty_entry = struct( ...
+        'adc_vector', [], 'd_vector', [], 'f_vector', [], 'dstar_vector', [], ...
+        'adc_vector_dncnn', [], 'd_vector_dncnn', [], ...
+        'f_vector_dncnn', [], 'dstar_vector_dncnn', [], ...
+        'd_vector_ivimnet', [], 'f_vector_ivimnet', [], ...
+        'dstar_vector_ivimnet', [], ...
+        'vox_vol', [], 'vox_dims', []);
+    dv = repmat(empty_entry, 2, 2, 1);
+
+    % Patient 1, Fx1 -- bimodal ADC (30 core + 70 margin)
+    adc1 = [0.0005 + 0.0001*randn(30,1); 0.0015 + 0.0002*randn(70,1)];
+    d1 = [0.0004 + 0.0001*randn(30,1); 0.0014 + 0.0002*randn(70,1)];
+    f1 = [0.05 + 0.01*randn(30,1); 0.2 + 0.05*randn(70,1)];
+    dstar1 = 0.02 * ones(n_vox, 1);
+    dv(1,1,1).adc_vector = adc1;
+    dv(1,1,1).d_vector = d1;
+    dv(1,1,1).f_vector = f1;
+    dv(1,1,1).dstar_vector = dstar1;
+    dv(1,1,1).vox_vol = 0.008;
+    dv(1,1,1).vox_dims = [2 2 2];
+
+    % Patient 1, Fx2 (shifted ADC for fDM testing)
+    dv(1,2,1).adc_vector = adc1 + 0.0003 * randn(n_vox, 1);
+    dv(1,2,1).d_vector = d1 + 0.0002 * randn(n_vox, 1);
+    dv(1,2,1).f_vector = f1 + 0.02 * randn(n_vox, 1);
+    dv(1,2,1).dstar_vector = dstar1;
+    dv(1,2,1).vox_vol = 0.008;
+    dv(1,2,1).vox_dims = [2 2 2];
+
+    % Patient 2, Fx1 -- all NaN (edge case)
+    dv(2,1,1).adc_vector = nan(50, 1);
+    dv(2,1,1).d_vector = nan(50, 1);
+    dv(2,1,1).f_vector = nan(50, 1);
+    dv(2,1,1).dstar_vector = nan(50, 1);
+    dv(2,1,1).vox_vol = 0.008;
+    dv(2,1,1).vox_dims = [2 2 2];
+
+    % Patient 2, Fx2 -- empty
+    dv(2,2,1).adc_vector = [];
+    dv(2,2,1).d_vector = [];
+    dv(2,2,1).f_vector = [];
+    dv(2,2,1).dstar_vector = [];
+
+    sm = struct();
+    sm.id_list = {'P01', 'P02'};
+    gtv_locs = cell(2, 2, 1);
+    gtv_locs{1, 1, 1} = gtv_mat_file;
+    gtv_locs{1, 2, 1} = gtv_mat_file;
+    gtv_locs{2, 1, 1} = '';
+    gtv_locs{2, 2, 1} = '';
+    sm.gtv_locations = gtv_locs;
 end

@@ -123,13 +123,26 @@ classdef test_octave_shims < matlab.unittest.TestCase
         %% ============= categorical =============
 
         function test_categorical_passthrough(testCase)
-            % categorical shim is a pass-through
+            % categorical shim is a pass-through — only testable on Octave
+            % because MATLAB's built-in categorical class cannot be
+            % reliably shadowed by a function file on the path.
+            if ~exist('OCTAVE_VERSION', 'builtin')
+                % On MATLAB, verify the shim file exists (it will be used
+                % on Octave) but skip the behavioral test.
+                testCase.verifyTrue(exist(fullfile(testCase.CompatDir, 'categorical.m'), 'file') > 0, ...
+                    'categorical.m shim should exist in .octave_compat');
+                return;
+            end
             x = {'A', 'B', 'C'};
             c = categorical(x);
             testCase.verifyEqual(c, x);
         end
 
         function test_categorical_numeric(testCase)
+            % categorical shim numeric pass-through — Octave only.
+            if ~exist('OCTAVE_VERSION', 'builtin')
+                return;
+            end
             x = [1, 2, 3];
             c = categorical(x);
             testCase.verifyEqual(c, x);

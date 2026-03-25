@@ -76,6 +76,12 @@ addpath(strjoin(test_paths, pathsep));
 % Suppress figure pop-ups during test execution
 set(0, 'DefaultFigureVisible', 'off');
 
+% Snapshot existing saved_files_* dirs BEFORE tests run. Tests that call
+% core modules (visualize_results, sanity_checks) may create stray
+% timestamped folders in the repo root. We compare after tests to clean up.
+pre_test_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+pre_test_dir_names = {pre_test_dirs.name};
+
 disp('===================================================');
 disp('   MATLAB CI Test Runner: Initializing Suite       ');
 disp('===================================================');
@@ -446,16 +452,21 @@ end
 % Restore figure visibility
 set(0, 'DefaultFigureVisible', 'on');
 
-% Clean up any saved_files_* folders created by tests in the repo root.
-% Only do this when running standalone — when called from
-% execute_all_workflows, the parent orchestrator's output folder is also a
-% saved_files_* directory and must not be deleted.
-if standalone_diary
-    stray_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
-    for k = 1:numel(stray_dirs)
-        if stray_dirs(k).isdir
-            rmdir(fullfile(repoRoot, stray_dirs(k).name), 's');
-            fprintf('Cleaned up stray test artifact: %s\n', stray_dirs(k).name);
+% Clean up any NEW saved_files_* folders created by tests in the repo root.
+% Compare against the pre-test snapshot so we only delete folders that tests
+% created, never the execute_all_workflows master output folder.
+% Save current diary file so we can restart it after cleanup.
+prev_diary_file = get(0, 'DiaryFile');
+prev_diary_on = strcmp(get(0, 'Diary'), 'on');
+diary off;  % close any diary left open by tests before removing folders
+post_test_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+for k = 1:numel(post_test_dirs)
+    if post_test_dirs(k).isdir && ~ismember(post_test_dirs(k).name, pre_test_dir_names)
+        try
+            rmdir(fullfile(repoRoot, post_test_dirs(k).name), 's');
+            fprintf('Cleaned up stray test artifact: %s\n', post_test_dirs(k).name);
+        catch
+            % Folder may be locked by another process; skip silently
         end
     end
 end

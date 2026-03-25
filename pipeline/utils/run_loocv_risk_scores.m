@@ -80,6 +80,17 @@ function [risk_scores_oof, is_high_risk_oof] = run_loocv_risk_scores( ...
         X_tr_kept = X_tr_imp(:, keep_fold);
         X_te_kept = X_te_imp(:, keep_fold);
 
+        % Remove zero-variance columns (e.g., constant features) that
+        % would cause lassoglm to return degenerate zero coefficients
+        % with a non-NaN intercept instead of failing gracefully.
+        var_cols = var(X_tr_kept, 0, 1) > 0;
+        if ~any(var_cols)
+            risk_scores_oof(loo_i) = NaN;
+            continue;
+        end
+        X_tr_kept = X_tr_kept(:, var_cols);
+        X_te_kept = X_te_kept(:, var_cols);
+
         % Suppress expected warnings from elastic net on small folds
         w_state_loo = warning('off', 'stats:lassoGlm:PerfectSeparation');
         warning('off', 'stats:lassoGlm:IterationLimit');

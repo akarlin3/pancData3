@@ -22,6 +22,8 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
         SummaryMetrics   % Mock summary metric arrays
         DataVectors      % Mock voxel-level data vectors
         CalculatedResults % Empty struct (no pre-computed results needed)
+        PreTestDiaryFile % Diary file path before test (for restore after hijack)
+        PreTestDiaryOn   % Whether diary was on before test
     end
 
     methods(TestMethodSetup)
@@ -97,17 +99,28 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
 
             % Suppress figure windows during automated testing
             set(0, 'DefaultFigureVisible', 'off');
+
+            % Save diary state — core modules hijack the diary, so we
+            % restore it in teardown to keep the test log intact.
+            testCase.PreTestDiaryFile = get(0, 'DiaryFile');
+            testCase.PreTestDiaryOn = strcmp(get(0, 'Diary'), 'on');
         end
     end
 
     methods(TestMethodTeardown)
         function cleanup(testCase)
-            % Close any figures opened during the test and remove the temp
-            % directory tree. Figures must be closed before rmdir to avoid
-            % file lock issues on Windows.
+            % Close diary first — core modules (visualize_results, etc.) open
+            % their own diary files, which must be closed before rmdir can
+            % delete the temp directory on Windows (file locking).
+            diary off;
             close all;
             if exist(testCase.TempDir, 'dir')
                 rmdir(testCase.TempDir, 's');
+            end
+            % Restore diary to the pre-test state so subsequent tests still
+            % log to the correct file (e.g., test_suite_output.log).
+            if testCase.PreTestDiaryOn
+                diary(testCase.PreTestDiaryFile);
             end
         end
     end
@@ -135,22 +148,21 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
         end
 
         function testSmokeMissingBval(testCase)
-            % Tests graceful degradation when the .bval file is missing.
-            % Parameter maps require b-value information to select the correct
-            % DWI volume, so they should be skipped. However, feature
-            % histograms and box plots depend only on SummaryMetrics and
-            % should still be generated.
+            % Tests that visualization still succeeds when .bval file is
+            % missing.  The streaming parameter maps use pre-computed
+            % vectors (not raw NIfTI/bval), so they ARE created.  Feature
+            % histograms also use pre-computed SummaryMetrics.
             if exist('OCTAVE_VERSION', 'builtin'); return; end
             delete(fullfile(testCase.TempDir, 'P01', 'nii', 'fx1_dwi1.bval'));
 
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
 
             outputDir = testCase.ConfigStruct.output_folder;
-            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') == 0, ...
-                'Parameter_Maps_1.png should NOT be created if bval is missing');
+            % Streaming parameter maps use pre-computed adc_vector, so
+            % they are generated regardless of bval file presence.
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
+                'Parameter_Maps_1.png should be created from pre-computed vectors');
 
-            % Feature histograms use pre-computed SummaryMetrics, not raw NIfTI,
-            % so they should succeed even without the .bval file.
             testCase.verifyTrue(exist(fullfile(outputDir, 'Feature_Histograms_Standard.png'), 'file') > 0, ...
                 'Expected Feature_Histograms_Standard.png to be created');
         end
@@ -287,13 +299,27 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             % When config has no output_folder, visualize_results should
             % create a timestamped folder.
             if exist('OCTAVE_VERSION', 'builtin'); return; end
+
+            % Snapshot existing saved_files_* dirs before the call
+            repoRoot = fullfile(fileparts(mfilename('fullpath')), '..', '..');
+            pre_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+            pre_names = {pre_dirs.name};
+
             config = testCase.ConfigStruct;
             config = rmfield(config, 'output_folder');
 
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, config);
 
-            % A saved_files_* directory should have been created somewhere
-            % We just verify it doesn't crash.
+            % Close diary before cleanup (visualize_results opens its own)
+            diary off;
+
+            % Clean up the stray saved_files_* folder created by this test
+            post_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+            for k = 1:numel(post_dirs)
+                if post_dirs(k).isdir && ~ismember(post_dirs(k).name, pre_names)
+                    rmdir(fullfile(repoRoot, post_dirs(k).name), 's');
+                end
+            end
         end
 
         function testMultipleDwiTypes(testCase)

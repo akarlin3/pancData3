@@ -63,6 +63,9 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
         % Teardown runs after each test: restores the MATLAB path and
         % removes the temporary mock data directory.
         function removeMockData(testCase)
+            % Close diary first — core modules open diary files inside
+            % MockDataDir, which must be released before rmdir on Windows.
+            diary off;
             % Restore path BEFORE deleting mock_data to avoid
             % "Removed ... from the MATLAB path" warnings.
             if isfield(testCase.ConfigStruct, 'orig_path')

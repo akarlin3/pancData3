@@ -223,7 +223,7 @@ while current_pat <= nPat
         pat_idx = current_pat + p - 1;
         
         % Skip if no data for this patient
-        if pat_idx > length(data_vectors_gtvp) || isempty(data_vectors_gtvp(pat_idx).dwi_data)
+        if pat_idx > numel(data_vectors_gtvp) || isempty(data_vectors_gtvp(pat_idx).adc_vector)
             continue;
         end
         
@@ -247,7 +247,7 @@ while current_pat <= nPat
     end
     
     % Save and close figure immediately
-    filename = fullfile(output_folder, sprintf('parameter_maps_%02d.png', fig_counter));
+    filename = fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_counter));
     print(fig, filename, '-dpng', '-r300');
     close(fig);
     
@@ -310,7 +310,7 @@ end
 sgtitle(sprintf('%s: Baseline Parameter Distributions (LC vs LF)', dtype_label));
 
 % Save and close histogram figure
-filename_hist = fullfile(output_folder, sprintf('distributions_histograms_%s.png', dtype_label));
+filename_hist = fullfile(output_folder, sprintf('Feature_Histograms_%s.png', dtype_label));
 print(fig_hist, filename_hist, '-dpng', '-r300');
 close(fig_hist);
 
@@ -353,7 +353,7 @@ end
 sgtitle(sprintf('%s: Baseline Parameter Box Plots (LC vs LF)', dtype_label));
 
 % Save and close box plot figure
-filename_box = fullfile(output_folder, sprintf('distributions_boxplots_%s.png', dtype_label));
+filename_box = fullfile(output_folder, sprintf('Feature_BoxPlots_%s.png', dtype_label));
 print(fig_box, filename_box, '-dpng', '-r300');
 close(fig_box);
 
@@ -444,7 +444,7 @@ end
 sgtitle(sprintf('%s: Dose-Diffusion Correlations', dtype_label));
 
 % Save and close figure
-filename = fullfile(output_folder, sprintf('dose_correlations_%s.png', dtype_label));
+filename = fullfile(output_folder, sprintf('Dose_vs_Diffusion_%s.png', dtype_label));
 print(fig, filename, '-dpng', '-r300');
 close(fig);
 

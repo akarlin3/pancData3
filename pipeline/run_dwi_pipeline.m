@@ -250,3 +250,27 @@ function has_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run
         has_passed = false;
     end
 end
+
+function icon = safe_icon(name)
+%SAFE_ICON  Return a Unicode icon string if the console supports UTF-8,
+%   otherwise return an ASCII-safe fallback.
+    is_utf8 = false;
+    try
+        charset = feature('DefaultCharacterSet');
+        if strcmpi(charset, 'UTF-8')
+            is_utf8 = true;
+        end
+    catch
+    end
+
+    switch lower(name)
+        case 'ok'
+            if is_utf8, icon = char([10004]); else, icon = '[OK]'; end
+        case 'done'
+            if is_utf8, icon = char([9989]); else, icon = '[DONE]'; end
+        case 'fail'
+            if is_utf8, icon = char([10060]); else, icon = '[FAIL]'; end
+        otherwise
+            icon = '';
+    end
+end
