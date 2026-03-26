@@ -201,6 +201,16 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
             event_stable = event_csh;
         end
 
+        % --- Expand intervals for time-dependent interaction ---
+        % Split observation intervals at event-time quantiles so the
+        % X × log(t) interaction uses shared interval boundaries rather
+        % than each subject's own event/censoring time.  Without this,
+        % single-interval data suffers from endogeneity bias because the
+        % covariate value depends on the outcome.
+        [X_stable, t_start_stable, t_stop_stable, event_stable] = ...
+            expand_intervals_for_interaction(X_stable, t_start_stable, ...
+            t_stop_stable, event_stable);
+
         % Create interaction term: covariate × log(time)
         % For left-truncated data, use entry-adjusted time
         if left_truncated
@@ -210,7 +220,9 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
         end
         t_mid(t_mid <= 0) = 1;  % avoid log(0); use 1 day as minimum
         log_time = log(t_mid);
-        interaction_term = X_stable(:, cov_idx) .* log_time;
+        log_time_mean = mean(log_time);
+        log_time_centered = log_time - log_time_mean;
+        interaction_term = X_stable(:, cov_idx) .* log_time_centered;
 
         % Build extended design matrix: all covariates + interaction
         X_ext = [X_stable, interaction_term];
@@ -320,7 +332,7 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
                             t_grid_adj = t_grid;
                         end
                         
-                        hr_t = exp(base_coef + int_coef * log(t_grid_adj));
+                        hr_t = exp(base_coef + int_coef * (log(t_grid_adj) - log_time_mean));
 
                         % 95% CI via delta method with conservative bounds for penalized estimates
                         if ~isempty(base_pos) && ~isempty(int_pos)
@@ -341,8 +353,9 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
                             end
                             
                             % Conservative: assume zero covariance
-                            se_lhr = sqrt(se_base^2 + (log(t_grid_adj)).^2 * se_int^2);
-                            lhr = base_coef + int_coef * log(t_grid_adj);
+                            log_t_c = log(t_grid_adj) - log_time_mean;
+                            se_lhr = sqrt(se_base^2 + log_t_c.^2 * se_int^2);
+                            lhr = base_coef + int_coef * log_t_c;
                             hr_lo = exp(lhr - 1.96 * se_lhr);
                             hr_hi = exp(lhr + 1.96 * se_lhr);
                         else
@@ -639,6 +652,54 @@ function [b, logl, H, stats] = fit_penalized_cox(X, time_intervals, event, penal
             'Censoring', event == 0, 'Ties', 'breslow');
         stats.se = stats.se * 1.5;  % Conservative inflation
     end
+end
+
+function [X_out, t0_out, t1_out, ev_out] = expand_intervals_for_interaction( ...
+    X_in, t_start, t_stop, event)
+    % Expand counting-process intervals by splitting at event-time
+    % quantiles.  This ensures the time-dependent interaction term
+    % X × log(t_mid) uses shared interval boundaries rather than each
+    % subject's own event/censoring time, preventing endogeneity bias.
+
+    n_events = sum(event);
+    if n_events < 4
+        X_out = X_in; t0_out = t_start; t1_out = t_stop; ev_out = event;
+        return;
+    end
+
+    event_ts = sort(t_stop(event == 1));
+    n_cuts = min(8, max(2, floor(n_events / 5)));
+    cut_q = linspace(0, 1, n_cuts + 2);
+    cuts = unique(quantile(event_ts, cut_q(2:end-1)));
+
+    if isempty(cuts)
+        X_out = X_in; t0_out = t_start; t1_out = t_stop; ev_out = event;
+        return;
+    end
+
+    n_obs = numel(event);
+    X_cells  = cell(n_obs, 1);
+    t0_cells = cell(n_obs, 1);
+    t1_cells = cell(n_obs, 1);
+    ev_cells = cell(n_obs, 1);
+
+    for ii = 1:n_obs
+        s = t_start(ii);  e = t_stop(ii);
+        interior = cuts(cuts > s & cuts < e);
+        bd = unique([s; interior(:); e]);
+        k = numel(bd) - 1;
+        X_cells{ii}  = repmat(X_in(ii, :), k, 1);
+        t0_cells{ii} = bd(1:end-1);
+        t1_cells{ii} = bd(2:end);
+        ev_sub = zeros(k, 1);
+        ev_sub(end) = event(ii);   % event only in last sub-interval
+        ev_cells{ii} = ev_sub;
+    end
+
+    X_out  = vertcat(X_cells{:});
+    t0_out = vertcat(t0_cells{:});
+    t1_out = vertcat(t1_cells{:});
+    ev_out = vertcat(ev_cells{:});
 end
 
 function [int_coef_smooth, base_coef_smooth] = apply_smoothing_constraint(int_coef, base_coef, ...
