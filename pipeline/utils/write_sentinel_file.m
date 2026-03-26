@@ -34,6 +34,6 @@ function write_sentinel_file(output_folder, prefix, message, dwi_type_name)
     else
         fprintf(fid, '%s\n', message);
         fclose(fid);
+        fprintf('      💾 Saved %s to %s\n', prefix, sentinel_file);
     end
-    fprintf('      💾 Saved %s to %s\n', prefix, sentinel_file);
 end

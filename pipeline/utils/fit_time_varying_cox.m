@@ -67,8 +67,16 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     [sparse_periods, stable_period_end] = check_event_density(t_stop, event_csh, min_events_per_period);
     
     if sparse_periods
-        fprintf('  ⚠️  Warning: Sparse events detected in later time periods.\n');
-        fprintf('  Using stable period up to t=%.2f for reliable estimation.\n', stable_period_end);
+        % Check if stable period is too short to be useful (< 20% of range)
+        time_range = max(t_stop) - min(t_stop);
+        if time_range > 0 && (stable_period_end - min(t_stop)) < 0.2 * time_range
+            sparse_periods = false;
+            fprintf('  ℹ️  Sparse period detected but stable region too short (%.1f%% of range). Using all data.\n', ...
+                100 * (stable_period_end - min(t_stop)) / time_range);
+        else
+            fprintf('  ⚠️  Warning: Sparse events detected in later time periods.\n');
+            fprintf('  Using stable period up to t=%.2f for reliable estimation.\n', stable_period_end);
+        end
     end
 
     % --- Check for left-truncation and delayed entry ---
@@ -122,15 +130,39 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
             strat_group_stable = strat_group;
         end
 
-        % Fit on full data with stratification and left-truncation handling
+        % Fit stratified Cox by pooling per-stratum estimates.
+        % coxphfit does not support a 'Stratification' parameter, so we
+        % fit separately within each stratum and combine via inverse-
+        % variance weighting.
         w_off = warning('off', 'all');
-        if left_truncated
-            [b_strat, ~, ~, stats_strat] = fit_left_truncated_cox(X_strat_stable, ...
-                [t_start_stable, t_stop_stable], event_stable, strat_group_stable, false);
+        strata_levels = unique(strat_group_stable);
+        if numel(strata_levels) >= 2 && size(X_strat_clean, 2) > 0
+            b_strat = zeros(size(X_strat_clean, 2), 1);
+            se_strat = zeros(size(X_strat_clean, 2), 1);
+            total_weight = zeros(size(X_strat_clean, 2), 1);
+            for si = 1:numel(strata_levels)
+                s_mask = strat_group_stable == strata_levels(si);
+                if sum(event_stable(s_mask)) < 2, continue; end
+                try
+                    [b_s, ~, ~, stats_s] = coxphfit(X_strat_clean(s_mask, :), ...
+                        [t_start_stable(s_mask), t_stop_stable(s_mask)], ...
+                        'Censoring', event_stable(s_mask) == 0, 'Ties', 'breslow');
+                    w_s = 1 ./ (stats_s.se.^2 + eps);
+                    b_strat = b_strat + b_s .* w_s;
+                    total_weight = total_weight + w_s;
+                catch
+                end
+            end
+            valid = total_weight > 0;
+            b_strat(valid) = b_strat(valid) ./ total_weight(valid);
+            se_strat(valid) = 1 ./ sqrt(total_weight(valid));
+            z_strat = abs(b_strat) ./ (se_strat + eps);
+            p_strat = 2 * (1 - normcdf(z_strat));
+            stats_strat = struct('se', se_strat, 'p', p_strat);
         else
-            [b_strat, ~, ~, stats_strat] = coxphfit(X_strat_stable, [t_start_stable, t_stop_stable], ...
-                'Censoring', event_stable == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group_stable);
+            [b_strat, ~, ~, stats_strat] = coxphfit(X_strat_clean, ...
+                [t_start_stable, t_stop_stable], ...
+                'Censoring', event_stable == 0, 'Ties', 'breslow');
         end
         warning(w_off);
 
@@ -444,10 +476,25 @@ function [b, logl, H, stats] = fit_left_truncated_cox(X, time_intervals, event, 
         entry_weights = calculate_left_truncation_weights(t_start, t_stop);
         
         if ~isempty(strat_group)
-            % Stratified model
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group, 'Frequency', entry_weights);
+            % Stratified model via per-stratum fitting
+            strata_lvls = unique(strat_group);
+            n_coef = size(X, 2);
+            b = zeros(n_coef, 1); se_acc = zeros(n_coef, 1); tw = zeros(n_coef, 1);
+            logl = 0; H = [];
+            for ssi = 1:numel(strata_lvls)
+                sm = strat_group == strata_lvls(ssi);
+                if sum(event(sm)) < 2, continue; end
+                [b_s, ll_s, H_s, st_s] = coxphfit(X(sm, :), [t_start(sm), t_stop(sm)], ...
+                    'Censoring', event(sm) == 0, 'Ties', 'breslow', ...
+                    'Frequency', entry_weights(sm));
+                ws = 1 ./ (st_s.se.^2 + eps);
+                b = b + b_s .* ws; tw = tw + ws; logl = logl + ll_s;
+                if isempty(H), H = H_s; end
+            end
+            ok = tw > 0; b(ok) = b(ok) ./ tw(ok);
+            se_acc(ok) = 1 ./ sqrt(tw(ok));
+            z_acc = abs(b) ./ (se_acc + eps);
+            stats = struct('se', se_acc, 'p', 2 * (1 - normcdf(z_acc)));
         else
             % Standard model with weights
             [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
@@ -469,14 +516,9 @@ function [b, logl, H, stats] = fit_left_truncated_cox(X, time_intervals, event, 
     catch ME
         % Fallback to standard Cox if left-truncation adjustment fails
         warning('Left-truncation adjustment failed: %s. Using standard Cox.', ME.message);
-        if ~isempty(strat_group)
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group);
-        else
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow');
-        end
+        % Fallback: ignore stratification, fit pooled model
+        [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
+            'Censoring', event == 0, 'Ties', 'breslow');
     end
 end
 
