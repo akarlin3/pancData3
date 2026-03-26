@@ -77,14 +77,16 @@ classdef test_time_varying_cox < matlab.unittest.TestCase
             % Data with constant HR (no time-varying effect) should
             % produce a non-significant interaction term.
             rng(123);
-            n = 150;
+            n = 300;
 
             t_start = zeros(n, 1);
             t_stop = rand(n, 1) * 100 + 10;
             X = randn(n, 2);
 
             % Constant effect: hazard depends on X but not on time
-            hazard = 0.8 * X(:,1) + 0.3 * X(:,2);
+            % Use moderate coefficients to avoid multicollinearity
+            % between X(:,1) and X(:,1)*log(t) in extended model
+            hazard = 0.3 * X(:,1) + 0.3 * X(:,2);
             event_prob = 1 ./ (1 + exp(-hazard));
             event_csh = double(rand(n, 1) < event_prob);
 
@@ -96,7 +98,7 @@ classdef test_time_varying_cox < matlab.unittest.TestCase
             % Force Cov1 as "violated" to trigger the follow-up
             schoenfeld = struct('violated', [true; false], 'p_value', [0.04; 0.5]);
 
-            config = struct();
+            config = struct('min_events_per_period', 3);
             tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, ...
                 cov_names, schoenfeld, testCase.TempDir, 'Test', config);
 
