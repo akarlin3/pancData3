@@ -264,9 +264,11 @@ classdef ProgressGUI < handle
         function available = isDisplayAvailable()
         %ISDISPLAYAVAILABLE Check if a GUI display is available.
         %   Returns false in Octave (no Java/figure support in headless mode),
-        %   in headless MATLAB (no DISPLAY on Linux), or when JVM is absent.
+        %   in headless MATLAB (no DISPLAY on Linux), when JVM is absent, or
+        %   when SUPPRESS_PIPELINE_GUI env var is set (used during testing).
             available = false;
             if exist('OCTAVE_VERSION', 'builtin'), return; end
+            if ~isempty(getenv('SUPPRESS_PIPELINE_GUI')), return; end
             try
                 % usejava('desktop') is true for interactive MATLAB sessions;
                 % for -nodisplay/-batch on Linux, check DISPLAY + JVM instead

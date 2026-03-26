@@ -16,6 +16,9 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
             testCase.TmpDir = tempname;
             mkdir(testCase.TmpDir);
 
+            % Suppress pipeline progress GUIs during testing
+            setenv('SUPPRESS_PIPELINE_GUI', '1');
+
             % Create a minimal pipeline directory structure
             testCase.PipelineDir = fullfile(testCase.TmpDir, 'pipeline');
             mkdir(testCase.PipelineDir);

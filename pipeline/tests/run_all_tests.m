@@ -58,6 +58,10 @@ else
 end
 addpath(repoRoot);
 
+% Suppress pipeline progress GUIs during testing — they pop up as visible
+% windows in interactive sessions and clutter the desktop.
+setenv('SUPPRESS_PIPELINE_GUI', '1');
+
 % Save test output to test.out when run standalone (not wrapped by execute_all_workflows)
 standalone_diary = strcmp(get(0, 'Diary'), 'off');
 if standalone_diary
