@@ -235,9 +235,12 @@ classdef test_sanity_checks < matlab.unittest.TestCase
             % snapshots pre-existing saved_files_* dirs and only cleans up
             % newly created ones to avoid deleting real pipeline output.
             [gtvp, gtvn, summary] = testCase.createMockData(1, 1);
-            core_dir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'core');
-            project_root = fullfile(core_dir, '..');
-            pre_dirs = dir(fullfile(project_root, 'saved_files_*'));
+            % sanity_checks.m creates fallback folders at
+            % fullfile(fileparts(mfilename('fullpath')), '..', '..', ...)
+            % which resolves to pipeline/core/../../ = pancData3/ (the
+            % repository root), NOT pipeline/.
+            repo_root = fullfile(fileparts(fileparts(mfilename('fullpath'))), '..');
+            pre_dirs = dir(fullfile(repo_root, 'saved_files_*'));
             pre_names = {pre_dirs([pre_dirs.isdir]).name};
 
             % Call with only 3 arguments, fallback to default output_folder
@@ -251,10 +254,10 @@ classdef test_sanity_checks < matlab.unittest.TestCase
 
             % Cleanup: only remove saved_files_* dirs that did not exist
             % before the call (i.e., created by this test).
-            fallback_dirs = dir(fullfile(project_root, 'saved_files_*'));
+            fallback_dirs = dir(fullfile(repo_root, 'saved_files_*'));
             for fi = 1:numel(fallback_dirs)
                 if fallback_dirs(fi).isdir && ~ismember(fallback_dirs(fi).name, pre_names)
-                    rmdir(fullfile(project_root, fallback_dirs(fi).name), 's');
+                    rmdir(fullfile(repo_root, fallback_dirs(fi).name), 's');
                 end
             end
         end
