@@ -57,8 +57,8 @@ function [success, err_msg] = execute_pipeline_step(step_name, step_fn, pipeGUI,
         % Non-fatal error handling: log the error but do NOT rethrow.
         % This allows the pipeline to continue with subsequent steps
         % (e.g., survival analysis can still run even if dosimetry fails).
-        fprintf('\u26a0\ufe0f FAILED (Non-Fatal).\n');
-        fprintf('\u26a0\ufe0f Error during %s: %s\n', step_name, ME.message);
+        fprintf('\xe2\x9a\xa0\xef\xb8\x8f FAILED (Non-Fatal).\n');
+        fprintf('\xe2\x9a\xa0\xef\xb8\x8f Error during %s: %s\n', step_name, ME.message);
         if ~isempty(pipeGUI), pipeGUI.completeStep(step_name, 'warning'); end
         if log_fid > 0
             fprintf(log_fid, '[%s] [ERROR] %s failed: %s\n', ...

@@ -168,10 +168,10 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
         end
 
         function testSmokeProtocolDeviation(testCase)
-            % Tests graceful handling of a b-value file that does not match
-            % the expected protocol. The standard protocol uses b = [0 30 150 550];
-            % here b=50 replaces b=30. Parameter maps should be skipped
-            % because the function cannot reliably map b-values to volumes.
+            % Tests that visualize_results still succeeds when b-values
+            % deviate from the standard protocol (b=50 instead of b=30).
+            % The streaming parameter maps use pre-computed vectors (not
+            % raw NIfTI/bval), so they ARE created regardless of bval content.
             if exist('OCTAVE_VERSION', 'builtin'); return; end
             fid = fopen(fullfile(testCase.TempDir, 'P01', 'nii', 'fx1_dwi1.bval'), 'w');
             fprintf(fid, '0 50 150 550'); % b=50 is non-standard
@@ -180,8 +180,10 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
 
             outputDir = testCase.ConfigStruct.output_folder;
-            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') == 0, ...
-                'Parameter_Maps_1.png should NOT be created if protocol deviates');
+            % Streaming parameter maps use pre-computed adc_vector, so
+            % they are generated regardless of bval file content.
+            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
+                'Parameter_Maps_1.png should be created from pre-computed vectors');
         end
 
         function testOutputFolderCreated(testCase)

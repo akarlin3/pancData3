@@ -211,7 +211,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
         ext_data_path = config_struct.external_validation_data;
         if ~isempty(ext_data_path) && ischar(ext_data_path)
             if ~exist(ext_data_path, 'dir')
-                fprintf('\u26a0\ufe0f External validation data file not found: %s\n', ext_data_path);
+                fprintf('\xe2\x9a\xa0\xef\xb8\x8f External validation data file not found: %s\n', ext_data_path);
                 if log_fid > 0
                     fprintf(log_fid, '[%s] [WARNING] External validation data not found: %s\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), ext_data_path);
@@ -376,10 +376,10 @@ function run_export_validation_step(session, validation_model_path)
         if isfield(cr, 'trained_model')
             prepare_external_validation(cr.trained_model, config_struct, validation_model_path);
         else
-            fprintf('      \u26a0\ufe0f calculated_results does not contain trained_model. Export skipped.\n');
+            fprintf('      \xe2\x9a\xa0\xef\xb8\x8f calculated_results does not contain trained_model. Export skipped.\n');
         end
     else
-        fprintf('      \u26a0\ufe0f No calculated_results file found. Export skipped.\n');
+        fprintf('      \xe2\x9a\xa0\xef\xb8\x8f No calculated_results file found. Export skipped.\n');
     end
     fprintf('      \xe2\x9c\x85 Done.\n');
 end
@@ -388,7 +388,7 @@ function run_apply_external_validation_step(session, ext_data_path, validation_m
     fprintf('\xf0\x9f\x92\xa1 External validation: applying saved model to external dataset\n');
     config_struct = session.config_struct;
     if ~exist(validation_model_path, 'file')
-        fprintf('      \u26a0\ufe0f Validation model not found at: %s. Skipping.\n', validation_model_path);
+        fprintf('      \xe2\x9a\xa0\xef\xb8\x8f Validation model not found at: %s. Skipping.\n', validation_model_path);
         return;
     end
     ext_results = apply_external_validation(validation_model_path, ext_data_path, config_struct);

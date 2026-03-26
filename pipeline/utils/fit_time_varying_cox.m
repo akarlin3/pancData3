@@ -542,10 +542,13 @@ end
 
 function [sparse_periods, stable_end] = check_event_density(t_stop, event_csh, min_events)
     % Check for sparse events in later time periods
-    
+    % Use the actual data range (min to max of t_stop) instead of starting
+    % from 0, to avoid false sparse detection when all observations start
+    % well above 0 (e.g., t_stop uniformly in [10, 110]).
+    min_time = min(t_stop);
     max_time = max(t_stop);
     n_periods = 10;  % Divide timeline into periods
-    period_bounds = linspace(0, max_time, n_periods + 1);
+    period_bounds = linspace(min_time, max_time, n_periods + 1);
     
     sparse_periods = false;
     stable_end = max_time;

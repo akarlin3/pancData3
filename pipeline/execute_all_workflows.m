@@ -238,10 +238,12 @@ else
     try
         run(fullfile(pipeline_root, 'tests', 'run_all_tests.m'));
         disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+        diary off;              % flush test diary buffer before switching
         diary(eaw_diary_file);  % switch back to master diary
     catch ME
         try
-            diary(eaw_diary_file);  % switch back before error
+            diary off;              % flush test diary buffer before switching
+            diary(eaw_diary_file);  % switch back to master diary
         catch
             diary off;  % if master diary file is inaccessible, just turn diary off
         end
