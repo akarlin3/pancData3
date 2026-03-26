@@ -60,7 +60,7 @@ classdef test_time_varying_cox < matlab.unittest.TestCase
             cov_names = {'Cov1', 'Cov2'};
             schoenfeld = struct('violated', [true; false], 'p_value', [0.01; 0.5]);
 
-            config = struct();
+            config = struct('min_events_per_period', 3);
             tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, ...
                 cov_names, schoenfeld, testCase.TempDir, 'Test', config);
 

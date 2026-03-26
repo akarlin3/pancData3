@@ -148,7 +148,7 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
 
             testCase.verifyTrue(session.abort);
             % Figure visibility should have been restored by the catch block
-            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'on');
+            testCase.verifyEqual(char(get(0, 'DefaultFigureVisible')), 'on');
         end
 
         function test_type_output_folder_created(testCase)
@@ -225,10 +225,10 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
 
             if threw
                 % The catch-and-rethrow path restores visibility
-                testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'on');
+                testCase.verifyEqual(char(get(0, 'DefaultFigureVisible')), 'on');
             else
                 % Function succeeded — caller owns cleanup; verify prev_fig_vis
-                testCase.verifyEqual(session.prev_fig_vis, 'on', ...
+                testCase.verifyEqual(char(session.prev_fig_vis), 'on', ...
                     'prev_fig_vis should preserve the original visibility state.');
                 set(0, 'DefaultFigureVisible', session.prev_fig_vis);
                 if session.log_fid > 0, fclose(session.log_fid); end
@@ -241,8 +241,8 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
             session = prepare_pipeline_session(testCase.PipelineDir, testCase.ConfigFile, '', {'load'});
             diary off;
 
-            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'off');
-            testCase.verifyEqual(session.prev_fig_vis, 'on');
+            testCase.verifyEqual(char(get(0, 'DefaultFigureVisible')), 'off');
+            testCase.verifyEqual(char(session.prev_fig_vis), 'on');
             set(0, 'DefaultFigureVisible', 'on');
             if session.log_fid > 0, fclose(session.log_fid); end
         end

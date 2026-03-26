@@ -216,7 +216,7 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             if exist('OCTAVE_VERSION', 'builtin'); return; end
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
 
-            testCase.verifyEqual(get(0, 'DefaultFigureVisible'), 'off', ...
+            testCase.verifyEqual(char(get(0, 'DefaultFigureVisible')), 'off', ...
                 'Figures should be set to invisible for batch runs.');
         end
 

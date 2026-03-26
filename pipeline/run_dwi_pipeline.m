@@ -239,7 +239,7 @@ function has_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run
     % initialize_pipeline handles path setup, running tests if 'test' is in
     % steps_to_run, and returns the (possibly updated) config path.
     try
-        config_path = initialize_pipeline(pipeline_dir, config_path, steps_to_run, master_output_folder);
+        config_path = initialize_pipeline(pipeline_dir, config_path, steps_to_run, master_output_folder, cached_passed, cached_timestamp);
         cached_passed = true;
         cached_timestamp = now;
         has_passed = true;
