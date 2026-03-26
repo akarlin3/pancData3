@@ -67,6 +67,9 @@ standalone_diary = strcmp(get(0, 'Diary'), 'off');
 if standalone_diary
     diary(fullfile(repoRoot, 'test.out'));
 end
+% Capture the active diary file path so ProgressBarPlugin can restart it
+% after core modules hijack the diary during tests.
+active_diary_file = get(0, 'DiaryFile');
 
 % Add test subdirectories to path, excluding transient mock_data dirs that
 % may be left over from a previous crashed run.  Including them causes
@@ -227,7 +230,7 @@ if can_run_parallel
     % --- Phase 2: serial tests sequentially ---
     fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
     ser_runner = TestRunner.withTextOutput();
-    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
     if ~isempty(hGUI) && hGUI.isValid()
         ser_runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
     end
@@ -272,7 +275,7 @@ if can_run_parallel
             clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
             ser_runner2 = matlab.unittest.TestRunner.withTextOutput();
             try
-                ser_runner2.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+                ser_runner2.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
             catch; end
             if ~isempty(hGUI) && hGUI.isValid()
                 try
@@ -301,7 +304,7 @@ else
     full_suite = suite;
 
     runner = TestRunner.withTextOutput();
-    runner.addPlugin(ProgressBarPlugin(numel(full_suite)));
+    runner.addPlugin(ProgressBarPlugin(numel(full_suite), active_diary_file));
     if ~isempty(hGUI) && hGUI.isValid()
         runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
     end
@@ -338,7 +341,7 @@ else
             clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
             runner2 = matlab.unittest.TestRunner.withTextOutput();
             try
-                runner2.addPlugin(ProgressBarPlugin(numel(full_suite)));
+                runner2.addPlugin(ProgressBarPlugin(numel(full_suite), active_diary_file));
             catch; end
             if ~isempty(hGUI) && hGUI.isValid()
                 try
