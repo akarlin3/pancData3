@@ -48,7 +48,8 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     tv_results.violated_covariates = violated_names;
     tv_results.stratified_model = struct();
     tv_results.interaction_models = struct('covariate', {}, 'interaction_coef', {}, ...
-        'interaction_p', {}, 'base_coef', {}, 'base_p', {});
+        'interaction_p', {}, 'base_coef', {}, 'base_p', {}, ...
+        'penalized', {}, 'stable_period_used', {}, 'left_truncated', {});
 
     if isempty(violated_idx)
         fprintf('  No PH violations detected. Skipping time-varying models.\n');
