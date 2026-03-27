@@ -219,11 +219,16 @@ diary(eaw_diary_file);
 % This is useful during iterative development when tests have already been
 % verified and the researcher wants to skip the ~2-minute test suite overhead.
 eaw_skip_tests = false;
+eaw_tests_only = false;
 try
     eaw_raw = fileread(config_file);
     eaw_cfg = jsondecode(eaw_raw);
     if isfield(eaw_cfg, 'skip_tests') && eaw_cfg.skip_tests
         eaw_skip_tests = true;
+    end
+    if isfield(eaw_cfg, 'tests_only') && eaw_cfg.tests_only
+        eaw_tests_only = true;
+        eaw_skip_tests = false;  % tests_only overrides skip_tests
     end
 catch
     % If config can't be read, proceed with tests enabled (safe default)
@@ -232,11 +237,20 @@ end
 if eaw_skip_tests
     disp('⏭️ Skipping test suite (skip_tests = true in config.json).');
 else
-    disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+    if eaw_tests_only
+        disp('====== RUNNING TEST SUITE ONLY (tests_only = true) ======');
+    else
+        disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+    end
     test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
     diary(test_diary_file);
     try
         run(fullfile(pipeline_root, 'tests', 'run_all_tests.m'));
+        if eaw_tests_only
+            disp('====== ALL TESTS PASSED — EXITING (tests_only mode) ======');
+            diary off;
+            return;
+        end
         disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
         diary off;              % flush test diary buffer before switching
         diary(eaw_diary_file);  % switch back to master diary

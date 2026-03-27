@@ -90,6 +90,13 @@ function config_struct = parse_config(json_path)
             config_struct.skip_tests = false;
         end
 
+        % tests_only: When true, runs the test suite and then exits without
+        % executing the data pipeline.  Useful for CI or verifying code
+        % changes without processing patient data.  Overrides skip_tests.
+        if ~isfield(config_struct, 'tests_only')
+            config_struct.tests_only = false;
+        end
+
         % use_checkpoints: Enables per-patient caching of intermediate
         % results (DICOM conversion, model fits).  Essential for large
         % cohorts where a single patient failure should not require
@@ -477,7 +484,7 @@ function config_struct = parse_config(json_path)
         % accept numeric 0/1 (which is what you get if the user writes
         % the JSON integer 0 or 1 instead of true/false) and coerce to
         % logical.  Strings like "true"/"false" are also coerced.
-        logical_fields = {'skip_to_reload', 'skip_tests', 'use_checkpoints', ...
+        logical_fields = {'skip_to_reload', 'skip_tests', 'tests_only', 'use_checkpoints', ...
             'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
             'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
             'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
