@@ -247,6 +247,21 @@ RE_TV_STRATIFIED = re.compile(
     r"Stratified Cox Model \(stratified by (\S+),\s*median=([0-9.eE+-]+)\)"
 )
 
+# ----- Fine-Gray competing risks -----
+
+# Matches Fine-Gray comparison table rows (CSH HR | sHR format):
+#   "  ADC         1.234    0.890    1.456    0.0231  |     1.198    0.856    1.423    0.0345"
+RE_FG_COMPARISON_ROW = re.compile(
+    r"^\s*([\w*]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\|\s*"
+    r"([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$",
+    re.MULTILINE,
+)
+
+# Matches: "Fine-Gray model completed: 5 competing events, 8 primary events."
+RE_FG_COMPLETED = re.compile(
+    r"Fine-Gray model completed:\s*(\d+)\s*competing events?,\s*(\d+)\s*primary events?"
+)
+
 
 def _read_log(path: Path) -> str:
     """Read a log file and return its contents as a string.
@@ -470,12 +485,13 @@ def parse_survival(text: str, log_path: str = "") -> dict:
     -------
     dict
         Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``,
-        ``time_varying_cox``, ``parse_warnings``.
+        ``fine_gray``, ``time_varying_cox``, ``parse_warnings``.
     """
     result: dict = {
         "hazard_ratios": [],
         "global_lrt": None,
         "ipcw": None,
+        "fine_gray": None,
         "time_varying_cox": None,
         "parse_warnings": [],
     }
@@ -520,6 +536,28 @@ def parse_survival(text: str, log_path: str = "") -> dict:
             "max_weight": w_max,
             "weight_range_ratio": range_ratio,
         }
+
+    # ── Fine-Gray Competing Risks (v2.2) ──
+    m_fg = RE_FG_COMPLETED.search(text)
+    if m_fg:
+        fg_data: dict = {
+            "n_competing": int(m_fg.group(1)),
+            "n_primary": int(m_fg.group(2)),
+            "comparison_table": [],
+        }
+        for m_row in RE_FG_COMPARISON_ROW.finditer(text):
+            fg_data["comparison_table"].append({
+                "covariate": m_row.group(1),
+                "csh_hr": float(m_row.group(2)),
+                "csh_ci_lo": float(m_row.group(3)),
+                "csh_ci_hi": float(m_row.group(4)),
+                "csh_p": float(m_row.group(5)),
+                "shr": float(m_row.group(6)),
+                "shr_ci_lo": float(m_row.group(7)),
+                "shr_ci_hi": float(m_row.group(8)),
+                "shr_p": float(m_row.group(9)),
+            })
+        result["fine_gray"] = fg_data  # type: ignore
 
     # ── Time-Varying Cox (v2.1-dev) ──
     # Parses output from fit_time_varying_cox.m in the metrics_survival log.

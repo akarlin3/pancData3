@@ -210,26 +210,36 @@ end
 % Compute time-varying effects analysis (requires Schoenfeld results
 % from validation to know which covariates violate PH)
 fprintf('\n--- TIME-VARYING COEFFICIENTS ANALYSIS ---\n');
-try
-    timevar_results = compute_time_varying_effects(survival_data, cox_results, validation_results, config);
-    timevar_success = timevar_results.success;
-catch ME_tv
-    fprintf('  ⚠️  Time-varying effects analysis failed: %s\n', ME_tv.message);
-    fprintf('      Identifier: %s\n', ME_tv.identifier);
-    timevar_results = struct('success', false, 'message', ...
-        sprintf('Exception: %s', ME_tv.message));
+if isfield(config, 'fit_time_varying_cox') && ~config.fit_time_varying_cox
+    fprintf('  Time-varying Cox analysis disabled by config (fit_time_varying_cox=false).\n');
+    timevar_results = struct('success', false, 'message', 'Disabled by config');
+else
+    try
+        timevar_results = compute_time_varying_effects(survival_data, cox_results, validation_results, config);
+        timevar_success = timevar_results.success;
+    catch ME_tv
+        fprintf('  ⚠️  Time-varying effects analysis failed: %s\n', ME_tv.message);
+        fprintf('      Identifier: %s\n', ME_tv.identifier);
+        timevar_results = struct('success', false, 'message', ...
+            sprintf('Exception: %s', ME_tv.message));
+    end
 end
 
 % Fit Fine-Gray competing risks model
 fprintf('\n--- FINE-GRAY COMPETING RISKS MODEL ---\n');
-try
-    finegray_results = fit_fine_gray(survival_data, config);
-    finegray_success = finegray_results.success;
-catch ME_fg
-    fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
-    fprintf('      Identifier: %s\n', ME_fg.identifier);
-    finegray_results = struct('success', false, 'message', ...
-        sprintf('Exception: %s', ME_fg.message));
+if isfield(config, 'compute_fine_gray') && ~config.compute_fine_gray
+    fprintf('  Fine-Gray model disabled by config (compute_fine_gray=false).\n');
+    finegray_results = struct('success', false, 'message', 'Disabled by config');
+else
+    try
+        finegray_results = fit_fine_gray(survival_data, cox_results, config);
+        finegray_success = finegray_results.success;
+    catch ME_fg
+        fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
+        fprintf('      Identifier: %s\n', ME_fg.identifier);
+        finegray_results = struct('success', false, 'message', ...
+            sprintf('Exception: %s', ME_fg.message));
+    end
 end
 
 % Output summary results, including success/failure status for each analysis
@@ -336,6 +346,18 @@ config.n_bootstrap = 1000;
 config.output_folder = output_folder;
 config.dtype_label = dtype_label;
 config.td_halflife_days = td_halflife_days;
+
+% Propagate user config flags for optional analyses
+if isfield(config_struct_in, 'compute_fine_gray')
+    config.compute_fine_gray = config_struct_in.compute_fine_gray;
+else
+    config.compute_fine_gray = true;
+end
+if isfield(config_struct_in, 'fit_time_varying_cox')
+    config.fit_time_varying_cox = config_struct_in.fit_time_varying_cox;
+else
+    config.fit_time_varying_cox = true;
+end
 end
 
 function cox_results = fit_cox_ph(survival_data, config)
@@ -701,12 +723,184 @@ else
 end
 end
 
-function results = fit_fine_gray(survival_data, config)
-% FIT_FINE_GRAY  Fine-Gray competing risks sub-distribution hazard model.
-%   Not yet implemented — compute_fine_gray does not exist in the codebase.
-%   Returns a clean skip result instead of silently failing.
-results = struct('success', false, 'message', 'Fine-Gray model not yet implemented');
-fprintf('  💡 Fine-Gray competing risks model is not yet implemented — skipping.\n');
+function results = fit_fine_gray(survival_data, cox_results, config)
+% FIT_FINE_GRAY  Fine-Gray subdistribution hazard model for competing risks.
+%   Estimates the subdistribution hazard ratio (sHR) which accounts for
+%   competing events by keeping competing-event subjects in the risk set
+%   with decreasing weights w(t) = G(t)/G(t_comp), where G is the KM
+%   estimate of the censoring distribution.
+%
+%   References
+%   ----------
+%   Fine JP, Gray RJ. A proportional hazards model for the subdistribution
+%   of a competing risk. JASA. 1999;94(446):496-509.
+
+results = struct('success', false, 'message', '');
+
+if ~survival_data.has_sufficient_data
+    results.message = 'Insufficient data';
+    fprintf('  Insufficient data for Fine-Gray model.\n');
+    return;
+end
+
+% Count event types
+n_competing = sum(survival_data.event == 2);
+n_primary = sum(survival_data.event == 1);
+
+if n_primary < 3
+    results.message = sprintf('Insufficient primary events (%d)', n_primary);
+    fprintf('  Insufficient primary events (%d) for Fine-Gray model.\n', n_primary);
+    return;
+end
+
+if n_competing == 0
+    results.message = 'No competing events: Fine-Gray equivalent to CSH — skipped';
+    fprintf('  No competing events detected (0 event=2). Fine-Gray reduces to CSH — skipping.\n');
+    return;
+end
+
+fprintf('  Fitting Fine-Gray model: %d primary events, %d competing events.\n', ...
+    n_primary, n_competing);
+
+% --- Stage 1: Compute per-patient terminal outcomes ---
+[unique_pats, ~, pat_group] = unique(survival_data.pat_id);
+n_pats_fg = length(unique_pats);
+pat_terminal_time = zeros(n_pats_fg, 1);
+pat_terminal_event = zeros(n_pats_fg, 1);
+for pi = 1:n_pats_fg
+    pat_mask = (pat_group == pi);
+    pat_rows = find(pat_mask);
+    [~, max_idx] = max(survival_data.t_stop(pat_rows));
+    terminal_row = pat_rows(max_idx);
+    pat_terminal_time(pi) = survival_data.t_stop(terminal_row);
+    pat_terminal_event(pi) = survival_data.event(terminal_row);
+end
+
+% --- Stage 2: Compute censoring KM G(t) ---
+% For censoring KM: "event" = administrative censoring (event==0),
+% all actual events (1 or 2) are "censored" in this reversed view.
+cens_indicator = double(pat_terminal_event == 0);
+[sorted_times, sort_idx] = sort(pat_terminal_time);
+sorted_cens = cens_indicator(sort_idx);
+
+uniq_times_fg = unique(sorted_times);
+G_values = ones(length(uniq_times_fg), 1);
+G_current = 1.0;
+for k = 1:length(uniq_times_fg)
+    tk = uniq_times_fg(k);
+    n_at_risk = sum(sorted_times >= tk);
+    n_censored = sum(sorted_times == tk & sorted_cens == 1);
+    if n_at_risk > 0
+        G_current = G_current * (1 - n_censored / n_at_risk);
+    end
+    G_values(k) = max(G_current, 0.01);  % floor to avoid div-by-zero
+end
+
+% --- Stage 3: Compute subdistribution weights ---
+fg_weights = ones(size(survival_data.event));
+
+for pi = 1:n_pats_fg
+    if pat_terminal_event(pi) ~= 2
+        continue;  % Only competing-event patients need modified weights
+    end
+
+    t_comp = pat_terminal_time(pi);
+    G_t_comp = interp_G(t_comp, uniq_times_fg, G_values);
+
+    pat_rows = find(pat_group == pi);
+    for ri = 1:length(pat_rows)
+        row_idx = pat_rows(ri);
+        t_row = survival_data.t_stop(row_idx);
+        if t_row > t_comp
+            G_t = interp_G(t_row, uniq_times_fg, G_values);
+            fg_weights(row_idx) = G_t / G_t_comp;
+        end
+    end
+end
+
+% --- Stage 4: Fit weighted Cox model ---
+% Reuse CSH scaling if available
+if cox_results.success && isfield(cox_results, 'X_scaled')
+    X_fg = cox_results.X_scaled;
+else
+    X_fg = scale_td_panel(survival_data.X, survival_data.feat_names, ...
+        survival_data.pat_id, survival_data.t_start, unique(survival_data.pat_id), 'baseline');
+end
+
+% Primary event (1) stays as event; competing (2) and censored (0)
+% are both "censored" for the subdistribution hazard. Competing-event
+% subjects remain in the risk set via the subdistribution weights.
+event_fg = survival_data.event;
+event_fg(event_fg == 2) = 0;
+
+[X_fg_clean, keep_cols_fg] = remove_constant_columns(X_fg);
+if size(X_fg_clean, 2) == 0
+    results.message = 'All covariate columns are constant';
+    fprintf('  All covariate columns constant — cannot fit Fine-Gray model.\n');
+    return;
+end
+
+% Apply weights via Frequency (discretized, same pattern as IPCW)
+fg_scale = 100;
+fg_freq = max(1, round(fg_weights * fg_scale));
+
+ws = warning('off', 'stats:coxphfit:FitWarning');
+cleanupWarn = onCleanup(@() warning(ws));
+
+try
+    T_fg = [survival_data.t_start, survival_data.t_stop];
+    is_censored_fg = (event_fg == 0);
+
+    [b_fg, logl_fg, ~, stats_fg] = coxphfit(X_fg_clean, T_fg, ...
+        'Censoring', is_censored_fg, 'Ties', 'efron', 'Frequency', fg_freq);
+
+    % Sandwich SE for weighted model
+    sandwich_se_fg = compute_sandwich_se_cox(b_fg, X_fg_clean, T_fg, ...
+        is_censored_fg, fg_weights, survival_data.pat_id, 'efron');
+
+    if ~isempty(sandwich_se_fg) && all(isfinite(sandwich_se_fg)) && all(sandwich_se_fg > 0)
+        stats_fg.se = sandwich_se_fg;
+        fprintf('  Using robust sandwich SE for Fine-Gray model.\n');
+    end
+
+    stats_fg.p = 2 * (1 - normcdf(abs(b_fg ./ stats_fg.se)));
+
+    % Map to full feature space
+    b_full_fg = zeros(survival_data.n_feat, 1);
+    b_full_fg(keep_cols_fg) = b_fg;
+    se_full_fg = nan(survival_data.n_feat, 1);
+    p_full_fg = nan(survival_data.n_feat, 1);
+    se_full_fg(keep_cols_fg) = stats_fg.se;
+    p_full_fg(keep_cols_fg) = stats_fg.p;
+
+    results.success = true;
+    results.coefficients = b_full_fg;
+    results.se = se_full_fg;
+    results.p_values = p_full_fg;
+    results.hazard_ratios = exp(b_full_fg);  % subdistribution HR (sHR)
+    results.loglik = logl_fg;
+    results.n_competing = n_competing;
+    results.n_primary = n_primary;
+    results.fg_weights = fg_weights;
+catch ME_fit
+    results.message = sprintf('Fine-Gray fit failed: %s', ME_fit.message);
+    fprintf('  Fine-Gray model did not converge: %s\n', ME_fit.message);
+    return;
+end
+
+% --- Stage 5: Print comparison table and CIF plot ---
+print_fine_gray_comparison(cox_results, results, survival_data.feat_names);
+
+if ~isempty(config.output_folder)
+    try
+        plot_cumulative_incidence(survival_data, config);
+    catch ME_cif
+        fprintf('  ⚠️  CIF plot failed: %s\n', ME_cif.message);
+    end
+end
+
+fprintf('  Fine-Gray model completed: %d competing events, %d primary events.\n', ...
+    n_competing, n_primary);
 end
 
 function results = compute_time_varying_effects(survival_data, cox_results, validation_results, config)
@@ -715,15 +909,22 @@ function results = compute_time_varying_effects(survival_data, cox_results, vali
 %   model validation to identify which covariates violate PH.
 results = struct('success', false, 'message', 'Time-varying effects not computed');
 if ~survival_data.has_sufficient_data
+    results.message = 'Skipped: insufficient data';
+    fprintf('  Time-varying analysis skipped: insufficient data.\n');
     return;
 end
 if ~cox_results.success
-    results.message = 'Skipped: Cox PH model did not succeed';
+    results.message = sprintf('Skipped: Cox PH model did not succeed (%s)', ...
+        get_cox_failure_reason(cox_results));
     fprintf('  💡 Cox PH model did not succeed — skipping time-varying analysis.\n');
     return;
 end
 if ~validation_results.success || ~isfield(validation_results, 'schoenfeld_results')
-    results.message = 'Skipped: Schoenfeld residuals not available';
+    val_reason = 'unknown';
+    if isfield(validation_results, 'message')
+        val_reason = validation_results.message;
+    end
+    results.message = sprintf('Skipped: Schoenfeld residuals not available (%s)', val_reason);
     fprintf('  💡 Schoenfeld residuals not available — skipping time-varying analysis.\n');
     return;
 end
@@ -735,6 +936,7 @@ try
     results.success = true;
 catch ME
     results = struct('success', false, 'message', ME.message);
+    fprintf('  ⚠️  Time-varying Cox failed: %s\n', ME.message);
 end
 end
 
@@ -744,27 +946,43 @@ function results = validate_survival_model(survival_data, cox_results, config)
 %   the full results struct for downstream time-varying Cox analysis.
 results = struct('success', false, 'message', 'Model validation not computed');
 if ~survival_data.has_sufficient_data
-    results.message = 'Skipped: insufficient data';
+    results.message = 'Skipped: insufficient data for survival analysis';
+    fprintf('  Model validation skipped: insufficient data.\n');
     return;
 end
 if ~cox_results.success
-    results.message = 'Skipped: Cox PH model did not succeed';
+    results.message = sprintf('Skipped: Cox PH model did not succeed (%s)', ...
+        get_cox_failure_reason(cox_results));
     fprintf('  💡 Cox PH model did not succeed — skipping model validation.\n');
     return;
 end
 try
     % Schoenfeld residuals for PH assumption
     if isfield(cox_results, 'coefficients') && isfield(cox_results, 'X_scaled')
+        % Pre-check: verify kept coefficients are finite
+        if isfield(cox_results, 'keep_cols') && ...
+                any(~isfinite(cox_results.coefficients(cox_results.keep_cols)))
+            results.message = 'Skipped: non-finite Cox coefficients for active covariates';
+            fprintf('  Model validation skipped: non-finite Cox coefficients.\n');
+            return;
+        end
+
         schoenfeld = compute_schoenfeld_residuals( ...
             cox_results.X_scaled, survival_data.t_start, survival_data.t_stop, ...
             cox_results.event_csh, cox_results.coefficients, ...
             survival_data.feat_names, config.output_folder, config.dtype_label);
         results.schoenfeld_results = schoenfeld;
         results.ph_pvals = schoenfeld.p_value;
+    else
+        results.message = 'Skipped: Cox results missing coefficients or X_scaled';
+        fprintf('  Model validation skipped: Cox results incomplete.\n');
+        return;
     end
     results.success = true;
 catch ME
-    results = struct('success', false, 'message', ME.message);
+    results = struct('success', false, 'message', ...
+        sprintf('Schoenfeld residuals failed: %s', ME.message));
+    fprintf('  ⚠️  Model validation failed: %s\n', ME.message);
 end
 end
 
@@ -824,4 +1042,118 @@ cox_results.coefficients = nan(n_feat, 1);
 cox_results.se = nan(n_feat, 1);
 cox_results.p_values = nan(n_feat, 1);
 cox_results.hazard_ratios = nan(n_feat, 1);
+end
+
+function print_fine_gray_comparison(cox_results, fg_results, feat_names)
+% PRINT_FINE_GRAY_COMPARISON  CSH HR vs Fine-Gray sHR comparison table.
+fprintf('\n  --- CSH vs Fine-Gray Subdistribution Hazard Comparison ---\n');
+fprintf('  %-10s %8s %8s %8s %8s  |  %8s %8s %8s %8s\n', ...
+    'Feature', 'CSH_HR', 'CI_lo', 'CI_hi', 'p', 'sHR', 'CI_lo', 'CI_hi', 'p');
+fprintf('  %s\n', repmat('-', 1, 86));
+
+for fi = 1:numel(feat_names)
+    % CSH results
+    if cox_results.success
+        b_csh = cox_results.coefficients(fi);
+        se_csh = cox_results.se(fi);
+        hr_csh = cox_results.hazard_ratios(fi);
+        p_csh = cox_results.p_values(fi);
+        ci_lo_csh = exp(b_csh - 1.96 * se_csh);
+        ci_hi_csh = exp(b_csh + 1.96 * se_csh);
+    else
+        hr_csh = NaN; ci_lo_csh = NaN; ci_hi_csh = NaN; p_csh = NaN;
+    end
+
+    % Fine-Gray results
+    b_fg = fg_results.coefficients(fi);
+    se_fg = fg_results.se(fi);
+    hr_fg = fg_results.hazard_ratios(fi);
+    p_fg = fg_results.p_values(fi);
+    ci_lo_fg = exp(b_fg - 1.96 * se_fg);
+    ci_hi_fg = exp(b_fg + 1.96 * se_fg);
+
+    fprintf('  %-10s %8.3f %8.3f %8.3f %8.4f  |  %8.3f %8.3f %8.3f %8.4f\n', ...
+        feat_names{fi}, hr_csh, ci_lo_csh, ci_hi_csh, p_csh, ...
+        hr_fg, ci_lo_fg, ci_hi_fg, p_fg);
+end
+end
+
+function plot_cumulative_incidence(survival_data, config)
+% PLOT_CUMULATIVE_INCIDENCE  Non-parametric CIF plot via Aalen-Johansen.
+
+% Get per-patient terminal outcomes
+[unique_pats, ~, pat_group] = unique(survival_data.pat_id);
+n_pats = length(unique_pats);
+pat_time = zeros(n_pats, 1);
+pat_event = zeros(n_pats, 1);
+for pi = 1:n_pats
+    rows = find(pat_group == pi);
+    [~, max_idx] = max(survival_data.t_stop(rows));
+    pat_time(pi) = survival_data.t_stop(rows(max_idx));
+    pat_event(pi) = survival_data.event(rows(max_idx));
+end
+
+[sorted_t, si] = sort(pat_time);
+sorted_ev = pat_event(si);
+uniq_t = unique(sorted_t);
+
+% Aalen-Johansen estimator
+S_prev = 1.0;
+CIF_primary = zeros(length(uniq_t), 1);
+CIF_competing = zeros(length(uniq_t), 1);
+cum_primary = 0;
+cum_competing = 0;
+
+for k = 1:length(uniq_t)
+    tk = uniq_t(k);
+    n_risk = sum(sorted_t >= tk);
+    d_primary = sum(sorted_t == tk & sorted_ev == 1);
+    d_competing = sum(sorted_t == tk & sorted_ev == 2);
+
+    if n_risk > 0
+        h_primary = d_primary / n_risk;
+        h_competing = d_competing / n_risk;
+        cum_primary = cum_primary + S_prev * h_primary;
+        cum_competing = cum_competing + S_prev * h_competing;
+        S_prev = S_prev * (1 - (d_primary + d_competing) / n_risk);
+    end
+
+    CIF_primary(k) = cum_primary;
+    CIF_competing(k) = cum_competing;
+end
+
+fig = figure('Visible', 'off', 'Position', [100 100 700 500]);
+stairs(uniq_t, CIF_primary, 'b-', 'LineWidth', 2);
+hold on;
+stairs(uniq_t, CIF_competing, 'r--', 'LineWidth', 2);
+xlabel('Time (days)');
+ylabel('Cumulative Incidence');
+title(sprintf('Cumulative Incidence Functions (%s)', config.dtype_label));
+legend('Local Failure', 'Competing Events', 'Location', 'northwest');
+grid on;
+ylim([0, 1]);
+
+fig_path = fullfile(config.output_folder, sprintf('cif_plot_%s.png', config.dtype_label));
+saveas(fig, fig_path);
+close(fig);
+fprintf('  📁 CIF plot saved: %s\n', fig_path);
+end
+
+function G_val = interp_G(t, uniq_times, G_values)
+% INTERP_G  Step-function lookup for censoring survival G(t).
+    idx = find(uniq_times <= t, 1, 'last');
+    if isempty(idx)
+        G_val = 1.0;
+    else
+        G_val = G_values(idx);
+    end
+end
+
+function reason = get_cox_failure_reason(cox_results)
+% GET_COX_FAILURE_REASON  Extract failure reason from Cox results.
+    if isfield(cox_results, 'message') && ~isempty(cox_results.message)
+        reason = cox_results.message;
+    else
+        reason = 'unknown';
+    end
 end
