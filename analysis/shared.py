@@ -45,6 +45,7 @@ _DEFAULTS: dict = {
         "max_output_tokens": 10000,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
+        "per_image_timeout_seconds": 300,
         "script_timeout_seconds": 1800,
         "fallback_to_local": True,
     },

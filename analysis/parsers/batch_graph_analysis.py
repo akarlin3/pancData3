@@ -516,6 +516,12 @@ MAX_OUTPUT_TOKENS = _vision_cfg["max_output_tokens"]
 # within this window the request is cancelled and treated as a failure.
 REQUEST_TIMEOUT = _vision_cfg["request_timeout_seconds"]
 
+# Per-image timeout in seconds.  Caps the total wall-clock time for a
+# single image (including all retries and backoff).  Prevents one
+# problematic image (e.g. blank parameter maps) from stalling the
+# entire analysis run.
+PER_IMAGE_TIMEOUT = _vision_cfg.get("per_image_timeout_seconds", 300)
+
 
 class _RateLimitCoordinator:
     """Coordinates rate-limit backoff across all workers.
@@ -1462,8 +1468,24 @@ async def _run_worker_pool(
             except asyncio.QueueEmpty:
                 return
             try:
-                result = await analyze_fn(client, img, rate_limiter, pbar)
+                result = await asyncio.wait_for(
+                    analyze_fn(client, img, rate_limiter, pbar),
+                    timeout=PER_IMAGE_TIMEOUT,
+                )
                 results[idx] = result
+            except asyncio.TimeoutError:
+                print(
+                    f"  [TIMEOUT] {img.name}: exceeded per-image limit "
+                    f"({PER_IMAGE_TIMEOUT}s) — skipping",
+                    flush=True,
+                )
+                results[idx] = GraphAnalysis(
+                    file_path=str(img),
+                    graph_type="error",
+                    summary=f"Per-image timeout ({PER_IMAGE_TIMEOUT}s exceeded)",
+                )
+                if pbar is not None:
+                    pbar.update(1)
             except (KeyboardInterrupt, asyncio.CancelledError):
                 raise
             except Exception as e:

@@ -6,8 +6,8 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
     % patient dataset with a minimal 10x10x10 NIfTI volume (4 b-values) and
     % a simple cubic GTV mask. The tests exercise three scenarios:
     %   1. Valid data -> all expected figures are created
-    %   2. Missing .bval file -> parameter maps are skipped but other plots succeed
-    %   3. Protocol deviation in .bval -> parameter maps are skipped
+    %   2. Missing .bval file -> parameter maps skipped, other plots succeed
+    %   3. Protocol deviation in .bval -> parameter maps skipped, others succeed
     %
     % These are "smoke tests" -- they verify the function completes without
     % error and produces output, but do not validate the correctness of the
@@ -149,19 +149,19 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
 
         function testSmokeMissingBval(testCase)
             % Tests that visualization still succeeds when .bval file is
-            % missing.  The streaming parameter maps use pre-computed
-            % vectors (not raw NIfTI/bval), so they ARE created.  Feature
-            % histograms also use pre-computed SummaryMetrics.
+            % missing.  plot_parameter_maps correctly skips patients without
+            % a .bval file, so no Parameter_Maps PNG is produced.  Feature
+            % histograms still use pre-computed SummaryMetrics and are created.
             if exist('OCTAVE_VERSION', 'builtin'); return; end
             delete(fullfile(testCase.TempDir, 'P01', 'nii', 'fx1_dwi1.bval'));
 
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
 
             outputDir = testCase.ConfigStruct.output_folder;
-            % Streaming parameter maps use pre-computed adc_vector, so
-            % they are generated regardless of bval file presence.
-            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
-                'Parameter_Maps_1.png should be created from pre-computed vectors');
+            % plot_parameter_maps skips patients with missing bval files,
+            % so no parameter map figure should be generated.
+            testCase.verifyFalse(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
+                'Parameter_Maps_1.png should NOT be created when bval is missing');
 
             testCase.verifyTrue(exist(fullfile(outputDir, 'Feature_Histograms_Standard.png'), 'file') > 0, ...
                 'Expected Feature_Histograms_Standard.png to be created');
@@ -170,8 +170,8 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
         function testSmokeProtocolDeviation(testCase)
             % Tests that visualize_results still succeeds when b-values
             % deviate from the standard protocol (b=50 instead of b=30).
-            % The streaming parameter maps use pre-computed vectors (not
-            % raw NIfTI/bval), so they ARE created regardless of bval content.
+            % plot_parameter_maps correctly skips patients with non-standard
+            % b-values, so no Parameter_Maps PNG is produced.
             if exist('OCTAVE_VERSION', 'builtin'); return; end
             fid = fopen(fullfile(testCase.TempDir, 'P01', 'nii', 'fx1_dwi1.bval'), 'w');
             fprintf(fid, '0 50 150 550'); % b=50 is non-standard
@@ -180,10 +180,10 @@ classdef test_visualize_smoke < matlab.unittest.TestCase
             visualize_results(testCase.DataVectors, testCase.SummaryMetrics, testCase.CalculatedResults, testCase.ConfigStruct);
 
             outputDir = testCase.ConfigStruct.output_folder;
-            % Streaming parameter maps use pre-computed adc_vector, so
-            % they are generated regardless of bval file content.
-            testCase.verifyTrue(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
-                'Parameter_Maps_1.png should be created from pre-computed vectors');
+            % plot_parameter_maps skips patients with protocol deviations,
+            % so no parameter map figure should be generated.
+            testCase.verifyFalse(exist(fullfile(outputDir, 'Parameter_Maps_1.png'), 'file') > 0, ...
+                'Parameter_Maps_1.png should NOT be created with deviant b-values');
         end
 
         function testOutputFolderCreated(testCase)
