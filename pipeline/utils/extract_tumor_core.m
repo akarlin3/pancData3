@@ -289,6 +289,9 @@ function core_mask = handle_otsu(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:otsuInsufficient', ...
+            'Otsu: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end
@@ -321,6 +324,9 @@ function core_mask = handle_gmm(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:gmmInsufficient', ...
+            'GMM: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end
@@ -344,6 +350,9 @@ function core_mask = handle_kmeans(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:kmeansInsufficient', ...
+            'K-Means: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end

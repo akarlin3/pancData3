@@ -73,9 +73,11 @@ function failure_table = compute_core_failure_rates(data_vectors_gtvp, config_st
             if isfield(entry, 'dstar_vector_ivimnet'), ivimnet_dstar = entry.dstar_vector_ivimnet; end
             pipe_vecs(3,:) = {entry.adc_vector, ivimnet_d, ivimnet_f, ivimnet_dstar};
 
-            % Check which pipelines have data
+            % Check which pipelines have data (only skip truly empty;
+            % all-NaN entries pass through so extract_tumor_core can
+            % set fit_info.all_nan_input for proper rate accounting)
             for p = 1:n_pipelines
-                if isempty(pipe_vecs{p,1}) || all(isnan(pipe_vecs{p,1}))
+                if isempty(pipe_vecs{p,1})
                     pipe_skipped(p, j, k) = true;
                 end
             end

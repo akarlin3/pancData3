@@ -133,7 +133,15 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     failure_rates_file = fullfile(type_output_folder, ...
         sprintf('core_failure_rates_%s.mat', config_struct.dwi_type_name));
 
-    if config_struct.max_core_failure_rate < 1.0 || ~isempty(config_struct.excluded_core_methods)
+    max_fail_rate = 1.0;
+    if isfield(config_struct, 'max_core_failure_rate')
+        max_fail_rate = config_struct.max_core_failure_rate;
+    end
+    excl_methods = {};
+    if isfield(config_struct, 'excluded_core_methods')
+        excl_methods = config_struct.excluded_core_methods;
+    end
+    if max_fail_rate < 1.0 || ~isempty(excl_methods)
         if exist(failure_rates_file, 'file')
             loaded = load(failure_rates_file, 'failure_table');
             [active_methods, pruned_info] = filter_core_methods( ...
