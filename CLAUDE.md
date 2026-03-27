@@ -18,7 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**Version:** 2.2.0-rc.2
+**Version:** 2.2.0
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
@@ -65,8 +65,8 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (72 files)
-│   ├── .octave_compat/                 # Octave compatibility shims (21 files)
+│   ├── utils/                          # Helper utilities (73 files)
+│   ├── .octave_compat/                 # Octave compatibility shims (24 files)
 │   ├── tests/                          # Full test suite (119 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
@@ -266,16 +266,17 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `dispatch_load_and_sanity.m` | Extracted dispatch logic for load and sanity check pipeline steps |
 | `dispatch_pipeline_steps.m` | Extracted dispatch logic for metrics, visualization, and comparison pipeline steps |
 | `prepare_pipeline_session.m` | Pipeline session initialization with try-catch error handling |
+| `get_system_memory.m` | Cross-platform physical memory query (total and available GB); returns `[NaN, NaN]` on unsupported platforms |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
-Contains 21 shim files for GNU Octave compatibility, including:
+Contains 24 shim files for GNU Octave compatibility, including:
 
 - `@table/` class implementation (`table.m`, `subsasgn.m`, `subsref.m`, `display.m`)
 - `+matlab/+unittest/` namespace shims (`TestSuite.m`, `TestCase.m`, `TestRunner.m`)
 - `+matlab/+unittest/+fixtures/` shim (`PathFixture.m`)
 - `+matlab/+unittest/+plugins/` shim (`CodeCoveragePlugin.m`)
-- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
+- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanmedian.m`, `nanstd.m`, `categorical.m`, `iscategorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`, `string.m`
 
 ### Analysis Scripts (`analysis/`)
 
@@ -306,7 +307,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 34 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+**Python Test Suite (pytest):** 37 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -344,7 +345,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
 | `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
-For the full list of 105 MATLAB test files and 34 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
+| `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
+| `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
+For the full list of 105 MATLAB test files and 37 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -446,4 +450,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (18 files), utility modules (72 files), Octave compatibility shims (21 files), analysis scripts (37 report section files), and Python test files (45 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (18 files), utility modules (73 files), Octave compatibility shims (24 files), analysis scripts (37 report section files), and Python test files (37 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

@@ -4,6 +4,56 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-03-26
+
+### Added
+
+#### Octave Compatibility
+- **`pipeline/.octave_compat/iscategorical.m`**: New shim — `iscategorical()` always returns `false` in Octave (no native categorical type)
+- **`pipeline/.octave_compat/nanmedian.m`**: New shim — NaN-ignoring median for Octave
+- **`pipeline/.octave_compat/string.m`**: New shim — `string()` type conversion for Octave
+- **`TestCase.m`**: Added `verifyNotEqual`, `verifySize`, `assumeTrue`, and `assumeFail` assert methods to the Octave unittest shim
+- **`TestRunner.m`**: Full `TestMethodSetup`/`TestMethodTeardown` discovery (parsed from source); per-test verification-failure accumulation and reset; robust teardown on failure
+- **`TestSuite.m`**: Recursive `test_*.m` discovery via `**` glob; benchmark file inclusion; de-duplication by full path; `parseTestMethods` integration
+
+#### Pipeline Utilities
+- **`pipeline/utils/get_system_memory.m`**: New utility — cross-platform physical memory query (total and available GB); used by `load_dwi_data.m` to log memory headroom before parallel patient loading; returns `[NaN, NaN]` on unsupported platforms
+
+#### Python Tests (improvement_loop v2 API)
+- **`analysis/tests/test_implementer_agent.py`**: 10 tests for `ImplementResult` dataclass, `implement()` dry-run, file-not-found and branch-exists failure paths, and `_generate_fix()` API call contract
+- **`analysis/tests/test_orchestrator_v2.py`**: 13 tests for `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, and `_print_agent_summary()` output
+- **`analysis/tests/test_reviewer_agent.py`**: 23 tests for `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid JSON, fenced, preamble, all invalid cases), critical-flag override (`LEAKAGE_RISK`/`PHI_RISK` force reject), and parse-failure fallback
+
+### Fixed
+
+#### Security / Error Handling
+- **`pipeline/utils/safe_load_mask.m`**: Duplicate-variable security violations (unsafe class, oversized entry) now raise `error` instead of `warning` + `return`; eliminates the risk of silently continuing after a tampered `.mat` file is detected
+- **`pipeline/utils/write_sentinel_file.m`**: Guard against `fopen` throwing on Windows when the parent directory doesn't exist; added `isfolder` pre-check and `try/catch` around `fopen`; also added confirmation log line on successful sentinel write
+
+#### MATLAB Test Suite (R2025a compatibility — 10 test failures fixed)
+- **Multiple test files**: Corrected `coxphfit` `Stratification` parameter usage, updated sentinel save message assertions, fixed struct field mismatches in `fit_time_varying_cox` interaction_models output (`penalized`, `stable_period_used`, `left_truncated` fields now included)
+- **`pipeline/tests/ProgressBarPlugin.m`**: Added `DiaryFile` property and diary-restart logic; core modules that hijack `diary` during tests no longer silently drop the test log
+
+#### Pipeline Logic
+- **`pipeline/utils/fit_time_varying_cox.m`**: Sparse-period detection now skips the stable-period restriction when the identified stable region is < 20 % of the total time range (too short to be useful); reports an informational note instead of a warning
+- **`pipeline/utils/escape_shell_arg.m`**: Extended control-character filtering (comprehensive Unicode sanitization)
+- **`pipeline/utils/filter_collinear_features.m`**: Strict duplicate-variable validation
+- **`pipeline/utils/run_loocv_risk_scores.m`**: Robust fallback-cleanup handling; additional edge case guards
+
+### Changed
+
+#### improvement_loop Package — v2 Structured API
+- **`improvement_loop.agents.implementer`**: Added `ImplementResult` dataclass (`success`, `original_content`, `new_content`, `error`); `_generate_fix(finding, original_content)` API wrapper; `implement(finding, base_branch, dry_run)` function that replaces direct `apply_fix` calls in the orchestrator
+- **`improvement_loop.agents.reviewer`**: Added `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`); `_generate_diff(original, new, filename)` unified-diff helper; `_parse_review_verdict(raw)` JSON parser (handles markdown fences, preamble, all validation failures); new `review(finding, old_content, new_content, dry_run)` replaces diff-based signature; `LEAKAGE_RISK`/`PHI_RISK` flags force rejection regardless of LLM verdict; parse failure returns `request_changes` + `EVALUATION_FAILED` flag
+- **`improvement_loop.orchestrator_v2`**: `FindingState` updated — added `implement_result: Optional[ImplementResult]`, `review_verdict: Optional[ReviewVerdict]`, `error` defaults to `""`; `IterationState` updated — added `context: str`, `findings: List[FindingState]`, `dry_run` now optional; module-level `_audit(iteration, context, dry_run)`, `_implement(finding, base_branch, dry_run)`, `_review(finding, old_content, new_content, dry_run)` wrappers (monkeypatchable for tests); `_print_agent_summary(state)` per-iteration console summary; `run_loop` rewritten to use new agent wrappers
+
+### Documentation
+- Updated version to 2.2.0 across CLAUDE.md, README.md, CHANGELOG.md
+- Octave shim count: 21 → 24; utility count: 72 → 73; Python test file count: 34 → 37
+- Added new utility, shim, and test entries to CLAUDE.md, CLAUDE_REFERENCE.md
+
+---
+
 ## [2.2.0-rc.2] - 2026-03-22
 
 ### Changed
