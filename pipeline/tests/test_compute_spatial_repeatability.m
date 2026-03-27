@@ -22,7 +22,7 @@ classdef test_compute_spatial_repeatability < matlab.unittest.TestCase
             [da, hma, h95a, dd, hmd, h95d, df, hmf, h95f, dds, hmds, h95ds] = ...
                 compute_spatial_repeatability(data_vectors, 1, 1, ...
                 testCase.makeGtvLocations(1), 0.001, 0.001, 0.1, 0.01, ...
-                strel('sphere', 1), 5, '', []);
+                testCase.makeSE(), 5, '', []);
 
             testCase.verifyTrue(isnan(da), 'Single repeat should give NaN Dice.');
             testCase.verifyTrue(isnan(hma));
@@ -37,7 +37,7 @@ classdef test_compute_spatial_repeatability < matlab.unittest.TestCase
             [da, hma, h95a, ~, ~, ~, ~, ~, ~, ~, ~, ~] = ...
                 compute_spatial_repeatability(data_vectors, 1, 1, ...
                 gtv_locs, 0.0015, 0.0015, 0.15, 0.025, ...
-                strel('sphere', 1), 1, '', []);
+                testCase.makeSE(), 1, '', []);
 
             if ~isnan(da)
                 testCase.verifyEqual(da, 1.0, 'AbsTol', 0.01, ...
@@ -57,7 +57,7 @@ classdef test_compute_spatial_repeatability < matlab.unittest.TestCase
             [da, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~] = ...
                 compute_spatial_repeatability(data_vectors, 1, 1, ...
                 gtv_locs, 0.001, 0.001, 0.1, 0.01, ...
-                strel('sphere', 1), 5, '', []);
+                testCase.makeSE(), 5, '', []);
 
             testCase.verifyTrue(isnan(da), ...
                 'Missing 3D masks should return NaN.');
@@ -70,7 +70,7 @@ classdef test_compute_spatial_repeatability < matlab.unittest.TestCase
             outputs = cell(1, 12);
             [outputs{:}] = compute_spatial_repeatability(data_vectors, 1, 1, ...
                 testCase.makeGtvLocations(1), 0.001, 0.001, 0.1, 0.01, ...
-                strel('sphere', 1), 5, '', []);
+                testCase.makeSE(), 5, '', []);
 
             testCase.verifyEqual(numel(outputs), 12, ...
                 'Function should return exactly 12 outputs.');
@@ -131,6 +131,15 @@ classdef test_compute_spatial_repeatability < matlab.unittest.TestCase
                 Stvol3d = mask_3d;  %#ok<NASGU>
                 save(fpath, 'Stvol3d');
                 gtv_locs{1,1,r} = fpath;
+            end
+        end
+        function se = makeSE(testCase) %#ok<MANU>
+            % Create a sphere(1) structuring element compatible with Octave.
+            if exist('OCTAVE_VERSION', 'builtin')
+                k = zeros(3,3,3); k(2,2,:)=1; k(2,:,2)=1; k(:,2,2)=1;
+                se = strel('arbitrary', k);
+            else
+                se = strel('sphere', 1);
             end
         end
     end

@@ -49,9 +49,9 @@ function [gtv_mask_warped, D_forward, ref3d] = apply_dir_mask_propagation(b0_fix
 
     % Parse input arguments
     p = inputParser;
-    addRequired(p, 'b0_fixed', @(x) isnumeric(x) && ndims(x) == 3);
-    addRequired(p, 'b0_moving', @(x) isnumeric(x) && ndims(x) == 3);
-    addRequired(p, 'gtv_mask_fixed', @(x) (isnumeric(x) || islogical(x)) && ndims(x) == 3);
+    addRequired(p, 'b0_fixed', @(x) isnumeric(x) && (isempty(x) || ndims(x) == 3));
+    addRequired(p, 'b0_moving', @(x) isnumeric(x) && (isempty(x) || ndims(x) == 3));
+    addRequired(p, 'gtv_mask_fixed', @(x) (isnumeric(x) || islogical(x)) && (isempty(x) || ndims(x) == 3));
     addParameter(p, 'FixedPixelSpacing', [], @(x) isnumeric(x) && length(x) == 3);
     addParameter(p, 'MovingPixelSpacing', [], @(x) isnumeric(x) && length(x) == 3);
     addParameter(p, 'FixedOrientation', [], @(x) isnumeric(x) && isequal(size(x), [3 3]));

@@ -20,23 +20,56 @@ addpath(coreDir);
 addpath(utilsDir);
 if exist('OCTAVE_VERSION', 'builtin')
     addpath(fullfile(repoRoot, '.octave_compat'));
+    % Load the Octave Forge statistics and image packages
+    try pkg('load', 'statistics'); catch; end
+    try pkg('load', 'image'); catch; end
 else
-    % Defensive: remove octave_compat from path if it was added by a
-    % previous session or startup.m.  The @table shim inside octave_compat
-    % conflicts with MATLAB's built-in table class and causes
-    % 'MATLAB:dispatcher:InvalidObjtagReuse' errors.
+    % Defensive: remove ALL path entries containing 'octave_compat'.
+    % The @table shim inside octave_compat conflicts with MATLAB's built-in
+    % table class, and the +matlab/+unittest/TestSuite shim shadows the
+    % built-in TestSuite (breaking fromFolder's internal fromFolderCore_).
+    % Scan the full path string to catch entries regardless of how they
+    % were added (genpath, addpath, saved pathdef.m, etc.).
+    % Check if ANY octave_compat path is present BEFORE removal, so we
+    % know whether stale shim class definitions might be cached.
+    had_oc_on_path = contains(path, 'octave_compat');
+    w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
+    all_paths = strsplit(path, pathsep);
+    oc_paths = all_paths(contains(all_paths, 'octave_compat'));
+    for oc_i = 1:numel(oc_paths)
+        rmpath(oc_paths{oc_i});
+    end
+    % Also proactively remove the .octave_compat directory and ALL its
+    % subdirectories.  A previous addpath(genpath(pipeline_root)) or
+    % savepath can leave .octave_compat/ on the path; its +matlab/+unittest
+    % shims shadow the real TestRunner/TestSuite and break the plugin
+    % framework (handlePluginExceptionInProhibitedScope not found).
     oc_dir = fullfile(repoRoot, '.octave_compat');
-    if contains(path, oc_dir)
+    if exist(oc_dir, 'dir')
         rmpath(genpath(oc_dir));
     end
+    warning(w_state);
+    % Always clear cached class definitions so MATLAB re-resolves
+    % TestRunner/TestSuite from the real toolbox.  Stale shim definitions
+    % can persist from a previous session even when octave_compat is not
+    % currently on the path, causing handlePluginExceptionInProhibitedScope
+    % errors when the CodeCoveragePlugin encounters a test failure.
+    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
 end
 addpath(repoRoot);
+
+% Suppress pipeline progress GUIs during testing — they pop up as visible
+% windows in interactive sessions and clutter the desktop.
+setenv('SUPPRESS_PIPELINE_GUI', '1');
 
 % Save test output to test.out when run standalone (not wrapped by execute_all_workflows)
 standalone_diary = strcmp(get(0, 'Diary'), 'off');
 if standalone_diary
     diary(fullfile(repoRoot, 'test.out'));
 end
+% Capture the active diary file path so ProgressBarPlugin can restart it
+% after core modules hijack the diary during tests.
+active_diary_file = get(0, 'DiaryFile');
 
 % Add test subdirectories to path, excluding transient mock_data dirs that
 % may be left over from a previous crashed run.  Including them causes
@@ -50,6 +83,12 @@ addpath(strjoin(test_paths, pathsep));
 % Suppress figure pop-ups during test execution
 set(0, 'DefaultFigureVisible', 'off');
 
+% Snapshot existing saved_files_* dirs BEFORE tests run. Tests that call
+% core modules (visualize_results, sanity_checks) may create stray
+% timestamped folders in the repo root. We compare after tests to clean up.
+pre_test_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+pre_test_dir_names = {pre_test_dirs.name};
+
 disp('===================================================');
 disp('   MATLAB CI Test Runner: Initializing Suite       ');
 disp('===================================================');
@@ -57,6 +96,9 @@ disp('===================================================');
 import matlab.unittest.TestSuite;
 import matlab.unittest.TestRunner;
 import matlab.unittest.plugins.CodeCoveragePlugin;
+
+% --- Parallel capability check (evaluated once per invocation) ---
+cached_can_run_parallel = [];
 
 % --- Parallel execution configuration ---
 % Tests listed here are safe to run concurrently: they do not open diary
@@ -80,11 +122,9 @@ parallel_safe_classes = { ...
     'test_apply_dir_mask_propagation', ...
     'test_calculate_subvolume_metrics', ...
     'test_landmark_cindex', ...
-    'test_landmark_cindex_mock', ...
     'test_perf_knn', ...
     'test_fix_verify', ...
     'test_octave', ...
-    'test_octave_shims', ...
     'benchmark_filter_collinear', ...
     'benchmark_make_grouped_folds', ...
     'benchmark_metrics_opt', ...
@@ -97,6 +137,7 @@ parallel_safe_classes = { ...
 };
 
 % 1. Discover all tests in the tests/ directory (including subdirectories)
+
 suite = TestSuite.fromFolder(testsDir, 'IncludingSubfolders', true);
 
 if isempty(suite)
@@ -131,21 +172,31 @@ end
 % 3. Check whether parallel execution is available.
 %    Parallel mode is disabled during preflight (quick sanity runs invoked by
 %    the pipeline before a full data run) and in Octave (no PCT support).
+%    The capability check result is cached in a persistent variable so that
+%    repeated invocations (e.g., CI matrix builds) skip the metaclass
+%    introspection and license query after the first call.
 is_preflight = strcmp(getenv('PIPELINE_PREFLIGHT_ACTIVE'), '1');
+
+if is_preflight
+    fprintf('WARNING: Preflight mode active — parallel tests disabled.\n');
+end
 
 can_run_parallel = false;
 if ~is_preflight && ~exist('OCTAVE_VERSION', 'builtin') && ~isempty(parallel_suite)
-    has_pct = license('test', 'Distrib_Computing_Toolbox');
-    % Check if runInParallel method exists (R2018a+) via metaclass introspection
-    has_method = false;
-    try
-        m = ?matlab.unittest.TestRunner;
-        method_names = {m.MethodList.Name};
-        has_method = ismember('runInParallel', method_names);
-    catch
+    if isempty(cached_can_run_parallel)
+        has_pct = license('test', 'Distrib_Computing_Toolbox');
+        % Check if runInParallel method exists (R2018a+) via metaclass introspection
         has_method = false;
+        try
+            m = ?matlab.unittest.TestRunner;
+            method_names = {m.MethodList.Name};
+            has_method = ismember('runInParallel', method_names);
+        catch
+            has_method = false;
+        end
+        cached_can_run_parallel = has_pct && has_method;
     end
-    can_run_parallel = has_pct && has_method;
+    can_run_parallel = cached_can_run_parallel;
 end
 
 % 4. Configure code coverage for core and utils directories
@@ -179,47 +230,129 @@ if can_run_parallel
     % --- Phase 2: serial tests sequentially ---
     fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
     ser_runner = TestRunner.withTextOutput();
-    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite)));
+    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
     if ~isempty(hGUI) && hGUI.isValid()
         ser_runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
     end
 
+
     % Add coverage plugin only to the serial runner — CodeCoveragePlugin is
     % not compatible with runInParallel.  Serial tests exercise all core
     % modules, so coverage remains meaningful.
+    has_coverage_plugin = false;
     if exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
         coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
         ser_runner.addPlugin(coveragePlugin);
+        has_coverage_plugin = true;
         disp('Code coverage plugin added (serial tests only).');
     end
 
-    serial_results = ser_runner.run(serial_suite);
+    try
+        serial_results = ser_runner.run(serial_suite);
+    catch ME_serial
+        % In R2025a, the CodeCoveragePlugin can trigger cascading internal
+        % framework errors (handlePluginExceptionInProhibitedScope,
+        % evaluateMethodOnPlugins, deletePluginData) when a test throws.
+        % The crash can also corrupt class definitions if octave_compat
+        % shims were ever on the path.  Fall back to running without
+        % coverage instrumentation after recovering class resolution.
+        if has_coverage_plugin
+            warning('run_all_tests:coverageFallback', ...
+                'CodeCoveragePlugin caused framework error; retrying without coverage.');
+            % Re-clean octave_compat paths and clear cached class
+            % definitions to recover from potential class corruption.
+            w_cleanup = warning('off', 'MATLAB:rmpath:DirNotFound');
+            all_paths_cleanup = strsplit(path, pathsep);
+            oc_cleanup = all_paths_cleanup(contains(all_paths_cleanup, 'octave_compat'));
+            for ci = 1:numel(oc_cleanup)
+                rmpath(oc_cleanup{ci});
+            end
+            oc_dir_cleanup = fullfile(repoRoot, '.octave_compat');
+            if exist(oc_dir_cleanup, 'dir')
+                rmpath(genpath(oc_dir_cleanup));
+            end
+            warning(w_cleanup);
+            clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+            ser_runner2 = matlab.unittest.TestRunner.withTextOutput();
+            try
+                ser_runner2.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
+            catch; end
+            if ~isempty(hGUI) && hGUI.isValid()
+                try
+                    ser_runner2.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
+                catch; end
+            end
+            serial_results = ser_runner2.run(serial_suite);
+        else
+            rethrow(ME_serial);
+        end
+    end
 
     % Merge results from both phases
     results = [parallel_results, serial_results];
 else
     % --- Fallback: fully sequential execution (original behavior) ---
+    % Run the full suite (parallel_suite + serial_suite) so that no tests
+    % are silently skipped when PCT is unavailable.
     if ~isempty(parallel_suite) && ~is_preflight
         disp('Parallel execution not available; running all tests sequentially.');
     end
 
+    % Reconstruct the complete suite to guarantee every test is executed.
+    % `suite` already contains all tests; use it directly so that the
+    % parallel-safe partition is not accidentally dropped.
+    full_suite = suite;
+
     runner = TestRunner.withTextOutput();
-    runner.addPlugin(ProgressBarPlugin(numel(suite)));
+    runner.addPlugin(ProgressBarPlugin(numel(full_suite), active_diary_file));
     if ~isempty(hGUI) && hGUI.isValid()
-        runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), 0));
+        runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
     end
 
+    has_coverage_plugin = false;
     if is_preflight
         disp('Pre-flight mode — skipping code coverage plugin.');
     elseif exist('matlab.unittest.plugins.CodeCoveragePlugin', 'class')
         coveragePlugin = CodeCoveragePlugin.forFolder(string(foldersToCover));
         runner.addPlugin(coveragePlugin);
+        has_coverage_plugin = true;
         disp('Code coverage plugin added. Coverage will be generated for /core and /utils.');
     else
         disp('CodeCoveragePlugin not available in this MATLAB version.');
     end
 
-    results = runner.run(suite);
+    try
+        results = runner.run(full_suite);
+    catch ME_seq
+        if has_coverage_plugin
+            warning('run_all_tests:coverageFallback', ...
+                'CodeCoveragePlugin caused framework error; retrying without coverage.');
+            w_cleanup = warning('off', 'MATLAB:rmpath:DirNotFound');
+            all_paths_cleanup = strsplit(path, pathsep);
+            oc_cleanup = all_paths_cleanup(contains(all_paths_cleanup, 'octave_compat'));
+            for ci = 1:numel(oc_cleanup)
+                rmpath(oc_cleanup{ci});
+            end
+            oc_dir_cleanup = fullfile(repoRoot, '.octave_compat');
+            if exist(oc_dir_cleanup, 'dir')
+                rmpath(genpath(oc_dir_cleanup));
+            end
+            warning(w_cleanup);
+            clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+            runner2 = matlab.unittest.TestRunner.withTextOutput();
+            try
+                runner2.addPlugin(ProgressBarPlugin(numel(full_suite), active_diary_file));
+            catch; end
+            if ~isempty(hGUI) && hGUI.isValid()
+                try
+                    runner2.addPlugin(WaitbarProgressPlugin(hGUI, numel(full_suite), 0));
+                catch; end
+            end
+            results = runner2.run(full_suite);
+        else
+            rethrow(ME_seq);
+        end
+    end
 end
 
 disp('===================================================');
@@ -274,6 +407,7 @@ fprintf('===================================================\n');
 failureSummaryFile = fullfile(repoRoot, 'failure_summary.out');
 if ~isempty(failedIdx)
     fprintf('\n  Failed tests:\n');
+
     for fi = 1:numel(failedIdx)
         fprintf('    ❌ %s\n', results(failedIdx(fi)).Name);
     end
@@ -325,16 +459,21 @@ end
 % Restore figure visibility
 set(0, 'DefaultFigureVisible', 'on');
 
-% Clean up any saved_files_* folders created by tests in the repo root.
-% Only do this when running standalone — when called from
-% execute_all_workflows, the parent orchestrator's output folder is also a
-% saved_files_* directory and must not be deleted.
-if standalone_diary
-    stray_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
-    for k = 1:numel(stray_dirs)
-        if stray_dirs(k).isdir
-            rmdir(fullfile(repoRoot, stray_dirs(k).name), 's');
-            fprintf('Cleaned up stray test artifact: %s\n', stray_dirs(k).name);
+% Clean up any NEW saved_files_* folders created by tests in the repo root.
+% Compare against the pre-test snapshot so we only delete folders that tests
+% created, never the execute_all_workflows master output folder.
+% Save current diary file so we can restart it after cleanup.
+prev_diary_file = get(0, 'DiaryFile');
+prev_diary_on = strcmp(get(0, 'Diary'), 'on');
+diary off;  % close any diary left open by tests before removing folders
+post_test_dirs = dir(fullfile(repoRoot, 'saved_files_*'));
+for k = 1:numel(post_test_dirs)
+    if post_test_dirs(k).isdir && ~ismember(post_test_dirs(k).name, pre_test_dir_names)
+        try
+            rmdir(fullfile(repoRoot, post_test_dirs(k).name), 's');
+            fprintf('Cleaned up stray test artifact: %s\n', post_test_dirs(k).name);
+        catch
+            % Folder may be locked by another process; skip silently
         end
     end
 end
@@ -378,4 +517,3 @@ else
         error('pancData3:testFailure', '%d of %d tests failed.', num_failed, numel(results));
     end
 end
-

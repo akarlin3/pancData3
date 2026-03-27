@@ -89,7 +89,7 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
                 % Alpha=0.5 gives an equal mix of L1 (lasso sparsity) and
                 % L2 (ridge shrinkage) penalties — elastic net.
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                    'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1e7);
+                    'Alpha', 0.5, 'NumLambda', n_lambdas, 'Standardize', true, 'MaxIter', 1e5);
                 % Fix the lambda grid from fold 1 so all folds use identical
                 % regularisation values, making deviance comparable across folds
                 common_Lambda = FitInfo_fold.Lambda;
@@ -97,7 +97,7 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
             else
                 % Subsequent folds: use the same lambda grid from fold 1
                 [B_fold, FitInfo_fold] = lassoglm(X_tr_kept, y_tr, 'binomial', ...
-                    'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1e7);
+                    'Alpha', 0.5, 'Lambda', common_Lambda, 'Standardize', true, 'MaxIter', 1e5);
             end
 
             % Compute test-fold predicted probabilities via logistic sigmoid
@@ -146,7 +146,7 @@ function [selected_indices, opt_lambda, common_Lambda, cv_failed, keep_fold_coun
         warning('off', 'stats:lassoGlm:PerfectSeparation');
         try
             [B_final, FitInfo_final] = lassoglm(X_clean_kept, y_clean, 'binomial', ...
-                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1e7);
+                'Alpha', 0.5, 'Lambda', opt_lambda, 'Standardize', true, 'MaxIter', 1e5);
 
             coefs_en = B_final;
 

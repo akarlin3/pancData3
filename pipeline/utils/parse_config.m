@@ -90,6 +90,13 @@ function config_struct = parse_config(json_path)
             config_struct.skip_tests = false;
         end
 
+        % tests_only: When true, runs the test suite and then exits without
+        % executing the data pipeline.  Useful for CI or verifying code
+        % changes without processing patient data.  Overrides skip_tests.
+        if ~isfield(config_struct, 'tests_only')
+            config_struct.tests_only = false;
+        end
+
         % use_checkpoints: Enables per-patient caching of intermediate
         % results (DICOM conversion, model fits).  Essential for large
         % cohorts where a single patient failure should not require
@@ -477,7 +484,7 @@ function config_struct = parse_config(json_path)
         % accept numeric 0/1 (which is what you get if the user writes
         % the JSON integer 0 or 1 instead of true/false) and coerce to
         % logical.  Strings like "true"/"false" are also coerced.
-        logical_fields = {'skip_to_reload', 'skip_tests', 'use_checkpoints', ...
+        logical_fields = {'skip_to_reload', 'skip_tests', 'tests_only', 'use_checkpoints', ...
             'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
             'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
             'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
@@ -571,6 +578,12 @@ function config_struct = parse_config(json_path)
             elseif isstring(val)
                 % MATLAB string array: convert to cell of char.
                 config_struct.patient_ids = cellstr(val);
+            elseif isnumeric(val) && isempty(val)
+                % jsondecode converts JSON [] to double []; normalize to {}
+                config_struct.patient_ids = {};
+            elseif isnumeric(val) && ~isempty(val)
+                % jsondecode converts JSON [10, 20] to numeric array; convert to cell of strings
+                config_struct.patient_ids = arrayfun(@(x) num2str(x), val(:)', 'UniformOutput', false);
             elseif ~iscell(val) && ~isempty(val)
                 error('parse_config:invalidType', ...
                     'Configuration field "patient_ids" must be a cell array of strings (JSON array of strings) or empty, but got class: %s.', ...
@@ -580,4 +593,42 @@ function config_struct = parse_config(json_path)
 
         fprintf('Successfully loaded configuration from %s\n', json_path);
     catch ME
-        
+        % If the error was already wrapped with our ID, rethrow as-is.
+        % Otherwise, wrap any unexpected field-access or type error with
+        % a descriptive message so callers can distinguish config parsing
+        % failures from other errors in their try/catch blocks.
+        if strncmp(ME.identifier, 'parse_config:', 13)
+            rethrow(ME);
+        end
+        error('parse_config:invalidJSON', 'Failed to parse JSON configuration file %s: %s', json_path, ME.message);
+    end
+
+    % ================================================================
+    % Validate core_method against the set of implemented algorithms.
+    % ================================================================
+    valid_core_methods = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+    if ~any(strcmpi(config_struct.core_method, valid_core_methods))
+        error('parse_config:invalidCoreMethod', ...
+            'Unrecognized core_method "%s". Must be one of: %s', ...
+            config_struct.core_method, strjoin(valid_core_methods, ', '));
+    end
+
+    % ================================================================
+    % DWI type validation and mapping to numeric run indices.
+    % ================================================================
+    if isfield(config_struct, 'dwi_type')
+        switch lower(config_struct.dwi_type)
+            case 'standard', config_struct.dwi_types_to_run = 1;
+            case 'dncnn', config_struct.dwi_types_to_run = 2;
+            case 'ivimnet', config_struct.dwi_types_to_run = 3;
+            otherwise
+                error('parse_config:invalidJSON', ...
+                    'Unrecognized dwi_type "%s". Must be one of: Standard, dnCNN, IVIMnet.', ...
+                    config_struct.dwi_type);
+        end
+    else
+        config_struct.dwi_types_to_run = 1:3;
+    end
+end

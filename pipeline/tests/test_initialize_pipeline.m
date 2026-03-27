@@ -19,7 +19,7 @@ classdef test_initialize_pipeline < matlab.unittest.TestCase
         end
 
         function createTempDir(testCase)
-            testCase.TempDir = fullfile(tempdir, ['test_init_pipe_' char(java.util.UUID.randomUUID())]);
+            testCase.TempDir = fullfile(tempdir, ['test_init_pipe_' strrep(tempname, tempdir, '')]);
             mkdir(testCase.TempDir);
             testCase.OrigPath = path();
         end

@@ -18,6 +18,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
 %   the ADC weighted least-squares computation is offloaded to the GPU via
 %   gpuArray for faster vectorized matrix operations.
 %
+%   Optimizer settings (all optional, read from opts / config.json):
+%     opts.optim_tol             — OptimalityTolerance  (default 1e-8)
+%     opts.func_tol              — FunctionTolerance    (default 1e-8)
+%     opts.step_tol              — StepTolerance        (default 1e-10)
+%     opts.max_iterations        — MaxIterations        (default 400)
+%     opts.max_func_evals        — MaxFunctionEvaluations (default 800)
+%
 % ANALYTICAL RATIONALE — TWO-MODEL APPROACH
 %   This function fits two complementary diffusion models to multi-b-value
 %   DWI data within the GTV mask:
@@ -141,15 +148,34 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
     % These defaults are only applied when the caller has not provided
     % custom optimoptions (e.g., for debugging with Display='iter' or
     % site-specific tolerance adjustments).
+    %
+    % Optimizer tolerances and iteration limits are configurable through
+    % config.json (via opts), falling back to the hardcoded defaults below.
     if ~isfield(opts, 'optimoptions') || isempty(opts.optimoptions)
-        optimized_opts = optimoptions('lsqnonlin', ...
-            'UseParallel', false, ...                % Avoid nested parallelism; parfor handles voxel-level parallelism
-            'OptimalityTolerance', 1e-8, ...        % Tighter optimality tolerance for better convergence
-            'FunctionTolerance', 1e-8, ...          % Tighter function tolerance
-            'StepTolerance', 1e-10, ...             % Smaller step tolerance for precision
-            'MaxIterations', 400, ...               % Increased max iterations
-            'MaxFunctionEvaluations', 800, ...      % Increased max function evaluations
-            'Display', 'off');                      % Suppress individual fit output
+        % Read configurable optimizer parameters from opts, with defaults
+        optim_tol      = getfield_default(opts, 'optim_tol',      1e-8);
+        func_tol       = getfield_default(opts, 'func_tol',       1e-8);
+        step_tol       = getfield_default(opts, 'step_tol',       1e-10);
+        max_iterations = getfield_default(opts, 'max_iterations', 400);
+        max_func_evals = getfield_default(opts, 'max_func_evals', 800);
+
+        if exist('OCTAVE_VERSION', 'builtin')
+            % Octave uses optimset instead of optimoptions
+            optimized_opts = optimset('TolX', step_tol, ...
+                'TolFun', func_tol, ...
+                'MaxIter', max_iterations, ...
+                'MaxFunEvals', max_func_evals, ...
+                'Display', 'off');
+        else
+            optimized_opts = optimoptions('lsqnonlin', ...
+                'UseParallel', false, ...
+                'OptimalityTolerance', optim_tol, ...
+                'FunctionTolerance', func_tol, ...
+                'StepTolerance', step_tol, ...
+                'MaxIterations', max_iterations, ...
+                'MaxFunctionEvaluations', max_func_evals, ...
+                'Display', 'off');
+        end
         opts.optimoptions = optimized_opts;
     end
 
@@ -176,6 +202,21 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
         dwi_flat = reshape(dwi, [], size(dwi, 4));       % [n_spatial x n_bvals]
         dwi_valid = dwi_flat(valid_voxels_idx, :);       % [n_valid x n_bvals]
         clear dwi_flat;
+    else
+        % No valid voxels in the mask — nothing to fit. Log a warning and
+        % return NaN-initialized maps immediately. This can occur during
+        % testing or with corrupt/empty mask files.
+        warn_msg = 'Mask contains no valid (non-zero) voxels. Returning NaN-initialized maps for all parameters.';
+        warning('fit_models:emptyMask', '%s', warn_msg);
+        fit_metadata.warnings{end+1} = warn_msg;
+        fit_metadata.ivim_reliable = false;
+
+        % Initialize all output maps as NaN with the correct spatial dimensions
+        d_map = nan(sz3);
+        f_map = nan(sz3);
+        dstar_map = nan(sz3);
+        adc_map = nan(sz3);
+        return;
     end
 
     % Release the large 4D dwi array now that voxel signals are extracted.
@@ -294,7 +335,18 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
                 % This avoids the ill-conditioning of simultaneous 3-parameter
                 % nonlinear fitting, which is especially problematic for D* because
                 % the pseudo-diffusion signal decays rapidly and has low SNR.
-                ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, opts);
+
+                % Strip fields that IVIMmodelfit does not recognise (e.g.
+                % optimoptions, d_initial) to avoid its strict allowlist error.
+                ivim_opts = struct();
+                ivim_allowed = {'bthr','lim','dispprog','its','burns','rician','meanonly','prior','outfile'};
+                fnames = fieldnames(opts);
+                for fi = 1:numel(fnames)
+                    if ismember(fnames{fi}, ivim_allowed)
+                        ivim_opts.(fnames{fi}) = opts.(fnames{fi});
+                    end
+                end
+                ivim_fit_1d = IVIMmodelfit(dwi_1d_vol, bvalues, "seg", mask_1d_vol, ivim_opts);
 
                 % Restructure output back to strictly 1D and snip padding.
                 % IVIMmodelfit returns a 4-column output: [D, S0, f, D*].
@@ -467,4 +519,13 @@ function [d_map, f_map, dstar_map, adc_map, fit_metadata] = fit_models(dwi, bval
 
     % Release the pre-extracted voxel signals
     clear dwi_valid;
+end
+
+function val = getfield_default(s, field, default)
+% GETFIELD_DEFAULT Return s.(field) if it exists and is non-empty, else default.
+    if isfield(s, field) && ~isempty(s.(field))
+        val = s.(field);
+    else
+        val = default;
+    end
 end

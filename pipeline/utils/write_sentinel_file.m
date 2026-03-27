@@ -20,12 +20,20 @@ function write_sentinel_file(output_folder, prefix, message, dwi_type_name)
 %   See also: run_dwi_pipeline, execute_pipeline_step
 
     sentinel_file = fullfile(output_folder, sprintf('%s_%s.txt', prefix, dwi_type_name));
-    fid = fopen(sentinel_file, 'w');
+    if ~isfolder(output_folder)
+        fid = -1;  % Parent directory doesn't exist; skip fopen
+    else
+        try
+            fid = fopen(sentinel_file, 'w');
+        catch
+            fid = -1;  % fopen may throw on Windows when parent dir doesn't exist
+        end
+    end
     if fid < 0
         warning('write_sentinel_file:fileWriteFailed', 'Cannot write %s', sentinel_file);
     else
         fprintf(fid, '%s\n', message);
         fclose(fid);
+        fprintf('      💾 Saved %s to %s\n', prefix, sentinel_file);
     end
-    fprintf('      💾 Saved %s to %s\n', prefix, sentinel_file);
 end

@@ -132,7 +132,32 @@ function [resolved_config_path, tests_passed, tests_timestamp] = initialize_pipe
                     diary off;
                 end
                 if any([pf_results.Failed])
-                    error('PreFlight:TestFailure', '%d test(s) failed.', sum([pf_results.Failed]));
+                    % Write failure details to file before aborting
+                    pf_failed_idx = find([pf_results.Failed]);
+                    pf_fail_file = fullfile(pipeline_dir, 'failure_summary.out');
+                    pf_fid = fopen(pf_fail_file, 'w');
+                    if pf_fid ~= -1
+                        fprintf(pf_fid, 'Pre-flight Test Failure Summary — %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+                        fprintf(pf_fid, '===================================================\n');
+                        fprintf(pf_fid, '%d of %d tests failed.\n\n', numel(pf_failed_idx), numel(pf_results));
+                        for pf_fi = 1:numel(pf_failed_idx)
+                            pf_idx = pf_failed_idx(pf_fi);
+                            fprintf(pf_fid, '--- %s ---\n', pf_results(pf_idx).Name);
+                            if ~isempty(pf_results(pf_idx).Details) && isfield(pf_results(pf_idx).Details, 'DiagnosticRecord')
+                                pf_diagRec = pf_results(pf_idx).Details.DiagnosticRecord;
+                                for pf_di = 1:numel(pf_diagRec)
+                                    pf_report = pf_diagRec(pf_di).Report;
+                                    if ~isempty(pf_report)
+                                        fprintf(pf_fid, '%s\n', pf_report);
+                                    end
+                                end
+                            end
+                            fprintf(pf_fid, '\n');
+                        end
+                        fclose(pf_fid);
+                        fprintf('  Failure summary written to: %s\n', pf_fail_file);
+                    end
+                    error('PreFlight:TestFailure', '%d test(s) failed.', numel(pf_failed_idx));
                 end
                 tests_passed = true;
                 tests_timestamp = now;

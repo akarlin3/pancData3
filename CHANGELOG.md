@@ -4,6 +4,183 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.2.0] - 2026-03-26
+
+### Added
+
+#### Octave Compatibility
+- **`pipeline/.octave_compat/iscategorical.m`**: New shim — `iscategorical()` always returns `false` in Octave (no native categorical type)
+- **`pipeline/.octave_compat/nanmedian.m`**: New shim — NaN-ignoring median for Octave
+- **`pipeline/.octave_compat/string.m`**: New shim — `string()` type conversion for Octave
+- **`TestCase.m`**: Added `verifyNotEqual`, `verifySize`, `assumeTrue`, and `assumeFail` assert methods to the Octave unittest shim
+- **`TestRunner.m`**: Full `TestMethodSetup`/`TestMethodTeardown` discovery (parsed from source); per-test verification-failure accumulation and reset; robust teardown on failure
+- **`TestSuite.m`**: Recursive `test_*.m` discovery via `**` glob; benchmark file inclusion; de-duplication by full path; `parseTestMethods` integration
+
+#### Pipeline Utilities
+- **`pipeline/utils/get_system_memory.m`**: New utility — cross-platform physical memory query (total and available GB); used by `load_dwi_data.m` to log memory headroom before parallel patient loading; returns `[NaN, NaN]` on unsupported platforms
+
+#### Python Tests (improvement_loop v2 API)
+- **`analysis/tests/test_implementer_agent.py`**: 10 tests for `ImplementResult` dataclass, `implement()` dry-run, file-not-found and branch-exists failure paths, and `_generate_fix()` API call contract
+- **`analysis/tests/test_orchestrator_v2.py`**: 13 tests for `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, and `_print_agent_summary()` output
+- **`analysis/tests/test_reviewer_agent.py`**: 23 tests for `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid JSON, fenced, preamble, all invalid cases), critical-flag override (`LEAKAGE_RISK`/`PHI_RISK` force reject), and parse-failure fallback
+
+### Fixed
+
+#### Security / Error Handling
+- **`pipeline/utils/safe_load_mask.m`**: Duplicate-variable security violations (unsafe class, oversized entry) now raise `error` instead of `warning` + `return`; eliminates the risk of silently continuing after a tampered `.mat` file is detected
+- **`pipeline/utils/write_sentinel_file.m`**: Guard against `fopen` throwing on Windows when the parent directory doesn't exist; added `isfolder` pre-check and `try/catch` around `fopen`; also added confirmation log line on successful sentinel write
+
+#### MATLAB Test Suite (R2025a compatibility — 10 test failures fixed)
+- **Multiple test files**: Corrected `coxphfit` `Stratification` parameter usage, updated sentinel save message assertions, fixed struct field mismatches in `fit_time_varying_cox` interaction_models output (`penalized`, `stable_period_used`, `left_truncated` fields now included)
+- **`pipeline/tests/ProgressBarPlugin.m`**: Added `DiaryFile` property and diary-restart logic; core modules that hijack `diary` during tests no longer silently drop the test log
+
+#### Pipeline Logic
+- **`pipeline/utils/fit_time_varying_cox.m`**: Sparse-period detection now skips the stable-period restriction when the identified stable region is < 20 % of the total time range (too short to be useful); reports an informational note instead of a warning
+- **`pipeline/utils/escape_shell_arg.m`**: Extended control-character filtering (comprehensive Unicode sanitization)
+- **`pipeline/utils/filter_collinear_features.m`**: Strict duplicate-variable validation
+- **`pipeline/utils/run_loocv_risk_scores.m`**: Robust fallback-cleanup handling; additional edge case guards
+
+### Changed
+
+#### improvement_loop Package — v2 Structured API
+- **`improvement_loop.agents.implementer`**: Added `ImplementResult` dataclass (`success`, `original_content`, `new_content`, `error`); `_generate_fix(finding, original_content)` API wrapper; `implement(finding, base_branch, dry_run)` function that replaces direct `apply_fix` calls in the orchestrator
+- **`improvement_loop.agents.reviewer`**: Added `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`); `_generate_diff(original, new, filename)` unified-diff helper; `_parse_review_verdict(raw)` JSON parser (handles markdown fences, preamble, all validation failures); new `review(finding, old_content, new_content, dry_run)` replaces diff-based signature; `LEAKAGE_RISK`/`PHI_RISK` flags force rejection regardless of LLM verdict; parse failure returns `request_changes` + `EVALUATION_FAILED` flag
+- **`improvement_loop.orchestrator_v2`**: `FindingState` updated — added `implement_result: Optional[ImplementResult]`, `review_verdict: Optional[ReviewVerdict]`, `error` defaults to `""`; `IterationState` updated — added `context: str`, `findings: List[FindingState]`, `dry_run` now optional; module-level `_audit(iteration, context, dry_run)`, `_implement(finding, base_branch, dry_run)`, `_review(finding, old_content, new_content, dry_run)` wrappers (monkeypatchable for tests); `_print_agent_summary(state)` per-iteration console summary; `run_loop` rewritten to use new agent wrappers
+
+### Documentation
+- Updated version to 2.2.0 across CLAUDE.md, README.md, CHANGELOG.md
+- Octave shim count: 21 → 24; utility count: 72 → 73; Python test file count: 34 → 37
+- Added new utility, shim, and test entries to CLAUDE.md, CLAUDE_REFERENCE.md
+
+---
+
+## [2.2.0-rc.2] - 2026-03-22
+
+### Changed
+
+#### Improvement Loop Extracted to External Package
+- **`improvement_loop/`** directory removed — now installed as [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop) via `pip install -r analysis/requirements.txt`
+- **`project_config.yaml`** (gitignored) + **`project_config.example.yaml`** (committed) replace inline agent prompts and key file lists; contains full audit/review/judge system prompts, safety flags, RAG collection config
+- **`improvement_loop_config.json`** retained for runtime tuning (API models, token limits, exit strategy)
+- 12 improvement loop test files moved to the external package; pancData3 Python test suite: 46 → 34 files
+
+#### Bug Fixes & Stability
+- **`knn_impute_train_test.m`**: Restored after truncation; NaN handling in BH FDR correction
+- **`load_dwi_data.m`**: Restored after truncation
+- **`test_statistical_methods.m`**: Restored after truncation
+- **`test_octave_shims.m`**: Moved to serial execution to avoid parallel conflicts
+- **`test_source_code_standards.m`**: Updated to match actual implementations
+- **`run_all_tests.m`**: Persistent variable scope fix for parallel capability caching
+- Three improvement-loop regressions repaired (16 tests fixed)
+
+### Documentation
+- Updated CLAUDE.md, CLAUDE_WORKFLOWS.md, CLAUDE_REFERENCE.md, README.md for external improvement loop
+- Python test suite count: 46 → 34 files (loop tests moved to external package)
+- Repository structure updated to reflect `project_config.yaml` / `project_config.example.yaml`
+
+---
+
+## [2.2.0-rc.1] - 2026-03-22
+
+### Changed
+
+#### Test Quality & Cross-Platform Hardening (13 improvement loop iterations)
+- **`test_benjamini_hochberg_fdr.m`**: Cross-platform RNG determinism — replaced `rng(123)` with platform-independent test data; added edge case tests; tests now call the production `benjamini_hochberg_fdr` function instead of reimplementing inline; assertions upgraded to `verifyEqual` with `AbsTol`
+- **`test_parsave_dir_cache.m`**: Improved `parfor` test assertions
+- **`test_text_progress_bar.m`**: Progress bar test assertions tightened
+- **`test_statistical_methods.m`**: Added `k > available neighbors` edge case for KNN imputation; unsorted b-value test data fix
+- **Octave compatibility**: Robust `strjoin` fallback, non-fatal `verify*` assertions with scalar expansion
+- **`run_all_tests.m`**: Persistent variable scope fix for parallel capability caching
+- **`initialize_pipeline.m`**: Preflight mode now logs active status
+- **Vision skip assertions**: Tightened `test_script_outputs.py` skip condition
+
+### Documentation
+- Updated all documentation for v2.2.0 release
+- Corrected MATLAB test suite count: 119 files (106 root + 7 benchmarks + 6 diagnostics); Python test suite: 46 files (1795 tests)
+
+---
+
+## [2.2.0-beta.1] - 2026-03-22
+
+### Added
+
+#### Configurable IVIM Optimizer Parameters
+- **`fit_models.m`**: IVIM `lsqnonlin` optimizer settings (tolerances, iteration limits) are now configurable via `opts` struct fields (`optim_tol`, `func_tol`, `step_tol`, `max_iterations`, `max_func_evals`) with backward-compatible defaults; extracted `getfield_default()` local helper for clean fallback logic
+
+#### Test Coverage
+- **`test_implementer_agent.py`**: 5 new tests for `implement()` dry-run mode — happy path with real file, nonexistent file, no filesystem side effects, no git calls, and no API calls
+- **`test_statistical_methods.m`**: Added explicit b-value count mismatch assertion in extra-value validation test
+
+### Fixed
+- **`implementer.py`**: Fixed `NameError` — `cfg` was referenced in `implement()` at line 110 but only defined inside `_generate_fix()`; added `cfg = _get_loop_config()` to `implement()` scope
+- **`fit_models.m`**: Empty mask guard — when GTV mask contains no valid voxels, returns NaN-initialized parameter maps with a warning instead of crashing on empty array indexing
+
+### Changed
+- **`run_all_tests.m`**: Parallel capability check cached in a persistent variable to avoid repeated metaclass introspection; serial fallback now runs the complete test suite (parallel + serial partitions) instead of silently dropping the parallel-safe partition
+- **`test_text_progress_bar.m`**: Octave skip converted from bare `return` to `assumeTrue()` for proper test framework skip reporting
+
+### Documentation
+- Python test suite: 1790 → 1795 tests
+
+---
+
+## [2.2.0-alpha.1] - 2026-03-21
+
+### Added
+
+#### Multi-Agent Improvement Loop (v2)
+- **`improvement_loop/orchestrator_v2.py`**: Four-agent pipeline orchestrator (audit → implement → review → test & merge) replacing the single-pass v1 architecture
+- **`improvement_loop/agents/` subpackage**: Extracted agent modules from the orchestrator:
+  - **`auditor.py`** — RAG-enhanced code audit agent returning structured `Finding` objects
+  - **`implementer.py`** — Fix implementation agent with branch creation, code generation, and syntax checking
+  - **`reviewer.py`** — Code review quality gate with approve/request_changes/reject verdicts and critical risk flag enforcement (`LEAKAGE_RISK`, `PHI_RISK`)
+  - **`_api.py`** — Shared API retry helper used by all agents
+
+#### RAG (Retrieval-Augmented Generation)
+- **`improvement_loop/rag/` subpackage**: Semantic code search via ChromaDB vector store:
+  - **`chunker.py`** — Splits MATLAB, Python, Markdown, and JSON files into semantically meaningful chunks (functions, classes, sections) via regex-based parsing
+  - **`indexer.py`** — ChromaDB persistent index with full/incremental build, improvement history indexing, and `--force-rebuild` / `--stats` CLI interface
+  - **`retriever.py`** — Query interface with type/language/file filtering, relevance scoring, and agent-specific context builders (`get_context_for_audit`, `get_context_for_fix`, `get_context_for_review`)
+- RAG-enhanced agents receive semantically relevant code context instead of hardcoded file lists; can be disabled via `rag_enabled: false` in config
+
+#### New Report Section Builders (16 files)
+- `data_overview.py`, `data_quality.py`, `data_supplemental.py` — Data inspection sections
+- `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py` — Granular main results
+- `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py` — Manuscript-ready sub-sections
+- `analysis_cross_dwi.py`, `analysis_graphs.py`, `analysis_features.py` — Analysis sub-sections
+- `statistics_diagnostics.py`, `statistics_effects.py`, `statistics_robustness.py` — Statistics sub-sections
+- `model_diagnostics.py` — Model diagnostic section builder
+
+#### New Test Files (9 Python)
+- `test_auditor_agent.py`, `test_implementer_agent.py`, `test_reviewer_agent.py` — Agent module tests
+- `test_orchestrator_v2.py` — v2 orchestrator pipeline tests
+- `test_chunker.py`, `test_indexer.py`, `test_retriever.py`, `test_rag_integration.py` — RAG subsystem tests
+- `test_new_report_sections.py` — New report section builder tests
+
+#### Configuration
+- **`improvement_loop_config.example.json`**: Added `review_model`, `review_max_tokens`, `rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance` fields
+- **`loop_config.py`**: `LoopConfig` dataclass extended with review agent and RAG settings (all with sensible defaults)
+
+### Fixed
+- **`improvement_loop/rag/indexer.py`**: Fixed duplicate chunk ID crash when a file has multiple functions with the same name (e.g., `imputation_sensitivity.m` has four local functions named `impute`). Chunk IDs now include start line: `file_path::name::L{start_line}`
+
+### Changed
+- `orchestrator_v2.py` is now the canonical loop driver; `orchestrator_v1.py` retained as legacy fallback
+- Session cleanup and encapsulation improvements from improvement loop iterations
+- Safe load variable name checking hardened
+- JSON comment stripping edge cases fixed
+- Windows shell escape ampersand handling fixed
+- Survival result variable initialization guards added
+
+### Documentation
+- Updated all documentation files (CLAUDE.md, CLAUDE_REFERENCE.md, CLAUDE_WORKFLOWS.md, README.md) with accurate file counts
+- MATLAB test suite: 121 → 122 files; Python test suite: 37 → 45 files (1576 → 1790 tests)
+- Report sections: 18 → 37 files (16 new sub-section builders)
+- Added 37 previously undocumented MATLAB test files to reference tables
+- Expanded improvement loop documentation with v2 pipeline, RAG subsystem, and agent architecture
+
+---
+
 ## [2.1.0] - 2026-03-20
 
 ### Added

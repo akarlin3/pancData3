@@ -48,7 +48,8 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     tv_results.violated_covariates = violated_names;
     tv_results.stratified_model = struct();
     tv_results.interaction_models = struct('covariate', {}, 'interaction_coef', {}, ...
-        'interaction_p', {}, 'base_coef', {}, 'base_p', {});
+        'interaction_p', {}, 'base_coef', {}, 'base_p', {}, ...
+        'penalized', {}, 'stable_period_used', {}, 'left_truncated', {});
 
     if isempty(violated_idx)
         fprintf('  No PH violations detected. Skipping time-varying models.\n');
@@ -67,8 +68,16 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
     [sparse_periods, stable_period_end] = check_event_density(t_stop, event_csh, min_events_per_period);
     
     if sparse_periods
-        fprintf('  ⚠️  Warning: Sparse events detected in later time periods.\n');
-        fprintf('  Using stable period up to t=%.2f for reliable estimation.\n', stable_period_end);
+        % Check if stable period is too short to be useful (< 20% of range)
+        time_range = max(t_stop) - min(t_stop);
+        if time_range > 0 && (stable_period_end - min(t_stop)) < 0.2 * time_range
+            sparse_periods = false;
+            fprintf('  ℹ️  Sparse period detected but stable region too short (%.1f%% of range). Using all data.\n', ...
+                100 * (stable_period_end - min(t_stop)) / time_range);
+        else
+            fprintf('  ⚠️  Warning: Sparse events detected in later time periods.\n');
+            fprintf('  Using stable period up to t=%.2f for reliable estimation.\n', stable_period_end);
+        end
     end
 
     % --- Check for left-truncation and delayed entry ---
@@ -122,15 +131,39 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
             strat_group_stable = strat_group;
         end
 
-        % Fit on full data with stratification and left-truncation handling
+        % Fit stratified Cox by pooling per-stratum estimates.
+        % coxphfit does not support a 'Stratification' parameter, so we
+        % fit separately within each stratum and combine via inverse-
+        % variance weighting.
         w_off = warning('off', 'all');
-        if left_truncated
-            [b_strat, ~, ~, stats_strat] = fit_left_truncated_cox(X_strat_stable, ...
-                [t_start_stable, t_stop_stable], event_stable, strat_group_stable, false);
+        strata_levels = unique(strat_group_stable);
+        if numel(strata_levels) >= 2 && size(X_strat_clean, 2) > 0
+            b_strat = zeros(size(X_strat_clean, 2), 1);
+            se_strat = zeros(size(X_strat_clean, 2), 1);
+            total_weight = zeros(size(X_strat_clean, 2), 1);
+            for si = 1:numel(strata_levels)
+                s_mask = strat_group_stable == strata_levels(si);
+                if sum(event_stable(s_mask)) < 2, continue; end
+                try
+                    [b_s, ~, ~, stats_s] = coxphfit(X_strat_clean(s_mask, :), ...
+                        [t_start_stable(s_mask), t_stop_stable(s_mask)], ...
+                        'Censoring', event_stable(s_mask) == 0, 'Ties', 'breslow');
+                    w_s = 1 ./ (stats_s.se.^2 + eps);
+                    b_strat = b_strat + b_s .* w_s;
+                    total_weight = total_weight + w_s;
+                catch
+                end
+            end
+            valid = total_weight > 0;
+            b_strat(valid) = b_strat(valid) ./ total_weight(valid);
+            se_strat(valid) = 1 ./ sqrt(total_weight(valid));
+            z_strat = abs(b_strat) ./ (se_strat + eps);
+            p_strat = 2 * (1 - normcdf(z_strat));
+            stats_strat = struct('se', se_strat, 'p', p_strat);
         else
-            [b_strat, ~, ~, stats_strat] = coxphfit(X_strat_stable, [t_start_stable, t_stop_stable], ...
-                'Censoring', event_stable == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group_stable);
+            [b_strat, ~, ~, stats_strat] = coxphfit(X_strat_clean, ...
+                [t_start_stable, t_stop_stable], ...
+                'Censoring', event_stable == 0, 'Ties', 'breslow');
         end
         warning(w_off);
 
@@ -168,6 +201,16 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
             event_stable = event_csh;
         end
 
+        % --- Expand intervals for time-dependent interaction ---
+        % Split observation intervals at event-time quantiles so the
+        % X × log(t) interaction uses shared interval boundaries rather
+        % than each subject's own event/censoring time.  Without this,
+        % single-interval data suffers from endogeneity bias because the
+        % covariate value depends on the outcome.
+        [X_stable, t_start_stable, t_stop_stable, event_stable] = ...
+            expand_intervals_for_interaction(X_stable, t_start_stable, ...
+            t_stop_stable, event_stable);
+
         % Create interaction term: covariate × log(time)
         % For left-truncated data, use entry-adjusted time
         if left_truncated
@@ -177,7 +220,9 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
         end
         t_mid(t_mid <= 0) = 1;  % avoid log(0); use 1 day as minimum
         log_time = log(t_mid);
-        interaction_term = X_stable(:, cov_idx) .* log_time;
+        log_time_mean = mean(log_time);
+        log_time_centered = log_time - log_time_mean;
+        interaction_term = X_stable(:, cov_idx) .* log_time_centered;
 
         % Build extended design matrix: all covariates + interaction
         X_ext = [X_stable, interaction_term];
@@ -287,7 +332,7 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
                             t_grid_adj = t_grid;
                         end
                         
-                        hr_t = exp(base_coef + int_coef * log(t_grid_adj));
+                        hr_t = exp(base_coef + int_coef * (log(t_grid_adj) - log_time_mean));
 
                         % 95% CI via delta method with conservative bounds for penalized estimates
                         if ~isempty(base_pos) && ~isempty(int_pos)
@@ -308,8 +353,9 @@ function tv_results = fit_time_varying_cox(X_td, t_start, t_stop, event_csh, ...
                             end
                             
                             % Conservative: assume zero covariance
-                            se_lhr = sqrt(se_base^2 + (log(t_grid_adj)).^2 * se_int^2);
-                            lhr = base_coef + int_coef * log(t_grid_adj);
+                            log_t_c = log(t_grid_adj) - log_time_mean;
+                            se_lhr = sqrt(se_base^2 + log_t_c.^2 * se_int^2);
+                            lhr = base_coef + int_coef * log_t_c;
                             hr_lo = exp(lhr - 1.96 * se_lhr);
                             hr_hi = exp(lhr + 1.96 * se_lhr);
                         else
@@ -444,10 +490,25 @@ function [b, logl, H, stats] = fit_left_truncated_cox(X, time_intervals, event, 
         entry_weights = calculate_left_truncation_weights(t_start, t_stop);
         
         if ~isempty(strat_group)
-            % Stratified model
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group, 'Frequency', entry_weights);
+            % Stratified model via per-stratum fitting
+            strata_lvls = unique(strat_group);
+            n_coef = size(X, 2);
+            b = zeros(n_coef, 1); se_acc = zeros(n_coef, 1); tw = zeros(n_coef, 1);
+            logl = 0; H = [];
+            for ssi = 1:numel(strata_lvls)
+                sm = strat_group == strata_lvls(ssi);
+                if sum(event(sm)) < 2, continue; end
+                [b_s, ll_s, H_s, st_s] = coxphfit(X(sm, :), [t_start(sm), t_stop(sm)], ...
+                    'Censoring', event(sm) == 0, 'Ties', 'breslow', ...
+                    'Frequency', entry_weights(sm));
+                ws = 1 ./ (st_s.se.^2 + eps);
+                b = b + b_s .* ws; tw = tw + ws; logl = logl + ll_s;
+                if isempty(H), H = H_s; end
+            end
+            ok = tw > 0; b(ok) = b(ok) ./ tw(ok);
+            se_acc(ok) = 1 ./ sqrt(tw(ok));
+            z_acc = abs(b) ./ (se_acc + eps);
+            stats = struct('se', se_acc, 'p', 2 * (1 - normcdf(z_acc)));
         else
             % Standard model with weights
             [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
@@ -469,14 +530,9 @@ function [b, logl, H, stats] = fit_left_truncated_cox(X, time_intervals, event, 
     catch ME
         % Fallback to standard Cox if left-truncation adjustment fails
         warning('Left-truncation adjustment failed: %s. Using standard Cox.', ME.message);
-        if ~isempty(strat_group)
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow', ...
-                'Stratification', strat_group);
-        else
-            [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
-                'Censoring', event == 0, 'Ties', 'breslow');
-        end
+        % Fallback: ignore stratification, fit pooled model
+        [b, logl, H, stats] = coxphfit(X, [t_start, t_stop], ...
+            'Censoring', event == 0, 'Ties', 'breslow');
     end
 end
 
@@ -542,10 +598,13 @@ end
 
 function [sparse_periods, stable_end] = check_event_density(t_stop, event_csh, min_events)
     % Check for sparse events in later time periods
-    
+    % Use the actual data range (min to max of t_stop) instead of starting
+    % from 0, to avoid false sparse detection when all observations start
+    % well above 0 (e.g., t_stop uniformly in [10, 110]).
+    min_time = min(t_stop);
     max_time = max(t_stop);
     n_periods = 10;  % Divide timeline into periods
-    period_bounds = linspace(0, max_time, n_periods + 1);
+    period_bounds = linspace(min_time, max_time, n_periods + 1);
     
     sparse_periods = false;
     stable_end = max_time;
@@ -593,6 +652,54 @@ function [b, logl, H, stats] = fit_penalized_cox(X, time_intervals, event, penal
             'Censoring', event == 0, 'Ties', 'breslow');
         stats.se = stats.se * 1.5;  % Conservative inflation
     end
+end
+
+function [X_out, t0_out, t1_out, ev_out] = expand_intervals_for_interaction( ...
+    X_in, t_start, t_stop, event)
+    % Expand counting-process intervals by splitting at event-time
+    % quantiles.  This ensures the time-dependent interaction term
+    % X × log(t_mid) uses shared interval boundaries rather than each
+    % subject's own event/censoring time, preventing endogeneity bias.
+
+    n_events = sum(event);
+    if n_events < 4
+        X_out = X_in; t0_out = t_start; t1_out = t_stop; ev_out = event;
+        return;
+    end
+
+    event_ts = sort(t_stop(event == 1));
+    n_cuts = min(8, max(2, floor(n_events / 5)));
+    cut_q = linspace(0, 1, n_cuts + 2);
+    cuts = unique(quantile(event_ts, cut_q(2:end-1)));
+
+    if isempty(cuts)
+        X_out = X_in; t0_out = t_start; t1_out = t_stop; ev_out = event;
+        return;
+    end
+
+    n_obs = numel(event);
+    X_cells  = cell(n_obs, 1);
+    t0_cells = cell(n_obs, 1);
+    t1_cells = cell(n_obs, 1);
+    ev_cells = cell(n_obs, 1);
+
+    for ii = 1:n_obs
+        s = t_start(ii);  e = t_stop(ii);
+        interior = cuts(cuts > s & cuts < e);
+        bd = unique([s; interior(:); e]);
+        k = numel(bd) - 1;
+        X_cells{ii}  = repmat(X_in(ii, :), k, 1);
+        t0_cells{ii} = bd(1:end-1);
+        t1_cells{ii} = bd(2:end);
+        ev_sub = zeros(k, 1);
+        ev_sub(end) = event(ii);   % event only in last sub-interval
+        ev_cells{ii} = ev_sub;
+    end
+
+    X_out  = vertcat(X_cells{:});
+    t0_out = vertcat(t0_cells{:});
+    t1_out = vertcat(t1_cells{:});
+    ev_out = vertcat(ev_cells{:});
 end
 
 function [int_coef_smooth, base_coef_smooth] = apply_smoothing_constraint(int_coef, base_coef, ...

@@ -183,11 +183,18 @@ function report = patient_data_check(config_path)
     % patients, or patients who failed in a previous pipeline run) without
     % scanning the entire cohort.
     if isfield(config, 'patient_ids') && ~isempty(config.patient_ids)
+        % Normalise patient_ids to a numeric array for ismember comparison.
+        % parse_config converts numeric JSON arrays to cell-of-strings, so
+        % we must handle both numeric vectors and cell arrays of char.
+        pid_filter = config.patient_ids;
+        if iscell(pid_filter)
+            pid_filter = cellfun(@str2double, pid_filter);
+        end
         keep = false(n_patients, 1);
         for j = 1:n_patients
             strtmp = strsplit(strrep(strrep(patlist(j).name, 'P', ''), '_', '-'), '-');
             pid = str2double(strtmp{1});
-            if ismember(pid, config.patient_ids)
+            if ismember(pid, pid_filter)
                 keep(j) = true;
             end
         end

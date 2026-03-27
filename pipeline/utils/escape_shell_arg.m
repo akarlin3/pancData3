@@ -65,20 +65,56 @@ function escaped_arg = escape_shell_arg(arg, style)
     % objects and char arrays behave differently with strrep and concatenation.
     arg = char(arg);
 
-    % --- Null Byte Detection and Removal ---
-    % Null bytes (char(0)) within a shell argument can cause premature string
-    % termination in C-based system() implementations. MATLAB's system() is
-    % implemented via the C runtime, where strings are null-terminated. An
-    % embedded null byte would silently truncate the argument at that position,
-    % causing the shell to see only the portion before the null byte. This is
-    % a security hazard: if a DICOM metadata field contains an embedded null
-    % byte followed by shell metacharacters (e.g., 'path\0; rm -rf /'), the
-    % system() call could interpret the truncated string differently than
-    % intended, potentially executing injected commands after the null byte
-    % boundary. We strip all null bytes unconditionally and warn the user.
+    % --- Control Character Detection and Sanitization ---
+    % Detect and handle dangerous control characters that could pose security
+    % risks, including null bytes, terminal escape sequences, and other
+    % potentially harmful control codes. DICOM metadata is often unvalidated
+    % and could contain embedded control sequences that manipulate terminal
+    % output or shell behavior.
+    
+    % Null bytes (char(0)) can cause premature string termination
     if any(arg == 0)
         warning('escape_shell_arg:nullByte', 'Null bytes detected and removed from shell argument.');
         arg(arg == 0) = [];
+    end
+    
+    % Terminal escape sequences start with ESC (char(27)) followed by [
+    % These can manipulate terminal display, execute commands, or leak information
+    esc_positions = find(arg == 27); % ESC character
+    if ~isempty(esc_positions)
+        % Look for ANSI escape sequences (ESC[ followed by parameters and command)
+        ansi_found = false;
+        for i = 1:length(esc_positions)
+            pos = esc_positions(i);
+            if pos < length(arg) && arg(pos + 1) == '['
+                ansi_found = true;
+                break;
+            end
+        end
+        if ansi_found
+            warning('escape_shell_arg:escapeSequence', 'Terminal escape sequences detected and removed from shell argument.');
+        end
+        % Remove all ESC characters as they're generally not needed in file paths
+        arg(arg == 27) = [];
+    end
+    
+    % Other dangerous control characters (ASCII 1-31 except common whitespace)
+    % Keep: TAB (9), LF (10), CR (13) as they might be legitimate in some contexts
+    % Remove: All other control characters (1-8, 11-12, 14-31) including:
+    % - Bell (7): Could trigger audio alerts
+    % - Backspace (8): Could manipulate display
+    % - Vertical tab (11), Form feed (12): Unusual formatting
+    % - Various other control codes that have no business in file paths
+    dangerous_controls = (arg >= 1 & arg <= 8) | (arg >= 11 & arg <= 12) | (arg >= 14 & arg <= 31);
+    if any(dangerous_controls)
+        warning('escape_shell_arg:controlChars', 'Dangerous control characters detected and removed from shell argument.');
+        arg(dangerous_controls) = [];
+    end
+    
+    % DEL character (127) - another potentially problematic control character
+    if any(arg == 127)
+        warning('escape_shell_arg:delChar', 'DEL character detected and removed from shell argument.');
+        arg(arg == 127) = [];
     end
 
     % --- Unicode and Encoding Handling ---
@@ -159,6 +195,9 @@ function escaped_arg = escape_shell_arg(arg, style)
         % quotes it is mostly inert, but it can still cause problems with
         % piped commands or when the string is re-parsed. Escape it by
         % doubling so it is always treated as a literal caret.
+        % NOTE: Caret escaping MUST come before all other caret-based
+        % escapes below, otherwise we would double-escape the carets we
+        % insert for &, |, <, >, (, ).
         escaped_arg = strrep(escaped_arg, '^', '^^');
 
         % --- Exclamation Mark (!) Hazard ---
@@ -172,8 +211,10 @@ function escaped_arg = escape_shell_arg(arg, style)
         % While double quoting provides partial protection, the ampersand CAN
         % break out of double-quoted context in certain cmd.exe parsing
         % scenarios, especially when the escaped string is later concatenated
-        % with other strings before being passed to system(). Escape with ^
-        % for defense-in-depth.
+        % with other strings before being passed to system(). MATLAB's
+        % system() passes the command through cmd.exe /c, which can re-parse
+        % the string before honoring quote grouping. Escape with ^ for
+        % defense-in-depth.
         escaped_arg = strrep(escaped_arg, '&', '^&');
 
         % --- Pipe (|) Hazard ---
@@ -188,6 +229,14 @@ function escaped_arg = escape_shell_arg(arg, style)
         % DICOM metadata.
         escaped_arg = strrep(escaped_arg, '<', '^<');
         escaped_arg = strrep(escaped_arg, '>', '^>');
+
+        % --- Parentheses ( ) Hazards ---
+        % Parentheses are used for command grouping in cmd.exe and can cause
+        % parsing errors or unexpected behavior when unescaped, particularly
+        % in compound commands or when EnableDelayedExpansion is active.
+        % Escape with ^ for defense-in-depth.
+        escaped_arg = strrep(escaped_arg, '(', '^(');
+        escaped_arg = strrep(escaped_arg, ')', '^)');
 
         % --- Unicode Path Handling for Windows ---
         % For paths with Unicode characters, use the \\?\ long path prefix
@@ -209,12 +258,15 @@ function escaped_arg = escape_shell_arg(arg, style)
                     if ~startsWith(abs_path, '\\?\')
                         escaped_arg = strrep(abs_path, '"', '\"');
                         escaped_arg = strrep(escaped_arg, '%', '%%');
+                        % Caret must be escaped before other caret-based escapes
                         escaped_arg = strrep(escaped_arg, '^', '^^');
                         escaped_arg = strrep(escaped_arg, '!', '^!');
                         escaped_arg = strrep(escaped_arg, '&', '^&');
                         escaped_arg = strrep(escaped_arg, '|', '^|');
                         escaped_arg = strrep(escaped_arg, '<', '^<');
                         escaped_arg = strrep(escaped_arg, '>', '^>');
+                        escaped_arg = strrep(escaped_arg, '(', '^(');
+                        escaped_arg = strrep(escaped_arg, ')', '^)');
                         % Prepend \\?\ prefix for extended-length path handling
                         escaped_arg = ['\\?\' escaped_arg];
                     end

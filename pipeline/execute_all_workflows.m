@@ -65,6 +65,36 @@ config_file = fullfile(repo_root, 'config.json');
 % MATLAB's Parallel Computing Toolbox (parpool, parfor, pctRunOnAll).
 % Octave compatibility mode runs the pipeline serially instead.
 if ~exist('OCTAVE_VERSION', 'builtin')
+    % Remove ALL path entries containing 'octave_compat'.  The Octave shims
+    % shadow built-in classes (TestSuite, categorical, table) and must never
+    % be on the path in MATLAB.  Scan the full path string to catch entries
+    % regardless of how they were added (genpath, addpath, saved pathdef.m).
+    % Check if ANY octave_compat path is present BEFORE removal, so we
+    % know whether stale shim class definitions might be cached.
+    had_oc_on_path = contains(path, 'octave_compat');
+    w_state = warning('off', 'MATLAB:rmpath:DirNotFound');
+    all_paths = strsplit(path, pathsep);
+    oc_paths = all_paths(contains(all_paths, 'octave_compat'));
+    for oc_i = 1:numel(oc_paths)
+        rmpath(oc_paths{oc_i});
+    end
+    % Also proactively remove the .octave_compat directory and ALL its
+    % subdirectories.  A previous addpath(genpath(pipeline_root)) or
+    % savepath can leave .octave_compat/ on the path; its +matlab/+unittest
+    % shims shadow the real TestRunner/TestSuite and break the plugin
+    % framework (handlePluginExceptionInProhibitedScope not found).
+    oc_dir = fullfile(pipeline_root, '.octave_compat');
+    if exist(oc_dir, 'dir')
+        rmpath(genpath(oc_dir));
+    end
+    warning(w_state);
+    % Always clear cached class definitions so MATLAB re-resolves
+    % TestRunner/TestSuite from the real toolbox.  Stale shim definitions
+    % can persist from a previous session even when octave_compat is not
+    % currently on the path, causing handlePluginExceptionInProhibitedScope
+    % errors when the CodeCoveragePlugin encounters a test failure.
+    clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
+
     % Delete any stale parallel jobs before creating a new pool.
     % Stale jobs can occur when a previous pipeline run was killed (kill -9)
     % or MATLAB crashed during parfor execution, leaving zombie job entries
@@ -189,11 +219,16 @@ diary(eaw_diary_file);
 % This is useful during iterative development when tests have already been
 % verified and the researcher wants to skip the ~2-minute test suite overhead.
 eaw_skip_tests = false;
+eaw_tests_only = false;
 try
     eaw_raw = fileread(config_file);
     eaw_cfg = jsondecode(eaw_raw);
     if isfield(eaw_cfg, 'skip_tests') && eaw_cfg.skip_tests
         eaw_skip_tests = true;
+    end
+    if isfield(eaw_cfg, 'tests_only') && eaw_cfg.tests_only
+        eaw_tests_only = true;
+        eaw_skip_tests = false;  % tests_only overrides skip_tests
     end
 catch
     % If config can't be read, proceed with tests enabled (safe default)
@@ -202,16 +237,27 @@ end
 if eaw_skip_tests
     disp('⏭️ Skipping test suite (skip_tests = true in config.json).');
 else
-    disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+    if eaw_tests_only
+        disp('====== RUNNING TEST SUITE ONLY (tests_only = true) ======');
+    else
+        disp('====== RUNNING TEST SUITE BEFORE PIPELINE ======');
+    end
     test_diary_file = fullfile(eaw_output_folder, 'test_suite_output.log');
     diary(test_diary_file);
     try
         run(fullfile(pipeline_root, 'tests', 'run_all_tests.m'));
+        if eaw_tests_only
+            disp('====== ALL TESTS PASSED — EXITING (tests_only mode) ======');
+            diary off;
+            return;
+        end
         disp('====== ALL TESTS PASSED — PROCEEDING WITH PIPELINE ======');
+        diary off;              % flush test diary buffer before switching
         diary(eaw_diary_file);  % switch back to master diary
     catch ME
         try
-            diary(eaw_diary_file);  % switch back before error
+            diary off;              % flush test diary buffer before switching
+            diary(eaw_diary_file);  % switch back to master diary
         catch
             diary off;  % if master diary file is inaccessible, just turn diary off
         end

@@ -2,14 +2,14 @@
 %
 %   MATLAB's TestCase (R2013a+) provides a rich assertion/verification API
 %   for unit tests. Octave lacks this framework entirely. This shim
-%   reimplements the verify* methods used by the pancData3 test suite using
-%   plain assert() calls, so test classes can inherit from this shim and
-%   run identically under Octave.
+%   reimplements the verify* methods used by the pancData3 test suite so
+%   that test classes can inherit from this shim and run under Octave.
 %
-%   Behavioral differences from MATLAB's TestCase:
-%   - Verification failures throw immediately (like assertions), rather than
-%     being collected as soft failures. MATLAB's verify* methods record a
-%     failure but continue the test; here, the test stops on first failure.
+%   Behavioral notes:
+%   - Verification failures are recorded as soft failures. The test method
+%     continues executing after a verify* failure, matching MATLAB semantics.
+%     Accumulated failures are stored in the VerificationFailures property
+%     and can be checked via hasVerificationFailures / assertNoFailures.
 %   - verifyError does not check the error identifier -- it only checks that
 %     some error was thrown, because Octave error IDs are inconsistent.
 %   - verifyWarning is lenient: it always passes even if no warning is issued,
@@ -25,28 +25,73 @@ classdef TestCase < handle
     % suite so that the same test classes can run under Octave without
     % modification.
 
+    properties (Access = public)
+        % VerificationFailures  Cell array of failure message strings
+        %   accumulated by verify* methods during a test run.
+        VerificationFailures = {};
+    end
+
     methods
+
+        function resetVerifications(testCase)
+            % RESETVERIFICATIONS  Clear accumulated verification failures.
+            %   Called by the TestRunner shim before each test method.
+            testCase.VerificationFailures = {};
+        end
+
+        function tf = hasVerificationFailures(testCase)
+            % HASVERIFICATIONFAILURES  Return true if any verify* recorded a failure.
+            tf = ~isempty(testCase.VerificationFailures);
+        end
+
+        function assertNoFailures(testCase)
+            % ASSERTNOFAILURES  Throw if any verification failures were recorded.
+            %   Called by the TestRunner shim after each test method to
+            %   convert accumulated soft failures into a hard error.
+            if ~isempty(testCase.VerificationFailures)
+                safeStrs = cellfun(@(x) char(string(x)), ...
+                    testCase.VerificationFailures, 'UniformOutput', false);
+                msgs = strjoin(safeStrs, '\n  ');
+                error('TestCase:verificationFailed', ...
+                    '%d verification failure(s):\n  %s', ...
+                    numel(testCase.VerificationFailures), msgs);
+            end
+        end
 
         % ----- verifyTrue / verifyFalse -----
         function verifyTrue(testCase, actual, varargin)
-            % VERIFYTRUE  Assert that all elements of 'actual' are true.
+            % VERIFYTRUE  Verify that all elements of 'actual' are true.
             msg = testCase.extractMessage(varargin{:});
-            assert(islogical(actual) || isnumeric(actual), ...
-                'verifyTrue: input must be logical or numeric');
-            assert(all(actual(:)), msg);
+            if ~(islogical(actual) || isnumeric(actual))
+                testCase.recordFailure('verifyTrue: input must be logical or numeric');
+                return;
+            end
+            if ~all(actual(:))
+                if isempty(msg)
+                    msg = 'verifyTrue failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         function verifyFalse(testCase, actual, varargin)
-            % VERIFYFALSE  Assert that no elements of 'actual' are true.
+            % VERIFYFALSE  Verify that no elements of 'actual' are true.
             msg = testCase.extractMessage(varargin{:});
-            assert(islogical(actual) || isnumeric(actual), ...
-                'verifyFalse: input must be logical or numeric');
-            assert(~any(actual(:)), msg);
+            if ~(islogical(actual) || isnumeric(actual))
+                testCase.recordFailure('verifyFalse: input must be logical or numeric');
+                return;
+            end
+            if any(actual(:))
+                if isempty(msg)
+                    msg = 'verifyFalse failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyEqual -----
         function verifyEqual(testCase, actual, expected, varargin)
-            % VERIFYEQUAL  Assert equality with optional tolerances.
+            % VERIFYEQUAL  Verify equality with optional tolerances.
             %   Supports 'AbsTol' (absolute tolerance) and 'RelTol' (relative
             %   tolerance) name-value pairs for numeric comparisons. Strings
             %   are compared with strcmp; cells and other types use isequal.
@@ -85,74 +130,186 @@ classdef TestCase < handle
                         msg = sprintf('verifyEqual failed:\n  Actual: %s\n  Expected: %s', ...
                             mat2str(actual), mat2str(expected));
                     end
-                    error('TestCase:verifyEqual', '%s', msg);
+                    testCase.recordFailure(msg);
                 end
             elseif ischar(actual) && ischar(expected)
-                assert(strcmp(actual, expected), ...
-                    'verifyEqual: strings differ.\n  Actual: %s\n  Expected: %s', actual, expected);
+                if ~strcmp(actual, expected)
+                    if isempty(msg)
+                        msg = sprintf('verifyEqual: strings differ.\n  Actual: %s\n  Expected: %s', actual, expected);
+                    end
+                    testCase.recordFailure(msg);
+                end
             elseif iscell(actual) && iscell(expected)
-                assert(isequal(actual, expected), ...
-                    'verifyEqual: cell arrays differ');
+                if ~isequal(actual, expected)
+                    if isempty(msg)
+                        msg = 'verifyEqual: cell arrays differ';
+                    end
+                    testCase.recordFailure(msg);
+                end
             else
-                assert(isequal(actual, expected), ...
-                    'verifyEqual: values differ');
+                if ~isequal(actual, expected)
+                    if isempty(msg)
+                        msg = 'verifyEqual: values differ';
+                    end
+                    testCase.recordFailure(msg);
+                end
+            end
+        end
+
+        % ----- verifyNotEqual -----
+        function verifyNotEqual(testCase, actual, notExpected, varargin)
+            % VERIFYNOTEQUAL  Verify that actual is not equal to notExpected.
+            msg = testCase.extractMessage(varargin{:});
+            if isequal(actual, notExpected)
+                if isempty(msg)
+                    msg = 'verifyNotEqual failed: values are equal';
+                end
+                testCase.recordFailure(msg);
             end
         end
 
         % ----- verifyNotEmpty -----
         function verifyNotEmpty(testCase, actual, varargin)
-            % VERIFYNOTEMPTY  Assert that 'actual' is not empty.
+            % VERIFYNOTEMPTY  Verify that 'actual' is not empty.
             msg = testCase.extractMessage(varargin{:});
-            assert(~isempty(actual), msg);
+            if isempty(actual)
+                if isempty(msg)
+                    msg = 'verifyNotEmpty failed: value is empty';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyEmpty -----
         function verifyEmpty(testCase, actual, varargin)
-            % VERIFYEMPTY  Assert that 'actual' is empty.
+            % VERIFYEMPTY  Verify that 'actual' is empty.
             msg = testCase.extractMessage(varargin{:});
-            assert(isempty(actual), msg);
+            if ~isempty(actual)
+                if isempty(msg)
+                    msg = 'verifyEmpty failed: value is not empty';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyClass -----
         function verifyClass(testCase, actual, expectedClass, varargin)
-            % VERIFYCLASS  Assert that 'actual' is an instance of expectedClass.
+            % VERIFYCLASS  Verify that 'actual' is an instance of expectedClass.
             msg = testCase.extractMessage(varargin{:});
-            assert(isa(actual, expectedClass), ...
-                'verifyClass: expected class %s, got %s. %s', ...
-                expectedClass, class(actual), msg);
+            if ~isa(actual, expectedClass)
+                failMsg = sprintf('verifyClass: expected class %s, got %s. %s', ...
+                    expectedClass, class(actual), msg);
+                testCase.recordFailure(failMsg);
+            end
         end
 
         % ----- verifyGreaterThan -----
         function verifyGreaterThan(testCase, actual, expected, varargin)
-            % VERIFYGREATERTHAN  Assert all(actual > expected).
+            % VERIFYGREATERTHAN  Verify all(actual > expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) > expected(:)), msg);
+            ok = true;
+            if isscalar(expected)
+                ok = all(actual(:) > expected);
+            elseif isscalar(actual)
+                ok = all(actual > expected(:));
+            else
+                if ~isequal(size(actual), size(expected))
+                    testCase.recordFailure('verifyGreaterThan: size mismatch between actual and expected');
+                    return;
+                end
+                ok = all(actual(:) > expected(:));
+            end
+            if ~ok
+                if isempty(msg)
+                    msg = 'verifyGreaterThan failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyGreaterThanOrEqual -----
         function verifyGreaterThanOrEqual(testCase, actual, expected, varargin)
-            % VERIFYGREATERTHANOREQUAL  Assert all(actual >= expected).
+            % VERIFYGREATERTHANOREQUAL  Verify all(actual >= expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) >= expected(:)), msg);
+            ok = true;
+            if isscalar(expected)
+                ok = all(actual(:) >= expected);
+            elseif isscalar(actual)
+                ok = all(actual >= expected(:));
+            else
+                if ~isequal(size(actual), size(expected))
+                    testCase.recordFailure('verifyGreaterThanOrEqual: size mismatch between actual and expected');
+                    return;
+                end
+                ok = all(actual(:) >= expected(:));
+            end
+            if ~ok
+                if isempty(msg)
+                    msg = 'verifyGreaterThanOrEqual failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyLessThan -----
         function verifyLessThan(testCase, actual, expected, varargin)
-            % VERIFYLESSTHAN  Assert all(actual < expected).
+            % VERIFYLESSTHAN  Verify all(actual < expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) < expected(:)), msg);
+            ok = true;
+            if isscalar(expected)
+                ok = all(actual(:) < expected);
+            elseif isscalar(actual)
+                ok = all(actual < expected(:));
+            else
+                if ~isequal(size(actual), size(expected))
+                    testCase.recordFailure('verifyLessThan: size mismatch between actual and expected');
+                    return;
+                end
+                ok = all(actual(:) < expected(:));
+            end
+            if ~ok
+                if isempty(msg)
+                    msg = 'verifyLessThan failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyLessThanOrEqual -----
         function verifyLessThanOrEqual(testCase, actual, expected, varargin)
-            % VERIFYLESSSTHANOREQUAL  Assert all(actual <= expected).
+            % VERIFYLESSSTHANOREQUAL  Verify all(actual <= expected).
+            %   Supports scalar expansion: if expected is scalar it is
+            %   compared against every element of actual, and vice-versa.
             msg = testCase.extractMessage(varargin{:});
-            assert(all(actual(:) <= expected(:)), msg);
+            ok = true;
+            if isscalar(expected)
+                ok = all(actual(:) <= expected);
+            elseif isscalar(actual)
+                ok = all(actual <= expected(:));
+            else
+                if ~isequal(size(actual), size(expected))
+                    testCase.recordFailure('verifyLessThanOrEqual: size mismatch between actual and expected');
+                    return;
+                end
+                ok = all(actual(:) <= expected(:));
+            end
+            if ~ok
+                if isempty(msg)
+                    msg = 'verifyLessThanOrEqual failed';
+                end
+                testCase.recordFailure(msg);
+            end
         end
 
         % ----- verifyError -----
         function verifyError(testCase, fcnHandle, expectedId, varargin)
-            % VERIFYERROR  Assert that calling fcnHandle throws an error.
+            % VERIFYERROR  Verify that calling fcnHandle throws an error.
             %   The expectedId is accepted but not strictly checked, because
             %   Octave error identifiers are often empty or differ from MATLAB.
             caught = false;
@@ -165,7 +322,9 @@ classdef TestCase < handle
                     % Octave error IDs are not always set, so accept any error
                 end
             end
-            assert(caught, 'verifyError: expected an error but none was thrown');
+            if ~caught
+                testCase.recordFailure('verifyError: expected an error but none was thrown');
+            end
         end
 
         % ----- verifyWarning -----
@@ -184,19 +343,68 @@ classdef TestCase < handle
 
         % ----- verifySubstring -----
         function verifySubstring(testCase, actual, expected, varargin)
-            % VERIFYSUBSTRING  Assert that 'expected' appears within 'actual'.
+            % VERIFYSUBSTRING  Verify that 'expected' appears within 'actual'.
             msg = testCase.extractMessage(varargin{:});
             if isempty(strfind(actual, expected))
-                error('verifySubstring: ''%s'' not found in ''%s''. %s', ...
-                    expected, actual, msg);
+                if isempty(msg)
+                    msg = sprintf('verifySubstring: ''%s'' not found in ''%s''', ...
+                        expected, actual);
+                end
+                testCase.recordFailure(msg);
+            end
+        end
+
+        % ----- verifySize -----
+        function verifySize(testCase, actual, expectedSize, varargin)
+            % VERIFYSIZE  Verify that size(actual) equals expectedSize.
+            msg = testCase.extractMessage(varargin{:});
+            actualSize = size(actual);
+            if ~isequal(actualSize, expectedSize)
+                if isempty(msg)
+                    msg = sprintf('verifySize: expected size [%s], got [%s]', ...
+                        num2str(expectedSize), num2str(actualSize));
+                end
+                testCase.recordFailure(msg);
             end
         end
 
         % ----- verifyFail -----
         function verifyFail(testCase, varargin)
-            % VERIFYFAIL  Unconditionally fail the test with an optional message.
+            % VERIFYFAIL  Unconditionally record a failure with an optional message.
             msg = testCase.extractMessage(varargin{:});
-            error('TestCase:verifyFail', 'Explicit failure. %s', msg);
+            if isempty(msg)
+                msg = 'Explicit failure';
+            else
+                msg = sprintf('Explicit failure. %s', msg);
+            end
+            testCase.recordFailure(msg);
+        end
+
+        % ----- assumeTrue / assumeFail -----
+        function assumeTrue(testCase, condition, varargin)
+            % ASSUMETRUE  Skip the test if condition is false.
+            %   In MATLAB, this marks the test as Incomplete (not Failed).
+            %   In this shim, we throw an error to skip the test.
+            if ~condition
+                msg = testCase.extractMessage(varargin{:});
+                if isempty(msg), msg = 'Assumption failed'; end
+                error('TestCase:assumptionFailed', 'Assumption failed: %s', msg);
+            end
+        end
+
+        function assumeFail(testCase, varargin)
+            % ASSUMEFAIL  Unconditionally skip the test.
+            msg = testCase.extractMessage(varargin{:});
+            if isempty(msg), msg = 'Assumption explicitly failed'; end
+            error('TestCase:assumptionFailed', 'Assumption failed: %s', msg);
+        end
+
+        % ----- addTeardown -----
+        function addTeardown(testCase, fcn, varargin)
+            % ADDTEARDOWN  Register a function to run at teardown.
+            %   This is a no-op shim; the Octave TestRunner handles teardown
+            %   via methods(TestMethodTeardown) blocks. For one-off teardown
+            %   actions, callers should use onCleanup instead.
         end
 
         % ----- applyFixture (PathFixture shim) -----
@@ -225,6 +433,15 @@ classdef TestCase < handle
                     return;
                 end
             end
+        end
+
+        function recordFailure(testCase, msg)
+            % RECORDFAILURE  Record a verification failure without throwing.
+            %   Appends the message to VerificationFailures and prints a
+            %   warning so the user sees it immediately, but does NOT stop
+            %   test execution.
+            testCase.VerificationFailures{end+1} = msg;
+            fprintf(2, '  Verification FAILED: %s\n', msg);
         end
     end
 

@@ -45,6 +45,7 @@ _DEFAULTS: dict = {
         "max_output_tokens": 10000,
         "backoff_base_seconds": 15,
         "request_timeout_seconds": 120,
+        "per_image_timeout_seconds": 300,
         "script_timeout_seconds": 1800,
         "fallback_to_local": True,
     },
@@ -173,6 +174,19 @@ def _strip_json_comments(text: str) -> str:
     Block comments (``/* ... */``) are removed regardless of position
     outside strings.  Single-line comments (``// ...``) are removed from
     the current position to end-of-line when found outside strings.
+
+    .. note::
+
+       This function assumes that JSON string literals are well-formed —
+       i.e. every opening ``"`` has a matching closing ``"`` and escape
+       sequences within strings are valid.  Malformed strings (e.g. an
+       odd number of trailing backslashes before a closing quote, as in
+       ``"C:\\Users\\"``) would cause the parser to consume past the
+       intended string boundary, potentially stripping valid JSON content
+       as a comment.  Such input would also fail ``json.loads()``
+       regardless, so this is not a loss of correctness — but callers
+       should be aware that comment stripping on malformed JSON may
+       produce surprising results.
     """
     result: list[str] = []
     i = 0
@@ -180,7 +194,15 @@ def _strip_json_comments(text: str) -> str:
     while i < n:
         # Check if we're entering a JSON string literal
         if text[i] == '"':
-            # Consume the entire string literal, including escaped characters
+            # Consume the entire string literal, including escaped characters.
+            # NOTE: This correctly handles escaped characters by consuming
+            # backslash + next-char pairs.  For example, "path\\\\" (four
+            # chars between quotes: \, \, \, \) is consumed as two escape
+            # pairs, leaving the closing quote to be matched.  However, a
+            # *malformed* string like "path\\\" (three backslashes — the
+            # last one escapes the quote) would cause the loop to read past
+            # the intended end.  Such input is invalid JSON and would also
+            # fail json.loads(), so this is acceptable.
             result.append('"')
             i += 1
             while i < n:
@@ -232,6 +254,12 @@ def _permissive_json_loads(text: str) -> dict:
     *token-aware*: ``//`` sequences inside JSON string values (e.g. URLs)
     are preserved.
 
+    After comment stripping and trailing-comma removal, the result is
+    validated with ``json.loads()``.  If the stripped text fails to parse,
+    ``json.JSONDecodeError`` is raised — this catches any corruption that
+    might have been introduced by comment stripping on malformed input
+    (e.g. strings with unbalanced escape sequences).
+
     Parameters
     ----------
     text : str
@@ -254,7 +282,11 @@ def _permissive_json_loads(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Use token-aware comment stripping that preserves string contents
+    # Use token-aware comment stripping that preserves string contents.
+    # Note: _strip_json_comments assumes well-formed JSON strings.  If the
+    # input contains malformed strings (e.g. odd trailing backslashes),
+    # the stripping may produce corrupted output — but the json.loads()
+    # call below will catch this and raise JSONDecodeError.
     sanitised = _strip_json_comments(text)
     # Strip trailing commas before } or ]
     sanitised = re.sub(r",\s*([}\]])", r"\1", sanitised)

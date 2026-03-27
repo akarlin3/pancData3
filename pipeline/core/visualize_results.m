@@ -111,7 +111,7 @@ fprintf('\n--- SECTION 1: Parameter Maps overlaid on Anatomy ---\n');
 %    (c) ADC overlaid on anatomy (semi-transparent inside GTV only)
 %  Patients are batched into multi-row figures (pats_per_fig rows each).
 % -----------------------------------------------------------------------
-plot_parameter_maps_streaming(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
+plot_parameter_maps(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first);
 
 %% -----------------------------------------------------------------------
 fprintf('\n--- SECTION 2: Distributions of Extracted Features ---\n');
@@ -205,65 +205,9 @@ fprintf('======================================================\n');
 diary off
 end
 
-function plot_parameter_maps_streaming(data_vectors_gtvp, nPat, id_list, dataloc, output_folder, dtype_first)
-% Streaming version of plot_parameter_maps - creates, saves, and closes figures immediately
-pats_per_fig = 4; % Number of patients per figure
-current_pat = 1;
-fig_counter = 1;
-
-while current_pat <= nPat
-    % Create new figure
-    fig = figure('Units', 'inches', 'Position', [1 1 16 4*pats_per_fig]);
-    
-    % Determine how many patients for this figure
-    patients_this_fig = min(pats_per_fig, nPat - current_pat + 1);
-    
-    % Process patients for this figure
-    for p = 1:patients_this_fig
-        pat_idx = current_pat + p - 1;
-        
-        % Skip if no data for this patient
-        if pat_idx > length(data_vectors_gtvp) || isempty(data_vectors_gtvp(pat_idx).dwi_data)
-            continue;
-        end
-        
-        try
-            % Create subplot for this patient (3 panels per patient)
-            subplot(patients_this_fig, 3, (p-1)*3 + 1);
-            % Plot b=0 anatomy with contour
-            plot_patient_anatomy(data_vectors_gtvp(pat_idx), id_list{pat_idx});
-            
-            subplot(patients_this_fig, 3, (p-1)*3 + 2);
-            % Plot ADC map with contour  
-            plot_patient_adc_map(data_vectors_gtvp(pat_idx), id_list{pat_idx});
-            
-            subplot(patients_this_fig, 3, (p-1)*3 + 3);
-            % Plot ADC overlay on anatomy
-            plot_patient_adc_overlay(data_vectors_gtvp(pat_idx), id_list{pat_idx});
-            
-        catch ME
-            fprintf('Warning: Failed to plot patient %s: %s\n', id_list{pat_idx}, ME.message);
-        end
-    end
-    
-    % Save and close figure immediately
-    filename = fullfile(output_folder, sprintf('parameter_maps_%02d.png', fig_counter));
-    print(fig, filename, '-dpng', '-r300');
-    close(fig);
-    
-    % Update counters
-    current_pat = current_pat + patients_this_fig;
-    fig_counter = fig_counter + 1;
-    
-    % Force memory cleanup
-    drawnow;
-    if mod(fig_counter, 5) == 0
-        pause(0.1); % Brief pause every 5 figures to allow memory cleanup
-    end
-end
-
-fprintf('Created %d parameter map figures\n', fig_counter - 1);
-end
+% plot_parameter_maps_streaming removed — was using placeholder helpers
+% that produced blank images. Now calls the full plot_parameter_maps.m
+% which loads NIfTI volumes and renders actual ADC maps.
 
 function plot_feature_distributions_streaming(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder)
 % Streaming version of plot_feature_distributions - creates, saves, and closes figures immediately
@@ -310,7 +254,7 @@ end
 sgtitle(sprintf('%s: Baseline Parameter Distributions (LC vs LF)', dtype_label));
 
 % Save and close histogram figure
-filename_hist = fullfile(output_folder, sprintf('distributions_histograms_%s.png', dtype_label));
+filename_hist = fullfile(output_folder, sprintf('Feature_Histograms_%s.png', dtype_label));
 print(fig_hist, filename_hist, '-dpng', '-r300');
 close(fig_hist);
 
@@ -353,7 +297,7 @@ end
 sgtitle(sprintf('%s: Baseline Parameter Box Plots (LC vs LF)', dtype_label));
 
 % Save and close box plot figure
-filename_box = fullfile(output_folder, sprintf('distributions_boxplots_%s.png', dtype_label));
+filename_box = fullfile(output_folder, sprintf('Feature_BoxPlots_%s.png', dtype_label));
 print(fig_box, filename_box, '-dpng', '-r300');
 close(fig_box);
 
@@ -411,7 +355,14 @@ for i = 1:3  % Parameters
                 plot(x_trend, y_trend, 'k--', 'LineWidth', 1.5);
                 
                 % Calculate Spearman correlation
-                [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
+                if exist('OCTAVE_VERSION', 'builtin')
+                    rho = spearman(dose_clean, param_clean);
+                    n_c = numel(dose_clean);
+                    t_c = rho * sqrt((n_c - 2) / (1 - rho^2 + eps));
+                    p_val = 2 * (1 - tcdf(abs(t_c), n_c - 2));
+                else
+                    [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
+                end
                 text(0.05, 0.95, sprintf('ρ = %.3f\np = %.3f', rho, p_val), ...
                     'Units', 'normalized', 'FontSize', 10, 'BackgroundColor', 'white');
             catch
@@ -437,7 +388,7 @@ end
 sgtitle(sprintf('%s: Dose-Diffusion Correlations', dtype_label));
 
 % Save and close figure
-filename = fullfile(output_folder, sprintf('dose_correlations_%s.png', dtype_label));
+filename = fullfile(output_folder, sprintf('Dose_vs_Diffusion_%s.png', dtype_label));
 print(fig, filename, '-dpng', '-r300');
 close(fig);
 
@@ -480,29 +431,9 @@ drawnow;
 pause(0.05);
 end
 
-function plot_patient_anatomy(patient_data, patient_id)
-% Placeholder for plotting patient anatomy
-% Replace with actual anatomy plotting logic
-text(0.5, 0.5, sprintf('Anatomy\n%s', patient_id), 'HorizontalAlignment', 'center', ...
-    'Units', 'normalized');
-title('b=0 + Contour');
-end
-
-function plot_patient_adc_map(patient_data, patient_id)  
-% Placeholder for plotting patient ADC map
-% Replace with actual ADC map plotting logic
-text(0.5, 0.5, sprintf('ADC Map\n%s', patient_id), 'HorizontalAlignment', 'center', ...
-    'Units', 'normalized');
-title('ADC Map + Contour');
-end
-
-function plot_patient_adc_overlay(patient_data, patient_id)
-% Placeholder for plotting patient ADC overlay
-% Replace with actual ADC overlay plotting logic
-text(0.5, 0.5, sprintf('ADC Overlay\n%s', patient_id), 'HorizontalAlignment', 'center', ...
-    'Units', 'normalized');
-title('ADC on Anatomy');
-end
+% Placeholder helper functions (plot_patient_anatomy, plot_patient_adc_map,
+% plot_patient_adc_overlay) removed — they produced blank images with only
+% text labels. The full plot_parameter_maps.m handles all rendering.
 
 function plot_waterfall_chart(calculated_results, config_struct)
 % PLOT_WATERFALL_CHART  Sorted bar chart of best ADC response per patient.

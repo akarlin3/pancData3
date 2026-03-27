@@ -58,10 +58,9 @@ end
 function [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec, gtv_mask_3d, opts)
     % Common parameter validation and preparation
     
-    % Validate required config field
+    % Default core_method if not specified (backwards compatibility)
     if ~isfield(config_struct, 'core_method')
-        error('extract_tumor_core:missingField', ...
-            'config_struct must contain a ''core_method'' field.');
+        config_struct.core_method = 'adc_threshold';
     end
 
     VALID_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
@@ -584,7 +583,13 @@ function clean_mask = apply_morphological_cleanup(input_mask, morphology_params)
     % Create structuring element for morphological operations
     se_radius = morphology_params.erosion_disk_radius;
     if ndims(input_mask) == 3
-        se = strel('sphere', se_radius);
+        if exist('OCTAVE_VERSION', 'builtin')
+            % Octave's strel does not support 'sphere'; build manually
+            [x, y, z] = ndgrid(-se_radius:se_radius, -se_radius:se_radius, -se_radius:se_radius);
+            se = strel('arbitrary', (x.^2 + y.^2 + z.^2) <= se_radius^2);
+        else
+            se = strel('sphere', se_radius);
+        end
     else
         se = strel('disk', se_radius);
     end
@@ -603,3 +608,12 @@ function clean_mask = apply_morphological_cleanup(input_mask, morphology_params)
         
         % Keep only regions above minimum size
         for i = 1:cc.NumObjects
+            if numel(cc.PixelIdxList{i}) < morphology_params.min_region_size
+                clean_mask(cc.PixelIdxList{i}) = false;
+            end
+        end
+    catch
+        % If morphological operations fail, return the original mask
+        clean_mask = input_mask;
+    end
+end

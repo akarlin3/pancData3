@@ -53,20 +53,23 @@ classdef test_decision_curve_analysis < matlab.unittest.TestCase
         end
 
         function testRandomPredictorApproximatesTreatAll(testCase)
-            % A random noise predictor should approximate the treat-all line.
+            % A random noise predictor should approximate the treat-all line
+            % at thresholds near the prevalence (0.3).  At high thresholds
+            % the random predictor and treat-all diverge substantially, so
+            % we only check thresholds up to 0.4.
             rng(42);
             n = 1000;
             y_true = [ones(300, 1); zeros(700, 1)];
             y_pred = rand(n, 1);  % random predictions
 
-            thresholds = 0.2:0.1:0.8;
+            thresholds = 0.1:0.1:0.4;
             results = decision_curve_analysis(y_true, y_pred, thresholds);
 
             % Net benefit should be close to treat-all (within tolerance)
             for i = 1:numel(thresholds)
                 diff = abs(results.net_benefit_model(i) - results.net_benefit_treat_all(i));
                 testCase.verifyLessThan(diff, 0.15, ...
-                    'Random predictor NB should approximate treat-all.');
+                    sprintf('Random predictor NB should approximate treat-all at threshold %.1f.', thresholds(i)));
             end
         end
 

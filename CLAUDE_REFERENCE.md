@@ -98,18 +98,28 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `apply_external_validation.m` | Apply saved model to external dataset |
 | `load_auxiliary_biomarkers.m` | Load non-DWI biomarker data from CSV |
 | `suppress_core_warnings.m` | Suppress expected warnings from `extract_tumor_core` during batch operations |
+| `compute_histogram_laplace.m` | Laplace-smoothed histogram probability distribution |
+| `compute_kurt_skew.m` | Kurtosis/skewness computation with minimum sample guard |
+| `detect_baseline_outliers.m` | Outcome-blinded IQR outlier detection for baseline metrics |
+| `nanmean_safe.m` | Octave-compatible NaN-ignoring mean |
+| `nanstd_safe.m` | Octave-compatible NaN-ignoring standard deviation |
+| `compute_percent_deltas.m` | Treatment-induced percent/absolute changes from baseline |
+| `dispatch_load_and_sanity.m` | Extracted dispatch logic for load and sanity check pipeline steps |
+| `dispatch_pipeline_steps.m` | Extracted dispatch logic for metrics, visualization, and comparison pipeline steps |
+| `prepare_pipeline_session.m` | Pipeline session initialization with try-catch error handling |
+| `get_system_memory.m` | Cross-platform physical memory query (total and available GB); returns `[NaN, NaN]` on unsupported platforms |
 
 ---
 
 ## Octave Compatibility (`pipeline/.octave_compat/`)
 
-Contains 21 shim files for GNU Octave compatibility, including:
+Contains 24 shim files for GNU Octave compatibility, including:
 
 - `@table/` class implementation (`table.m`, `subsasgn.m`, `subsref.m`, `display.m`)
 - `+matlab/+unittest/` namespace shims (`TestSuite.m`, `TestCase.m`, `TestRunner.m`)
 - `+matlab/+unittest/+fixtures/` shim (`PathFixture.m`)
 - `+matlab/+unittest/+plugins/` shim (`CodeCoveragePlugin.m`)
-- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanstd.m`, `categorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`
+- Standard function replacements: `cvpartition.m`, `nanmean.m`, `nanmedian.m`, `nanstd.m`, `categorical.m`, `iscategorical.m`, `niftiread.m`, `niftiwrite.m`, `niftiinfo.m`, `fitglme.m`, `contains.m`, `sgtitle.m`, `yline.m`, `spectralcluster.m`, `string.m`
 
 ---
 
@@ -186,16 +196,52 @@ Contains 21 shim files for GNU Octave compatibility, including:
 | `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
 | `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
 | `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
+| `test_IVIMmodelfit.m` | IVIM model fitting dependency validation |
+| `test_convert_dicom.m` | DICOM-to-NIfTI conversion via dcm2niix |
+| `test_corr_filter.m` | Correlation-based feature filtering |
+| `test_data_integrity_check.m` | Pre-pipeline data integrity validation |
+| `test_discover_gtv_file.m` | GTV mask file discovery with flexible naming |
+| `test_dispatch_pipeline_steps.m` | Pipeline step dispatch logic |
+| `test_dvh.m` | Dose-volume histogram computation |
+| `test_escape_shell_arg.m` | Cross-platform shell argument escaping |
+| `test_execute_all_workflows.m` | Multi-DWI-type sequential workflow |
+| `test_external_validation_wiring.m` | External validation model export/import wiring |
+| `test_find_gtv_files.m` | GTVp/GTVn mask file discovery |
+| `test_fit_adc_mono.m` | Mono-exponential ADC fitting |
+| `test_fix_verify.m` | Post-fix regression verification |
+| `diagnostics/diag_landmark_cindex_mock.m` | Landmark concordance index with mocked data |
+| `test_load_dl_provenance.m` | DL training provenance loading and leakage detection |
+| `test_mask_loading.m` | Secure mask loading from .mat files |
+| `test_normalize_patient_ids.m` | Patient ID normalization for spreadsheet/folder matching |
+| `test_normalization_logic.m` | Feature normalization logic validation |
+| `test_octave.m` | GNU Octave compatibility smoke tests |
+| `test_octave_shims.m` | Octave compatibility shim function validation |
+| `test_parfor_progress.m` | Parallel loop progress reporting |
+| `test_parsave_dir_cache.m` | Parallel-safe save wrapper for parfor |
+| `test_perf_knn.m` | KNN imputation performance benchmarks |
+| `test_plot_feature_distributions.m` | Feature distribution visualization (multi-plot) |
+| `test_plot_parameter_maps.m` | Parameter map overlay visualization |
+| `test_plot_predictive_diagnostics.m` | ROC curve and predictive diagnostic panels |
+| `test_plot_scatter_correlations.m` | Correlation scatter plot rendering |
+| `test_prepare_pipeline_session.m` | Pipeline session initialization |
+| `test_progress_gui.m` | Custom figure progress bar lifecycle |
+| `test_run_elastic_net_cv.m` | Elastic net cross-validation fitting |
+| `test_run_loocv_risk_scores.m` | Nested LOOCV risk score computation |
+| `test_select_dwi_vectors.m` | DWI vector extraction by processing type |
+| `test_text_progress_bar.m` | Text-based progress bar display |
+| `test_trajectory_visualizations.m` | Waterfall, swimmer, and spider plot rendering |
+| `test_visualize_refactor.m` | Visualization module refactoring validation |
+| `test_write_sentinel_file.m` | Pipeline sentinel file writing |
 
 ---
 
 ## Analysis Scripts (`analysis/`)
 
-Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini API), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
+Python scripts for post-hoc analysis of pipeline outputs, organized into subpackages. The suite includes vision-based graph analysis (via Google Gemini and/or Anthropic Claude APIs), direct log/CSV parsing, cross-DWI comparison, and automated HTML/PDF report generation.
 
-**Requirements:** Python 3.12+, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` environment variable; PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
+**Requirements:** Python 3.12+, `anthropic`, `google-genai`, `pydantic`, `tqdm`, `weasyprint` (install via `pip install -r analysis/requirements.txt`). Vision analysis requires `GEMINI_API_KEY` and/or `ANTHROPIC_API_KEY` environment variables depending on the selected provider (`--provider gemini|claude|both`); PDF generation requires `weasyprint`; all other scripts work without these optional dependencies. All scripts display `tqdm` progress bars during processing.
 
-**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis_config.json` at the repository root (committed) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--gemini-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
+**Configuration:** All analysis scripts share a centralised config loaded by `shared.load_analysis_config()`. Defaults are built into `shared.py`; overrides come from `analysis_config.json` at the repository root (copy from `analysis_config.example.json`) and optionally from the MATLAB `config.json` (for `dwi_type`). The `run_analysis.py` orchestrator also accepts `--provider`, `--gemini-model`, `--claude-model`, `--concurrency`, `--config`, `--skip-checks`, and `--interactive` CLI flags. By default, the orchestrator verifies that all `requirements.txt` packages are installed and runs the full pytest suite before starting the analysis pipeline; `--skip-checks` bypasses these pre-flight checks.
 
 | File | Purpose |
 |---|---|
@@ -210,7 +256,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report, split into 7 submodules: `metadata.py`, `main_results.py`, `data_sections.py`, `analysis_sections.py`, `statistics.py`, `discussion.py`, `_helpers.py` (shared utility functions) |
+| `report/sections/` | Section builder package for the HTML report (36 submodules). Core: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims: `analysis_sections.py`, `statistics.py`, `data_sections.py`. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -223,7 +269,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-37 test files with 1576 tests. Run with `cd analysis/tests && python -m pytest -v`.
+37 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -260,10 +306,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
-| `test_evaluator_finding.py` | Improvement loop evaluator: Finding Pydantic model, audit scoring, exit condition logic, diminishing returns detection, loop config loading |
-| `test_git_utils.py` | Improvement loop git utilities: branch operations, test runners, commit helpers |
-| `test_loop_tracker.py` | Improvement loop tracker: iteration logging, context generation, score drift detection |
-| `test_orchestrator.py` | Improvement loop orchestrator: audit/fix/evaluate cycle, self-healing protocol, JSON escape sanitization |
+| `test_new_report_sections.py` | New report section builders: data overview, data quality, manuscript sub-sections, analysis features, statistics sub-sections |
+| `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
+| `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
+| `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
 
 ---
 

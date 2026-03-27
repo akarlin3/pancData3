@@ -166,7 +166,7 @@ function run_wiring_test(session)
         ext_data_path = config_struct.external_validation_data;
         if ~isempty(ext_data_path) && ischar(ext_data_path)
             if ~exist(ext_data_path, 'dir')
-                fprintf('\u26a0\ufe0f External validation data file not found: %s\n', ext_data_path);
+                fprintf('\xe2\x9a\xa0\xef\xb8\x8f External validation data file not found: %s\n', ext_data_path);
                 if log_fid > 0
                     fprintf(log_fid, '[%s] [WARNING] External validation data not found: %s\n', ...
                         datestr(now, 'yyyy-mm-dd HH:MM:SS'), ext_data_path);

@@ -6,6 +6,7 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
 %   - Edge cases (empty, single, all-ones, all-zeros)
 %   - Monotonicity and cap-at-1 properties
 %   - Order preservation (output matches input ordering)
+%   - Invalid input handling (NaN, negative values)
 
     methods (TestMethodSetup)
         function addPaths(testCase)
@@ -20,23 +21,106 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
         end
 
         function test_single_pvalue(testCase)
-            % Single p-value: q = p (no correction needed)
+            % Single p-value: q = p * (n/rank) = p * (1/1) = p
             q = benjamini_hochberg_fdr(0.03);
-            testCase.verifyEqual(q, 0.03, 'AbsTol', 1e-12);
+            testCase.verifyEqual(q, 0.03, 'AbsTol', 1e-12, ...
+                'Single p-value should be returned unchanged.');
+        end
+
+        function test_single_pvalue_005(testCase)
+            % Single p-value of 0.05: q should equal p for scalar input
+            q = benjamini_hochberg_fdr(0.05);
+            testCase.verifyEqual(q, 0.05, 'AbsTol', 1e-12, ...
+                'Single p-value of 0.05 should be returned unchanged.');
+        end
+
+        function test_single_pvalue_one(testCase)
+            % Single p-value of 1.0
+            q = benjamini_hochberg_fdr(1.0);
+            testCase.verifyEqual(q, 1.0, 'AbsTol', 1e-12);
+        end
+
+        function test_single_pvalue_zero(testCase)
+            % Single p-value of 0.0
+            q = benjamini_hochberg_fdr(0.0);
+            testCase.verifyEqual(q, 0.0, 'AbsTol', 1e-12);
         end
 
         function test_all_ones(testCase)
             % All p-values = 1.0 => all q-values should be 1.0
+            p = ones(5, 1);
+            q = benjamini_hochberg_fdr(p);
+            testCase.verifyEqual(q, ones(5, 1), 'AbsTol', 1e-12, ...
+                'All p=1 input should return all q=1.');
+        end
+
+        function test_all_ones_larger(testCase)
+            % All p-values = 1.0 with larger array
             p = ones(10, 1);
             q = benjamini_hochberg_fdr(p);
-            testCase.verifyEqual(q, ones(10, 1), 'AbsTol', 1e-12);
+            testCase.verifyEqual(q, ones(10, 1), 'AbsTol', 1e-12, ...
+                'All p=1 input (n=10) should return all q=1.');
         end
 
         function test_all_zeros(testCase)
             % All p-values = 0.0 => all q-values should be 0.0
+            % This tests division-by-zero edge behavior: 0 * (n/i) = 0 for all i
             p = zeros(5, 1);
             q = benjamini_hochberg_fdr(p);
-            testCase.verifyEqual(q, zeros(5, 1), 'AbsTol', 1e-12);
+            testCase.verifyFalse(any(isnan(q)), ...
+                'All p=0 input should not produce NaN values.');
+            testCase.verifyFalse(any(isinf(q)), ...
+                'All p=0 input should not produce Inf values.');
+            testCase.verifyEqual(q, zeros(5, 1), 'AbsTol', 1e-12, ...
+                'All p=0 input should return all q=0.');
+        end
+
+        function test_invalid_input_nan(testCase)
+            % p-values containing NaN — verify graceful handling
+            % The function should either propagate NaN or raise an error.
+            p = [0.01; NaN; 0.05];
+            threw_error = false;
+            q = [];
+            try
+                q = benjamini_hochberg_fdr(p);
+            catch
+                threw_error = true;
+            end
+
+            if threw_error
+                % Raising an error on NaN input is acceptable behavior
+                testCase.verifyTrue(true, ...
+                    'Function raised error on NaN input — acceptable.');
+            else
+                % If no error, NaN should propagate (not silently become a number)
+                testCase.verifyTrue(any(isnan(q)), ...
+                    'NaN in input should propagate to output if no error is raised.');
+            end
+        end
+
+        function test_invalid_input_negative(testCase)
+            % p-values containing negative values — invalid for probabilities
+            % The function should either raise an error or handle gracefully.
+            p = [0.01; -0.05; 0.10];
+            threw_error = false;
+            q = [];
+            try
+                q = benjamini_hochberg_fdr(p);
+            catch
+                threw_error = true;
+            end
+
+            if threw_error
+                % Raising an error on negative input is acceptable behavior
+                testCase.verifyTrue(true, ...
+                    'Function raised error on negative input — acceptable.');
+            else
+                % If no error, output should still have finite values
+                testCase.verifyFalse(any(isnan(q)), ...
+                    'Negative input should not produce NaN if no error is raised.');
+                testCase.verifyFalse(any(isinf(q)), ...
+                    'Negative input should not produce Inf if no error is raised.');
+            end
         end
 
         function test_known_reference(testCase)
@@ -54,7 +138,36 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
             % q(2) = min(0.05125, 0.008 * 5/2) = min(0.05125, 0.02) = 0.02
             % q(1) = min(0.02, 0.001 * 5/1) = min(0.02, 0.005) = 0.005
             expected = [0.005; 0.02; 0.05125; 0.05125; 0.23];
-            testCase.verifyEqual(q, expected, 'AbsTol', 1e-10);
+            testCase.verifyEqual(q, expected, 'AbsTol', 1e-10, ...
+                'Q-values must match hand-calculated BH step-up values.');
+        end
+
+        function test_known_reference_unsorted_input(testCase)
+            % Same classic BH example but with p-values in non-sorted order
+            % to verify both numeric correctness AND order preservation together
+            p = [0.039; 0.001; 0.23; 0.041; 0.008];
+            q = benjamini_hochberg_fdr(p);
+
+            % Expected q-values mapped back to original positions:
+            % p=0.039 -> q=0.05125, p=0.001 -> q=0.005, p=0.23 -> q=0.23,
+            % p=0.041 -> q=0.05125, p=0.008 -> q=0.02
+            expected = [0.05125; 0.005; 0.23; 0.05125; 0.02];
+            testCase.verifyEqual(q, expected, 'AbsTol', 1e-10, ...
+                'Q-values for unsorted input must match hand-calculated values at original positions.');
+        end
+
+        function test_known_reference_three_tests(testCase)
+            % Another hand-calculated example with 3 tests
+            % p = [0.01, 0.04, 0.30]
+            % Sorted: rank1=0.01, rank2=0.04, rank3=0.30
+            % adjusted(3) = 0.30 * 3/3 = 0.30
+            % adjusted(2) = min(0.30, 0.04 * 3/2) = min(0.30, 0.06) = 0.06
+            % adjusted(1) = min(0.06, 0.01 * 3/1) = min(0.06, 0.03) = 0.03
+            p = [0.01; 0.04; 0.30];
+            q = benjamini_hochberg_fdr(p);
+            expected = [0.03; 0.06; 0.30];
+            testCase.verifyEqual(q, expected, 'AbsTol', 1e-10, ...
+                'Three-test hand-calculated q-values must match.');
         end
 
         function test_preserves_original_order(testCase)
@@ -78,6 +191,29 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
             testCase.verifyLessThanOrEqual(q, 1.0, 'Q-values must be capped at 1.0.');
         end
 
+        function test_q_values_capped_at_one_extreme(testCase)
+            % Two p-values where n/i * p would exceed 1 without clamping
+            % p = [0.60, 0.90], n=2
+            % adjusted(2) = min(1, 0.90 * 2/2) = 0.90
+            % adjusted(1) = min(0.90, 0.60 * 2/1) = min(0.90, 1.20) = 0.90
+            p = [0.60; 0.90];
+            q = benjamini_hochberg_fdr(p);
+            testCase.verifyLessThanOrEqual(q, 1.0, ...
+                'All q-values must be clamped to [0, 1].');
+            testCase.verifyGreaterThanOrEqual(q, 0.0, ...
+                'All q-values must be non-negative.');
+        end
+
+        function test_q_values_nonnegative(testCase)
+            % Verify output is always >= 0
+            p = [0.0; 0.001; 0.5; 1.0];
+            q = benjamini_hochberg_fdr(p);
+            testCase.verifyGreaterThanOrEqual(q, 0.0, ...
+                'Q-values must be non-negative.');
+            testCase.verifyLessThanOrEqual(q, 1.0, ...
+                'Q-values must be at most 1.');
+        end
+
         function test_monotonicity_of_sorted_q(testCase)
             % After sorting p, the corresponding q-values should be non-decreasing
             p = [0.04; 0.01; 0.10; 0.003; 0.50; 0.02; 0.08];
@@ -87,6 +223,27 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
             diffs = diff(q_sorted);
             testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
                 'Sorted q-values should be non-decreasing.');
+        end
+
+        function test_monotonicity_deterministic_input(testCase)
+            % Monotonicity with a wider range of deterministic values
+            % Uses a deterministic sequence instead of rand for Octave compatibility
+            p = mod((1:50)' * 0.6180339887, 1);  % golden-ratio hash for pseudo-random spread
+            q = benjamini_hochberg_fdr(p);
+            [~, sort_idx] = sort(p);
+            q_sorted = q(sort_idx);
+            diffs = diff(q_sorted);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Sorted q-values should be non-decreasing for deterministic pseudo-random input.');
+        end
+
+        function test_monotonicity_already_sorted(testCase)
+            % p-values already sorted — q should be non-decreasing as-is
+            p = [0.001; 0.005; 0.01; 0.05; 0.10; 0.50; 0.90];
+            q = benjamini_hochberg_fdr(p);
+            diffs = diff(q);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Q-values for sorted p should be non-decreasing.');
         end
 
         function test_output_shape_matches_input(testCase)
@@ -120,6 +277,65 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
                 'All q-values should be < 0.05 for uniformly small p-values.');
         end
 
+        function test_large_n_clamped_and_monotone(testCase)
+            % Large array: verify clamping, monotonicity, and known values
+            % Uses deterministic linspace instead of rand for Octave compatibility
+            n = 500;
+            p = linspace(0.001, 0.999, n)';
+            q = benjamini_hochberg_fdr(p);
+
+            % All in [0, 1]
+            testCase.verifyGreaterThanOrEqual(q, 0.0);
+            testCase.verifyLessThanOrEqual(q, 1.0);
+
+            % Monotonicity in sorted-p order (p is already sorted here)
+            diffs = diff(q);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Sorted q-values must be non-decreasing for large input.');
+
+            % Known-values check for specific elements of this deterministic array
+            % For already-sorted p with n=500, adjusted(i) = p(i) * n/i
+            % before cumulative min enforcement.
+            % Check first element: p(1) = 0.001, adjusted = 0.001 * 500/1 = 0.5
+            % After cummin from the end, q(1) <= q(2) <= ... so q(1) = min of
+            % all adjusted values. We verify a few specific values:
+            % p(1) = 0.001, rank=1 => raw_adj = 0.001 * 500 = 0.5
+            % The final q(1) may be smaller due to cummin, but must be <= 0.5
+            testCase.verifyLessThanOrEqual(q(1), 0.5 + 1e-10, ...
+                'First q-value for p=0.001 in n=500 should be <= 0.5.');
+
+            % Last element: p(500) = 0.999, rank=500 => raw_adj = 0.999 * 500/500 = 0.999
+            % No cummin correction needed for the last element
+            testCase.verifyEqual(q(500), 0.999, 'AbsTol', 1e-10, ...
+                'Last q-value should equal p(500) * n/n = 0.999.');
+
+            % q-values should always be >= p-values (BH only inflates)
+            testCase.verifyGreaterThanOrEqual(q, p - 1e-12, ...
+                'All q-values must be >= corresponding p-values.');
+        end
+
+        function test_large_n_scrambled_clamped_and_monotone(testCase)
+            % Large array in non-sorted order using deterministic scramble
+            % for Octave compatibility
+            n = 500;
+            p_sorted = linspace(0.001, 0.999, n)';
+            % Deterministic permutation via golden-ratio index scramble
+            idx = mod((0:n-1)' * 311, n) + 1;  % prime multiplier modular scramble
+            p = p_sorted(idx);
+            q = benjamini_hochberg_fdr(p);
+
+            % All in [0, 1]
+            testCase.verifyGreaterThanOrEqual(q, 0.0);
+            testCase.verifyLessThanOrEqual(q, 1.0);
+
+            % Monotonicity in sorted-p order
+            [~, sort_idx] = sort(p);
+            q_sorted = q(sort_idx);
+            diffs = diff(q_sorted);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Sorted q-values must be non-decreasing for large scrambled input.');
+        end
+
         function test_mixed_significant_nonsignificant(testCase)
             % Mix of significant and non-significant p-values
             p = [0.001; 0.01; 0.20; 0.80; 0.95];
@@ -131,6 +347,36 @@ classdef test_benjamini_hochberg_fdr < matlab.unittest.TestCase
 
             % Last should be >= original p
             testCase.verifyGreaterThanOrEqual(q(5), p(5) - 1e-12);
+        end
+
+        function test_q_geq_p(testCase)
+            % BH correction can only increase (or keep equal) p-values
+            p = [0.001; 0.01; 0.05; 0.10; 0.50; 0.99];
+            q = benjamini_hochberg_fdr(p);
+            testCase.verifyGreaterThanOrEqual(q, p - 1e-12, ...
+                'Q-values should always be >= corresponding p-values.');
+        end
+
+        function test_p_at_fdr_threshold(testCase)
+            % p-values exactly at BH threshold boundaries
+            % For n=4, alpha=0.05: thresholds are i/n * alpha = [0.0125, 0.025, 0.0375, 0.05]
+            % p-values sitting exactly on these thresholds
+            p = [0.0125; 0.025; 0.0375; 0.05];
+            q = benjamini_hochberg_fdr(p);
+
+            % All should be clamped in [0, 1]
+            testCase.verifyGreaterThanOrEqual(q, 0.0);
+            testCase.verifyLessThanOrEqual(q, 1.0);
+
+            % Verify monotonicity (already sorted)
+            diffs = diff(q);
+            testCase.verifyGreaterThanOrEqual(diffs, -1e-12, ...
+                'Q-values at FDR thresholds should be non-decreasing.');
+
+            % For these specific values, adjusted = p_i * n/i = 0.05 for all
+            expected_all = 0.05 * ones(4, 1);
+            testCase.verifyEqual(q, expected_all, 'AbsTol', 1e-10, ...
+                'P-values at exact BH thresholds should all yield q = alpha.');
         end
     end
 end

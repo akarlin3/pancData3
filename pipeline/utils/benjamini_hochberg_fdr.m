@@ -32,7 +32,12 @@ function q_values = benjamini_hochberg_fdr(p_values)
         return;
     end
 
-    [p_sort, sort_id] = sort(p_values);
+    % Preserve NaN positions — NaN p-values propagate as NaN q-values.
+    nan_mask = isnan(p_values);
+    p_clean = p_values;
+    p_clean(nan_mask) = 1;  % placeholder so sort/rank is valid
+
+    [p_sort, sort_id] = sort(p_clean);
     q_sorted = zeros(n, 1);
     q_sorted(n) = p_sort(n);  % largest p-value: q = p
     for ii = n-1:-1:1
@@ -46,4 +51,7 @@ function q_values = benjamini_hochberg_fdr(p_values)
     % Map q-values back to original order
     q_values = zeros(n, 1);
     q_values(sort_id) = q_sorted;
+
+    % Restore NaN for inputs that were NaN
+    q_values(nan_mask) = NaN;
 end

@@ -434,8 +434,15 @@ class TestNoVisionAnalysis:
     """Tests that vision analysis was properly skipped."""
 
     def test_vision_skipped_in_stdout(self, pipeline_result):
-        out = pipeline_result["stdout"]
-        assert "skip" in out.lower() or "vision" in out.lower()
+        out = pipeline_result["stdout"].lower()
+        # Require that both 'skip' and 'vision' appear, confirming the
+        # pipeline actually reported that vision analysis was skipped rather
+        # than merely mentioning one of these words in an unrelated context.
+        assert "skip" in out and "vision" in out, (
+            "Expected stdout to indicate vision analysis was skipped "
+            "(both 'skip' and 'vision' must appear). "
+            f"Got:\n{pipeline_result['stdout']}"
+        )
 
 
 class TestReportWithMinimalData:

@@ -18,7 +18,7 @@ classdef test_metrics_stats_comparisons < matlab.unittest.TestCase
         function setup(testCase)
             % Create a uniquely-named temp directory (UUID suffix prevents
             % collisions in parallel test runs) and suppress figure pop-ups.
-            testCase.OutputFolder = fullfile(tempdir, ['test_msc_' char(java.util.UUID.randomUUID)]);
+            testCase.OutputFolder = fullfile(tempdir, ['test_msc_' strrep(tempname, tempdir, '')]);
             mkdir(testCase.OutputFolder);
             testCase.OldVisible = get(0, 'DefaultFigureVisible');
             set(0, 'DefaultFigureVisible', 'off');

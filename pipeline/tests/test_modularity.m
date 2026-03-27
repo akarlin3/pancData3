@@ -60,8 +60,13 @@ classdef test_modularity < matlab.unittest.TestCase
 
     methods(TestMethodTeardown)
         function teardown(testCase)
+            % Close diary first — core modules open diary files inside
+            % TempDir, which must be released before rmdir on Windows.
+            diary off;
             % Clean up temp directory and restore global state
-            rmdir(testCase.TempDir, 's');
+            if exist(testCase.TempDir, 'dir')
+                rmdir(testCase.TempDir, 's');
+            end
             setenv('SKIP_PIPELINE_PREFLIGHT', '');
             set(0, 'DefaultFigureVisible', 'on');
         end

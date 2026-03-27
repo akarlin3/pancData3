@@ -14,6 +14,7 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
     %   - A second call to the same path overwrites the previous file
     %   - Arrays of varied spatial dimensions are handled correctly
     %   - Edge case: empty (0x0x0) arrays save and load without error
+    %   - Concurrent parfor access writes all files with correct content
 
     properties
         TempDir
@@ -147,6 +148,54 @@ classdef test_parsave_dir_cache < matlab.unittest.TestCase
             testCase.verifyEqual(size(loaded.gtv_mask_warped), [0 0 0]);
             testCase.verifyEqual(size(loaded.D_forward),       [0 0 0 3]);
             testCase.verifyEqual(size(loaded.ref3d),           [0 0 0]);
+        end
+
+        function testConcurrentParforAccess(testCase)
+            % Primary use-case validation: invoke parsave_dir_cache from
+            % within a parfor loop with multiple iterations writing to
+            % different file paths simultaneously. Verify every output file
+            % is created and contains the correct content.
+            %
+            % This guards against race conditions, workspace-scoping issues,
+            % and any other problems that arise only under parallel execution.
+
+            nIter = 8;  % enough iterations to exercise concurrent workers
+
+            % Pre-generate deterministic test data for each iteration so we
+            % can verify round-trip fidelity after the parfor completes.
+            gtv_cells = cell(nIter, 1);
+            Dfwd_cells = cell(nIter, 1);
+            ref_cells  = cell(nIter, 1);
+            fnames     = cell(nIter, 1);
+
+            for k = 1:nIter
+                rng(100 + k);
+                sz = [3 + k, 4 + k, 5 + k];  % unique dimensions per iteration
+                gtv_cells{k}  = rand(sz) > 0.5;
+                Dfwd_cells{k} = rand([sz, 3]);
+                ref_cells{k}  = rand(sz);
+                fnames{k}     = fullfile(testCase.TempDir, sprintf('parfor_iter_%02d.mat', k));
+            end
+
+            % --- parfor block (falls back to for-loop when no pool) ---
+            parfor k = 1:nIter
+                parsave_dir_cache(fnames{k}, gtv_cells{k}, Dfwd_cells{k}, ref_cells{k}); %#ok<PFBNS>
+            end
+
+            % Verify every file was created and contains the correct data
+            for k = 1:nIter
+                testCase.verifyTrue(exist(fnames{k}, 'file') > 0, ...
+                    sprintf('parfor iteration %d: output file must exist.', k));
+
+                loaded = load(fnames{k});
+
+                testCase.verifyEqual(loaded.gtv_mask_warped, gtv_cells{k}, ...
+                    sprintf('parfor iteration %d: gtv_mask_warped mismatch.', k));
+                testCase.verifyEqual(loaded.D_forward, Dfwd_cells{k}, ...
+                    sprintf('parfor iteration %d: D_forward mismatch.', k));
+                testCase.verifyEqual(loaded.ref3d, ref_cells{k}, ...
+                    sprintf('parfor iteration %d: ref3d mismatch.', k));
+            end
         end
 
     end

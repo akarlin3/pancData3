@@ -140,10 +140,15 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
             end
         end
 
-        % Pipeline progress GUI
+        % Pipeline progress GUI (optional — failure here must not abort the pipeline)
         pipeGUI = [];
         if ProgressGUI.isDisplayAvailable()
-            pipeGUI = PipelineProgressGUI(steps_to_run, current_name);
+            try
+                pipeGUI = PipelineProgressGUI(steps_to_run, current_name);
+            catch ME_gui
+                fprintf('⚠️ PipelineProgressGUI creation failed: %s\n', ME_gui.message);
+                pipeGUI = [];
+            end
         end
 
         % Build type-specific file paths

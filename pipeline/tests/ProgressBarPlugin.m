@@ -15,13 +15,19 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
         FailedNames cell = {}       % Cell array of fully-qualified names of failed tests
         TestTimer                   % tic handle for measuring individual test duration
         SuiteTimer                  % tic handle for measuring total suite duration
+        DiaryFile char = ''         % Diary file to restart after each test (core modules hijack diary)
     end
 
     methods
-        function plugin = ProgressBarPlugin(totalTests)
+        function plugin = ProgressBarPlugin(totalTests, diaryFile)
         %PROGRESSBARPLUGIN Constructor. Accepts the total test count for
         %   progress fraction display (e.g., [3/42]).
+        %   Optional diaryFile: path to restart diary after each test
+        %   (core modules open their own diary, overriding the test log).
             plugin.TotalTests = totalTests;
+            if nargin >= 2 && ~isempty(diaryFile)
+                plugin.DiaryFile = diaryFile;
+            end
         end
     end
 
@@ -75,6 +81,18 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
                 plugin.FailedNames{end+1} = testName;
                 fprintf('  ❌ FAIL  [%s] %s (%s)\n', ...
                     counterStr, displayName, timeStr);
+            end
+
+            % Core modules (visualize_results, sanity_checks, etc.) open
+            % their own diary, overriding the test runner's diary. When
+            % they call 'diary off', the test log is permanently lost.
+            % Restart the diary after each test to recapture output.
+            if ~isempty(plugin.DiaryFile)
+                try
+                    diary(plugin.DiaryFile);
+                catch
+                    % Diary restart failed — continue without logging
+                end
             end
         end
     end

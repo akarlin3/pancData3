@@ -30,19 +30,22 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Verify BH q-values for a hand-calculated example.
             % Five raw p-values; q = p * (m/rank), then enforce monotonicity.
             raw_p = [0.005; 0.01; 0.03; 0.40; 0.90];
-            m = length(raw_p);
-            [p_sorted, sort_idx] = sort(raw_p);
-            q_vals = zeros(size(p_sorted));
-            for k = 1:m
-            q_vals(k) = p_sorted(k) * (m / k);
-            end
-            for k = m-1:-1:1
-            q_vals(k) = min(q_vals(k), q_vals(k+1));
-            end
-            q_vals(q_vals > 1) = 1;
-            % Expected: [0.025, 0.025, 0.05, 0.50, 0.90]
+            % Hand-calculated expected q-values (sorted order):
+            % rank 1: 0.005 * 5/1 = 0.025
+            % rank 2: 0.01  * 5/2 = 0.025
+            % rank 3: 0.03  * 5/3 = 0.05
+            % rank 4: 0.40  * 5/4 = 0.50
+            % rank 5: 0.90  * 5/5 = 0.90
+            % Monotonicity enforcement (backward pass): already non-decreasing.
             expected = [0.025; 0.025; 0.05; 0.50; 0.90];
-            testCase.verifyTrue(all(abs(q_vals - expected) <= 1e-12), ...
+            % Call the production function
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            % The production function returns q-values in the original
+            % (input) order. Since raw_p is already sorted, we can compare
+            % directly.
+            testCase.verifyEqual(numel(q_vals), numel(raw_p), ...
+            'Output length should match input length');
+            testCase.verifyEqual(q_vals(:), expected(:), 'AbsTol', 1e-12, ...
             'BH q-values do not match hand-calculated values');
         end
 
@@ -50,16 +53,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Q-values must be non-decreasing after the BH step-up procedure.
             rng(1);
             raw_p = sort(rand(50, 1));   % 50 sorted p-values
-            m = length(raw_p);
-            q_vals = zeros(size(raw_p));
-            for k = 1:m
-            q_vals(k) = raw_p(k) * (m / k);
-            end
-            for k = m-1:-1:1
-            q_vals(k) = min(q_vals(k), q_vals(k+1));
-            end
-            q_vals(q_vals > 1) = 1;
-            diffs = diff(q_vals);
+            % Call the production function
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            diffs = diff(q_vals(:));
             testCase.verifyTrue(all(diffs >= -1e-15), ...
             'BH q-values are not monotonically non-decreasing');
         end
@@ -67,64 +63,53 @@ classdef test_statistical_methods < matlab.unittest.TestCase
         function testBH_CappedAtOne(testCase)
             % No q-value should exceed 1.0.
             raw_p = [0.10; 0.50; 0.80; 0.95; 0.99];
-            m = length(raw_p);
-            [p_sorted, ~] = sort(raw_p);
-            q_vals = zeros(size(p_sorted));
-            for k = 1:m
-            q_vals(k) = p_sorted(k) * (m / k);
-            end
-            for k = m-1:-1:1
-            q_vals(k) = min(q_vals(k), q_vals(k+1));
-            end
-            q_vals(q_vals > 1) = 1;
-            testCase.verifyTrue(all(q_vals <= 1.0), ...
+            % Call the production function
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            testCase.verifyTrue(all(q_vals(:) <= 1.0), ...
             'Some BH q-values exceed 1.0');
         end
 
         function testBH_QGreaterThanOrEqualP(testCase)
             % Every q-value must be >= the corresponding raw p-value.
             raw_p = [0.001; 0.01; 0.04; 0.05; 0.20; 0.50; 0.80];
-            m = length(raw_p);
-            [p_sorted, sort_idx] = sort(raw_p);
-            q_vals = zeros(size(p_sorted));
-            for k = 1:m
-            q_vals(k) = p_sorted(k) * (m / k);
-            end
-            for k = m-1:-1:1
-            q_vals(k) = min(q_vals(k), q_vals(k+1));
-            end
-            q_vals(q_vals > 1) = 1;
-            q_unsorted = zeros(size(raw_p));
-            q_unsorted(sort_idx) = q_vals;
-            testCase.verifyTrue(all(q_unsorted >= raw_p - 1e-15), ...
+            % Call the production function
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            testCase.verifyTrue(all(q_vals(:) >= raw_p(:) - 1e-15), ...
             'Some BH q-values are smaller than their raw p-values');
         end
 
         function testBH_SinglePValue(testCase)
             % Edge case: m = 1. q should equal p (no correction needed).
             raw_p = 0.03;
-            q = raw_p * (1 / 1);
-            q = min(q, 1);
-            testCase.verifyTrue(abs(q - 0.03) <= 1e-15);
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            testCase.verifyTrue(abs(q_vals - 0.03) <= 1e-15, ...
+            'Single p-value should remain unchanged after BH correction');
         end
 
         function testBH_AllIdenticalPValues(testCase)
             % When all p-values are identical, q-values should all equal
             % the same adjusted value (or 1.0 if > 1).
             raw_p = repmat(0.04, 10, 1);
-            m = length(raw_p);
-            [p_sorted, ~] = sort(raw_p);
-            q_vals = zeros(size(p_sorted));
-            for k = 1:m
-            q_vals(k) = p_sorted(k) * (m / k);
-            end
-            for k = m-1:-1:1
-            q_vals(k) = min(q_vals(k), q_vals(k+1));
-            end
-            q_vals(q_vals > 1) = 1;
+            % Call the production function
+            q_vals = benjamini_hochberg_fdr(raw_p);
             % All q-values should be the same after monotonicity
-            testCase.verifyTrue(abs(max(q_vals) - min(q_vals)) <= 1e-15, ...
+            testCase.verifyTrue(abs(max(q_vals(:)) - min(q_vals(:))) <= 1e-15, ...
             'Identical p-values should yield identical q-values');
+        end
+
+        function testBH_UnsortedInput(testCase)
+            % Verify that the production function handles unsorted input
+            % and returns q-values in the original (unsorted) order.
+            raw_p = [0.90; 0.005; 0.40; 0.01; 0.03];
+            q_vals = benjamini_hochberg_fdr(raw_p);
+            % The sorted version of raw_p is [0.005; 0.01; 0.03; 0.40; 0.90]
+            % with expected sorted q-values [0.025; 0.025; 0.05; 0.50; 0.90].
+            % Map back to original order:
+            expected_unsorted = [0.90; 0.025; 0.50; 0.025; 0.05];
+            testCase.verifyEqual(numel(q_vals), numel(raw_p), ...
+            'Output length should match input length');
+            testCase.verifyEqual(q_vals(:), expected_unsorted(:), 'AbsTol', 1e-12, ...
+            'BH q-values for unsorted input do not match expected values');
         end
 
         % =================================================================
@@ -496,7 +481,7 @@ classdef test_statistical_methods < matlab.unittest.TestCase
 
         function testBval_ValidationLogic_UnsortedMatch(testCase)
             % Unsorted b-values that match after sorting should pass.
-            bvals = [0; 30; 150; 550];
+            bvals = [550; 30; 0; 150];
             expected_bvals = [0; 30; 150; 550];
             testCase.verifyTrue(isequal(sort(bvals), expected_bvals), ...
             'Unsorted but correct b-values should pass validation');
@@ -506,6 +491,11 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Extra b-value (5 instead of 4) should be flagged as deviation.
             bvals = [0; 50; 400; 800; 1000];
             expected_bvals = [0; 30; 150; 550];
+            % First verify the count mismatch is detected (the primary
+            % reason this is a deviation: 5 b-values vs expected 4).
+            testCase.verifyNotEqual(numel(bvals), numel(expected_bvals), ...
+            'Should detect extra b-values by count');
+            % Also verify that the overall deviation flag is set.
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Extra b-values should be flagged as protocol deviation');
@@ -515,6 +505,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Different b-value set should be flagged as deviation.
             bvals = [0; 30; 200; 550];
             expected_bvals = [0; 30; 150; 550];
+            % Count is the same, so deviation is due to differing values.
+            testCase.verifyEqual(numel(bvals), numel(expected_bvals), ...
+            'Count should match so deviation is purely value-based');
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Non-standard b-values should be flagged as protocol deviation');
@@ -524,6 +517,9 @@ classdef test_statistical_methods < matlab.unittest.TestCase
             % Fewer b-values than expected should be flagged.
             bvals = [0; 50; 400];
             expected_bvals =  [0; 30; 150; 550];
+            % First verify the count mismatch is detected.
+            testCase.verifyNotEqual(numel(bvals), numel(expected_bvals), ...
+            'Should detect missing b-values by count');
             is_deviation = ~isequal(sort(bvals), expected_bvals);
             testCase.verifyTrue(is_deviation, ...
             'Missing b-values should be flagged as protocol deviation');
