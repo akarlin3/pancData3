@@ -27,6 +27,7 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `plot_feature_distributions.m` | Feature histogram/boxplot rendering |
 | `plot_scatter_correlations.m` | Correlation scatter plots |
 | `process_single_scan.m` | Per-scan DICOM conversion, model fitting, and caching |
+| `analyze_core_method_outcomes.m` | Per-method univariable Cox PH + KM analysis of dose coverage vs local control |
 | `compare_core_methods.m` | Pairwise comparison of all 11 tumor core methods (Dice, Hausdorff, volume) |
 
 ---
@@ -60,6 +61,9 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `extract_tumor_core.m` | Configurable tumor core delineation (11 methods) |
 | `PipelineProgressGUI.m` | Pipeline-aware progress bar wrapper (maps step keys to display names) |
 | `ProgressGUI.m` | Professional custom-figure progress bar for MATLAB pipelines |
+| `compute_core_failure_rates.m` | Aggregate failure rate breakdown (fallback/empty/insufficient/all-NaN) for all 11 core methods x 3 pipelines |
+| `filter_core_methods.m` | Prune core methods by failure rate threshold, manual exclusion, and minimum voxel count |
+| `compute_cross_pipeline_dice.m` | Cross-pipeline (Standard/DnCNN/IVIMNet) Dice coefficients for all 11 core methods at Fx1 |
 | `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
 | `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
 | `plot_cross_dwi_subvolume_comparison.m` | Cross-DWI-type ADC subvolume comparison visualization |
@@ -139,6 +143,10 @@ Contains 24 shim files for GNU Octave compatibility, including:
 | `test_fit_models.m` | IVIM + ADC model fitting (dimensions, padding, b-value validation, known value recovery) |
 | `test_core_methods.m` | Tumor core extraction method validation (all 11 methods) |
 | `test_new_core_methods.m` | Detailed tests for percentile, spectral, and fDM core methods |
+| `test_compute_core_failure_rates.m` | Core failure rate aggregation tests (struct fields, dimensions, rates range, NaN patient, adc_threshold no fallback) |
+| `test_filter_core_methods.m` | Core method pruning tests (no pruning, failure rate, manual exclusion, adc_threshold safety, min voxels, combined) |
+| `test_extract_tumor_core_fit_info.m` | extract_tumor_core fit_info output tests (fields, backward compat, success, fallback, all-NaN, empty mask, insufficient voxels) |
+| `test_compute_cross_pipeline_dice.m` | Cross-pipeline Dice coefficient tests (struct fields, dimensions, range, identical pipelines, edge cases) |
 | `test_compute_dice_hausdorff.m` | Dice/Hausdorff distance computation tests |
 | `test_json_set_field.m` | JSON field replacement utility tests |
 | `test_cross_dwi_subvolume.m` | Cross-DWI-type subvolume comparison tests |
@@ -146,6 +154,7 @@ Contains 24 shim files for GNU Octave compatibility, including:
 | `test_source_code_standards.m` | Source code standards enforcement |
 | `test_modularity.m` | Module independence and interface tests |
 | `test_statistical_methods.m` | Statistical methods validation |
+| `test_analyze_core_method_outcomes.m` | Core method outcome analysis tests (struct fields, HR positivity, KM fields, ranking, significance, edge cases) |
 | `test_compare_core_methods.m` | Core method pairwise comparison validation |
 | `test_multi_core_methods.m` | Multi-method core integration and backward compatibility |
 | `test_process_single_scan.m` | Per-scan pipeline processing (init, NaN defaults, struct layout) |
@@ -262,6 +271,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
+| `report/sections/cross_pipeline_dice.py` | Cross-pipeline Dice section builder: per-method Dice table across Standard/DnCNN/IVIMNet pipelines |
+| `report/sections/failure_rates.py` | Core method failure rate section builder: color-coded table of fallback/empty/insufficient/NaN rates |
+| `report/sections/pruning_results.py` | Core method pruning results section builder: pruned/retained method tables with reasons |
+| `report/sections/core_method_outcomes.py` | Core method outcome analysis section builder: Cox PH ranking table with HR, CI, p-values |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 | `report/sections/model_robustness.py` | Model robustness section: imputation sensitivity AUC comparison, time-varying Cox HR summary |
 
@@ -269,7 +282,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-37 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+41 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -303,6 +316,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
 | `test_api_connection.py` | Gemini and Claude API connection smoke tests (skipped without API keys) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
+| `test_cross_pipeline_dice_section.py` | Cross-pipeline Dice report section: synthetic data, empty/missing data graceful handling, table structure |
+| `test_failure_rates_section.py` | Core method failure rates report section: synthetic data, color coding, sorting, empty data handling |
+| `test_pruning_section.py` | Core method pruning results report section: pruned/retained methods, reasons, edge cases |
+| `test_core_method_outcomes_section.py` | Core method outcomes report section: significant/non-significant results, ranking table, HR display |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |

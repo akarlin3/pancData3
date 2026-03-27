@@ -37,10 +37,12 @@ class TestParseMatFilesForDwi:
         assert result["dosimetry"] == {}
         assert result["longitudinal"] == {}
 
-    def test_returns_three_keys(self, saved_files_dir):
-        """Output dict should always have exactly these three keys."""
+    def test_returns_expected_keys(self, saved_files_dir):
+        """Output dict should always have the expected top-level keys."""
         result = parse_mat_metrics.parse_mat_files_for_dwi(saved_files_dir, "Standard")
-        assert set(result.keys()) == {"core_method", "dosimetry", "longitudinal"}
+        expected = {"core_method", "core_method_outcomes", "cross_pipeline_dice",
+                    "failure_rates", "pruning", "dosimetry", "longitudinal"}
+        assert set(result.keys()) == expected
 
     @pytest.mark.skipif(
         parse_mat_metrics.scipy_io is None,

@@ -80,6 +80,18 @@ from .publication import (  # noqa: F401
     _section_reporting_checklist,
     _section_journal_guide,
 )
+from .cross_pipeline_dice import (  # noqa: F401
+    _section_cross_pipeline_dice,
+)
+from .failure_rates import (  # noqa: F401
+    _section_failure_rates,
+)
+from .pruning_results import (  # noqa: F401
+    _section_pruning_results,
+)
+from .core_method_outcomes import (  # noqa: F401
+    _section_core_method_outcomes,
+)
 from .forest_plot import (  # noqa: F401
     _section_forest_plot_figure,
     extract_hr_data,

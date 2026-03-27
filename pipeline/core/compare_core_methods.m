@@ -36,9 +36,13 @@ function compare_results = compare_core_methods(data_vectors_gtvp, summary_metri
     %   - Statistical methods (otsu/gmm/kmeans): unsupervised clustering
     %   - Spatial methods (region_growing/active_contours): 3D connectivity
     %   - Temporal methods (fdm): change from baseline (functional diffusion map)
-    ALL_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
-        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
-        'percentile', 'spectral', 'fdm'};
+    if isfield(config_struct, 'active_core_methods') && ~isempty(config_struct.active_core_methods)
+        ALL_METHODS = config_struct.active_core_methods;
+    else
+        ALL_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+            'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+            'percentile', 'spectral', 'fdm'};
+    end
     n_methods = numel(ALL_METHODS);
 
     % Fix random seed for reproducible clustering results (GMM, k-means, spectral).

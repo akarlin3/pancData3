@@ -442,7 +442,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 119 test files covering:
+The test suite includes 124 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -597,7 +597,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (34 test files) using pytest:
+The analysis scripts have a comprehensive Python test suite (38 test files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -667,7 +667,7 @@ pancData3/
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (119 test files)
+│   ├── tests/                      #   Test suite (124 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (6 files)
@@ -693,7 +693,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (34 test files)
+│   └── tests/                      #   Python test suite (38 test files)
 ├── project_config.example.yaml     # Improvement loop project config template
 ├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration

@@ -279,6 +279,48 @@ function config_struct = parse_config(json_path)
             config_struct.run_compare_cores = false;
         end
 
+        % run_cross_pipeline_dice: When true, compute pairwise Dice
+        % coefficients between Standard/DnCNN/IVIMNet pipelines for each
+        % core method at fraction 1.  Requires multiple dwi_types_to_run.
+        if ~isfield(config_struct, 'run_cross_pipeline_dice')
+            config_struct.run_cross_pipeline_dice = false;
+        end
+
+        % run_core_failure_rates: When true, compute detailed failure rate
+        % breakdown for all 11 core delineation methods across the cohort.
+        if ~isfield(config_struct, 'run_core_failure_rates')
+            config_struct.run_core_failure_rates = false;
+        end
+
+        % max_core_failure_rate: Maximum allowed total failure rate (0-1) for
+        % a core method. Methods exceeding this across any DWI pipeline are
+        % excluded from downstream analysis. Set to 1.0 to disable pruning.
+        % Typical values: 0.20 (aggressive) to 0.50 (permissive).
+        if ~isfield(config_struct, 'max_core_failure_rate')
+            config_struct.max_core_failure_rate = 1.0;
+        end
+
+        % excluded_core_methods: Cell array of core method names to always
+        % exclude from multi-method analysis, regardless of failure rate.
+        % Example: {'active_contours', 'spectral'}
+        if ~isfield(config_struct, 'excluded_core_methods')
+            config_struct.excluded_core_methods = {};
+        end
+
+        % min_core_voxels: Minimum median core voxel count for a method to
+        % be retained. Methods that consistently produce very small cores
+        % (below this count) are pruned as unreliable.
+        if ~isfield(config_struct, 'min_core_voxels')
+            config_struct.min_core_voxels = 0;
+        end
+
+        % run_core_method_outcomes: When true, test whether dose coverage
+        % of each surviving core method's sub-volume predicts local control.
+        % Requires run_all_core_methods=true (for per_method_dosimetry).
+        if ~isfield(config_struct, 'run_core_method_outcomes')
+            config_struct.run_core_method_outcomes = false;
+        end
+
         % run_all_core_methods: When true, compute_summary_metrics and
         % metrics_dosimetry run all 11 tumor core delineation methods per
         % patient/timepoint, storing per-method sub-volume metrics in
@@ -485,7 +527,7 @@ function config_struct = parse_config(json_path)
         % the JSON integer 0 or 1 instead of true/false) and coerce to
         % logical.  Strings like "true"/"false" are also coerced.
         logical_fields = {'skip_to_reload', 'skip_tests', 'tests_only', 'use_checkpoints', ...
-            'clear_cache', 'run_compare_cores', 'run_all_core_methods', ...
+            'clear_cache', 'run_compare_cores', 'run_cross_pipeline_dice', 'run_core_failure_rates', 'run_core_method_outcomes', 'run_all_core_methods', ...
             'store_core_masks', 'use_firth_refit', 'compute_fine_gray', ...
             'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
             'run_imputation_sensitivity', 'fit_time_varying_cox', ...

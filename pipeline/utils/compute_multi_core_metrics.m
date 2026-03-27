@@ -34,7 +34,9 @@ function per_method = compute_multi_core_metrics(per_method, config_struct, ...
 %   per_method       - Updated struct with per-method metrics filled in for (j,k,dwi_type)
 
 % Get core methods from config, with fallback to ALL_CORE_METHODS for backward compatibility
-if isfield(config_struct, 'core_methods') && ~isempty(config_struct.core_methods)
+if isfield(config_struct, 'active_core_methods') && ~isempty(config_struct.active_core_methods)
+    core_methods = config_struct.active_core_methods;
+elseif isfield(config_struct, 'core_methods') && ~isempty(config_struct.core_methods)
     core_methods = config_struct.core_methods;
 else
     core_methods = ALL_CORE_METHODS;

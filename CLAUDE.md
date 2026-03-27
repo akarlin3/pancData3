@@ -65,9 +65,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (73 files)
+│   ├── utils/                          # Helper utilities (76 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)
-│   ├── tests/                          # Full test suite (119 test files)
+│   ├── tests/                          # Full test suite (124 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
@@ -132,6 +132,12 @@ Key fields:
   "fdm_thresh": 0.0004,
   "spectral_min_voxels": 20,
   "run_compare_cores": false,
+  "run_cross_pipeline_dice": false,
+  "run_core_failure_rates": false,
+  "max_core_failure_rate": 1.0,
+  "excluded_core_methods": [],
+  "min_core_voxels": 0,
+  "run_core_method_outcomes": false,
   "run_all_core_methods": false,
   "store_core_masks": false,
   "use_firth_refit": true,
@@ -186,6 +192,7 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `plot_feature_distributions.m` | Feature histogram/boxplot rendering |
 | `plot_scatter_correlations.m` | Correlation scatter plots |
 | `process_single_scan.m` | Per-scan DICOM conversion, model fitting, and caching |
+| `analyze_core_method_outcomes.m` | Per-method univariable Cox PH + KM analysis of dose coverage vs local control |
 | `compare_core_methods.m` | Pairwise comparison of all 11 tumor core methods (Dice, Hausdorff, volume) |
 
 ---
@@ -222,6 +229,9 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `extract_tumor_core.m` | Configurable tumor core delineation (11 methods) |
 | `PipelineProgressGUI.m` | Pipeline-aware progress bar wrapper (maps step keys to display names) |
 | `ProgressGUI.m` | Professional custom-figure progress bar for MATLAB pipelines |
+| `compute_core_failure_rates.m` | Aggregate failure rate breakdown (fallback/empty/insufficient/all-NaN) for all 11 core methods x 3 pipelines |
+| `filter_core_methods.m` | Prune core methods by failure rate threshold, manual exclusion, and minimum voxel count |
+| `compute_cross_pipeline_dice.m` | Cross-pipeline (Standard/DnCNN/IVIMNet) Dice coefficients for all 11 core methods at Fx1 |
 | `compute_dice_hausdorff.m` | Dice coefficient and Hausdorff distance between 3D binary masks |
 | `compute_histogram_laplace.m` | Laplace-smoothed histogram probability distribution |
 | `json_set_field.m` | Targeted regex replacement of a field value in raw JSON strings |
@@ -299,15 +309,19 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report (36 submodules). Core modules: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
+| `report/sections/` | Section builder package for the HTML report (40 submodules). Core modules: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`, `cross_pipeline_dice.py`, `failure_rates.py`, `pruning_results.py`, `core_method_outcomes.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
 | `cross_reference/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, heatmap, bar, histogram, parameter_map) |
 | `cross_reference/cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, and ICC agreement analysis between DWI types |
+| `report/sections/cross_pipeline_dice.py` | Cross-pipeline Dice section builder: per-method Dice table across Standard/DnCNN/IVIMNet pipelines |
+| `report/sections/failure_rates.py` | Core method failure rate section builder: color-coded table of fallback/empty/insufficient/NaN rates |
+| `report/sections/pruning_results.py` | Core method pruning results section builder: pruned/retained method tables with reasons |
+| `report/sections/core_method_outcomes.py` | Core method outcome analysis section builder: Cox PH ranking table with HR, CI, p-values |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 37 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+**Python Test Suite (pytest):** 41 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -341,6 +355,10 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_integration.py` | End-to-end analysis pipeline integration: runs run_analysis.py on synthetic data, verifies HTML output sections and tables |
 | `test_api_connection.py` | Gemini API connection smoke test (skipped without API key) |
 | `test_cross_dwi_agreement.py` | Bland-Altman, Lin's CCC, ICC agreement analysis tests |
+| `test_cross_pipeline_dice_section.py` | Cross-pipeline Dice report section: synthetic data, empty/missing data graceful handling, table structure |
+| `test_failure_rates_section.py` | Core method failure rates report section: synthetic data, color coding, sorting, empty data handling |
+| `test_pruning_section.py` | Core method pruning results report section: pruned/retained methods, reasons, edge cases |
+| `test_core_method_outcomes_section.py` | Core method outcomes report section: significant/non-significant results, ranking table, HR display |
 | `test_forest_plot.py` | HR data extraction and forest plot generation tests |
 | `test_parse_imputation_and_tv_cox.py` | Imputation sensitivity AUC parsing and time-varying Cox HR extraction tests |
 | `test_report_sections_robustness.py` | Model robustness report section: imputation comparison table, time-varying Cox summary |
@@ -348,7 +366,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
 | `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
 | `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
-For the full list of 105 MATLAB test files and 37 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 110 MATLAB test files and 41 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -450,4 +468,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (18 files), utility modules (73 files), Octave compatibility shims (24 files), analysis scripts (37 report section files), and Python test files (37 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (19 files), utility modules (76 files), Octave compatibility shims (24 files), analysis scripts (41 report section files), and Python test files (41 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

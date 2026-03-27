@@ -84,9 +84,13 @@ d95_dstar_sub = nan(length(m_id_list), nTp);
 v50_dstar_sub = nan(length(m_id_list), nTp);
 
 % --- Multi-method dosimetry setup ---
-ALL_CORE_METHODS_DOS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
-    'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
-    'percentile', 'spectral', 'fdm'};
+if isfield(config_struct, 'active_core_methods') && ~isempty(config_struct.active_core_methods)
+    ALL_CORE_METHODS_DOS = config_struct.active_core_methods;
+else
+    ALL_CORE_METHODS_DOS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+end
 n_all_methods_dos = numel(ALL_CORE_METHODS_DOS);
 run_all_dos = nargout >= 9 && isfield(config_struct, 'run_all_core_methods') && config_struct.run_all_core_methods;
 

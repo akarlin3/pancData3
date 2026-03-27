@@ -1,4 +1,4 @@
-function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts)
+function [core_mask, fit_info] = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts)
 % EXTRACT_TUMOR_CORE — Delineates the viable tumor core from parameter maps.
 %
 % Integrates multiple algorithmic approaches for isolating the restricted,
@@ -26,15 +26,36 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
 % Outputs:
 %   core_mask      - A 1D logical mask (same size as input vectors) where
 %                    true indicates a voxel belongs to the core.
+%   fit_info       - (Optional) struct with failure mode details:
+%                    .method, .success, .fallback, .empty_mask,
+%                    .insufficient_voxels, .all_nan_input, .n_core_voxels,
+%                    .error_msg
 
     if nargin < 8, opts = struct(); end
+
+    % Initialize fit_info for optional second output
+    fit_info = struct( ...
+        'method', '', ...
+        'success', true, ...
+        'fallback', false, ...
+        'empty_mask', false, ...
+        'insufficient_voxels', false, ...
+        'all_nan_input', false, ...
+        'n_core_voxels', 0, ...
+        'error_msg', '');
 
     % Validate inputs and get method-specific parameters
     [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec, gtv_mask_3d, opts);
     if valid_params.should_return_fallback
         core_mask = fallback_mask;
+        fit_info.success = false;
+        fit_info.all_nan_input = true;
+        fit_info.empty_mask = true;
+        fit_info.n_core_voxels = 0;
         return;
     end
+
+    fit_info.method = valid_params.core_method;
 
     % Method dispatch table
     method_handlers = containers.Map();
@@ -50,9 +71,41 @@ function core_mask = extract_tumor_core(config_struct, adc_vec, d_vec, f_vec, ds
     method_handlers('spectral') = @handle_spectral;
     method_handlers('fdm') = @handle_fdm;
 
+    % Clear lastwarn before handler call so stale warnings don't cause
+    % false positive fallback detection
+    lastwarn('', '');
+
     % Execute the selected method
     handler = method_handlers(valid_params.core_method);
-    core_mask = handler(valid_params, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts);
+    try
+        core_mask = handler(valid_params, adc_vec, d_vec, f_vec, dstar_vec, has_3d, gtv_mask_3d, opts);
+    catch ME
+        core_mask = false(length(adc_vec), 1);
+        fit_info.success = false;
+        fit_info.error_msg = ME.message;
+    end
+
+    % Populate fit_info from result
+    fit_info.n_core_voxels = sum(core_mask(:));
+    fit_info.empty_mask = (fit_info.n_core_voxels == 0);
+    min_vox = 5;
+    if isfield(config_struct, 'min_vox_hist')
+        min_vox = config_struct.min_vox_hist;
+    end
+    fit_info.insufficient_voxels = (fit_info.n_core_voxels > 0 && fit_info.n_core_voxels < min_vox);
+
+    % Detect fallback to ADC threshold for non-adc_threshold methods
+    if ~strcmp(valid_params.core_method, 'adc_threshold')
+        adc_thresh_mask = (adc_vec <= valid_params.adc_thresh);
+        if isequal(core_mask(:), adc_thresh_mask(:))
+            [~, last_warn_id] = lastwarn;
+            if ~isempty(last_warn_id) && startsWith(last_warn_id, 'extract_tumor_core:')
+                fit_info.fallback = true;
+                fit_info.success = false;
+                fit_info.error_msg = lastwarn;
+            end
+        end
+    end
 end
 
 function [valid_params, fallback_mask] = validate_and_prepare(config_struct, adc_vec, d_vec, f_vec, dstar_vec, gtv_mask_3d, opts)
@@ -236,6 +289,9 @@ function core_mask = handle_otsu(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:otsuInsufficient', ...
+            'Otsu: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end
@@ -268,6 +324,9 @@ function core_mask = handle_gmm(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:gmmInsufficient', ...
+            'GMM: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end
@@ -291,6 +350,9 @@ function core_mask = handle_kmeans(valid_params, adc_vec, ~, ~, ~, ~, ~, ~)
             core_mask = apply_fallback_threshold(valid_params, adc_vec);
         end
     else
+        warning('extract_tumor_core:kmeansInsufficient', ...
+            'K-Means: too few valid voxels (%d < %d). Falling back to ADC threshold.', ...
+            length(valid_vals), valid_params.min_vox_hist);
         core_mask = apply_fallback_threshold(valid_params, adc_vec);
     end
 end
