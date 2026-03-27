@@ -192,23 +192,27 @@ catch ME_cox
         sprintf('Exception: %s', ME_cox.message));
 end
 
-% Fit Fine-Gray competing risks model
-fprintf('\n--- FINE-GRAY COMPETING RISKS MODEL ---\n');
+% Validate survival models (Schoenfeld residuals for PH assumption)
+% Run validation before time-varying analysis because the Schoenfeld
+% results identify which covariates violate PH — needed by the
+% time-varying Cox model.
+fprintf('\n--- MODEL VALIDATION ---\n');
 try
-    finegray_results = fit_fine_gray(survival_data, config);
-    finegray_success = true;
-catch ME_fg
-    fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
-    fprintf('      Identifier: %s\n', ME_fg.identifier);
-    finegray_results = struct('success', false, 'message', ...
-        sprintf('Exception: %s', ME_fg.message));
+    validation_results = validate_survival_model(survival_data, cox_results, config);
+    validation_success = validation_results.success;
+catch ME_val
+    fprintf('  ⚠️  Model validation failed: %s\n', ME_val.message);
+    fprintf('      Identifier: %s\n', ME_val.identifier);
+    validation_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_val.message));
 end
 
-% Compute time-varying effects analysis
+% Compute time-varying effects analysis (requires Schoenfeld results
+% from validation to know which covariates violate PH)
 fprintf('\n--- TIME-VARYING COEFFICIENTS ANALYSIS ---\n');
 try
-    timevar_results = compute_time_varying_effects(survival_data, config);
-    timevar_success = true;
+    timevar_results = compute_time_varying_effects(survival_data, cox_results, validation_results, config);
+    timevar_success = timevar_results.success;
 catch ME_tv
     fprintf('  ⚠️  Time-varying effects analysis failed: %s\n', ME_tv.message);
     fprintf('      Identifier: %s\n', ME_tv.identifier);
@@ -216,16 +220,16 @@ catch ME_tv
         sprintf('Exception: %s', ME_tv.message));
 end
 
-% Validate survival models
-fprintf('\n--- MODEL VALIDATION ---\n');
+% Fit Fine-Gray competing risks model
+fprintf('\n--- FINE-GRAY COMPETING RISKS MODEL ---\n');
 try
-    validation_results = validate_survival_model(survival_data, cox_results, config);
-    validation_success = true;
-catch ME_val
-    fprintf('  ⚠️  Model validation failed: %s\n', ME_val.message);
-    fprintf('      Identifier: %s\n', ME_val.identifier);
-    validation_results = struct('success', false, 'message', ...
-        sprintf('Exception: %s', ME_val.message));
+    finegray_results = fit_fine_gray(survival_data, config);
+    finegray_success = finegray_results.success;
+catch ME_fg
+    fprintf('  ⚠️  Fine-Gray analysis failed: %s\n', ME_fg.message);
+    fprintf('      Identifier: %s\n', ME_fg.identifier);
+    finegray_results = struct('success', false, 'message', ...
+        sprintf('Exception: %s', ME_fg.message));
 end
 
 % Output summary results, including success/failure status for each analysis
@@ -699,30 +703,35 @@ end
 
 function results = fit_fine_gray(survival_data, config)
 % FIT_FINE_GRAY  Fine-Gray competing risks sub-distribution hazard model.
-%   Stub: delegates to compute_fine_gray if available; otherwise returns failure.
-results = struct('success', false, 'message', 'Fine-Gray model not yet implemented as standalone');
-if ~survival_data.has_sufficient_data
-    return;
-end
-try
-    results = compute_fine_gray(survival_data.event, survival_data.t_stop, ...
-        survival_data.X, survival_data.feat_names, config.output_folder);
-    results.success = true;
-catch ME
-    results = struct('success', false, 'message', ME.message);
-end
+%   Not yet implemented — compute_fine_gray does not exist in the codebase.
+%   Returns a clean skip result instead of silently failing.
+results = struct('success', false, 'message', 'Fine-Gray model not yet implemented');
+fprintf('  💡 Fine-Gray competing risks model is not yet implemented — skipping.\n');
 end
 
-function results = compute_time_varying_effects(survival_data, config)
+function results = compute_time_varying_effects(survival_data, cox_results, validation_results, config)
 % COMPUTE_TIME_VARYING_EFFECTS  Assess time-varying coefficients.
-results = struct('success', false, 'message', 'Time-varying effects not yet implemented');
+%   Requires successful Cox PH fit and Schoenfeld residual results from
+%   model validation to identify which covariates violate PH.
+results = struct('success', false, 'message', 'Time-varying effects not computed');
 if ~survival_data.has_sufficient_data
     return;
 end
+if ~cox_results.success
+    results.message = 'Skipped: Cox PH model did not succeed';
+    fprintf('  💡 Cox PH model did not succeed — skipping time-varying analysis.\n');
+    return;
+end
+if ~validation_results.success || ~isfield(validation_results, 'schoenfeld_results')
+    results.message = 'Skipped: Schoenfeld residuals not available';
+    fprintf('  💡 Schoenfeld residuals not available — skipping time-varying analysis.\n');
+    return;
+end
 try
-    results = fit_time_varying_cox(survival_data.X, survival_data.t_start, ...
-        survival_data.t_stop, survival_data.event, survival_data.pat_id, ...
-        survival_data.feat_names, config.output_folder);
+    results = fit_time_varying_cox(cox_results.X_scaled, survival_data.t_start, ...
+        survival_data.t_stop, cox_results.event_csh, survival_data.feat_names, ...
+        validation_results.schoenfeld_results, config.output_folder, ...
+        config.dtype_label, config);
     results.success = true;
 catch ME
     results = struct('success', false, 'message', ME.message);
@@ -731,17 +740,27 @@ end
 
 function results = validate_survival_model(survival_data, cox_results, config)
 % VALIDATE_SURVIVAL_MODEL  Model validation (calibration, discrimination).
-results = struct('success', false, 'message', 'Model validation not yet implemented');
-if ~survival_data.has_sufficient_data || ~cox_results.success
+%   Computes Schoenfeld residuals to test the PH assumption and stores
+%   the full results struct for downstream time-varying Cox analysis.
+results = struct('success', false, 'message', 'Model validation not computed');
+if ~survival_data.has_sufficient_data
+    results.message = 'Skipped: insufficient data';
+    return;
+end
+if ~cox_results.success
+    results.message = 'Skipped: Cox PH model did not succeed';
+    fprintf('  💡 Cox PH model did not succeed — skipping model validation.\n');
     return;
 end
 try
     % Schoenfeld residuals for PH assumption
     if isfield(cox_results, 'coefficients') && isfield(cox_results, 'X_scaled')
-        [~, ~, ph_pvals] = compute_schoenfeld_residuals( ...
-            cox_results.X_scaled, survival_data.t_stop, ...
-            cox_results.event_csh, survival_data.feat_names, config.output_folder);
-        results.ph_pvals = ph_pvals;
+        schoenfeld = compute_schoenfeld_residuals( ...
+            cox_results.X_scaled, survival_data.t_start, survival_data.t_stop, ...
+            cox_results.event_csh, cox_results.coefficients, ...
+            survival_data.feat_names, config.output_folder, config.dtype_label);
+        results.schoenfeld_results = schoenfeld;
+        results.ph_pvals = schoenfeld.p_value;
     end
     results.success = true;
 catch ME
