@@ -100,6 +100,72 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     end
 
     % =====================================================================
+    % Cross-Pipeline Dice (Fraction 1)
+    % =====================================================================
+    if ismember('cross_pipeline_dice', steps_to_run)
+        execute_pipeline_step('cross_pipeline_dice', @() run_cross_pipeline_dice_step( ...
+            validated_data_gtvp, summary_metrics, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('cross_pipeline_dice', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Core Method Failure Rates
+    % =====================================================================
+    if ismember('core_failure_rates', steps_to_run)
+        execute_pipeline_step('core_failure_rates', @() run_core_failure_rates_step( ...
+            validated_data_gtvp, summary_metrics, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('core_failure_rates', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Core Method Pruning
+    % =====================================================================
+    % If failure rates were computed and a pruning threshold is set,
+    % filter the method list and store in config_struct for downstream steps.
+    ALL_CORE_METHODS_DEFAULT = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+
+    failure_rates_file = fullfile(type_output_folder, ...
+        sprintf('core_failure_rates_%s.mat', config_struct.dwi_type_name));
+
+    if config_struct.max_core_failure_rate < 1.0 || ~isempty(config_struct.excluded_core_methods)
+        if exist(failure_rates_file, 'file')
+            loaded = load(failure_rates_file, 'failure_table');
+            [active_methods, pruned_info] = filter_core_methods( ...
+                ALL_CORE_METHODS_DEFAULT, loaded.failure_table, config_struct);
+            config_struct.active_core_methods = active_methods;
+
+            % Log pruning results
+            if ~isempty(pruned_info)
+                fprintf('\n🪓 Core method pruning: %d/%d methods removed\n', ...
+                    numel(pruned_info), numel(ALL_CORE_METHODS_DEFAULT));
+                for pi = 1:numel(pruned_info)
+                    fprintf('   ✂ %s — %s (%.1f%% failure rate)\n', ...
+                        pruned_info(pi).name, pruned_info(pi).reason, ...
+                        pruned_info(pi).failure_rate * 100);
+                end
+                fprintf('   ✅ %d methods retained: %s\n', ...
+                    numel(active_methods), strjoin(active_methods, ', '));
+            end
+
+            % Save pruning results
+            save(fullfile(type_output_folder, ...
+                sprintf('core_pruning_%s.mat', config_struct.dwi_type_name)), ...
+                'active_methods', 'pruned_info');
+        else
+            fprintf('⚠️ Core failure rates not found at %s. Skipping pruning.\n', failure_rates_file);
+            config_struct.active_core_methods = ALL_CORE_METHODS_DEFAULT;
+        end
+    else
+        config_struct.active_core_methods = ALL_CORE_METHODS_DEFAULT;
+    end
+
+    % =====================================================================
     % Metrics Longitudinal
     % =====================================================================
     if ismember('metrics_longitudinal', steps_to_run)
@@ -222,6 +288,20 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
                     pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
             end
         end
+    end
+
+    % =====================================================================
+    % Core Method Outcome Analysis
+    % =====================================================================
+    if ismember('core_method_outcomes', steps_to_run) && ...
+            isfield(config_struct, 'active_core_methods') && ...
+            ~isempty(fieldnames(dosimetry_results)) && ...
+            isfield(dosimetry_results, 'per_method_dosimetry')
+        execute_pipeline_step('core_method_outcomes', @() run_core_method_outcomes_step( ...
+            dosimetry_results, baseline_results, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('core_method_outcomes', 'skipped'); end
     end
 
     % =====================================================================
@@ -402,6 +482,65 @@ function run_apply_external_validation_step(session, ext_data_path, validation_m
         fprintf('      \xf0\x9f\x93\x81 External validation results saved to %s\n', session.results_file);
     end
     fprintf('      \xe2\x9c\x85 Done.\n');
+end
+
+function run_core_method_outcomes_step(dosimetry_results, baseline_results, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Running core method outcome analysis...\n', current_name);
+
+    if ~isfield(dosimetry_results, 'per_method_dosimetry') || isempty(fieldnames(dosimetry_results.per_method_dosimetry))
+        fprintf('      ⚠️ per_method_dosimetry not available. Set run_all_core_methods=true. Skipping.\n');
+        return;
+    end
+
+    outcome_results = analyze_core_method_outcomes( ...
+        dosimetry_results.per_method_dosimetry, baseline_results, ...
+        config_struct.active_core_methods, config_struct);
+
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('core_method_outcomes_%s.mat', config_struct.dwi_type_name)), 'outcome_results');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_core_failure_rates_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Computing core method failure rates...\n', current_name);
+    failure_table = compute_core_failure_rates(validated_data_gtvp, config_struct, ...
+        summary_metrics.id_list, summary_metrics.gtv_locations);
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('core_failure_rates_%s.mat', config_struct.dwi_type_name)), 'failure_table');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_cross_pipeline_dice_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Running cross-pipeline Dice (Fx1)...\n', current_name);
+    dice_results = compute_cross_pipeline_dice(validated_data_gtvp, config_struct, ...
+        summary_metrics.id_list, summary_metrics.gtv_locations);
+
+    % Generate summary figure: heatmap of mean Dice (methods x pipeline pairs)
+    mean_dice = nanmean_safe(dice_results.dice, 3);  % average across patients
+    fig = figure('Visible', 'off', 'Position', [100 100 700 500]);
+    imagesc(mean_dice);
+    colormap(parula); colorbar;
+    caxis([0 1]);
+    set(gca, 'XTick', 1:3, 'XTickLabel', dice_results.pipeline_pair_labels, ...
+        'YTick', 1:11, 'YTickLabel', dice_results.method_names, ...
+        'FontSize', 8, 'XTickLabelRotation', 30);
+    title(sprintf('Cross-Pipeline Dice at Fx1 (%s)', config_struct.dwi_type_name));
+    % Overlay text values
+    for i = 1:11
+        for j_idx = 1:3
+            val = mean_dice(i, j_idx);
+            if ~isnan(val)
+                if val < 0.5, txt_color = [1 1 1]; else, txt_color = [0 0 0]; end
+                text(j_idx, i, sprintf('%.2f', val), 'HorizontalAlignment', 'center', ...
+                    'FontSize', 7, 'Color', txt_color);
+            end
+        end
+    end
+    saveas(fig, fullfile(config_struct.output_folder, ...
+        sprintf('cross_pipeline_dice_heatmap_%s.png', config_struct.dwi_type_name)));
+    close(fig);
+
+    fprintf('      ✅ Done.\n');
 end
 
 function run_metrics_survival_step(session, baseline_results, summary_metrics)

@@ -142,6 +142,10 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
     """
     out_data = {
         "core_method": {},
+        "core_method_outcomes": {},
+        "cross_pipeline_dice": {},
+        "failure_rates": {},
+        "pruning": {},
         "dosimetry": {},
         "longitudinal": {},
     }
@@ -222,6 +226,225 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                 out_data["core_method"] = core_entry
         except Exception as e:
             print(f"Error parsing {core_mat.name}: {e}")
+
+    # ── Core Method Outcomes ──
+    # The core_method_outcomes MAT file contains:
+    #   - outcome_results.method_results: struct array with per-method Cox/KM results
+    #   - outcome_results.ranking: cell array of method names sorted by p-value
+    #   - outcome_results.active_methods: cell array of analyzed methods
+    cmo_mat = folder / f"{dwi}" / f"core_method_outcomes_{dwi}.mat"
+    if cmo_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(cmo_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("outcome_results")
+            if results:
+                cmo_entry: dict = {}
+
+                # Parse active_methods
+                am = getattr(results, "active_methods", None)
+                if am is not None:
+                    am_list = am.tolist() if hasattr(am, "tolist") else am
+                    if isinstance(am_list, str):
+                        am_list = [am_list]
+                    cmo_entry["active_methods"] = [str(m) for m in am_list]
+
+                # Parse ranking
+                rk = getattr(results, "ranking", None)
+                if rk is not None:
+                    rk_list = rk.tolist() if hasattr(rk, "tolist") else rk
+                    if isinstance(rk_list, str):
+                        rk_list = [rk_list]
+                    cmo_entry["ranking"] = [str(r) for r in rk_list]
+                else:
+                    cmo_entry["ranking"] = []
+
+                # Parse method_results
+                mr_raw = getattr(results, "method_results", None)
+                method_list: list[dict] = []
+                if mr_raw is not None:
+                    items = mr_raw if hasattr(mr_raw, "__len__") and not isinstance(mr_raw, str) else [mr_raw]
+                    for item in items:
+                        me: dict = {}
+                        me["method_name"] = str(getattr(item, "method_name", ""))
+                        me["n_patients"] = int(getattr(item, "n_patients", 0))
+                        me["n_events"] = int(getattr(item, "n_events", 0))
+
+                        # Parse univariable results
+                        uv_raw = getattr(item, "univariable", None)
+                        uv_list: list[dict] = []
+                        if uv_raw is not None and uv_raw is not None:
+                            uv_items = uv_raw if hasattr(uv_raw, "__len__") and not isinstance(uv_raw, str) else [uv_raw]
+                            for uv in uv_items:
+                                uv_entry: dict = {}
+                                uv_entry["metric_name"] = str(getattr(uv, "metric_name", ""))
+                                uv_entry["hr"] = _safe_float(getattr(uv, "hr", None))
+                                ci = getattr(uv, "hr_ci", None)
+                                if ci is not None and hasattr(ci, "tolist"):
+                                    ci_list = ci.tolist()
+                                    uv_entry["hr_ci"] = [_safe_float(c) for c in ci_list] if isinstance(ci_list, list) else []
+                                else:
+                                    uv_entry["hr_ci"] = []
+                                uv_entry["p_value"] = _safe_float(getattr(uv, "p_value", None))
+                                uv_entry["n"] = int(getattr(uv, "n", 0)) if hasattr(uv, "n") else 0
+                                uv_entry["n_events"] = int(getattr(uv, "n_events", 0)) if hasattr(uv, "n_events") else 0
+                                uv_list.append(uv_entry)
+                        me["univariable"] = uv_list
+
+                        # Parse KM results
+                        km_raw = getattr(item, "km", None)
+                        km_entry: dict = {}
+                        if km_raw is not None:
+                            km_entry["best_metric"] = str(getattr(km_raw, "best_metric", ""))
+                            km_entry["logrank_p"] = _safe_float(getattr(km_raw, "logrank_p", None))
+                            km_entry["logrank_chi2"] = _safe_float(getattr(km_raw, "logrank_chi2", None))
+                            km_entry["median_high"] = _safe_float(getattr(km_raw, "median_high", None))
+                            km_entry["median_low"] = _safe_float(getattr(km_raw, "median_low", None))
+                        me["km"] = km_entry
+
+                        method_list.append(me)
+                cmo_entry["method_results"] = method_list
+
+                out_data["core_method_outcomes"] = cmo_entry
+        except Exception as e:
+            print(f"Error parsing {cmo_mat.name}: {e}")
+
+    # ── Core Method Pruning ──
+    # The core_pruning MAT file contains:
+    #   - active_methods: cell array of retained method name strings
+    #   - pruned_info: struct array with .name, .reason, .failure_rate, .pipeline
+    pruning_mat = folder / f"{dwi}" / f"core_pruning_{dwi}.mat"
+    if pruning_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(pruning_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            pruning_entry: dict = {}
+
+            # Parse active_methods
+            am = mat.get("active_methods")
+            if am is not None:
+                am_list = am.tolist() if hasattr(am, "tolist") else am
+                if isinstance(am_list, str):
+                    am_list = [am_list]
+                pruning_entry["active_methods"] = [str(m) for m in am_list]
+            else:
+                pruning_entry["active_methods"] = []
+
+            # Parse pruned_info struct array
+            pi_raw = mat.get("pruned_info")
+            pruned_list: list[dict] = []
+            if pi_raw is not None:
+                # Handle both single struct and array of structs
+                if hasattr(pi_raw, "__len__") and not isinstance(pi_raw, str):
+                    items = pi_raw if hasattr(pi_raw, "__iter__") else [pi_raw]
+                else:
+                    items = [pi_raw]
+                for item in items:
+                    entry: dict = {}
+                    if hasattr(item, "name"):
+                        entry["name"] = str(item.name)
+                    if hasattr(item, "reason"):
+                        entry["reason"] = str(item.reason)
+                    if hasattr(item, "failure_rate"):
+                        entry["failure_rate"] = _safe_float(item.failure_rate)
+                    if hasattr(item, "pipeline"):
+                        entry["pipeline"] = str(item.pipeline)
+                    if entry:
+                        pruned_list.append(entry)
+            pruning_entry["pruned_info"] = pruned_list
+
+            out_data["pruning"] = pruning_entry
+        except Exception as e:
+            print(f"Error parsing {pruning_mat.name}: {e}")
+
+    # ── Core Method Failure Rates ──
+    # The core_failure_rates MAT file contains a struct with:
+    #   - method_names: cell array of 11 method label strings
+    #   - pipeline_names: cell array of 3 pipeline label strings
+    #   - fallback_rate, empty_rate, insufficient_rate, all_nan_rate,
+    #     any_failure_rate: [11 x 3] rate matrices
+    #   - median_core_voxels: [11 x 3] median voxel counts
+    cfr_mat = folder / f"{dwi}" / f"core_failure_rates_{dwi}.mat"
+    if cfr_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(cfr_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("failure_table")
+            if results:
+                methods = results.method_names.tolist()
+                if isinstance(methods, str):
+                    methods = [methods]
+                method_strs = [str(m) for m in methods]
+
+                pipelines = results.pipeline_names.tolist()
+                if isinstance(pipelines, str):
+                    pipelines = [pipelines]
+                pipeline_strs = [str(p) for p in pipelines]
+
+                cfr_entry: dict = {
+                    "method_names": method_strs,
+                    "pipeline_names": pipeline_strs,
+                }
+                for rate_field in ("fallback_rate", "empty_rate", "insufficient_rate",
+                                   "all_nan_rate", "any_failure_rate", "median_core_voxels"):
+                    if hasattr(results, rate_field):
+                        cfr_entry[rate_field] = _array_to_list(getattr(results, rate_field))
+
+                out_data["failure_rates"] = cfr_entry
+        except Exception as e:
+            print(f"Error parsing {cfr_mat.name}: {e}")
+
+    # ── Cross-Pipeline Dice ──
+    # The cross_pipeline_dice MAT file contains a struct with:
+    #   - dice: [11 x 3 x N] array of Dice coefficients
+    #   - method_names: cell array of 11 method label strings
+    #   - pipeline_pair_labels: cell array of 3 pair label strings
+    #   - n_voxels: [11 x 3 x N] voxel counts
+    #   - fallback_flags: [11 x 3 x N] logical fallback indicators
+    cpd_mat = folder / f"{dwi}" / f"cross_pipeline_dice_{dwi}.mat"
+    if cpd_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(cpd_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("dice_results")
+            if results:
+                # Extract method names
+                methods = results.method_names.tolist()
+                if isinstance(methods, str):
+                    methods = [methods]
+                method_strs = [str(m) for m in methods]
+
+                # Extract pair labels
+                pair_labels = results.pipeline_pair_labels.tolist()
+                if isinstance(pair_labels, str):
+                    pair_labels = [pair_labels]
+                pair_strs = [str(p) for p in pair_labels]
+
+                # Extract dice array and compute mean/std across patients (axis 2)
+                dice_arr = results.dice
+                if hasattr(dice_arr, "shape") and dice_arr.ndim == 3:
+                    mean_dice = _array_to_list(numpy_np.nanmean(dice_arr, axis=2))  # type: ignore
+                    std_dice = _array_to_list(numpy_np.nanstd(dice_arr, axis=2))  # type: ignore
+                elif hasattr(dice_arr, "shape") and dice_arr.ndim == 2:
+                    # Single patient: no std
+                    mean_dice = _array_to_list(dice_arr)
+                    std_dice = None
+                else:
+                    mean_dice = []
+                    std_dice = None
+
+                cpd_entry: dict = {
+                    "methods": method_strs,
+                    "pair_labels": pair_strs,
+                    "mean_dice": mean_dice,
+                    "std_dice": std_dice,
+                }
+
+                # Extract n_voxels and fallback_flags if present
+                if hasattr(results, "n_voxels"):
+                    cpd_entry["n_voxels"] = _array_to_list(results.n_voxels)
+                if hasattr(results, "fallback_flags"):
+                    cpd_entry["fallback_flags"] = _array_to_list(results.fallback_flags)
+
+                out_data["cross_pipeline_dice"] = cpd_entry
+        except Exception as e:
+            print(f"Error parsing {cpd_mat.name}: {e}")
 
     # ── Dosimetry ──
     # The dosimetry MAT file contains 1-D arrays of per-patient dose

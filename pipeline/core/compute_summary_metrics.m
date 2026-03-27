@@ -175,9 +175,13 @@ fdm_stable_pc = nan(length(id_list),nTp,3);
 % When run_all_core_methods is true, the pipeline computes sub-volume
 % metrics for all 11 core delineation methods per patient/timepoint,
 % storing them in a nested struct keyed by method name.
-ALL_CORE_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
-    'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
-    'percentile', 'spectral', 'fdm'};
+if isfield(config_struct, 'active_core_methods') && ~isempty(config_struct.active_core_methods)
+    ALL_CORE_METHODS = config_struct.active_core_methods;
+else
+    ALL_CORE_METHODS = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+        'otsu', 'gmm', 'kmeans', 'region_growing', 'active_contours', ...
+        'percentile', 'spectral', 'fdm'};
+end
 n_all_methods = numel(ALL_CORE_METHODS);
 run_all_core = isfield(config_struct, 'run_all_core_methods') && config_struct.run_all_core_methods;
 store_masks = run_all_core && isfield(config_struct, 'store_core_masks') && config_struct.store_core_masks;

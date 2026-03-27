@@ -4,6 +4,47 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+#### Core Method Failure Rates
+- **`pipeline/utils/extract_tumor_core.m`**: Added optional second output `fit_info` struct with failure mode details (method, success, fallback, empty_mask, insufficient_voxels, all_nan_input, n_core_voxels, error_msg). Non-breaking change — all existing single-output calls continue to work.
+- **`pipeline/utils/compute_core_failure_rates.m`**: New pipeline step — aggregates failure rates for all 11 core methods x 3 DWI pipelines x all patients x all timepoints. Tracks four failure categories: fallback, empty mask, insufficient voxels, and all-NaN input. Generates stacked bar chart and console summary table.
+- **`analysis/report/sections/failure_rates.py`**: New report section builder — color-coded HTML table of failure rates sorted by total failure descending (green <10%, yellow 10-25%, red >25%).
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse `core_failure_rates_{type}.mat` files.
+- **`pipeline/utils/parse_config.m`**: New config field `run_core_failure_rates` (default `false`).
+- **`pipeline/tests/test_extract_tumor_core_fit_info.m`**: 9 MATLAB unit tests for the fit_info output.
+- **`pipeline/tests/test_compute_core_failure_rates.m`**: 5 MATLAB unit tests for the failure rate aggregation.
+- **`analysis/tests/test_failure_rates_section.py`**: 8 Python tests for the report section builder.
+
+#### Core Method Outcome Analysis
+- **`pipeline/core/analyze_core_method_outcomes.m`**: New pipeline step — for each surviving core method, runs univariable Cox PH on 4 dose metrics (D95/V50 of ADC and D sub-volumes) against local control, performs KM + log-rank for the best metric, ranks methods by p-value, and generates KM plots and summary bar charts.
+- **`analysis/report/sections/core_method_outcomes.py`**: New report section builder — ranking table with HR (95% CI), p-values, and interpretation paragraph identifying the best method.
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse `core_method_outcomes_{type}.mat` files with full method_results/univariable/km structure.
+- **`pipeline/utils/parse_config.m`**: New config field `run_core_method_outcomes` (default `false`).
+- **`pipeline/tests/test_analyze_core_method_outcomes.m`**: 9 MATLAB unit tests covering struct fields, HR positivity, KM fields, ranking, significance, insufficient events, empty dosimetry, and missing methods.
+- **`analysis/tests/test_core_method_outcomes_section.py`**: 7 Python tests for the report section builder.
+
+#### Core Method Pruning
+- **`pipeline/utils/filter_core_methods.m`**: New function — prunes core methods exceeding failure rate threshold (`max_core_failure_rate`), manually excluded methods (`excluded_core_methods`), or methods with insufficient median voxel counts (`min_core_voxels`). Safety guard ensures `adc_threshold` is never pruned.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: Added core method pruning block that runs after failure rates and stores `active_core_methods` in `config_struct` for downstream steps.
+- **`pipeline/core/compare_core_methods.m`**, **`pipeline/core/compute_summary_metrics.m`**, **`pipeline/core/metrics_dosimetry.m`**, **`pipeline/utils/compute_multi_core_metrics.m`**: Modified to check `config_struct.active_core_methods` and use it instead of hardcoded 11-method list, with backward-compatible fallback.
+- **`pipeline/utils/parse_config.m`**: Three new config fields: `max_core_failure_rate` (default 1.0, disabled), `excluded_core_methods` (default empty), `min_core_voxels` (default 0, disabled).
+- **`analysis/report/sections/pruning_results.py`**: New report section builder — shows pruned methods with reasons and retained methods list.
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse `core_pruning_{type}.mat` files.
+- **`pipeline/tests/test_filter_core_methods.m`**: 8 MATLAB unit tests covering all pruning modes and safety guards.
+- **`analysis/tests/test_pruning_section.py`**: 7 Python tests for the report section builder.
+
+#### Cross-Pipeline Dice Analysis
+- **`pipeline/utils/compute_cross_pipeline_dice.m`**: New pipeline step — computes pairwise Dice coefficients between Standard, DnCNN, and IVIMNet pipelines for each of the 11 tumor core delineation methods at fraction 1. Measures whether DWI processing pipeline choice affects the spatial location of the treatment-resistant sub-volume.
+- **`analysis/report/sections/cross_pipeline_dice.py`**: New report section builder — HTML table of mean Dice ± SD per core method and pipeline pair, with red highlighting for low agreement (Dice < 0.5).
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse `cross_pipeline_dice_{type}.mat` files into the `mat_data` dict for report generation.
+- **`pipeline/utils/parse_config.m`**: New config field `run_cross_pipeline_dice` (default `false`) with backwards-compatible default.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: New `cross_pipeline_dice` step block with heatmap figure generation.
+- **`pipeline/tests/test_compute_cross_pipeline_dice.m`**: 6 MATLAB unit tests covering struct fields, dimensions, range, identical pipelines, single patient, and empty pipeline edge cases.
+- **`analysis/tests/test_cross_pipeline_dice_section.py`**: 8 Python tests for the report section builder.
+
 ## [2.2.0] - 2026-03-26
 
 ### Added

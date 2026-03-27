@@ -86,6 +86,10 @@ from report.sections import (  # noqa: F401  # type: ignore
     _section_conclusions,
     _section_correlations,
     _section_cross_dwi_comparison,
+    _section_cross_pipeline_dice,
+    _section_failure_rates,
+    _section_pruning_results,
+    _section_core_method_outcomes,
     _section_data_availability,
     _section_data_completeness,
     _section_effect_sizes,
@@ -388,6 +392,10 @@ def generate_report(folder: Path) -> str:
         ("Effect sizes", _section_effect_sizes, (log_data, dwi_types_present, csv_data)),
         ("Multiple comparisons", _section_multiple_comparisons, (log_data, dwi_types_present, csv_data)),
         ("Cross-DWI comparison", _section_cross_dwi_comparison, (groups, csv_data)),
+        ("Cross-pipeline Dice", _section_cross_pipeline_dice, (mat_data, dwi_types_present)),
+        ("Core method failure rates", _section_failure_rates, (mat_data, dwi_types_present)),
+        ("Core method pruning", _section_pruning_results, (mat_data, dwi_types_present)),
+        ("Core method outcomes", _section_core_method_outcomes, (mat_data, dwi_types_present)),
     ]
 
     for name, fn, fn_args in statistics_sections:
