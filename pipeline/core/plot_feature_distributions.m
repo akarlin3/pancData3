@@ -68,7 +68,7 @@ for k = 1:numel(allAx)
 end
 % Disable axes toolbar widgets (zoom, pan, data tips) for clean figure export
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-saveas(gcf, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']));
+print(gcf, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']), '-dpng', '-r300');
 close(gcf);
 
 % --- 2b. Box Plots ---
@@ -91,7 +91,7 @@ for k = 1:numel(allAx)
     set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-saveas(gcf, fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']));
+print(gcf, fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']), '-dpng', '-r300');
 close(gcf);
 
 fprintf('  Histograms and box plots generated for ADC, D, f, D* (%s).\n', dtype_label);

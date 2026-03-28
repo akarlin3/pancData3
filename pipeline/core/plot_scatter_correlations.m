@@ -181,7 +181,7 @@ end
 sgtitle(['RT Dose vs Diffusion Metrics (Fx1) (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
 set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-saveas(gcf, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']));
+print(gcf, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']), '-dpng', '-r300');
 close(gcf);
 
 fprintf('  Scatter plots generated (%s).\n', dtype_label);

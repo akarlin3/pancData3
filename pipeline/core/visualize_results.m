@@ -143,7 +143,7 @@ for dtype = config_struct.dwi_types_to_run
     valid_pts_dtype = isfinite(lf) & ~isnan(adc_mean(:,1,dtype));
     lf_group_dtype  = lf(valid_pts_dtype);
 
-    plot_feature_distributions_streaming(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_feature_distributions(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 
     %% -----------------------------------------------------------------------
     fprintf('\n--- SECTION 3: Scatter Plots for Dose Correlation ---\n');
@@ -156,7 +156,7 @@ for dtype = config_struct.dwi_types_to_run
     % -----------------------------------------------------------------------
     fprintf('\n--- 3. Scatter Plots for Dose Correlation ---\n');
 
-    plot_scatter_correlations_streaming(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
+    plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder);
 end % for dtype
 
 %% -----------------------------------------------------------------------
@@ -209,193 +209,15 @@ end
 % that produced blank images. Now calls the full plot_parameter_maps.m
 % which loads NIfTI volumes and renders actual ADC maps.
 
-function plot_feature_distributions_streaming(dtype_label, adc_mean, d_mean, f_mean, dstar_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder)
-% Streaming version of plot_feature_distributions - creates, saves, and closes figures immediately
+% plot_feature_distributions_streaming removed — was a simplified
+% reimplementation that produced blank box plots. Now calls the full
+% plot_feature_distributions.m which handles single-group cases, Octave
+% compatibility, and proper statistical annotation.
 
-% Plot histograms
-fig_hist = figure('Units', 'inches', 'Position', [1 1 16 10]);
-
-param_data = {adc_mean(valid_pts_dtype,1,dtype), d_mean(valid_pts_dtype,1,dtype), ...
-              f_mean(valid_pts_dtype,1,dtype), dstar_mean(valid_pts_dtype,1,dtype)};
-param_names = {'ADC', 'D', 'f', 'D*'};
-param_units = {'(×10^{-3} mm²/s)', '(×10^{-3} mm²/s)', '(unitless)', '(×10^{-3} mm²/s)'};
-
-for i = 1:4
-    subplot(2, 2, i);
-    
-    % Get data for LC and LF groups
-    lc_data = param_data{i}(lf_group_dtype == 0);
-    lf_data = param_data{i}(lf_group_dtype == 1);
-    
-    % Remove NaN values
-    lc_data = lc_data(~isnan(lc_data));
-    lf_data = lf_data(~isnan(lf_data));
-    
-    if ~isempty(lc_data) && ~isempty(lf_data)
-        % Create overlaid histograms
-        [n_lc, edges] = histcounts(lc_data, 15, 'Normalization', 'probability');
-        [n_lf, ~] = histcounts(lf_data, edges, 'Normalization', 'probability');
-        
-        centers = (edges(1:end-1) + edges(2:end)) / 2;
-        
-        hold on;
-        bar(centers, n_lc, 'FaceColor', [0.2 0.6 1], 'FaceAlpha', 0.7, 'EdgeColor', 'none');
-        bar(centers, n_lf, 'FaceColor', [1 0.3 0.3], 'FaceAlpha', 0.7, 'EdgeColor', 'none');
-        
-        xlabel(sprintf('%s %s', param_names{i}, param_units{i}));
-        ylabel('Probability');
-        title(sprintf('%s - %s Distribution', dtype_label, param_names{i}));
-        legend({'LC', 'LF'}, 'Location', 'best');
-        grid on;
-        hold off;
-    end
-end
-
-sgtitle(sprintf('%s: Baseline Parameter Distributions (LC vs LF)', dtype_label));
-
-% Save and close histogram figure
-filename_hist = fullfile(output_folder, sprintf('Feature_Histograms_%s.png', dtype_label));
-print(fig_hist, filename_hist, '-dpng', '-r300');
-close(fig_hist);
-
-% Plot box plots
-fig_box = figure('Units', 'inches', 'Position', [1 1 16 10]);
-
-for i = 1:4
-    subplot(2, 2, i);
-    
-    % Get data for box plots
-    lc_data = param_data{i}(lf_group_dtype == 0);
-    lf_data = param_data{i}(lf_group_dtype == 1);
-    
-    % Remove NaN values
-    lc_data = lc_data(~isnan(lc_data));
-    lf_data = lf_data(~isnan(lf_data));
-    
-    if ~isempty(lc_data) && ~isempty(lf_data)
-        % Create box plot data
-        all_data = [lc_data; lf_data];
-        groups = [zeros(length(lc_data), 1); ones(length(lf_data), 1)];
-        
-        boxplot(all_data, groups, 'Labels', {'LC', 'LF'});
-        ylabel(sprintf('%s %s', param_names{i}, param_units{i}));
-        title(sprintf('%s - %s', dtype_label, param_names{i}));
-        
-        % Add ANOVA p-value
-        try
-            [~, p_val] = ttest2(lc_data, lf_data);
-            text(0.5, 0.95, sprintf('p = %.3f', p_val), 'Units', 'normalized', ...
-                'HorizontalAlignment', 'center', 'FontSize', 12, 'FontWeight', 'bold');
-        catch
-            % Skip p-value if test fails
-        end
-        
-        grid on;
-    end
-end
-
-sgtitle(sprintf('%s: Baseline Parameter Box Plots (LC vs LF)', dtype_label));
-
-% Save and close box plot figure
-filename_box = fullfile(output_folder, sprintf('Feature_BoxPlots_%s.png', dtype_label));
-print(fig_box, filename_box, '-dpng', '-r300');
-close(fig_box);
-
-% Force memory cleanup
-drawnow;
-pause(0.05);
-end
-
-function plot_scatter_correlations_streaming(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, d_mean, f_mean, valid_pts_dtype, lf_group_dtype, dtype, output_folder)
-% Streaming version of plot_scatter_correlations - creates, saves, and closes figures immediately
-
-% Create scatter plots for dose correlations
-fig = figure('Units', 'inches', 'Position', [1 1 16 12]);
-
-param_data = {adc_mean(valid_pts_dtype,1,dtype), d_mean(valid_pts_dtype,1,dtype), f_mean(valid_pts_dtype,1,dtype)};
-param_names = {'ADC', 'D', 'f'};
-param_units = {'(×10^{-3} mm²/s)', '(×10^{-3} mm²/s)', '(unitless)'};
-dose_data = {dmean_gtvp(valid_pts_dtype), d95_gtvp(valid_pts_dtype)};
-dose_names = {'Mean GTV Dose', 'D95 GTV'};
-dose_units = {'(Gy)', '(Gy)'};
-
-plot_counter = 1;
-for i = 1:3  % Parameters
-    for j = 1:2  % Dose metrics
-        subplot(3, 2, plot_counter);
-        
-        % Get valid data points
-        param_vals = param_data{i};
-        dose_vals = dose_data{j};
-        valid_idx = ~isnan(param_vals) & ~isnan(dose_vals);
-        
-        if sum(valid_idx) > 3
-            param_clean = param_vals(valid_idx);
-            dose_clean = dose_vals(valid_idx);
-            lf_clean = lf_group_dtype(valid_idx);
-            
-            % Plot LC patients (blue circles)
-            lc_mask = lf_clean == 0;
-            if any(lc_mask)
-                scatter(dose_clean(lc_mask), param_clean(lc_mask), 60, [0.2 0.6 1], 'filled', 'o');
-            end
-            hold on;
-            
-            % Plot LF patients (red squares) 
-            lf_mask = lf_clean == 1;
-            if any(lf_mask)
-                scatter(dose_clean(lf_mask), param_clean(lf_mask), 60, [1 0.3 0.3], 'filled', 's');
-            end
-            
-            % Add trend line
-            try
-                p = polyfit(dose_clean, param_clean, 1);
-                x_trend = linspace(min(dose_clean), max(dose_clean), 100);
-                y_trend = polyval(p, x_trend);
-                plot(x_trend, y_trend, 'k--', 'LineWidth', 1.5);
-                
-                % Calculate Spearman correlation
-                if exist('OCTAVE_VERSION', 'builtin')
-                    rho = spearman(dose_clean, param_clean);
-                    n_c = numel(dose_clean);
-                    t_c = rho * sqrt((n_c - 2) / (1 - rho^2 + eps));
-                    p_val = 2 * (1 - tcdf(abs(t_c), n_c - 2));
-                else
-                    [rho, p_val] = corr(dose_clean, param_clean, 'Type', 'Spearman');
-                end
-                text(0.05, 0.95, sprintf('ρ = %.3f\np = %.3f', rho, p_val), ...
-                    'Units', 'normalized', 'FontSize', 10, 'BackgroundColor', 'white');
-            catch
-                % Skip correlation if calculation fails
-            end
-            
-            xlabel(sprintf('%s %s', dose_names{j}, dose_units{j}));
-            ylabel(sprintf('%s %s', param_names{i}, param_units{i}));
-            title(sprintf('%s vs %s', param_names{i}, dose_names{j}));
-            
-            if plot_counter == 1
-                legend({'LC', 'LF'}, 'Location', 'best');
-            end
-            
-            grid on;
-            hold off;
-        end
-        
-        plot_counter = plot_counter + 1;
-    end
-end
-
-sgtitle(sprintf('%s: Dose-Diffusion Correlations', dtype_label));
-
-% Save and close figure
-filename = fullfile(output_folder, sprintf('Dose_vs_Diffusion_%s.png', dtype_label));
-print(fig, filename, '-dpng', '-r300');
-close(fig);
-
-% Force memory cleanup
-drawnow;
-pause(0.05);
-end
+% plot_scatter_correlations_streaming removed — was a simplified
+% reimplementation that produced blank scatter plots. Now calls the full
+% plot_scatter_correlations.m which handles per-group trend lines,
+% competing risk exclusion, and Octave compatibility.
 
 % plot_cross_dwi_subvolume_comparison_streaming removed — was a placeholder
 % that produced blank graphs. Now calls the real utility directly (line 175).
