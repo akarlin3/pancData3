@@ -37,7 +37,7 @@ key_files:
   - "pipeline/utils/escape_shell_arg.m"
   - "analysis/run_analysis.py"
   - "analysis/shared.py"
-
+anthropic_api_key: "[ENCRYPTION_KEY]"
 risk_flags:
   - "LEAKAGE_RISK"
   - "PHI_RISK"
