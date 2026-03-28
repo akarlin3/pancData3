@@ -77,11 +77,11 @@ for s = 1:n_metric_sets
     current_metrics = metric_sets{s};
     current_names = set_names{s};
     
-    fig = figure('Name', [figure_titles{s} ' — ' dtype_label], 'Position', [50, 50, 1600, 1000]);
+    fig = figure('Name', [figure_titles{s} ' — ' dtype_label], 'Position', [50, 50, 1800, 1100]);
     if exist('OCTAVE_VERSION', 'builtin')
         % sgtitle not supported in Octave
     else
-        sgtitle([figure_titles{s} ' (' dtype_label ')'], 'FontSize', 16, 'FontWeight', 'bold');
+        sgtitle([figure_titles{s} ' (' dtype_label ')'], 'FontSize', 18, 'FontWeight', 'bold');
     end
     
     num_rows = length(current_metrics);
@@ -147,33 +147,35 @@ for s = 1:n_metric_sets
                 else
                     boxplot(y, g, 'Labels', {'LC (0)', 'LF (1)'});
                 end
+                set(gca, 'FontSize', 10);
                 title_str = sprintf('%s - %s\np = %.3f', current_names{m}, time_labels{tp}, p);
                 % Highlight nominally significant results in red for visual
                 % screening.  Note: these are uncorrected p-values — FDR
                 % correction is applied globally in Section 8 below to
                 % determine which results survive multiple testing.
                 if p < 0.05
-                    title(title_str, 'Color', 'r', 'FontWeight', 'bold');
+                    title(title_str, 'Color', 'r', 'FontWeight', 'bold', 'FontSize', 11);
                 else
-                    title(title_str, 'Color', 'k', 'FontWeight', 'normal');
+                    title(title_str, 'Color', 'k', 'FontWeight', 'normal', 'FontSize', 11);
                 end
             else
-                title(sprintf('%s - %s\n(Insufficient Data)', current_names{m}, time_labels{tp}), 'FontSize', 8);
-                axis off; 
+                title(sprintf('%s - %s\n(Insufficient Data)', current_names{m}, time_labels{tp}), ...
+                    'FontSize', 10, 'Color', [0.5 0.5 0.5]);
+                axis off;
             end
-            
+
             if m == num_rows
-                xlabel('Outcome');
+                xlabel('Outcome', 'FontSize', 10);
             end
             if tp == 1
-                ylabel(current_names{m});
+                ylabel(current_names{m}, 'FontSize', 10);
             end
-            
+
             grid on;
             plot_idx = plot_idx + 1;
         end
     end
-    subplot_scale = 0.92;
+    subplot_scale = 0.95;
     if exist('OCTAVE_VERSION', 'builtin')
         % findall with 'Type' 'Axes' works differently in Octave and returns handles that might not have Position
         % skip subplot scaling in mock
@@ -181,7 +183,7 @@ for s = 1:n_metric_sets
         allAx = findall(fig, 'Type', 'Axes');
         for k = 1:numel(allAx)
             pos = allAx(k).Position;
-            allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3), pos(4) * subplot_scale];
+            allAx(k).Position = [pos(1), pos(2) * subplot_scale, pos(3) * 1.05, pos(4) * subplot_scale];
         end
     end
     set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
