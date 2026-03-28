@@ -172,7 +172,7 @@ fprintf('\n--- SECTION 4: Cross-DWI ADC Subvolume Comparison at Fx1 ---\n');
 % When only one pipeline is available (e.g., first run with Standard only),
 % this will fail gracefully rather than halting the visualization step.
 try
-    plot_cross_dwi_subvolume_comparison_streaming(summary_metrics, config_struct);
+    plot_cross_dwi_subvolume_comparison(summary_metrics, config_struct);
 catch ME
     fprintf('  ⚠️ Cross-DWI subvolume comparison failed: %s\n', ME.message);
 end
@@ -397,39 +397,8 @@ drawnow;
 pause(0.05);
 end
 
-function plot_cross_dwi_subvolume_comparison_streaming(summary_metrics, config_struct)
-% Streaming version of plot_cross_dwi_subvolume_comparison - creates, saves, and closes figures immediately
-
-% Create cross-DWI comparison figure
-fig = figure('Units', 'inches', 'Position', [1 1 14 10]);
-
-% This is a simplified version - the full implementation would include
-% the actual cross-DWI comparison logic from the original function
-% but using the streaming approach
-
-% Extract output folder
-if isfield(config_struct, 'output_folder')
-    output_folder = config_struct.output_folder;
-else
-    timestamp_str = datestr(now, 'yyyymmdd_HHMMSS');
-    output_folder = fullfile(fileparts(mfilename('fullpath')), '..', '..', sprintf('saved_files_%s', timestamp_str));
-end
-
-% Placeholder subplot - replace with actual cross-DWI comparison logic
-subplot(1,1,1);
-text(0.5, 0.5, 'Cross-DWI Subvolume Comparison', 'HorizontalAlignment', 'center', ...
-    'FontSize', 16, 'Units', 'normalized');
-title('Cross-DWI ADC Subvolume Comparison at Fx1');
-
-% Save and close figure
-filename = fullfile(output_folder, 'cross_dwi_subvolume_comparison.png');
-print(fig, filename, '-dpng', '-r300');
-close(fig);
-
-% Force memory cleanup
-drawnow;
-pause(0.05);
-end
+% plot_cross_dwi_subvolume_comparison_streaming removed — was a placeholder
+% that produced blank graphs. Now calls the real utility directly (line 175).
 
 % Placeholder helper functions (plot_patient_anatomy, plot_patient_adc_map,
 % plot_patient_adc_overlay) removed — they produced blank images with only
