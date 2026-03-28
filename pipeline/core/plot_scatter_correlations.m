@@ -52,7 +52,7 @@ diff_names   = {'Mean ADC', 'Mean D', 'Mean f'};
 diff_units   = {'mm^2/s',   'mm^2/s',  ''};
 
 % 2 rows (mean dose, D95) x 3 cols (ADC, D, f) = 6 scatter subplots
-figure('Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
+fig_scatter = figure('Visible', 'off', 'Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
        'Position', [150, 150, 1400, 500]);
 
 plot_idx = 1;  % sequential subplot index across the 2x3 grid
@@ -106,14 +106,14 @@ for di = 1:n_diff_metrics
         if sum(lc_mask) >= 2
             x_line_lc = linspace(min(x_vals(lc_mask)), max(x_vals(lc_mask)), 50);
             p_fit_lc = polyfit(x_vals(lc_mask), y_vals(lc_mask), 1);
-            plot(x_line_lc, polyval(p_fit_lc, x_line_lc), '--', 'Color', [0 0.4470 0.7410], ...
-                'LineWidth', 1.5, 'DisplayName', 'LC trend');
+            plot(x_line_lc, polyval(p_fit_lc, x_line_lc), '-', 'Color', [0 0.4470 0.7410], ...
+                'LineWidth', 2, 'DisplayName', 'LC trend');
         end
         if sum(lf_mask) >= 2
             x_line_lf = linspace(min(x_vals(lf_mask)), max(x_vals(lf_mask)), 50);
             p_fit_lf = polyfit(x_vals(lf_mask), y_vals(lf_mask), 1);
             plot(x_line_lf, polyval(p_fit_lf, x_line_lf), '--', 'Color', [0.8500 0.3250 0.0980], ...
-                'LineWidth', 1.5, 'DisplayName', 'LF trend');
+                'LineWidth', 2, 'DisplayName', 'LF trend');
         end
         warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         hold off;
@@ -170,7 +170,8 @@ for di = 1:n_diff_metrics
         if exist('OCTAVE_VERSION', 'builtin')
             legend('LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
         else
-            legend('Location', 'best', 'FontSize', 9);
+            lg = legend('Location', 'best', 'FontSize', 8);
+            set(lg, 'Box', 'on', 'EdgeColor', [0.5 0.5 0.5]);
         end
         grid on;
 
@@ -179,9 +180,9 @@ for di = 1:n_diff_metrics
 end
 sgtitle(['RT Dose vs Diffusion Metrics (Fx1) (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
-set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-saveas(gcf, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']));
-close(gcf);
+set(findall(fig_scatter, 'Type', 'Axes'), 'Toolbar', []);
+print(fig_scatter, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']), '-dpng', '-r300');
+close(fig_scatter);
 
 fprintf('  Scatter plots generated (%s).\n', dtype_label);
 
