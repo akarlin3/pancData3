@@ -44,7 +44,7 @@ metric_units = {'mm^2/s',   'mm^2/s',  '',       'mm^2/s'};
 % --- 2a. Histograms ---
 % Use a taller figure (450 px) to prevent the sgtitle from overlapping
 % the subplot titles, and shift subplots down for extra clearance.
-figure('Name', ['Feature Distributions — Histograms — ' dtype_label], ...
+fig_hist = figure('Visible', 'off', 'Name', ['Feature Distributions — Histograms — ' dtype_label], ...
        'Position', [100, 100, 1200, 450]);
 n_metrics_dist = 4;  % ADC, D, f, D*
 for mi = 1:n_metrics_dist
@@ -61,19 +61,19 @@ sgtitle(['Baseline Feature Distributions by Outcome (' dtype_label ')'], ...
 % Shift all subplot axes down slightly so the supertitle does not overlap
 % the individual subplot titles. The 0.92 multiplier reduces both the
 % vertical position and height by 8%, creating clearance above each subplot.
-allAx = findall(gcf, 'Type', 'Axes');
+allAx = findall(fig_hist, 'Type', 'Axes');
 for k = 1:numel(allAx)
     pos = get(allAx(k), 'Position');
     set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
 % Disable axes toolbar widgets (zoom, pan, data tips) for clean figure export
-set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-print(gcf, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']), '-dpng', '-r300');
-close(gcf);
+set(findall(fig_hist, 'Type', 'Axes'), 'Toolbar', []);
+print(fig_hist, fullfile(output_folder, ['Feature_Histograms_' dtype_label '.png']), '-dpng', '-r300');
+close(fig_hist);
 
 % --- 2b. Box Plots ---
 % Same height increase and subplot shift applied here.
-figure('Name', ['Feature Distributions — Box Plots — ' dtype_label], ...
+fig_box = figure('Visible', 'off', 'Name', ['Feature Distributions — Box Plots — ' dtype_label], ...
        'Position', [100, 500, 1200, 450]);
 for mi = 1:n_metrics_dist
     text_progress_bar(mi, n_metrics_dist, 'Generating box plots');
@@ -85,14 +85,14 @@ end
 sgtitle(['Baseline Feature Box Plots by Outcome (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
 % Shift subplot axes down to avoid supertitle/subplot-title overlap
-allAx = findall(gcf, 'Type', 'Axes');
+allAx = findall(fig_box, 'Type', 'Axes');
 for k = 1:numel(allAx)
     pos = get(allAx(k), 'Position');
     set(allAx(k), 'Position', [pos(1), pos(2) * 0.92, pos(3), pos(4) * 0.92]);
 end
-set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-print(gcf, fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']), '-dpng', '-r300');
-close(gcf);
+set(findall(fig_box, 'Type', 'Axes'), 'Toolbar', []);
+print(fig_box, fullfile(output_folder, ['Feature_BoxPlots_' dtype_label '.png']), '-dpng', '-r300');
+close(fig_box);
 
 fprintf('  Histograms and box plots generated for ADC, D, f, D* (%s).\n', dtype_label);
 

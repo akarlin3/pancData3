@@ -52,7 +52,7 @@ diff_names   = {'Mean ADC', 'Mean D', 'Mean f'};
 diff_units   = {'mm^2/s',   'mm^2/s',  ''};
 
 % 2 rows (mean dose, D95) x 3 cols (ADC, D, f) = 6 scatter subplots
-figure('Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
+fig_scatter = figure('Visible', 'off', 'Name', ['Dose vs Diffusion Metrics — ' dtype_label], ...
        'Position', [150, 150, 1400, 500]);
 
 plot_idx = 1;  % sequential subplot index across the 2x3 grid
@@ -180,9 +180,9 @@ for di = 1:n_diff_metrics
 end
 sgtitle(['RT Dose vs Diffusion Metrics (Fx1) (' dtype_label ')'], ...
         'FontSize', 14, 'FontWeight', 'bold');
-set(findall(gcf, 'Type', 'Axes'), 'Toolbar', []);
-print(gcf, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']), '-dpng', '-r300');
-close(gcf);
+set(findall(fig_scatter, 'Type', 'Axes'), 'Toolbar', []);
+print(fig_scatter, fullfile(output_folder, ['Dose_vs_Diffusion_' dtype_label '.png']), '-dpng', '-r300');
+close(fig_scatter);
 
 fprintf('  Scatter plots generated (%s).\n', dtype_label);
 
