@@ -251,7 +251,7 @@ for j = 1:nPat
         % of the figure width.  The per-row height preserves the image
         % aspect ratio so slices are not squished or stretched.
         n_rows_cur_fig = min(pats_per_fig, n_eligible - (fig_num - 1) * pats_per_fig);
-        col_width  = 400;                                       % pixels per subplot column
+        col_width  = 480;                                       % pixels per subplot column
         fig_width  = round(col_width * 3.6);                    % 3 columns + colorbar space
         row_height = max(200, round(col_width * slice_aspect_ratio) + 40);  % image + title padding
         fig_height = max(300, n_rows_cur_fig * row_height + 60);            % rows + sgtitle space
@@ -273,7 +273,7 @@ for j = 1:nPat
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 1);
     imagesc(b0_slice); axis image; axis off; colormap(gca, gray);
     hold on;
-    contour(gtv_slice, [0.5 0.5], 'r', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'r', 'LineWidth', 2.5);
     hold off;
     title(sprintf('%s — b0 (GTV contour)', id_list{j}), 'Interpreter', 'none', 'FontSize', 9);
 
@@ -285,7 +285,7 @@ for j = 1:nPat
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 2);
     imagesc(adc_slice * 1e3, [0 3]); axis image; axis off;
     hold on;
-    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 2.5);
     hold off;
     title('ADC map', 'FontSize', 9);
 
@@ -309,7 +309,7 @@ for j = 1:nPat
     h_ov = imagesc(adc_overlay, [0 3]);
     % Use 60 % opacity for the colour overlay
     set(h_ov, 'AlphaData', ~isnan(adc_overlay) * 0.6);
-    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 2.5);
     hold off;
     title('ADC on Anatomy', 'FontSize', 9);
 end
