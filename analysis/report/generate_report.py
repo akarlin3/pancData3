@@ -125,6 +125,11 @@ from report.sections import (  # noqa: F401  # type: ignore
     build_nri_idi_section,
     build_texture_section,
     build_registration_quality_section,
+    _section_subvolume_stability,
+    _section_per_method_cor,
+    _section_dose_response_roc,
+    _section_gtv_confounding,
+    _section_risk_dose_concordance,
 )
 
 setup_utf8_stdout()
@@ -427,6 +432,11 @@ def generate_report(folder: Path) -> str:
         ("Core method failure rates", _section_failure_rates, (mat_data, dwi_types_present)),
         ("Core method pruning", _section_pruning_results, (mat_data, dwi_types_present)),
         ("Core method outcomes", _section_core_method_outcomes, (mat_data, dwi_types_present)),
+        ("Per-method CoR", _section_per_method_cor, (mat_data, dwi_types_present)),
+        ("Sub-volume stability", _section_subvolume_stability, (mat_data, dwi_types_present)),
+        ("Dose-response ROC", _section_dose_response_roc, (mat_data, dwi_types_present)),
+        ("GTV confounding", _section_gtv_confounding, (mat_data, dwi_types_present)),
+        ("Risk-dose concordance", _section_risk_dose_concordance, (mat_data, dwi_types_present)),
     ]
 
     for name, fn, fn_args in statistics_sections:

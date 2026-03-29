@@ -597,7 +597,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (42 test files) using pytest:
+The analysis scripts have a comprehensive Python test suite (47 test files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v

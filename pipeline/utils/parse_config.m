@@ -475,6 +475,45 @@ function config_struct = parse_config(json_path)
             config_struct.run_trajectory_plots = true;
         end
 
+        % run_subvolume_stability: When true, compute Dice between each
+        % fraction's core mask and the Fx1 baseline mask for every active
+        % core method. Shows which methods produce temporally stable
+        % sub-volumes across treatment fractions.
+        if ~isfield(config_struct, 'run_subvolume_stability')
+            config_struct.run_subvolume_stability = false;
+        end
+
+        % run_dose_response_roc: When true, run ROC analysis on D95/V50
+        % of the sub-volume to find optimal dose cutoff separating LC
+        % from LF for each surviving core method.  Requires
+        % run_all_core_methods=true for per_method_dosimetry.
+        if ~isfield(config_struct, 'run_dose_response_roc')
+            config_struct.run_dose_response_roc = false;
+        end
+
+        % run_risk_dose_concordance: When true, compare elastic net risk
+        % model classifications against D95-based stratification to
+        % determine if they identify the same or complementary patients.
+        % Requires both predictive_results and per_method_dosimetry.
+        if ~isfield(config_struct, 'run_risk_dose_concordance')
+            config_struct.run_risk_dose_concordance = false;
+        end
+
+        % run_per_method_cor: When true, compute the Coefficient of
+        % Reproducibility for each core method's sub-volume fraction
+        % using Fx1 repeat scans.
+        if ~isfield(config_struct, 'run_per_method_cor')
+            config_struct.run_per_method_cor = false;
+        end
+
+        % run_gtv_confounding: When true, test whether GTV volume change
+        % confounds the D95-outcome association by comparing unadjusted
+        % and GTV-adjusted Cox hazard ratios.  Requires
+        % per_method_dosimetry and baseline_results.m_gtv_vol.
+        if ~isfield(config_struct, 'run_gtv_confounding')
+            config_struct.run_gtv_confounding = false;
+        end
+
         % ================================================================
         % Type validation for critical configuration fields.
         %
@@ -532,7 +571,10 @@ function config_struct = parse_config(json_path)
             'exclude_motion_volumes', 'use_texture_features', 'texture_3d', ...
             'run_imputation_sensitivity', 'fit_time_varying_cox', ...
             'export_validation_model', 'use_auxiliary_biomarkers', ...
-            'use_gpu', 'run_trajectory_plots'};
+            'use_gpu', 'run_trajectory_plots', ...
+            'run_subvolume_stability', 'run_dose_response_roc', ...
+            'run_risk_dose_concordance', 'run_per_method_cor', ...
+            'run_gtv_confounding'};
         for i = 1:numel(logical_fields)
             fn = logical_fields{i};
             if isfield(config_struct, fn)
