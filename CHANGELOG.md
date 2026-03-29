@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+#### Sub-Volume Stability Analysis
+- **`pipeline/utils/compute_subvolume_stability.m`**: New pipeline step — computes Dice between each fraction's core mask and Fx1 baseline for all active core methods. Generates line plot of mean Dice vs fractions. Gated on `run_subvolume_stability` config flag.
+- **`analysis/report/sections/subvolume_stability.py`**: New report section builder — method × timepoint table of mean Dice vs Fx1 with color coding (green ≥0.7, yellow 0.5–0.7, red <0.5).
+- **`pipeline/tests/test_compute_subvolume_stability.m`**: 4 MATLAB unit tests (struct fields, Fx1 Dice=1.0, Dice range, dimensions).
+- **`analysis/tests/test_subvolume_stability_section.py`**: 6 Python tests for the report section builder.
+
+#### Dose-Response ROC Analysis
+- **`pipeline/utils/compute_dose_response_roc.m`**: New pipeline step — ROC analysis on D95/V50 of sub-volumes to find optimal dose cutoff separating LC from LF. Bootstrap AUC CI, Youden index threshold. Gated on `run_dose_response_roc` config flag.
+- **`analysis/report/sections/dose_response_roc.py`**: New report section builder — AUC, CI, optimal threshold, sensitivity/specificity table with clinical guidance text.
+- **`pipeline/tests/test_compute_dose_response_roc.m`**: 4 MATLAB unit tests (struct fields, AUC above chance, threshold in range, AUC range).
+- **`analysis/tests/test_dose_response_roc_section.py`**: 7 Python tests for the report section builder.
+
+#### Risk-Dose Concordance
+- **`pipeline/utils/compute_risk_dose_concordance.m`**: New pipeline step — compares elastic net risk model classifications against D95-based stratification using Cohen's kappa, concordance %, and combined AUC. Gated on `run_risk_dose_concordance` config flag.
+- **`analysis/report/sections/risk_dose_concordance.py`**: New report section builder — kappa with interpretation, concordance %, complementary patients, combined AUC.
+- **`pipeline/tests/test_compute_risk_dose_concordance.m`**: 4 MATLAB unit tests (struct fields, concordant/complementary scenarios, kappa range, missing data).
+- **`analysis/tests/test_risk_dose_concordance_section.py`**: 7 Python tests for the report section builder.
+
+#### Per-Method CoR from Fx1 Repeats
+- **`pipeline/utils/compute_per_method_cor.m`**: New pipeline step — extends wCV/CoR repeatability analysis to all active core methods using Fx1 repeat scans. Generates bar chart with reproducibility thresholds. Gated on `run_per_method_cor` config flag.
+- **`analysis/report/sections/per_method_cor.py`**: New report section builder — method × wCV/CoR table with color coding (green <15%, yellow 15–30%, red >30%).
+- **`pipeline/tests/test_compute_per_method_cor.m`**: 5 MATLAB unit tests (struct fields, CoR positivity, identical repeats near-zero, dimensions, repeat count).
+- **`analysis/tests/test_per_method_cor_section.py`**: 6 Python tests for the report section builder.
+
+#### GTV Volume Confounding Check
+- **`pipeline/utils/compute_gtv_confounding.m`**: New pipeline step — tests whether D95-outcome association is confounded by GTV shrinkage via Spearman correlation, Wilcoxon rank-sum, and GTV-adjusted Cox PH. Gated on `run_gtv_confounding` config flag.
+- **`analysis/report/sections/gtv_confounding.py`**: New report section builder — D95-GTV correlation, unadjusted/adjusted HR, % change, confounding flag with warning box.
+- **`pipeline/tests/test_compute_gtv_confounding.m`**: 4 MATLAB unit tests (struct fields, confounded/independent scenarios, missing GTV graceful handling).
+- **`analysis/tests/test_gtv_confounding_section.py`**: 6 Python tests for the report section builder.
+
+#### Pipeline Integration
+- **`pipeline/utils/parse_config.m`**: 5 new config flags: `run_subvolume_stability`, `run_dose_response_roc`, `run_risk_dose_concordance`, `run_per_method_cor`, `run_gtv_confounding` (all default `false`). Added to `logical_fields` for type validation.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: 5 new step dispatchers with wrapper functions, gated on config flags and data availability.
+- **`pipeline/utils/prepare_pipeline_session.m`**: 5 new step injection entries with dependency-aware ordering.
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse 5 new MAT file types (per_method_cor, subvolume_stability, dose_response_roc, gtv_confounding, risk_dose_concordance).
+- **`analysis/report/generate_report.py`**: 5 new section builders wired into the statistics section pipeline.
+- **`analysis/report/sections/__init__.py`**: 5 new section builder exports.
+
+#### Documentation
+- Updated CLAUDE.md: 5 new utility modules (76→81), 5 new report sections (40→45), 5 new MATLAB tests (127→132), 5 new Python tests (42→47), 5 new config fields.
+- Updated CLAUDE_REFERENCE.md: matching test and module table entries.
+- Updated README.md: Python test count 42→47.
+
 ## [2.3.1] - 2026-03-29
 
 ### Added

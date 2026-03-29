@@ -177,6 +177,69 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
             end
         end
 
+        % per_method_cor: after cross_pipeline_dice (needs Fx1 repeat data)
+        if isfield(config_struct, 'run_per_method_cor') && config_struct.run_per_method_cor && ...
+                ~ismember('per_method_cor', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'cross_pipeline_dice'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'core_failure_rates')); end
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_baseline')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'per_method_cor'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'per_method_cor';
+            end
+        end
+
+        % subvolume_stability: after core_failure_rates (needs validated voxel data)
+        if isfield(config_struct, 'run_subvolume_stability') && config_struct.run_subvolume_stability && ...
+                ~ismember('subvolume_stability', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'core_failure_rates'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_baseline')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'subvolume_stability'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'subvolume_stability';
+            end
+        end
+
+        % dose_response_roc: after core_method_outcomes (needs per_method_dosimetry)
+        if isfield(config_struct, 'run_dose_response_roc') && config_struct.run_dose_response_roc && ...
+                ~ismember('dose_response_roc', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'core_method_outcomes'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_dosimetry')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'dose_response_roc'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'dose_response_roc';
+            end
+        end
+
+        % gtv_confounding: after core_method_outcomes (needs per_method_dosimetry + baseline)
+        if isfield(config_struct, 'run_gtv_confounding') && config_struct.run_gtv_confounding && ...
+                ~ismember('gtv_confounding', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'dose_response_roc'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'core_method_outcomes')); end
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_dosimetry')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'gtv_confounding'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'gtv_confounding';
+            end
+        end
+
+        % risk_dose_concordance: after core_method_outcomes (needs predictive + dosimetry)
+        if isfield(config_struct, 'run_risk_dose_concordance') && config_struct.run_risk_dose_concordance && ...
+                ~ismember('risk_dose_concordance', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'gtv_confounding'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'dose_response_roc')); end
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'core_method_outcomes')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'risk_dose_concordance'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'risk_dose_concordance';
+            end
+        end
+
         % Pipeline progress GUI (optional — failure here must not abort the pipeline)
         pipeGUI = [];
         if ProgressGUI.isDisplayAvailable()
