@@ -16,17 +16,23 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
         TestTimer                   % tic handle for measuring individual test duration
         SuiteTimer                  % tic handle for measuring total suite duration
         DiaryFile char = ''         % Diary file to restart after each test (core modules hijack diary)
+        CounterOffset double = 0    % Offset for display counter (e.g., after parallel phase)
     end
 
     methods
-        function plugin = ProgressBarPlugin(totalTests, diaryFile)
+        function plugin = ProgressBarPlugin(totalTests, diaryFile, counterOffset)
         %PROGRESSBARPLUGIN Constructor. Accepts the total test count for
         %   progress fraction display (e.g., [3/42]).
         %   Optional diaryFile: path to restart diary after each test
         %   (core modules open their own diary, overriding the test log).
+        %   Optional counterOffset: starting offset for display numbering
+        %   (e.g., after parallel phase completes, so numbering continues).
             plugin.TotalTests = totalTests;
             if nargin >= 2 && ~isempty(diaryFile)
                 plugin.DiaryFile = diaryFile;
+            end
+            if nargin >= 3 && ~isempty(counterOffset)
+                plugin.CounterOffset = counterOffset;
             end
         end
     end
@@ -65,7 +71,7 @@ classdef ProgressBarPlugin < matlab.unittest.plugins.TestRunnerPlugin
             % Line format: "  XX PASS  [NNN/NNN] <name> (X.XXs)\n"
             % Overhead is ~30 chars + counter digits; cap name to the remainder.
             termWidth = ProgressBarPlugin.getTerminalWidth();
-            counterStr = sprintf('%3d/%d', plugin.CompletedTests, plugin.TotalTests);
+            counterStr = sprintf('%3d/%d', plugin.CompletedTests + plugin.CounterOffset, plugin.TotalTests);
             timeStr = sprintf('%.2fs', testTime);
             % 2 (indent) + 3 (emoji) + 6 (" PASS ") + 2 (" [") + counter + 2 ("] ") + 2 (" (") + time + 1 (")")
             overhead = 2 + 3 + 6 + 2 + length(counterStr) + 2 + 2 + length(timeStr) + 1;
