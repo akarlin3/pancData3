@@ -321,18 +321,50 @@ steps = {'load', 'sanity', 'visualize', 'metrics_baseline', ...
          'metrics_longitudinal', 'metrics_dosimetry', ...
          'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
 
-% Conditionally inject compare_cores after metrics_baseline when enabled.
-% compare_cores runs all 11 tumor core delineation methods and computes
-% pairwise Dice/Hausdorff agreement — a computationally expensive step
-% that is off by default.  It must come after metrics_baseline because
-% it requires the validated voxel data and summary metrics.
+% Conditionally inject config-gated steps when enabled.
+% Each step is inserted at its correct position in the dependency chain.
 % Note: eaw_cfg was decoded earlier (~line 163) for the skip_tests check.
+
+% compare_cores: after metrics_baseline (needs validated voxel data)
 if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_compare_cores') && eaw_cfg.run_compare_cores
     cc_idx = find(strcmp(steps, 'metrics_baseline'));
     if ~isempty(cc_idx)
         steps = [steps(1:cc_idx), {'compare_cores'}, steps(cc_idx+1:end)];
     else
-        steps{end+1} = 'compare_cores';  % Append if metrics_baseline not in steps
+        steps{end+1} = 'compare_cores';
+    end
+end
+
+% cross_pipeline_dice: after compare_cores / metrics_baseline
+if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_cross_pipeline_dice') && eaw_cfg.run_cross_pipeline_dice
+    cpd_idx = find(strcmp(steps, 'compare_cores'));
+    if isempty(cpd_idx), cpd_idx = find(strcmp(steps, 'metrics_baseline')); end
+    if ~isempty(cpd_idx)
+        steps = [steps(1:cpd_idx), {'cross_pipeline_dice'}, steps(cpd_idx+1:end)];
+    else
+        steps{end+1} = 'cross_pipeline_dice';
+    end
+end
+
+% core_failure_rates: after cross_pipeline_dice (or metrics_baseline)
+if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_core_failure_rates') && eaw_cfg.run_core_failure_rates
+    cfr_idx = find(strcmp(steps, 'cross_pipeline_dice'));
+    if isempty(cfr_idx), cfr_idx = find(strcmp(steps, 'compare_cores')); end
+    if isempty(cfr_idx), cfr_idx = find(strcmp(steps, 'metrics_baseline')); end
+    if ~isempty(cfr_idx)
+        steps = [steps(1:cfr_idx), {'core_failure_rates'}, steps(cfr_idx+1:end)];
+    else
+        steps{end+1} = 'core_failure_rates';
+    end
+end
+
+% core_method_outcomes: after metrics_dosimetry (needs per_method_dosimetry)
+if exist('eaw_cfg', 'var') && isfield(eaw_cfg, 'run_core_method_outcomes') && eaw_cfg.run_core_method_outcomes
+    cmo_idx = find(strcmp(steps, 'metrics_dosimetry'));
+    if ~isempty(cmo_idx)
+        steps = [steps(1:cmo_idx), {'core_method_outcomes'}, steps(cmo_idx+1:end)];
+    else
+        steps{end+1} = 'core_method_outcomes';
     end
 end
 
