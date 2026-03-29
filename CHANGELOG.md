@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-03-29
+
 ### Added
 
 #### Core Method Failure Rates
@@ -44,6 +46,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`pipeline/utils/dispatch_pipeline_steps.m`**: New `cross_pipeline_dice` step block with heatmap figure generation.
 - **`pipeline/tests/test_compute_cross_pipeline_dice.m`**: 6 MATLAB unit tests covering struct fields, dimensions, range, identical pipelines, single patient, and empty pipeline edge cases.
 - **`analysis/tests/test_cross_pipeline_dice_section.py`**: 8 Python tests for the report section builder.
+
+### Documentation
+- Updated version to 2.3.1 across CLAUDE.md, README.md, CHANGELOG.md, CITATION.cff, SECURITY.md
+- Test file counts: MATLAB 124 → 127, Python 41 → 42 (43 including conftest.py)
+- README utility count: 72 → 76, Octave shims: 21 → 24
+
+---
 
 ## [2.2.0] - 2026-03-26
 
