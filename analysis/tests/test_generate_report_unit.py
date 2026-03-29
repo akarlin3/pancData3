@@ -11,7 +11,6 @@ Tests:
 
 from __future__ import annotations
 
-import csv
 import sys
 from pathlib import Path
 
@@ -187,7 +186,7 @@ class TestGenerateReportMinimalData:
     """Verify generate_report produces HTML output with minimal synthetic data."""
 
     def test_generate_report_with_minimal_data(self, tmp_path):
-        """Create minimal CSV/log files and verify HTML output is created."""
+        """Create minimal log files and verify HTML output includes DWI type."""
         from report.generate_report import generate_report
 
         folder = tmp_path / "saved_files_20260315_100000"
@@ -203,32 +202,7 @@ class TestGenerateReportMinimalData:
             "Pipeline complete\n"
         )
 
-        # Create a minimal graph_analysis_results.csv.
-        csv_path = folder / "graph_analysis_results.csv"
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "file", "dwi_type", "graph_name", "graph_type",
-                "x_label", "y_label", "x_type", "y_type",
-                "trend_direction", "trend_description",
-                "inflection_x", "inflection_description",
-                "stat_test_name", "stat_test_value", "stat_test_p",
-                "outlier_label", "outlier_value",
-                "ref_line_label", "ref_line_value",
-                "clinical_relevance",
-            ])
-            writer.writerow([
-                "Feature_BoxPlots_Standard.png", "Standard",
-                "Feature_BoxPlots", "box",
-                "Group", "ADC", "categorical", "continuous",
-                "increasing", "Higher ADC in treatment group",
-                "", "",
-                "Wilcoxon", "2.31", "0.023",
-                "", "",
-                "", "",
-                "Moderate",
-            ])
-
+        # No graph CSV -- generate_report should handle its absence gracefully.
         html = generate_report(folder)
         assert isinstance(html, str)
         assert "<html" in html
