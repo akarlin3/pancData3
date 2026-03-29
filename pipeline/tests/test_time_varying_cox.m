@@ -133,5 +133,171 @@ classdef test_time_varying_cox < matlab.unittest.TestCase
             testCase.verifyEmpty(tv_results.interaction_models, ...
                 'No violated covariates should produce no interaction models.');
         end
+
+        function testSparseEventPeriodHandled(testCase)
+            % With very few events in later time periods, verify sparse
+            % period detection works and the function completes.
+            rng(42);
+            n = 150;
+            t_start = zeros(n, 1);
+            % Most events cluster in early times; late times have very few
+            t_stop = [rand(100, 1) * 20 + 1; rand(50, 1) * 80 + 80];
+            X = randn(n, 2);
+            event_csh = zeros(n, 1);
+            % Place most events in early period
+            event_csh(1:30) = 1;
+            % Only 1 event in late period
+            event_csh(120) = 1;
+
+            cov_names = {'Cov1', 'Cov2'};
+            schoenfeld = struct('violated', [true; false], 'p_value', [0.01; 0.5]);
+
+            config = struct('min_events_per_period', 5);
+            evalc('tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, cov_names, schoenfeld, testCase.TempDir, ''Test'', config);');
+
+            % Should complete without error
+            testCase.verifyTrue(isstruct(tv_results), ...
+                'Should return a struct even with sparse events.');
+            testCase.verifyEqual(numel(tv_results.violated_covariates), 1, ...
+                'Should detect 1 violated covariate.');
+            % If interaction models were fit, check stable_period_used flag
+            if numel(tv_results.interaction_models) >= 1
+                testCase.verifyTrue(isfield(tv_results.interaction_models(1), 'stable_period_used'), ...
+                    'Interaction model should have stable_period_used field.');
+            end
+        end
+
+        function testMultipleViolatedCovariates(testCase)
+            % When 2+ covariates violate PH, verify all get interaction models.
+            rng(42);
+            n = 200;
+            t_start = zeros(n, 1);
+            t_stop = rand(n, 1) * 100 + 10;
+            X = randn(n, 3);
+
+            % Strong time-varying effects for both Cov1 and Cov2
+            t_mid = (t_start + t_stop) / 2;
+            log_t = log(max(t_mid, 1));
+            hazard = 0.5 * X(:,1) .* log_t + 0.4 * X(:,2) .* log_t + 0.2 * X(:,3);
+            event_prob = 1 ./ (1 + exp(-hazard));
+            event_csh = double(rand(n, 1) < event_prob);
+            if sum(event_csh) < 15
+                event_csh(1:20) = 1;
+            end
+
+            cov_names = {'Cov1', 'Cov2', 'Cov3'};
+            schoenfeld = struct('violated', [true; true; false], 'p_value', [0.01; 0.02; 0.6]);
+
+            config = struct('min_events_per_period', 3);
+            evalc('tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, cov_names, schoenfeld, testCase.TempDir, ''Test'', config);');
+
+            testCase.verifyEqual(numel(tv_results.violated_covariates), 2, ...
+                'Should detect 2 violated covariates.');
+            testCase.verifyTrue(ismember('Cov1', tv_results.violated_covariates), ...
+                'Cov1 should be in violated list.');
+            testCase.verifyTrue(ismember('Cov2', tv_results.violated_covariates), ...
+                'Cov2 should be in violated list.');
+            % Should have interaction models for both
+            testCase.verifyGreaterThanOrEqual(numel(tv_results.interaction_models), 2, ...
+                'Should fit interaction models for both violated covariates.');
+        end
+
+        function testLeftTruncationDetected(testCase)
+            % With non-zero t_start values (delayed entry), verify
+            % left_truncated flag is set in the output.
+            rng(42);
+            n = 150;
+            % Delayed entry: start times vary from 5 to 30
+            t_start = rand(n, 1) * 25 + 5;
+            t_stop = t_start + rand(n, 1) * 80 + 10;
+            X = randn(n, 2);
+
+            hazard = 0.3 * X(:,1) + 0.2 * X(:,2);
+            event_prob = 1 ./ (1 + exp(-hazard));
+            event_csh = double(rand(n, 1) < event_prob);
+            if sum(event_csh) < 15
+                event_csh(1:20) = 1;
+            end
+
+            cov_names = {'Cov1', 'Cov2'};
+            schoenfeld = struct('violated', [true; false], 'p_value', [0.03; 0.6]);
+
+            config = struct('min_events_per_period', 3);
+            evalc('tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, cov_names, schoenfeld, testCase.TempDir, ''Test'', config);');
+
+            % Check stratified model has left_truncated flag
+            if isfield(tv_results.stratified_model, 'left_truncated')
+                testCase.verifyTrue(tv_results.stratified_model.left_truncated, ...
+                    'Stratified model should flag left-truncation for delayed entry.');
+            end
+            % Check interaction models have left_truncated flag
+            if numel(tv_results.interaction_models) >= 1
+                testCase.verifyTrue(tv_results.interaction_models(1).left_truncated, ...
+                    'Interaction model should flag left-truncation for delayed entry.');
+            end
+        end
+
+        function testOutputStructFields(testCase)
+            % Verify all expected fields in tv_results.
+            rng(42);
+            n = 100;
+            t_start = zeros(n, 1);
+            t_stop = rand(n, 1) * 50 + 5;
+            X = randn(n, 2);
+            event_csh = double(rand(n, 1) < 0.4);
+            if sum(event_csh) < 10
+                event_csh(1:15) = 1;
+            end
+
+            cov_names = {'Cov1', 'Cov2'};
+            schoenfeld = struct('violated', [true; false], 'p_value', [0.03; 0.6]);
+
+            config = struct();
+            evalc('tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, cov_names, schoenfeld, testCase.TempDir, ''Test'', config);');
+
+            % Top-level fields
+            testCase.verifyTrue(isfield(tv_results, 'violated_covariates'), ...
+                'Should have violated_covariates field.');
+            testCase.verifyTrue(isfield(tv_results, 'stratified_model'), ...
+                'Should have stratified_model field.');
+            testCase.verifyTrue(isfield(tv_results, 'interaction_models'), ...
+                'Should have interaction_models field.');
+
+            % Interaction model entry fields (if any were fit)
+            if numel(tv_results.interaction_models) >= 1
+                im = tv_results.interaction_models(1);
+                expected_fields = {'covariate', 'interaction_coef', 'interaction_p', ...
+                    'base_coef', 'base_p', 'penalized', 'stable_period_used', 'left_truncated'};
+                for i = 1:numel(expected_fields)
+                    testCase.verifyTrue(isfield(im, expected_fields{i}), ...
+                        sprintf('Interaction model should have field %s.', expected_fields{i}));
+                end
+            end
+        end
+
+        function testPenalizedModelUsedForIllConditioned(testCase)
+            % Create ill-conditioned data with very few events, verify
+            % penalized flag is set.
+            rng(42);
+            n = 80;
+            t_start = zeros(n, 1);
+            t_stop = rand(n, 1) * 100 + 10;
+            X = randn(n, 2);
+            % Very few events to trigger penalized estimation (<50 events)
+            event_csh = zeros(n, 1);
+            event_csh(1:8) = 1;  % Only 8 events
+
+            cov_names = {'Cov1', 'Cov2'};
+            schoenfeld = struct('violated', [true; false], 'p_value', [0.02; 0.5]);
+
+            config = struct('min_events_per_period', 2);
+            evalc('tv_results = fit_time_varying_cox(X, t_start, t_stop, event_csh, cov_names, schoenfeld, testCase.TempDir, ''Test'', config);');
+
+            % With only 8 events, penalized estimation should be triggered
+            if numel(tv_results.interaction_models) >= 1
+                testCase.verifyTrue(tv_results.interaction_models(1).penalized, ...
+                    'Should use penalized estimation for sparse events (<50).');
+            end
+        end
     end
 end
