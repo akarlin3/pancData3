@@ -175,11 +175,3 @@ classdef test_knn_impute_train_test < matlab.unittest.TestCase
         end
     end
 end
-
-
-function [out1, out2] = evalc_two_out(expr)
-% Helper to capture console output while extracting two output arguments
-    evalc('[out1, out2] = knn_impute_train_test(X_tr, X_te, 2);');
-    % The above won't work because variables aren't in scope.
-    % Use assignin trick instead:
-end
