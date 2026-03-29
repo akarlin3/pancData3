@@ -11,9 +11,9 @@ if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
 from improvement_loop.agents.implementer import (
-    ImplementResult,
-    _generate_fix,
-    implement,
+    apply_fix,
+    get_fix_system_prompt,
+    DEFAULT_FIX_PROMPT,
 )
 from improvement_loop.evaluator import Finding
 
@@ -33,132 +33,83 @@ def _make_finding(**overrides) -> Finding:
 
 
 # ---------------------------------------------------------------------------
-# ImplementResult dataclass
+# get_fix_system_prompt
 # ---------------------------------------------------------------------------
 
-class TestImplementResult:
-    """Basic sanity checks on the ImplementResult dataclass."""
+class TestGetFixSystemPrompt:
+    """Verify system prompt retrieval."""
 
-    def test_success_defaults(self):
-        r = ImplementResult(success=True, original_content="a", new_content="b")
-        assert r.success is True
-        assert r.error == ""
+    def test_returns_string(self):
+        prompt = get_fix_system_prompt()
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
 
-    def test_failure_with_error(self):
-        r = ImplementResult(success=False, original_content="", new_content="",
-                            error="file not found")
-        assert r.success is False
-        assert "file not found" in r.error
+    def test_default_prompt_content(self):
+        assert "code fixer" in DEFAULT_FIX_PROMPT.lower()
 
 
 # ---------------------------------------------------------------------------
-# implement() — dry_run mode
+# apply_fix — file not found
 # ---------------------------------------------------------------------------
 
-class TestImplementDryRun:
-    """implement() in dry_run mode returns success with empty contents."""
+class TestApplyFixFileNotFound:
+    """apply_fix prints a warning and returns when the target file doesn't exist."""
 
-    def test_returns_success(self):
-        finding = _make_finding()
-        result = implement(finding, base_branch="main", dry_run=True)
-        assert result.success is True
-
-    def test_empty_contents(self):
-        finding = _make_finding()
-        result = implement(finding, base_branch="main", dry_run=True)
-        assert result.original_content == ""
-        assert result.new_content == ""
-
-    def test_no_error(self):
-        finding = _make_finding()
-        result = implement(finding, base_branch="main", dry_run=True)
-        assert result.error == ""
-
-
-# ---------------------------------------------------------------------------
-# implement() — file not found
-# ---------------------------------------------------------------------------
-
-class TestImplementFileNotFound:
-    """implement() returns failure when the target file doesn't exist."""
-
-    def test_returns_failure(self, monkeypatch):
-        # Ensure branch_exists returns False so we reach the file check
-        monkeypatch.setattr(
-            "improvement_loop.agents.implementer.git_utils.branch_exists",
-            lambda name: False,
-        )
+    def test_missing_file_warns(self, tmp_path, capsys):
         finding = _make_finding(file="nonexistent/path/to/file.m")
-        result = implement(finding, base_branch="main")
-        assert result.success is False
-        assert "file not found" in result.error
-
-    def test_empty_contents_on_missing_file(self, monkeypatch):
-        monkeypatch.setattr(
-            "improvement_loop.agents.implementer.git_utils.branch_exists",
-            lambda name: False,
-        )
-        finding = _make_finding(file="nonexistent/path/to/file.m")
-        result = implement(finding, base_branch="main")
-        assert result.original_content == ""
-        assert result.new_content == ""
+        apply_fix(finding, repo_root=str(tmp_path))
+        captured = capsys.readouterr()
+        assert "not found" in captured.out.lower() or "WARNING" in captured.out
 
 
 # ---------------------------------------------------------------------------
-# implement() — branch already exists
+# apply_fix — successful fix (mocked API)
 # ---------------------------------------------------------------------------
 
-class TestImplementBranchExists:
-    """implement() returns failure when the branch already exists."""
+class TestApplyFixMockedAPI:
+    """apply_fix reads, calls API, and writes the file."""
 
-    def test_returns_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            "improvement_loop.agents.implementer.git_utils.branch_exists",
-            lambda name: True,
-        )
-        finding = _make_finding()
-        result = implement(finding, base_branch="main")
-        assert result.success is False
-        assert "branch exists" in result.error
+    def test_updates_file(self, tmp_path, monkeypatch):
+        # Create a target file
+        target_dir = tmp_path / "pipeline" / "core"
+        target_dir.mkdir(parents=True)
+        target_file = target_dir / "fit_models.m"
+        target_file.write_text("% original content\n", encoding="utf-8")
 
-
-# ---------------------------------------------------------------------------
-# _generate_fix() — mocked API
-# ---------------------------------------------------------------------------
-
-class TestGenerateFix:
-    """_generate_fix() calls the API and returns the response content."""
-
-    def test_returns_api_response(self, monkeypatch):
-        expected_content = "% fixed file content\nfunction y = fit_adc(x)\n  y = x + 1;\nend\n"
+        expected_content = "% fixed content\nfunction y = fit_adc(x)\n  y = x + 1;\nend\n"
         monkeypatch.setattr(
             "improvement_loop.agents.implementer.api_call_with_retry",
             lambda kwargs: expected_content,
         )
         finding = _make_finding()
-        result = _generate_fix(finding, "% original content")
-        assert result == expected_content
+        apply_fix(finding, repo_root=str(tmp_path))
+        assert target_file.read_text(encoding="utf-8") == expected_content
 
-    def test_passes_finding_context(self, monkeypatch):
+    def test_passes_finding_context(self, tmp_path, monkeypatch):
         """Verify the API call includes the finding's file, description, and fix."""
+        target_dir = tmp_path / "pipeline" / "core"
+        target_dir.mkdir(parents=True)
+        target_file = target_dir / "fit_models.m"
+        target_file.write_text("% original\n", encoding="utf-8")
+
         captured = {}
 
         def mock_api(kwargs):
             captured.update(kwargs)
-            return "fixed"
+            return "% fixed"
 
         monkeypatch.setattr(
             "improvement_loop.agents.implementer.api_call_with_retry",
             mock_api,
         )
         finding = _make_finding(
-            file="pipeline/utils/parse_config.m",
+            file="pipeline/core/fit_models.m",
             description="Missing default for new_field",
             fix="Add isfield check with default value.",
         )
-        _generate_fix(finding, "% original")
+        apply_fix(finding, repo_root=str(tmp_path))
         user_content = captured["messages"][0]["content"]
-        assert "parse_config.m" in user_content
+        assert "fit_models.m" in user_content
         assert "Missing default for new_field" in user_content
         assert "Add isfield check" in user_content
         assert "% original" in user_content
