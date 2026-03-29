@@ -127,7 +127,7 @@ classdef test_compute_schoenfeld_residuals < matlab.unittest.TestCase
             rng(42);
             n = 200;
             t_stop = sort(rand(n, 1) * 100 + 1);
-            t_start = [0; t_stop(1:end-1)];
+            t_start = zeros(n, 1);
             % Create a covariate whose effect explicitly depends on time
             X = randn(n, 1);
             % Generate events where hazard depends on X * log(t) — time-varying effect
@@ -153,7 +153,7 @@ classdef test_compute_schoenfeld_residuals < matlab.unittest.TestCase
             rng(42);
             n = 100;
             t_stop = sort(rand(n, 1) * 50 + 1);
-            t_start = [0; t_stop(1:end-1)];
+            t_start = zeros(n, 1);
             X = randn(n, 1);
             % Generate events with constant hazard ratio (no time dependence)
             beta_true = 0.5;

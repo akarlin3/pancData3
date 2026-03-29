@@ -99,7 +99,7 @@ function results = compute_schoenfeld_residuals(X_td, t_start, t_stop, event_csh
     any_violated = false;
     for j = 1:p
         resid_j = S_valid(:, j);
-        if all(resid_j == 0) || std(resid_j) == 0
+        if all(abs(resid_j) < 1e-12) || std(resid_j) < 1e-12
             results.rho(j) = 0;
             results.chi2(j) = 0;
             results.p_value(j) = 1;

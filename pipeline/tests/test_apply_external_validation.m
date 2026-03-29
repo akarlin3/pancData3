@@ -49,9 +49,10 @@ classdef test_apply_external_validation < matlab.unittest.TestCase
             % Verify error when model_path doesn't exist.
             bad_path = fullfile(testCase.TempDir, 'no_such_model.mat');
             cfg = struct();
+            ext_dir = testCase.ExtDir;
 
             testCase.verifyError( ...
-                @() evalc('apply_external_validation(bad_path, testCase.ExtDir, cfg)'), ...
+                @() apply_external_validation(bad_path, ext_dir, cfg), ...
                 'apply_external_validation:fileNotFound');
         end
 
@@ -60,9 +61,10 @@ classdef test_apply_external_validation < matlab.unittest.TestCase
             testCase.saveModel(3);
             bad_dir = fullfile(testCase.TempDir, 'nonexistent_dir');
             cfg = struct();
+            model_path = testCase.ModelPath;
 
             testCase.verifyError( ...
-                @() evalc('apply_external_validation(testCase.ModelPath, bad_dir, cfg)'), ...
+                @() apply_external_validation(model_path, bad_dir, cfg), ...
                 'apply_external_validation:dirNotFound');
         end
 
@@ -71,9 +73,11 @@ classdef test_apply_external_validation < matlab.unittest.TestCase
             testCase.saveModel(3);
             % ExtDir exists but has no features.mat
             cfg = struct();
+            model_path = testCase.ModelPath;
+            ext_dir = testCase.ExtDir;
 
             testCase.verifyError( ...
-                @() evalc('apply_external_validation(testCase.ModelPath, testCase.ExtDir, cfg)'), ...
+                @() apply_external_validation(model_path, ext_dir, cfg), ...
                 'apply_external_validation:noFeatures');
         end
 
@@ -83,9 +87,11 @@ classdef test_apply_external_validation < matlab.unittest.TestCase
             dummy_var = 42; %#ok<NASGU>
             save(fullfile(testCase.ExtDir, 'features.mat'), 'dummy_var');
             cfg = struct();
+            model_path = testCase.ModelPath;
+            ext_dir = testCase.ExtDir;
 
             testCase.verifyError( ...
-                @() evalc('apply_external_validation(testCase.ModelPath, testCase.ExtDir, cfg)'), ...
+                @() apply_external_validation(model_path, ext_dir, cfg), ...
                 'apply_external_validation:missingFeatures');
         end
 
@@ -120,8 +126,10 @@ classdef test_apply_external_validation < matlab.unittest.TestCase
             save(fullfile(testCase.ExtDir, 'features.mat'), 'X_features');
 
             cfg = struct();
+            model_path = testCase.ModelPath;
+            ext_dir = testCase.ExtDir;
             testCase.verifyWarning( ...
-                @() evalc('apply_external_validation(testCase.ModelPath, testCase.ExtDir, cfg)'), ...
+                @() apply_external_validation(model_path, ext_dir, cfg), ...
                 'apply_external_validation:featureMismatch');
         end
 

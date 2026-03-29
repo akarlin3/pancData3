@@ -84,6 +84,13 @@ function roc_results = compute_dose_response_roc(per_method_dosimetry, baseline_
             % ROC via perfcurve
             try
                 [fpr, tpr, thresholds, auc_val] = perfcurve(event_clean, dose_clean, true);
+                % If AUC < 0.5, the predictor works in the opposite direction
+                % (e.g., lower D95 predicts LF). Recompute with negated scores
+                % so that Youden index and optimal threshold are correct.
+                if auc_val < 0.5
+                    [fpr, tpr, thresholds, auc_val] = perfcurve(event_clean, -dose_clean, true);
+                    thresholds = -thresholds;
+                end
             catch
                 continue;
             end
