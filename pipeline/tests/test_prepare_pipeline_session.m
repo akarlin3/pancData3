@@ -2,8 +2,9 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
     % TEST_PREPARE_PIPELINE_SESSION Unit tests for prepare_pipeline_session.
     %
     % Validates session setup: config parsing, DWI type resolution, output
-    % folder creation, file path construction, compare_cores injection, and
-    % error handling for invalid config.
+    % folder creation, file path construction, config-gated step injection
+    % (compare_cores, cross_pipeline_dice, core_failure_rates,
+    % core_method_outcomes), and error handling for invalid config.
 
     properties
         TmpDir
@@ -131,6 +132,122 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
 
             n_compare = sum(strcmp(session.steps_to_run, 'compare_cores'));
             testCase.verifyEqual(n_compare, 1);
+            if session.log_fid > 0, fclose(session.log_fid); end
+        end
+
+        function test_cross_pipeline_dice_injected(testCase)
+            % When run_cross_pipeline_dice is true, cross_pipeline_dice
+            % should be injected after metrics_baseline.
+            cfg = struct();
+            cfg.dataloc = testCase.TmpDir;
+            cfg.dwi_type = 'Standard';
+            cfg.run_compare_cores = false;
+            cfg.run_cross_pipeline_dice = true;
+            cfg.run_all_core_methods = false;
+            fid = fopen(testCase.ConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            steps = {'load', 'metrics_baseline', 'metrics_longitudinal'};
+            session = prepare_pipeline_session(testCase.PipelineDir, testCase.ConfigFile, '', steps);
+            set(0, 'DefaultFigureVisible', session.prev_fig_vis);
+            diary off;
+
+            testCase.verifyTrue(ismember('cross_pipeline_dice', session.steps_to_run));
+            idx_base = find(strcmp(session.steps_to_run, 'metrics_baseline'));
+            idx_cpd = find(strcmp(session.steps_to_run, 'cross_pipeline_dice'));
+            testCase.verifyGreaterThan(idx_cpd, idx_base);
+            if session.log_fid > 0, fclose(session.log_fid); end
+        end
+
+        function test_core_failure_rates_injected(testCase)
+            % When run_core_failure_rates is true, core_failure_rates
+            % should be injected after metrics_baseline.
+            cfg = struct();
+            cfg.dataloc = testCase.TmpDir;
+            cfg.dwi_type = 'Standard';
+            cfg.run_compare_cores = false;
+            cfg.run_core_failure_rates = true;
+            cfg.run_all_core_methods = false;
+            fid = fopen(testCase.ConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            steps = {'load', 'metrics_baseline', 'metrics_longitudinal'};
+            session = prepare_pipeline_session(testCase.PipelineDir, testCase.ConfigFile, '', steps);
+            set(0, 'DefaultFigureVisible', session.prev_fig_vis);
+            diary off;
+
+            testCase.verifyTrue(ismember('core_failure_rates', session.steps_to_run));
+            idx_base = find(strcmp(session.steps_to_run, 'metrics_baseline'));
+            idx_cfr = find(strcmp(session.steps_to_run, 'core_failure_rates'));
+            testCase.verifyGreaterThan(idx_cfr, idx_base);
+            if session.log_fid > 0, fclose(session.log_fid); end
+        end
+
+        function test_core_method_outcomes_injected(testCase)
+            % When run_core_method_outcomes is true, core_method_outcomes
+            % should be injected after metrics_dosimetry.
+            cfg = struct();
+            cfg.dataloc = testCase.TmpDir;
+            cfg.dwi_type = 'Standard';
+            cfg.run_compare_cores = false;
+            cfg.run_core_method_outcomes = true;
+            cfg.run_all_core_methods = false;
+            fid = fopen(testCase.ConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            steps = {'load', 'metrics_baseline', 'metrics_dosimetry', 'metrics_survival'};
+            session = prepare_pipeline_session(testCase.PipelineDir, testCase.ConfigFile, '', steps);
+            set(0, 'DefaultFigureVisible', session.prev_fig_vis);
+            diary off;
+
+            testCase.verifyTrue(ismember('core_method_outcomes', session.steps_to_run));
+            idx_dos = find(strcmp(session.steps_to_run, 'metrics_dosimetry'));
+            idx_cmo = find(strcmp(session.steps_to_run, 'core_method_outcomes'));
+            testCase.verifyGreaterThan(idx_cmo, idx_dos);
+            if session.log_fid > 0, fclose(session.log_fid); end
+        end
+
+        function test_all_config_gated_steps_injected(testCase)
+            % When all config-gated steps are enabled, they should all
+            % appear in the correct order.
+            cfg = struct();
+            cfg.dataloc = testCase.TmpDir;
+            cfg.dwi_type = 'Standard';
+            cfg.run_compare_cores = true;
+            cfg.run_cross_pipeline_dice = true;
+            cfg.run_core_failure_rates = true;
+            cfg.run_core_method_outcomes = true;
+            cfg.run_all_core_methods = false;
+            fid = fopen(testCase.ConfigFile, 'w');
+            fprintf(fid, '%s', jsonencode(cfg));
+            fclose(fid);
+
+            steps = {'load', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_survival'};
+            session = prepare_pipeline_session(testCase.PipelineDir, testCase.ConfigFile, '', steps);
+            set(0, 'DefaultFigureVisible', session.prev_fig_vis);
+            diary off;
+
+            s = session.steps_to_run;
+            testCase.verifyTrue(ismember('compare_cores', s));
+            testCase.verifyTrue(ismember('cross_pipeline_dice', s));
+            testCase.verifyTrue(ismember('core_failure_rates', s));
+            testCase.verifyTrue(ismember('core_method_outcomes', s));
+
+            % Verify ordering
+            idx_base = find(strcmp(s, 'metrics_baseline'));
+            idx_cc   = find(strcmp(s, 'compare_cores'));
+            idx_cpd  = find(strcmp(s, 'cross_pipeline_dice'));
+            idx_cfr  = find(strcmp(s, 'core_failure_rates'));
+            idx_dos  = find(strcmp(s, 'metrics_dosimetry'));
+            idx_cmo  = find(strcmp(s, 'core_method_outcomes'));
+
+            testCase.verifyGreaterThan(idx_cc, idx_base);
+            testCase.verifyGreaterThan(idx_cpd, idx_cc);
+            testCase.verifyGreaterThan(idx_cfr, idx_cpd);
+            testCase.verifyGreaterThan(idx_cmo, idx_dos);
             if session.log_fid > 0, fclose(session.log_fid); end
         end
 

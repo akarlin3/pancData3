@@ -130,13 +130,50 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
         lastwarn('');
         fprintf('      \xf0\x9f\x93\x8b Logging errors/warnings to: %s\n', error_log_file);
 
-        % Conditionally inject compare_cores
+        % Conditionally inject config-gated steps into steps_to_run.
+        % Each step is inserted at its correct position in the dependency
+        % chain when its config flag is true and it is not already present.
+
+        % compare_cores: after metrics_baseline (needs validated voxel data)
         if config_struct.run_compare_cores && ~ismember('compare_cores', steps_to_run)
             idx = find(strcmp(steps_to_run, 'metrics_baseline'));
             if ~isempty(idx)
                 steps_to_run = [steps_to_run(1:idx), {'compare_cores'}, steps_to_run(idx+1:end)];
             else
                 steps_to_run{end+1} = 'compare_cores';
+            end
+        end
+
+        % cross_pipeline_dice: after compare_cores / metrics_baseline
+        if config_struct.run_cross_pipeline_dice && ~ismember('cross_pipeline_dice', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'compare_cores'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_baseline')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'cross_pipeline_dice'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'cross_pipeline_dice';
+            end
+        end
+
+        % core_failure_rates: after cross_pipeline_dice (or metrics_baseline)
+        if config_struct.run_core_failure_rates && ~ismember('core_failure_rates', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'cross_pipeline_dice'));
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'compare_cores')); end
+            if isempty(idx), idx = find(strcmp(steps_to_run, 'metrics_baseline')); end
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'core_failure_rates'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'core_failure_rates';
+            end
+        end
+
+        % core_method_outcomes: after metrics_dosimetry (needs per_method_dosimetry)
+        if config_struct.run_core_method_outcomes && ~ismember('core_method_outcomes', steps_to_run)
+            idx = find(strcmp(steps_to_run, 'metrics_dosimetry'));
+            if ~isempty(idx)
+                steps_to_run = [steps_to_run(1:idx), {'core_method_outcomes'}, steps_to_run(idx+1:end)];
+            else
+                steps_to_run{end+1} = 'core_method_outcomes';
             end
         end
 
