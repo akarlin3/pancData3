@@ -1,4 +1,4 @@
-"""Tests for v2.1-dev parsing: imputation sensitivity AUC and time-varying Cox HR.
+"""Tests for parsing: imputation sensitivity AUC and time-varying Cox HR.
 
 Validates regex extraction from MATLAB log output for:
 - Imputation sensitivity comparison table (KNN/LOCF/Mean/Linear_Interp AUC)

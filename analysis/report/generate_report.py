@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -127,6 +128,32 @@ from report.sections import (  # noqa: F401  # type: ignore
 )
 
 setup_utf8_stdout()
+
+
+_EMPTY_SECTION_RE = re.compile(
+    r"^(not available|no\s.*found|enable\s.*config)",
+    re.IGNORECASE,
+)
+
+
+def _is_empty_section(chunks: list[str]) -> bool:
+    """Return True if *chunks* contain only headings and a 'not available' message."""
+    if not chunks:
+        return True
+    # Strip HTML tags and join to get plain text content
+    text = re.sub(r"<[^>]+>", " ", "\n".join(chunks))
+    # Remove whitespace-only remnants
+    text = " ".join(text.split())
+    if not text:
+        return True
+    # If the only meaningful content matches the empty-section patterns, skip it
+    # Remove heading text (h2/h3/h4 content) so we only inspect the body
+    body = re.sub(r"<h[2-4][^>]*>.*?</h[2-4]>", "", "\n".join(chunks), flags=re.DOTALL)
+    body_text = re.sub(r"<[^>]+>", " ", body).strip()
+    body_text = " ".join(body_text.split())
+    if not body_text:
+        return True
+    return bool(_EMPTY_SECTION_RE.match(body_text))
 
 
 def _wrap_str_builder(fn):
@@ -261,7 +288,9 @@ def generate_report(folder: Path) -> str:
 
     for name, fn, fn_args in section_steps:
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))  # type: ignore
+        chunks = fn(*fn_args)  # type: ignore
+        if not _is_empty_section(chunks):
+            h.extend(chunks)
         report_bar.update(1)
 
     # ── Part 2: Data ──
@@ -379,7 +408,9 @@ def generate_report(folder: Path) -> str:
 
     for name, fn, fn_args in data_sections:
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))
+        chunks = fn(*fn_args)
+        if not _is_empty_section(chunks):
+            h.extend(chunks)
         report_bar.update(1)
 
     # ── Part 3: Statistics ──
@@ -400,7 +431,9 @@ def generate_report(folder: Path) -> str:
 
     for name, fn, fn_args in statistics_sections:
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))
+        chunks = fn(*fn_args)
+        if not _is_empty_section(chunks):
+            h.extend(chunks)
         report_bar.update(1)
 
     # ── 7. FDR Global ──
@@ -486,7 +519,9 @@ def generate_report(folder: Path) -> str:
             h.append(_part_break(fn_args))  # type: ignore[arg-type]
             continue
         report_bar.set_postfix_str(name, refresh=True)
-        h.extend(fn(*fn_args))  # type: ignore
+        chunks = fn(*fn_args)  # type: ignore
+        if not _is_empty_section(chunks):
+            h.extend(chunks)
         report_bar.update(1)
 
     report_bar.set_postfix_str("complete", refresh=True)
@@ -530,7 +565,7 @@ def _html_to_pdf_weasyprint(html_content: str, pdf_path: Path) -> bool:
     """Attempt PDF generation via WeasyPrint. Returns True on success."""
     try:
         from weasyprint import HTML as WeasyprintHTML  # type: ignore[import-untyped]
-        WeasyprintHTML(string=html_content).write_pdf(str(pdf_path))
+        WeasyprintHTML(string=html_content, base_url=".").write_pdf(str(pdf_path))
         return True
     except ImportError:
         print("  WeasyPrint not installed (pip install weasyprint).")

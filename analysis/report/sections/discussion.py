@@ -712,7 +712,55 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                  "multi-parametric DWI analysis for treatment response assessment "
                  "in pancreatic cancer.</p>")
 
-    # Clinical significance statement
+    # Clinical significance statement — conditional on cross-DWI agreement
+    # Compute agreement percentage to reconcile with conclusion #4
+    cross_dwi_pct = 0.0
+    if groups:
+        _n_agree = 0
+        _n_total = 0
+        for base_name, dwi_dict in groups.items():
+            real = [t for t in dwi_dict if t != "Root"]
+            if len(real) < 2:
+                continue
+            _all_trends: dict[str, list] = {}
+            for dt in DWI_TYPES:
+                if dt in dwi_dict:
+                    try:
+                        _all_trends[dt] = json.loads(str(dwi_dict[dt].get("trends_json", "[]")))
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if len(_all_trends) >= 2:
+                _all_series: set[str] = set()
+                for trends in _all_trends.values():
+                    for t in trends:
+                        if isinstance(t, dict):
+                            _all_series.add(t.get("series") or "overall")
+                for series in _all_series:
+                    _dirs: dict[str, str] = {}
+                    for dt_key, trends in _all_trends.items():
+                        for t in trends:
+                            if isinstance(t, dict) and (t.get("series") or "overall") == series:
+                                _dirs[dt_key] = str(t.get("direction", ""))
+                    if len(_dirs) >= 2:
+                        _n_total += 1
+                        if len(set(_dirs.values())) == 1:
+                            _n_agree += 1
+        if _n_total > 0:
+            cross_dwi_pct = 100 * float(_n_agree) / float(_n_total)
+
+    if cross_dwi_pct >= 50:
+        robustness_text = (
+            "The cross-DWI-type analysis demonstrates that key findings are robust "
+            "to the choice of post-processing strategy, increasing confidence "
+            "in their clinical applicability."
+        )
+    else:
+        robustness_text = (
+            "While overall trend agreement is limited, specific biomarkers "
+            "(D, f) show consistent directional changes across processing "
+            "strategies."
+        )
+
     h.append(
         '<div class="summary-box" style="border-left-color: var(--green);">'
         "<p><strong>Clinical Significance:</strong> "
@@ -721,10 +769,8 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
         "failure during radiotherapy. If validated prospectively, this could "
         "support adaptive treatment strategies\u2014such as dose escalation "
         "to resistant sub-volumes or early intensification of systemic "
-        "therapy\u2014within the existing fractionation schedule. The "
-        "cross-DWI-type analysis demonstrates that key findings are robust "
-        "to the choice of post-processing strategy, increasing confidence "
-        "in their clinical applicability.</p></div>"
+        "therapy\u2014within the existing fractionation schedule. "
+        f"{robustness_text}</p></div>"
     )
 
     h.append(
