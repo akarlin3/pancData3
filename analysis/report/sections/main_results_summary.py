@@ -15,9 +15,12 @@ from report.report_formatters import (  # type: ignore
 from report.sections._helpers import (  # type: ignore
     _aggregate_dwi_statistics,
     _aggregate_sanity_checks,
+    _compute_all_groups_trend_agreement,
     _compute_feature_overlap,
+    _extract_dosimetry,
     _find_best_auc,
     _get_cohort_size,
+    _scalar_gy,
 )
 
 
@@ -184,6 +187,62 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
     best_overall_auc = best_roc_overall.get("auc", 0.0) if best_roc_overall else 0.0
     if best_overall_auc > 0:
         result_bullets.append(f"Peak discriminative performance: AUC = {best_overall_auc:.3f} ({best_auc_type})")
+    # Significant Wilcoxon rank-sum results from CSV data
+    if csv_data and csv_data.get("significant_metrics"):
+        top_wilcoxon: list[tuple[str, str, float]] = []
+        for dt in dwi_types_present:
+            for rec in csv_data["significant_metrics"].get(dt, []):
+                p = rec.get("p_value")
+                if isinstance(p, (int, float)) and 0 < p < 0.05:
+                    metric = rec.get("metric", "?")
+                    tp = rec.get("timepoint", "?")
+                    top_wilcoxon.append((metric, tp, p))
+        top_wilcoxon.sort(key=lambda x: x[2])
+        if top_wilcoxon:
+            top3 = top_wilcoxon[:3]
+            parts = [f"{m} at {t} (p={p:.3f})" for m, t, p in top3]
+            result_bullets.append(
+                f"Top Wilcoxon rank-sum results: {'; '.join(parts)}"
+            )
+
+    # Dosimetry headline from MAT data
+    if mat_data:
+        dosi, dosi_dt = _extract_dosimetry(mat_data)
+        if dosi:
+            d95_val = _scalar_gy(dosi.get("d95_adc_mean"))
+            v50_val = _scalar_gy(dosi.get("v50_adc_mean"))
+            if d95_val is not None:
+                v50_pct = (v50_val * 100 if v50_val is not None and v50_val <= 1.0
+                           else v50_val) if v50_val is not None else None
+                dosi_parts = [f"D95 = {d95_val:.1f} Gy"]
+                if v50_pct is not None:
+                    dosi_parts.append(f"V50 = {v50_pct:.0f}%")
+                result_bullets.append(
+                    f"Mean resistant sub-volume {', '.join(dosi_parts)}"
+                )
+
+    # Core method Dice from MAT data
+    if mat_data:
+        from shared import DWI_TYPES as _DWI_TYPES  # type: ignore
+        for dt in _DWI_TYPES:
+            core = (mat_data.get(dt) or {}).get("core_method")
+            if core and core.get("mean_dice_matrix"):
+                matrix = core["mean_dice_matrix"]
+                n = len(core.get("methods", []))
+                off_diag = []
+                for i in range(n):
+                    for j in range(i + 1, n):
+                        if i < len(matrix) and j < len(matrix[i]):
+                            val = matrix[i][j]
+                            if isinstance(val, (int, float)) and val > 0:
+                                off_diag.append(val)
+                if off_diag:
+                    avg_dice = sum(off_diag) / len(off_diag)
+                    result_bullets.append(
+                        f"Mean pairwise Dice across {n} core methods = {avg_dice:.3f}"
+                    )
+                break
+
     # Cross-DWI trend agreement key result (for abstract)
     if log_data and len(dwi_types_present) >= 2:
         # Recompute from features overlap data already gathered above
@@ -192,6 +251,22 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
                 f"{total_shared} of {total_all} elastic-net-selected features "
                 f"({100 * total_shared / total_all:.0f}%) are shared across DWI types"
             )
+        # Cross-DWI trend agreement percentage
+        n_agree, n_total_series, pct_agree = _compute_all_groups_trend_agreement(
+            None, dwi_types_present)  # groups not available here; use rows-based approach below
+
+    # Cross-DWI trend agreement from vision rows (groups not passed to this fn)
+    if rows and len(dwi_types_present) >= 2:
+        from shared import group_by_graph_name  # type: ignore
+        _groups = group_by_graph_name(rows)
+        if _groups:
+            n_agree, n_total_series, pct_agree = _compute_all_groups_trend_agreement(
+                _groups, dwi_types_present)
+            if n_total_series > 0:
+                result_bullets.append(
+                    f"Cross-DWI trend agreement: {pct_agree:.0f}% "
+                    f"({n_agree}/{n_total_series} series)"
+                )
 
     # Sanity check key result
     if san_agg["sanity_types_checked"] > 0:
