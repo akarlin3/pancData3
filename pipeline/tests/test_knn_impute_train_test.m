@@ -35,7 +35,7 @@ classdef test_knn_impute_train_test < matlab.unittest.TestCase
             rng(42);
             X_tr = rand(10, 4);
             X_te = rand(5, 4);
-            [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 3);
+            evalc('[X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, 3);');
             testCase.verifyEqual(X_tr_imp, X_tr, 'AbsTol', 1e-12, ...
                 'Training output should equal input when no NaNs present.');
             testCase.verifyEqual(X_te_imp, X_te, 'AbsTol', 1e-12, ...
