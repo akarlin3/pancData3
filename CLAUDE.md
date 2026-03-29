@@ -18,7 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**Version:** 2.2.0
+**Version:** 2.3.1
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
@@ -67,7 +67,7 @@ pancData3/
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (76 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)
-│   ├── tests/                          # Full test suite (124 test files)
+│   ├── tests/                          # Full test suite (127 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
@@ -81,8 +81,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (37 files)
-│   └── tests/                          # Python test suite — 34 test files, pytest
+│   │   └── sections/                   # Section builders (41 files)
+│   └── tests/                          # Python test suite — 43 test files, pytest
 ├── project_config.yaml                  # Improvement loop project config (not committed)
 ├── project_config.example.yaml          # Improvement loop project config template (committed)
 ├── improvement_loop_config.example.json # Improvement loop runtime config template (committed)
@@ -321,7 +321,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/sections/core_method_outcomes.py` | Core method outcome analysis section builder: Cox PH ranking table with HR, CI, p-values |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 
-**Python Test Suite (pytest):** 41 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+**Python Test Suite (pytest):** 42 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -366,7 +366,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
 | `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
 | `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
-For the full list of 110 MATLAB test files and 41 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 110 MATLAB test files and 42 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -468,4 +468,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (19 files), utility modules (76 files), Octave compatibility shims (24 files), analysis scripts (41 report section files), and Python test files (41 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (19 files), utility modules (76 files), Octave compatibility shims (24 files), analysis scripts (41 report section files), and Python test files (42 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

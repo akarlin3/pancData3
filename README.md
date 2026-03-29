@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.0-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-119%20MATLAB%20%2B%2037%20Python%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.3.1-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-122%20MATLAB%20%2B%2042%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.2.0 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.3.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -442,7 +442,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 124 test files covering:
+The test suite includes 127 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -597,7 +597,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (38 test files) using pytest:
+The analysis scripts have a comprehensive Python test suite (42 test files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -661,18 +661,18 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (72 files)
+│   ├── utils/                      #   Helper utilities (76 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (124 test files)
+│   ├── tests/                      #   Test suite (127 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (6 files)
 │   ├── dependencies/               #   Third-party scripts (read-only)
-│   └── .octave_compat/             #   GNU Octave compatibility shims (21 files)
+│   └── .octave_compat/             #   GNU Octave compatibility shims (24 files)
 ├── analysis/                       # Python post-hoc analysis suite
 │   ├── run_analysis.py             #   Orchestrator (full workflow runner)
 │   ├── shared.py                   #   Shared utilities
@@ -693,7 +693,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (38 test files)
+│   └── tests/                      #   Python test suite (43 test files)
 ├── project_config.example.yaml     # Improvement loop project config template
 ├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration
@@ -718,7 +718,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.2.0},
+  version   = {2.3.1},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {AGPL-3.0}
 }
