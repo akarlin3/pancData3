@@ -112,6 +112,11 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `dispatch_pipeline_steps.m` | Extracted dispatch logic for metrics, visualization, and comparison pipeline steps |
 | `prepare_pipeline_session.m` | Pipeline session initialization with try-catch error handling |
 | `get_system_memory.m` | Cross-platform physical memory query (total and available GB); returns `[NaN, NaN]` on unsupported platforms |
+| `compute_subvolume_stability.m` | Dice between each fraction's core mask and Fx1 baseline for temporal stability analysis |
+| `compute_dose_response_roc.m` | ROC analysis on sub-volume D95/V50 to find optimal dose cutoff separating LC from LF |
+| `compute_risk_dose_concordance.m` | Compare elastic net risk model vs dose coverage stratification (Cohen's kappa, combined AUC) |
+| `compute_per_method_cor.m` | Coefficient of Reproducibility for each core method's sub-volume from Fx1 repeat scans |
+| `compute_gtv_confounding.m` | Check if GTV volume change confounds D95-outcome association via adjusted Cox PH |
 
 ---
 
@@ -155,6 +160,11 @@ Contains 24 shim files for GNU Octave compatibility, including:
 | `test_modularity.m` | Module independence and interface tests |
 | `test_statistical_methods.m` | Statistical methods validation |
 | `test_analyze_core_method_outcomes.m` | Core method outcome analysis tests (struct fields, HR positivity, KM fields, ranking, significance, edge cases) |
+| `test_compute_per_method_cor.m` | Per-method CoR tests (struct fields, CoR positivity, identical repeats near-zero CoR, dimensions, repeat count) |
+| `test_compute_subvolume_stability.m` | Sub-volume stability tests (struct fields, Fx1 Dice=1.0, Dice range [0,1], output dimensions) |
+| `test_compute_dose_response_roc.m` | Dose-response ROC tests (struct fields, AUC above chance, optimal threshold in range, AUC range [0,1]) |
+| `test_compute_gtv_confounding.m` | GTV confounding tests (struct fields, confounded/independent scenarios, missing GTV graceful handling) |
+| `test_compute_risk_dose_concordance.m` | Risk-dose concordance tests (struct fields, concordant/complementary scenarios, kappa range, missing data handling) |
 | `test_compare_core_methods.m` | Core method pairwise comparison validation |
 | `test_multi_core_methods.m` | Multi-method core integration and backward compatibility |
 | `test_process_single_scan.m` | Per-scan pipeline processing (init, NaN defaults, struct layout) |
@@ -277,12 +287,17 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/sections/core_method_outcomes.py` | Core method outcome analysis section builder: Cox PH ranking table with HR, CI, p-values |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
 | `report/sections/model_robustness.py` | Model robustness section: imputation sensitivity AUC comparison, time-varying Cox HR summary |
+| `report/sections/subvolume_stability.py` | Sub-volume stability section builder: Dice vs Fx1 baseline table with color-coded temporal stability |
+| `report/sections/per_method_cor.py` | Per-method CoR section builder: wCV and CoR table with reproducibility color coding |
+| `report/sections/dose_response_roc.py` | Dose-response ROC section builder: AUC, optimal threshold, sensitivity/specificity with clinical guidance |
+| `report/sections/gtv_confounding.py` | GTV confounding section builder: D95-GTV correlation, adjusted/unadjusted HR comparison |
+| `report/sections/risk_dose_concordance.py` | Risk-dose concordance section builder: Cohen's kappa, confusion matrix, combined AUC |
 
 ---
 
 ## Python Test Suite (`analysis/tests/`)
 
-41 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+47 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -327,6 +342,11 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
 | `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
 | `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
+| `test_subvolume_stability_section.py` | Sub-volume stability report section: Dice vs baseline table, color coding, empty data handling |
+| `test_per_method_cor_section.py` | Per-method CoR report section: wCV/CoR table, color coding, patient count display |
+| `test_dose_response_roc_section.py` | Dose-response ROC report section: AUC/CI/threshold display, clinical guidance, empty data |
+| `test_gtv_confounding_section.py` | GTV confounding report section: HR comparison, confounding flag, warning box display |
+| `test_risk_dose_concordance_section.py` | Risk-dose concordance report section: kappa interpretation, concordance %, combined AUC |
 
 ---
 

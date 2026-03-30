@@ -50,5 +50,10 @@
     "use_auxiliary_biomarkers": false,
     "use_gpu": false,
     "gpu_device": 1,
-    "run_trajectory_plots": true
+    "run_trajectory_plots": true,
+    "run_subvolume_stability": false,
+    "run_dose_response_roc": false,
+    "run_risk_dose_concordance": false,
+    "run_per_method_cor": false,
+    "run_gtv_confounding": false
 }

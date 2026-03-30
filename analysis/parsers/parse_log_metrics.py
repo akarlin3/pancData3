@@ -201,7 +201,7 @@ RE_EXCESSIVE_NAN = re.compile(
     r"Excessive NaN fraction in (\w[\w*]*?):\s*([0-9.]+)%"
 )
 
-# ----- imputation sensitivity (v2.1-dev) -----
+# ----- imputation sensitivity -----
 
 # Matches imputation sensitivity table rows, e.g.:
 #   "KNN                     0.843            42"
@@ -221,7 +221,7 @@ RE_IMPUTATION_CONCORDANCE = re.compile(
     re.MULTILINE | re.IGNORECASE,
 )
 
-# ----- time-varying Cox (v2.1-dev) -----
+# ----- time-varying Cox -----
 
 # Matches PH violation covariate list:
 #   "PH violations detected for: mean_adc, delta_d"
@@ -397,7 +397,7 @@ def parse_stats_predictive(text: str) -> dict:
 
     Extracts elastic-net feature selections (with optimal lambda),
     ROC analysis blocks (AUC, Youden cutoff, sensitivity, specificity),
-    and imputation sensitivity results (v2.1-dev).
+    and imputation sensitivity results.
 
     Parameters
     ----------
@@ -449,7 +449,7 @@ def parse_stats_predictive(text: str) -> dict:
             entry["specificity"] = float(m.group(2))
         result["roc_analyses"].append(entry)
 
-    # ── Imputation Sensitivity (v2.1-dev) ──
+    # ── Imputation Sensitivity ──
     # Parses the comparison table printed by imputation_sensitivity.m.
     imp_methods = list(RE_IMPUTATION_AUC.finditer(text))
     if imp_methods:
@@ -472,7 +472,7 @@ def parse_survival(text: str, log_path: str = "") -> dict:
 
     Extracts Cox proportional-hazards table rows (covariate, HR, 95% CI,
     p-value), the global likelihood-ratio test, IPCW weight ranges, and
-    time-varying Cox model results (v2.1-dev).
+    time-varying Cox model results.
 
     Parameters
     ----------
@@ -559,7 +559,7 @@ def parse_survival(text: str, log_path: str = "") -> dict:
             })
         result["fine_gray"] = fg_data  # type: ignore
 
-    # ── Time-Varying Cox (v2.1-dev) ──
+    # ── Time-Varying Cox ──
     # Parses output from fit_time_varying_cox.m in the metrics_survival log.
     m = RE_TV_VIOLATED.search(text)
     if m:

@@ -67,7 +67,10 @@ diag_bad_bval     = 0;
 
 % Pre-count eligible patients (those with Fx1 DWI, bval, and GTV files)
 % so that each figure can be allocated the correct number of subplot rows.
+% Also probe the first eligible patient's slice dimensions so that figure
+% sizing can adapt to the actual image aspect ratio.
 n_eligible = 0;
+slice_aspect_ratio = 1;  % default to square if no images found
 for j = 1:nPat
     if j > size(data_vectors_gtvp, 1)
         continue;
@@ -81,6 +84,16 @@ for j = 1:nPat
        exist(fullfile(nii_path, 'fx1_dwi1.bval'),   'file') && ...
        exist(fullfile(nii_path, 'fx1_gtv1.nii.gz'), 'file')
         n_eligible = n_eligible + 1;
+        % Probe slice dimensions from the first eligible patient
+        if n_eligible == 1
+            probe_info = niftiinfo(fullfile(nii_path, 'fx1_dwi1.nii.gz'));
+            % After rot90, rows = original cols, cols = original rows
+            probe_rows = probe_info.ImageSize(2);
+            probe_cols = probe_info.ImageSize(1);
+            if probe_cols > 0
+                slice_aspect_ratio = probe_rows / probe_cols;
+            end
+        end
     end
 end
 
@@ -232,11 +245,18 @@ for j = 1:nPat
             saveas(gcf, fullfile(output_folder, sprintf('Parameter_Maps_%d.png', fig_num - 1)));
             close(gcf);
         end
-        % Determine how many rows this new figure needs
+        % Determine how many rows this new figure needs and size the
+        % figure to match the actual slice aspect ratio.  With 3 image
+        % columns plus a shared colorbar, each column gets roughly 1/3.6
+        % of the figure width.  The per-row height preserves the image
+        % aspect ratio so slices are not squished or stretched.
         n_rows_cur_fig = min(pats_per_fig, n_eligible - (fig_num - 1) * pats_per_fig);
-        fig_height = max(300, n_rows_cur_fig * 150);
+        col_width  = 480;                                       % pixels per subplot column
+        fig_width  = round(col_width * 3.6);                    % 3 columns + colorbar space
+        row_height = max(200, round(col_width * slice_aspect_ratio) + 40);  % image + title padding
+        fig_height = max(300, n_rows_cur_fig * row_height + 60);            % rows + sgtitle space
         figure('Name', sprintf('ADC Maps on Anatomy (%d)', fig_num), ...
-               'Position', [50, 50, 1400, fig_height]);
+               'Position', [50, 50, fig_width, fig_height]);
         % Use turbo colormap (perceptually uniform, better than jet) in MATLAB;
         % fall back to jet in Octave where turbo is not available.
         if exist('OCTAVE_VERSION', 'builtin')
@@ -253,7 +273,7 @@ for j = 1:nPat
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 1);
     imagesc(b0_slice); axis image; axis off; colormap(gca, gray);
     hold on;
-    contour(gtv_slice, [0.5 0.5], 'r', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'r', 'LineWidth', 2.5);
     hold off;
     title(sprintf('%s — b0 (GTV contour)', id_list{j}), 'Interpreter', 'none', 'FontSize', 9);
 
@@ -265,7 +285,7 @@ for j = 1:nPat
     subplot(n_rows_cur_fig, 3, row_in_fig*3 + 2);
     imagesc(adc_slice * 1e3, [0 3]); axis image; axis off;
     hold on;
-    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 2.5);
     hold off;
     title('ADC map', 'FontSize', 9);
 
@@ -289,7 +309,7 @@ for j = 1:nPat
     h_ov = imagesc(adc_overlay, [0 3]);
     % Use 60 % opacity for the colour overlay
     set(h_ov, 'AlphaData', ~isnan(adc_overlay) * 0.6);
-    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 1.5);
+    contour(gtv_slice, [0.5 0.5], 'w', 'LineWidth', 2.5);
     hold off;
     title('ADC on Anatomy', 'FontSize', 9);
 end
