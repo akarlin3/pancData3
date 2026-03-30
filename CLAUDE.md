@@ -18,7 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**Version:** 2.2.0
+**Version:** 2.3.1
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
@@ -65,9 +65,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (76 files)
+│   ├── utils/                          # Helper utilities (81 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)
-│   ├── tests/                          # Full test suite (124 test files)
+│   ├── tests/                          # Full test suite (132 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
@@ -81,8 +81,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (37 files)
-│   └── tests/                          # Python test suite — 34 test files, pytest
+│   │   └── sections/                   # Section builders (41 files)
+│   └── tests/                          # Python test suite — 48 test files, pytest
 ├── project_config.yaml                  # Improvement loop project config (not committed)
 ├── project_config.example.yaml          # Improvement loop project config template (committed)
 ├── improvement_loop_config.example.json # Improvement loop runtime config template (committed)
@@ -111,6 +111,7 @@ Key fields:
   "clinical_sheet_name": "Clin List_MR",
   "skip_to_reload": false,
   "skip_tests": false,
+  "tests_only": false,
   "ivim_bthr": 100,
   "adc_thresh": 0.001,
   "high_adc_thresh": 0.00115,
@@ -144,6 +145,7 @@ Key fields:
   "compute_fine_gray": true,
   "exclude_motion_volumes": false,
   "use_texture_features": false,
+  "texture_3d": true,
   "texture_quantization_method": "fixed_bin_number",
   "use_gpu": false,
   "gpu_device": 1,
@@ -153,7 +155,12 @@ Key fields:
   "external_validation_data": "",
   "auxiliary_biomarker_csv": "",
   "use_auxiliary_biomarkers": false,
-  "run_trajectory_plots": true
+  "run_trajectory_plots": true,
+  "run_subvolume_stability": false,
+  "run_dose_response_roc": false,
+  "run_risk_dose_concordance": false,
+  "run_per_method_cor": false,
+  "run_gtv_confounding": false
 }
 ```
 
@@ -277,6 +284,11 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `dispatch_pipeline_steps.m` | Extracted dispatch logic for metrics, visualization, and comparison pipeline steps |
 | `prepare_pipeline_session.m` | Pipeline session initialization with try-catch error handling |
 | `get_system_memory.m` | Cross-platform physical memory query (total and available GB); returns `[NaN, NaN]` on unsupported platforms |
+| `compute_subvolume_stability.m` | Dice between each fraction's core mask and Fx1 baseline for temporal stability analysis |
+| `compute_dose_response_roc.m` | ROC analysis on sub-volume D95/V50 to find optimal dose cutoff separating LC from LF |
+| `compute_risk_dose_concordance.m` | Compare elastic net risk model vs dose coverage stratification (Cohen's kappa, combined AUC) |
+| `compute_per_method_cor.m` | Coefficient of Reproducibility for each core method's sub-volume from Fx1 repeat scans |
+| `compute_gtv_confounding.m` | Check if GTV volume change confounds D95-outcome association via adjusted Cox PH |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -309,7 +321,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/report_constants.py` | Large constants extracted from report_formatters (CSS stylesheet, JavaScript, publication references with BibTeX, HTML template) |
 | `report/generate_interactive_report.py` | Interactive HTML report with client-side filtering, Chart.js visualisations, patient drill-down, sortable tables, and DWI/core-method comparison |
 | `report/interactive_constants.py` | CSS and JavaScript constants for the interactive report (sidebar, tabs, chart rendering, filter logic) |
-| `report/sections/` | Section builder package for the HTML report (40 submodules). Core modules: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`, `cross_pipeline_dice.py`, `failure_rates.py`, `pruning_results.py`, `core_method_outcomes.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
+| `report/sections/` | Section builder package for the HTML report (45 submodules). Core modules: `_helpers.py`, `metadata.py`, `enrollment.py`, `publication.py`, `discussion.py`. Main results: `main_results.py`, `main_results_summary.py`, `main_results_hypothesis.py`, `main_results_trends.py`. Manuscript: `manuscript.py`, `manuscript_findings.py`, `manuscript_performance.py`, `manuscript_results.py`. Data: `data_overview.py`, `data_quality.py`, `data_supplemental.py`, `supplemental.py`, `gallery.py`. Analysis: `graph_overview.py`, `analysis_graphs.py`, `cross_dwi.py`, `analysis_cross_dwi.py`, `analysis_features.py`, `correlations.py`, `cross_pipeline_dice.py`, `failure_rates.py`, `pruning_results.py`, `core_method_outcomes.py`, `subvolume_stability.py`, `per_method_cor.py`, `dose_response_roc.py`, `gtv_confounding.py`, `risk_dose_concordance.py`. Statistics: `statistical_reporting.py`, `effect_sizes.py`, `statistics_effects.py`, `statistics_diagnostics.py`, `statistics_robustness.py`, `model_diagnostics.py`, `model_robustness.py`, `power_analysis.py`, `forest_plot.py`. Legacy shims (`analysis_sections.py`, `statistics.py`, `data_sections.py`) re-export for backward compatibility. |
 | `cross_reference/cross_reference_dwi.py` | Full cross-DWI comparison (Standard vs dnCNN vs IVIMnet) of trends, inflection points, and summaries |
 | `cross_reference/cross_reference_summary.py` | Concise cross-DWI summary focusing on priority clinical graphs and trend agreement/disagreement |
 | `cross_reference/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings, notable correlations, and cross-DWI significance |
@@ -320,8 +332,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/sections/pruning_results.py` | Core method pruning results section builder: pruned/retained method tables with reasons |
 | `report/sections/core_method_outcomes.py` | Core method outcome analysis section builder: Cox PH ranking table with HR, CI, p-values |
 | `report/sections/forest_plot.py` | Forest plot section builder: HR extraction, matplotlib forest plot, report integration |
+| `report/sections/subvolume_stability.py` | Sub-volume stability section builder: Dice vs Fx1 baseline table with color-coded temporal stability |
+| `report/sections/per_method_cor.py` | Per-method CoR section builder: wCV and CoR table with reproducibility color coding |
+| `report/sections/dose_response_roc.py` | Dose-response ROC section builder: AUC, optimal threshold, sensitivity/specificity with clinical guidance |
+| `report/sections/gtv_confounding.py` | GTV confounding section builder: D95-GTV correlation, adjusted/unadjusted HR comparison |
+| `report/sections/risk_dose_concordance.py` | Risk-dose concordance section builder: Cohen's kappa, confusion matrix, combined AUC |
 
-**Python Test Suite (pytest):** 41 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+**Python Test Suite (pytest):** 47 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -366,7 +383,12 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_implementer_agent.py` | `ImplementResult` dataclass, `implement()` dry-run / file-not-found / branch-exists paths, `_generate_fix()` API call contract |
 | `test_orchestrator_v2.py` | `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, `_print_agent_summary()` output |
 | `test_reviewer_agent.py` | `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid/invalid JSON, fenced, preamble), critical-flag override, parse-failure fallback |
-For the full list of 110 MATLAB test files and 41 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+| `test_subvolume_stability_section.py` | Sub-volume stability report section: Dice vs baseline table, color coding, empty data handling |
+| `test_per_method_cor_section.py` | Per-method CoR report section: wCV/CoR table, color coding, patient count display |
+| `test_dose_response_roc_section.py` | Dose-response ROC report section: AUC/CI/threshold display, clinical guidance, empty data |
+| `test_gtv_confounding_section.py` | GTV confounding report section: HR comparison, confounding flag, warning box display |
+| `test_risk_dose_concordance_section.py` | Risk-dose concordance report section: kappa interpretation, concordance %, combined AUC |
+For the full list of 132 MATLAB test files and 47 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -468,4 +490,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (19 files), utility modules (76 files), Octave compatibility shims (24 files), analysis scripts (41 report section files), and Python test files (41 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (19 files), utility modules (81 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

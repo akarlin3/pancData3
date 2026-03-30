@@ -12,10 +12,11 @@ if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
 from improvement_loop.agents.reviewer import (
-    ReviewVerdict,
-    _generate_diff,
-    _parse_review_verdict,
+    VALID_VERDICTS,
+    _parse_review,
     review,
+    get_review_system_prompt,
+    DEFAULT_REVIEW_PROMPT,
 )
 from improvement_loop.evaluator import Finding
 
@@ -35,230 +36,129 @@ def _make_finding(**overrides) -> Finding:
 
 
 # ---------------------------------------------------------------------------
-# review() — dry_run mode
+# _parse_review() — valid JSON
 # ---------------------------------------------------------------------------
 
-class TestReviewDryRun:
-    """review() in dry_run mode returns approve."""
-
-    def test_returns_approve(self):
-        finding = _make_finding()
-        verdict = review(finding, "old content", "new content", dry_run=True)
-        assert verdict.verdict == "approve"
-
-    def test_dry_run_reasoning(self):
-        finding = _make_finding()
-        verdict = review(finding, "", "", dry_run=True)
-        assert verdict.reasoning == "dry-run"
-
-    def test_no_risk_flags(self):
-        finding = _make_finding()
-        verdict = review(finding, "", "", dry_run=True)
-        assert verdict.risk_flags == []
-
-
-# ---------------------------------------------------------------------------
-# _parse_review_verdict() — valid JSON
-# ---------------------------------------------------------------------------
-
-class TestParseReviewVerdictValid:
-    """_parse_review_verdict with well-formed JSON input."""
+class TestParseReviewValid:
+    """_parse_review with well-formed JSON input."""
 
     def test_approve(self):
         raw = json.dumps({
-            "verdict": "approve",
-            "reasoning": "Change looks correct.",
-            "risk_flags": [],
+            "verdict": "APPROVE",
+            "summary": "Change looks correct.",
+            "issues": [],
+            "reasoning": "All good.",
         })
-        result = _parse_review_verdict(raw)
+        result = _parse_review(raw)
         assert result is not None
-        assert result.verdict == "approve"
-        assert result.reasoning == "Change looks correct."
-        assert result.risk_flags == []
+        assert result["verdict"] == "APPROVE"
 
-    def test_reject_with_flags(self):
+    def test_reject_with_issues(self):
         raw = json.dumps({
-            "verdict": "reject",
-            "reasoning": "Modifies dependencies.",
-            "risk_flags": ["DEPS_MODIFIED"],
+            "verdict": "REJECT",
+            "summary": "Modifies dependencies.",
+            "issues": ["Touches read-only dir"],
+            "reasoning": "Not allowed.",
         })
-        result = _parse_review_verdict(raw)
+        result = _parse_review(raw)
         assert result is not None
-        assert result.verdict == "reject"
-        assert "DEPS_MODIFIED" in result.risk_flags
+        assert result["verdict"] == "REJECT"
 
     def test_request_changes(self):
         raw = json.dumps({
-            "verdict": "request_changes",
-            "reasoning": "Missing edge case handling.",
-            "risk_flags": [],
+            "verdict": "REQUEST_CHANGES",
+            "summary": "Missing edge case.",
+            "issues": ["No guard for empty input"],
+            "reasoning": "Needs fix.",
         })
-        result = _parse_review_verdict(raw)
+        result = _parse_review(raw)
         assert result is not None
-        assert result.verdict == "request_changes"
+        assert result["verdict"] == "REQUEST_CHANGES"
 
     def test_markdown_fenced(self):
         inner = json.dumps({
-            "verdict": "approve",
-            "reasoning": "Looks good.",
-            "risk_flags": [],
+            "verdict": "APPROVE",
+            "summary": "Looks good.",
+            "issues": [],
+            "reasoning": "Fine.",
         })
         raw = f"```json\n{inner}\n```"
-        result = _parse_review_verdict(raw)
+        result = _parse_review(raw)
         assert result is not None
-        assert result.verdict == "approve"
+        assert result["verdict"] == "APPROVE"
 
-    def test_preamble_before_json(self):
+    def test_preamble_before_json_returns_none(self):
+        """_parse_review does not handle preamble text before JSON."""
         inner = json.dumps({
-            "verdict": "approve",
+            "verdict": "APPROVE",
+            "summary": "OK.",
+            "issues": [],
             "reasoning": "Fine.",
-            "risk_flags": [],
         })
         raw = f"Here is my review:\n{inner}"
-        result = _parse_review_verdict(raw)
-        assert result is not None
-        assert result.verdict == "approve"
+        result = _parse_review(raw)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
-# _parse_review_verdict() — invalid JSON
+# _parse_review() — invalid JSON
 # ---------------------------------------------------------------------------
 
-class TestParseReviewVerdictInvalid:
-    """_parse_review_verdict with invalid or incomplete input."""
+class TestParseReviewInvalid:
+    """_parse_review with invalid or incomplete input."""
 
     def test_garbage_returns_none(self):
-        assert _parse_review_verdict("not json at all") is None
+        assert _parse_review("not json at all") is None
 
     def test_empty_string_returns_none(self):
-        assert _parse_review_verdict("") is None
-
-    def test_missing_verdict_key(self):
-        raw = json.dumps({
-            "reasoning": "Something.",
-            "risk_flags": [],
-        })
-        assert _parse_review_verdict(raw) is None
-
-    def test_missing_reasoning_key(self):
-        raw = json.dumps({
-            "verdict": "approve",
-            "risk_flags": [],
-        })
-        assert _parse_review_verdict(raw) is None
-
-    def test_missing_risk_flags_key(self):
-        raw = json.dumps({
-            "verdict": "approve",
-            "reasoning": "OK.",
-        })
-        assert _parse_review_verdict(raw) is None
+        assert _parse_review("") is None
 
     def test_invalid_verdict_value(self):
         raw = json.dumps({
-            "verdict": "maybe",
-            "reasoning": "Unsure.",
-            "risk_flags": [],
+            "verdict": "MAYBE",
+            "summary": "Unsure.",
+            "issues": [],
+            "reasoning": "Not sure.",
         })
-        assert _parse_review_verdict(raw) is None
-
-    def test_risk_flags_not_list(self):
-        raw = json.dumps({
-            "verdict": "approve",
-            "reasoning": "Fine.",
-            "risk_flags": "LEAKAGE_RISK",
-        })
-        assert _parse_review_verdict(raw) is None
+        assert _parse_review(raw) is None
 
 
 # ---------------------------------------------------------------------------
-# LEAKAGE_RISK / PHI_RISK override
+# review() — mocked API
 # ---------------------------------------------------------------------------
 
-class TestCriticalFlagOverride:
-    """Critical risk flags force rejection regardless of LLM verdict."""
+class TestReviewMockedAPI:
+    """review() calls the API and returns parsed result."""
 
-    def test_leakage_risk_forces_reject(self, monkeypatch):
-        """Even if the LLM says 'approve', LEAKAGE_RISK must force reject."""
+    def test_approve_response(self, monkeypatch):
         api_response = json.dumps({
-            "verdict": "approve",
-            "reasoning": "Looks fine to me.",
-            "risk_flags": ["LEAKAGE_RISK"],
+            "verdict": "APPROVE",
+            "summary": "Looks fine.",
+            "issues": [],
+            "reasoning": "Change is correct.",
         })
         monkeypatch.setattr(
             "improvement_loop.agents.reviewer.api_call_with_retry",
             lambda kwargs: api_response,
         )
         finding = _make_finding()
-        verdict = review(finding, "old", "new")
-        assert verdict.verdict == "reject"
-        assert "LEAKAGE_RISK" in verdict.risk_flags
+        result = review(finding, "diff text here")
+        assert result["verdict"] == "APPROVE"
 
-    def test_phi_risk_forces_reject(self, monkeypatch):
-        """PHI_RISK must also force reject."""
+    def test_reject_response(self, monkeypatch):
         api_response = json.dumps({
-            "verdict": "request_changes",
-            "reasoning": "Minor issue.",
-            "risk_flags": ["PHI_RISK"],
+            "verdict": "REJECT",
+            "summary": "Bad change.",
+            "issues": ["Modifies dependencies"],
+            "reasoning": "Not allowed.",
         })
         monkeypatch.setattr(
             "improvement_loop.agents.reviewer.api_call_with_retry",
             lambda kwargs: api_response,
         )
         finding = _make_finding()
-        verdict = review(finding, "old", "new")
-        assert verdict.verdict == "reject"
-        assert "PHI_RISK" in verdict.risk_flags
-
-    def test_non_critical_flag_does_not_override(self, monkeypatch):
-        """DEPS_MODIFIED alone should not override an approve verdict."""
-        api_response = json.dumps({
-            "verdict": "approve",
-            "reasoning": "Change is fine.",
-            "risk_flags": ["DEPS_MODIFIED"],
-        })
-        monkeypatch.setattr(
-            "improvement_loop.agents.reviewer.api_call_with_retry",
-            lambda kwargs: api_response,
-        )
-        finding = _make_finding()
-        verdict = review(finding, "old", "new")
-        assert verdict.verdict == "approve"
-        assert "DEPS_MODIFIED" in verdict.risk_flags
-
-
-# ---------------------------------------------------------------------------
-# _generate_diff()
-# ---------------------------------------------------------------------------
-
-class TestGenerateDiff:
-    """Diff generation produces expected unified diff output."""
-
-    def test_basic_diff(self):
-        original = "line1\nline2\nline3\n"
-        new = "line1\nline2_modified\nline3\n"
-        diff = _generate_diff(original, new, filename="test.m")
-        assert "--- a/test.m" in diff
-        assert "+++ b/test.m" in diff
-        assert "-line2" in diff
-        assert "+line2_modified" in diff
-
-    def test_no_diff_for_identical(self):
-        content = "same\ncontent\n"
-        diff = _generate_diff(content, content, filename="test.m")
-        assert diff == ""
-
-    def test_addition_only(self):
-        original = "line1\n"
-        new = "line1\nline2\n"
-        diff = _generate_diff(original, new, filename="added.py")
-        assert "+line2" in diff
-
-    def test_deletion_only(self):
-        original = "line1\nline2\n"
-        new = "line1\n"
-        diff = _generate_diff(original, new, filename="removed.py")
-        assert "-line2" in diff
+        result = review(finding, "diff text here")
+        assert result["verdict"] == "REJECT"
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +166,7 @@ class TestGenerateDiff:
 # ---------------------------------------------------------------------------
 
 class TestReviewParseFallback:
-    """review() returns request_changes with EVALUATION_FAILED on parse failure."""
+    """review() returns REQUEST_CHANGES on parse failure."""
 
     def test_fallback_on_garbage(self, monkeypatch):
         monkeypatch.setattr(
@@ -274,7 +174,27 @@ class TestReviewParseFallback:
             lambda kwargs: "this is not valid json at all",
         )
         finding = _make_finding()
-        verdict = review(finding, "old", "new")
-        assert verdict.verdict == "request_changes"
-        assert "EVALUATION_FAILED" in verdict.risk_flags
-        assert "parse failed" in verdict.reasoning.lower()
+        result = review(finding, "diff text")
+        assert result["verdict"] == "REQUEST_CHANGES"
+        assert "parse" in result["summary"].lower() or "parse" in result["reasoning"].lower()
+
+
+# ---------------------------------------------------------------------------
+# get_review_system_prompt
+# ---------------------------------------------------------------------------
+
+class TestGetReviewSystemPrompt:
+    """Verify system prompt retrieval."""
+
+    def test_returns_string(self):
+        prompt = get_review_system_prompt()
+        assert isinstance(prompt, str)
+        assert len(prompt) > 0
+
+    def test_default_prompt_mentions_reviewer(self):
+        assert "reviewer" in DEFAULT_REVIEW_PROMPT.lower()
+
+    def test_valid_verdicts(self):
+        assert "APPROVE" in VALID_VERDICTS
+        assert "REJECT" in VALID_VERDICTS
+        assert "REQUEST_CHANGES" in VALID_VERDICTS

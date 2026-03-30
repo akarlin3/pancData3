@@ -212,7 +212,9 @@ function plot_feature_distribution(vals, lf_group, metric_name, metric_unit, plo
             p = perform_statistical_test(vals_clean, lf_clean, 'ranksum');
             yl = ylim;
             text(1.5, yl(1) + 0.95*(yl(2) - yl(1)), format_p_value(p), ...
-                'HorizontalAlignment', 'center', 'FontSize', 10);
+                'HorizontalAlignment', 'center', 'FontSize', 11, 'FontWeight', 'bold', ...
+                'BackgroundColor', [1 1 1 0.8], 'EdgeColor', [0.7 0.7 0.7], ...
+                'Margin', 3);
         end
     else
         error('Invalid plot_type. Must be ''histogram'' or ''boxplot''.');

@@ -1,4 +1,4 @@
-"""Tests for the four new report section builders added in v2.1-dev.
+"""Tests for the four new report section builders.
 
 Covers:
 - build_dca_section (model_diagnostics.py)

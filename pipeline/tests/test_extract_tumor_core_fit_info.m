@@ -203,5 +203,190 @@ classdef test_extract_tumor_core_fit_info < matlab.unittest.TestCase
                 'fDM at baseline (no prior timepoint) should fall back.');
         end
 
+        function testDThresholdMaskCorrectness(testCase)
+            % With d_threshold method, verify mask selects voxels where D < d_thresh.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'd_threshold';
+            cfg.d_thresh = 0.001;
+
+            [mask, info] = extract_tumor_core(cfg, testCase.AdcVec, ...
+                testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());
+
+            testCase.verifyTrue(islogical(mask), 'Mask should be logical.');
+            % Every selected voxel should have D <= d_thresh
+            selected_d = testCase.DVec(mask);
+            testCase.verifyTrue(all(selected_d <= cfg.d_thresh), ...
+                'All selected voxels should have D <= d_thresh.');
+            % Every unselected non-NaN voxel should have D > d_thresh
+            unselected_valid = ~mask & ~isnan(testCase.DVec);
+            testCase.verifyTrue(all(testCase.DVec(unselected_valid) > cfg.d_thresh), ...
+                'All unselected valid voxels should have D > d_thresh.');
+            testCase.verifyEqual(info.method, 'd_threshold');
+        end
+
+        function testOtsuProducesBinaryMask(testCase)
+            % With otsu method, verify mask is logical and has both true/false values
+            % for bimodal data.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'otsu';
+
+            evalc('[mask, info] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+
+            testCase.verifyTrue(islogical(mask), 'Otsu mask should be logical.');
+            testCase.verifyTrue(any(mask), 'Bimodal data should produce some true values.');
+            testCase.verifyTrue(any(~mask), 'Bimodal data should produce some false values.');
+            testCase.verifyEqual(numel(mask), numel(testCase.AdcVec), ...
+                'Mask size should match input size.');
+        end
+
+        function testKmeansTwoClusters(testCase)
+            % With kmeans method and core_n_clusters=2, verify mask partitions
+            % data into 2 groups.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'kmeans';
+            cfg.core_n_clusters = 2;
+
+            evalc('[mask, info] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+
+            testCase.verifyTrue(islogical(mask), 'K-means mask should be logical.');
+            n_core = sum(mask);
+            n_non_core = sum(~mask & ~isnan(testCase.AdcVec));
+            testCase.verifyGreaterThan(n_core, 0, 'Should have core voxels.');
+            testCase.verifyGreaterThan(n_non_core, 0, 'Should have non-core voxels.');
+            % Core cluster should have lower mean ADC than non-core
+            mean_core_adc = mean(testCase.AdcVec(mask), 'omitnan');
+            mean_noncore_adc = mean(testCase.AdcVec(~mask & ~isnan(testCase.AdcVec)), 'omitnan');
+            testCase.verifyLessThan(mean_core_adc, mean_noncore_adc, ...
+                'Core cluster should have lower mean ADC than non-core.');
+        end
+
+        function testPercentileSelectsBottom25(testCase)
+            % With percentile method and core_percentile=25, verify ~25% of
+            % voxels selected.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'percentile';
+            cfg.core_percentile = 25;
+            % Set adc_thresh high so it does not limit the percentile
+            cfg.adc_thresh = 0.01;
+
+            [mask, info] = extract_tumor_core(cfg, testCase.AdcVec, ...
+                testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());
+
+            n_valid = sum(~isnan(testCase.AdcVec));
+            fraction_selected = sum(mask) / n_valid;
+            % Allow some tolerance since percentile threshold picks <= boundary
+            testCase.verifyGreaterThan(fraction_selected, 0.10, ...
+                'Should select at least ~10% of voxels.');
+            testCase.verifyLessThan(fraction_selected, 0.40, ...
+                'Should select no more than ~40% of voxels.');
+        end
+
+        function testDfIntersectionMask(testCase)
+            % With df_intersection method, verify mask selects voxels where
+            % both D < d_thresh AND f <= f_thresh.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'df_intersection';
+            cfg.d_thresh = 0.001;
+            cfg.f_thresh = 0.1;
+
+            [mask, info] = extract_tumor_core(cfg, testCase.AdcVec, ...
+                testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());
+
+            testCase.verifyTrue(islogical(mask), 'Mask should be logical.');
+            % Verify intersection logic on selected voxels
+            d_below = testCase.DVec(mask) <= cfg.d_thresh;
+            f_below = testCase.FVec(mask) <= cfg.f_thresh;
+            testCase.verifyTrue(all(d_below), ...
+                'All selected voxels should have D <= d_thresh.');
+            testCase.verifyTrue(all(f_below), ...
+                'All selected voxels should have f <= f_thresh.');
+            testCase.verifyEqual(info.method, 'df_intersection');
+        end
+
+        function testSpectralFallbackWithFewVoxels(testCase)
+            % With spectral method and very few voxels (<spectral_min_voxels),
+            % should fall back to ADC threshold.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'spectral';
+            cfg.spectral_min_voxels = 200;  % higher than our 100-voxel data
+
+            evalc('[mask, info] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+
+            testCase.verifyTrue(info.fallback, ...
+                'Spectral with too few voxels should fall back.');
+        end
+
+        function testMethodFallbackRecovery(testCase)
+            % When a method throws an error internally, verify it produces
+            % empty mask with success=false.
+            rng(42);
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'adc_threshold';
+
+            % All-NaN triggers the early return path with success=false
+            n = 50;
+            [mask, info] = extract_tumor_core(cfg, nan(n,1), ...
+                nan(n,1), nan(n,1), nan(n,1), false, [], struct());
+
+            testCase.verifyFalse(info.success, ...
+                'All-NaN input should produce success=false.');
+            testCase.verifyTrue(info.empty_mask, ...
+                'Should produce empty mask on failure.');
+            testCase.verifyEqual(sum(mask), 0, 'Mask should be all-false.');
+        end
+
+        function testAllMethodsReturnLogicalMask(testCase)
+            % Loop through all 11 methods, verify each returns a logical mask
+            % of correct size.
+            rng(42);
+            methods_list = {'adc_threshold', 'd_threshold', 'df_intersection', ...
+                'otsu', 'gmm', 'kmeans', 'percentile'};
+            % Excluded: region_growing (needs 3D), active_contours (needs 3D),
+            % spectral (may need special setup), fdm (needs baseline)
+
+            for i = 1:numel(methods_list)
+                cfg = testCase.ConfigStruct;
+                cfg.core_method = methods_list{i};
+                cfg.min_vox_hist = 10;
+
+                evalc('[mask, info] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+
+                testCase.verifyTrue(islogical(mask), ...
+                    sprintf('%s should return logical mask.', methods_list{i}));
+                testCase.verifyEqual(numel(mask), numel(testCase.AdcVec), ...
+                    sprintf('%s mask should match input size.', methods_list{i}));
+            end
+
+            % Also test spectral and fdm (expected to fallback but still return logical)
+            cfg = testCase.ConfigStruct;
+            cfg.core_method = 'spectral';
+            cfg.spectral_min_voxels = 10;
+            evalc('[mask, ~] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+            testCase.verifyTrue(islogical(mask), 'spectral should return logical mask.');
+            testCase.verifyEqual(numel(mask), numel(testCase.AdcVec));
+
+            cfg.core_method = 'fdm';
+            opts = struct('timepoint_index', 1);
+            evalc('[mask, ~] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], opts);');
+            testCase.verifyTrue(islogical(mask), 'fdm should return logical mask.');
+            testCase.verifyEqual(numel(mask), numel(testCase.AdcVec));
+
+            cfg.core_method = 'region_growing';
+            evalc('[mask, ~] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+            testCase.verifyTrue(islogical(mask), 'region_growing should return logical mask.');
+            testCase.verifyEqual(numel(mask), numel(testCase.AdcVec));
+
+            cfg.core_method = 'active_contours';
+            evalc('[mask, ~] = extract_tumor_core(cfg, testCase.AdcVec, testCase.DVec, testCase.FVec, testCase.DstarVec, false, [], struct());');
+            testCase.verifyTrue(islogical(mask), 'active_contours should return logical mask.');
+            testCase.verifyEqual(numel(mask), numel(testCase.AdcVec));
+        end
+
     end
 end

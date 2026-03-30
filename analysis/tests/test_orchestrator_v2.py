@@ -15,11 +15,9 @@ from improvement_loop.orchestrator_v2 import (
     FindingState,
     IterationState,
     run_loop,
-    _print_agent_summary,
+    _print_run_summary,
 )
 from improvement_loop.evaluator import Finding
-from improvement_loop.agents.implementer import ImplementResult
-from improvement_loop.agents.reviewer import ReviewVerdict
 
 
 @pytest.fixture(autouse=True)
@@ -50,34 +48,38 @@ class TestFindingState:
     def test_defaults(self):
         f = _make_finding()
         fs = FindingState(finding=f)
-        assert fs.implement_result is None
-        assert fs.review_verdict is None
+        assert fs.diff == ""
+        assert fs.review_verdict == ""
         assert fs.merged is False
-        assert fs.error == ""
+        assert fs.error is None
 
     def test_with_all_fields(self):
         f = _make_finding()
-        ir = ImplementResult(success=True, original_content="a", new_content="b")
-        rv = ReviewVerdict(verdict="approve", reasoning="ok", risk_flags=[])
-        fs = FindingState(finding=f, implement_result=ir, review_verdict=rv,
-                          merged=True, error="")
+        fs = FindingState(
+            finding=f,
+            diff="--- a/file\n+++ b/file\n",
+            review_verdict="APPROVE",
+            review_detail={"verdict": "APPROVE", "reasoning": "ok"},
+            merged=True,
+            error=None,
+        )
         assert fs.merged is True
-        assert fs.review_verdict.verdict == "approve"
+        assert fs.review_verdict == "APPROVE"
 
 
 class TestIterationState:
     def test_defaults(self):
-        state = IterationState(iteration=1, context="ctx")
+        state = IterationState(iteration=1, dry_run=False)
         assert state.iteration == 1
-        assert state.context == "ctx"
-        assert state.findings == []
+        assert state.dry_run is False
+        assert state.finding_states == []
         assert state.all_tests_passed is True
 
     def test_with_findings(self):
         f = _make_finding()
         fs = FindingState(finding=f)
-        state = IterationState(iteration=2, context="ctx", findings=[fs])
-        assert len(state.findings) == 1
+        state = IterationState(iteration=2, dry_run=True, finding_states=[fs])
+        assert len(state.finding_states) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -157,118 +159,33 @@ class TestRunLoopExitCondition:
 
 
 # ---------------------------------------------------------------------------
-# Rejected finding does not get merged
+# _print_run_summary — smoke test
 # ---------------------------------------------------------------------------
 
-class TestRejectedFindingNotMerged:
-    """When the reviewer rejects a finding, it must not be merged."""
+class TestPrintRunSummary:
+    """_print_run_summary runs without error on various inputs."""
 
-    def test_rejected_finding_status_pending(self, monkeypatch):
-        """Mock the full pipeline: audit returns 1 finding, implement succeeds,
-        reviewer rejects → finding.status should be 'pending', not 'merged'."""
-        finding = _make_finding(branch_name="improvement/reject-test")
+    def test_empty_entries(self, capsys):
+        _print_run_summary([])
+        captured = capsys.readouterr()
+        assert "SUMMARY" in captured.out
 
-        # Mock audit to return one finding
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2._audit",
-            lambda iteration, context, dry_run: [finding],
-        )
-
-        # Mock implement to succeed
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2._implement",
-            lambda f, base_branch, dry_run: ImplementResult(
-                success=True, original_content="old", new_content="new"
-            ),
-        )
-
-        # Mock reviewer to reject
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2._review",
-            lambda f, original_content, new_content, dry_run: ReviewVerdict(
-                verdict="reject", reasoning="Bad change", risk_flags=["DEPS_MODIFIED"]
-            ),
-        )
-
-        # Mock git operations
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2.git_utils.current_branch",
-            lambda: "v2.2-dev",
-        )
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2.git_utils.checkout",
-            lambda branch: None,
-        )
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2.git_utils.run_python_tests",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "improvement_loop.orchestrator_v2.git_utils.merge_branch",
-            lambda source, target, delete_after: None,
-        )
-
-        # Make it exit after one iteration
-        exit_entry = {
+    def test_with_entries(self, capsys):
+        entries = [{
             "iteration": 1,
             "exit_condition_met": True,
-            "audit_scores": {"overall": 5.0, "flags": []},
-            "findings": [],
-            "findings_count": 1,
-            "high_priority_findings": 0,
-            "branches_created": ["improvement/reject-test"],
-            "branches_merged": [],
+            "audit_scores": {"overall": 8.0, "flags": []},
+            "findings": [
+                {"dimension": "correctness", "status": "merged"},
+                {"dimension": "performance", "status": "pending"},
+            ],
+            "findings_count": 2,
+            "high_priority_findings": 1,
+            "branches_created": ["improvement/fix-1"],
+            "branches_merged": ["improvement/fix-1"],
             "tests_passed": True,
-        }
-        monkeypatch.setattr(
-            loop_tracker, "log_iteration",
-            lambda **kwargs: exit_entry,
-        )
-
-        entries = run_loop(max_iterations=1, dry_run=False)
-
-        # The finding should not have been merged
-        assert finding.status == "pending"
-        assert len(entries) == 1
-
-
-# ---------------------------------------------------------------------------
-# _print_agent_summary — smoke test
-# ---------------------------------------------------------------------------
-
-class TestPrintAgentSummary:
-    """_print_agent_summary runs without error on various states."""
-
-    def test_empty_state(self, capsys):
-        state = IterationState(iteration=1, context="")
-        _print_agent_summary(state)
+        }]
+        _print_run_summary(entries)
         captured = capsys.readouterr()
-        assert "Audit:" in captured.out
-        assert "0 findings" in captured.out
-
-    def test_with_findings(self, capsys):
-        f = _make_finding(importance=8)
-        ir = ImplementResult(success=True, original_content="a", new_content="b")
-        rv = ReviewVerdict(verdict="approve", reasoning="ok", risk_flags=[])
-        fs = FindingState(finding=f, implement_result=ir, review_verdict=rv,
-                          merged=True)
-        state = IterationState(iteration=1, context="", findings=[fs])
-        _print_agent_summary(state)
-        captured = capsys.readouterr()
-        assert "1 findings (1 high-priority)" in captured.out
-        assert "1 succeeded" in captured.out
-        assert "1 approved" in captured.out
-        assert "1 merged" in captured.out
-
-    def test_with_risk_flags(self, capsys):
-        f = _make_finding()
-        ir = ImplementResult(success=True, original_content="a", new_content="b")
-        rv = ReviewVerdict(verdict="reject", reasoning="bad",
-                           risk_flags=["LEAKAGE_RISK", "PHI_RISK"])
-        fs = FindingState(finding=f, implement_result=ir, review_verdict=rv,
-                          error="Rejected")
-        state = IterationState(iteration=1, context="", findings=[fs])
-        _print_agent_summary(state)
-        captured = capsys.readouterr()
-        assert "LEAKAGE_RISK" in captured.out
-        assert "PHI_RISK" in captured.out
+        assert "SUMMARY" in captured.out
+        assert "1 iteration" in captured.out

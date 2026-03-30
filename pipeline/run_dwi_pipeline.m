@@ -10,7 +10,7 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 %   3. Environment: Setting up paths and verifying dependencies dynamically.
 % Usage:
 %   run_dwi_pipeline('config.json');
-%   run_dwi_pipeline('config.json', {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'});
+%   run_dwi_pipeline('config.json', {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'compare_cores', 'cross_pipeline_dice', 'core_failure_rates', 'metrics_longitudinal', 'metrics_dosimetry', 'core_method_outcomes', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'});
 %   run_dwi_pipeline('config.json', {'load'}, 'path/to/my_output_folder');
 %
 % This function sequentially calls the module scripts:
