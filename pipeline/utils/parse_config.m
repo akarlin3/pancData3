@@ -43,6 +43,30 @@ function config_struct = parse_config(json_path)
         % anything larger is almost certainly a misconfigured path.
         MAX_CONFIG_BYTES = 1e6;  % 1 MB hard limit
         file_info = dir(json_path);
+
+        % Guard against dir() returning zero or multiple entries.  This
+        % can happen when json_path contains glob-like characters (e.g.,
+        % brackets in "config[v2].json") or on case-insensitive
+        % filesystems.  The same pattern used in safe_load_mask.m.
+        if numel(file_info) == 0
+            error('parse_config:fileNotFound', ...
+                'dir() returned no entries for %s despite isfile() succeeding. Check the path for special characters.', ...
+                json_path);
+        elseif numel(file_info) > 1
+            % Attempt exact name match against the entries returned by dir.
+            [~, expected_name, expected_ext] = fileparts(json_path);
+            expected_basename = [expected_name, expected_ext];
+            exact_idx = find(strcmp({file_info.name}, expected_basename), 1);
+            if ~isempty(exact_idx)
+                file_info = file_info(exact_idx);
+            else
+                warning('parse_config:multipleDir', ...
+                    'dir() returned %d entries for "%s" and no exact name match was found. Using the first entry ("%s").', ...
+                    numel(file_info), json_path, file_info(1).name);
+                file_info = file_info(1);
+            end
+        end
+
         if file_info.bytes > MAX_CONFIG_BYTES
             error('parse_config:fileTooLarge', ...
                 'Configuration file %s is too large (%d bytes, limit %d bytes). A valid config.json should be well under 1 MB. Check that config_path does not point to a data file.', ...
