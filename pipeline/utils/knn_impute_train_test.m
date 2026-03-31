@@ -43,6 +43,16 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 %   has access to historical patients (training) but not to other
 %   concurrent patients (test) when imputing a new patient's missing data.
 %
+%   Partial-Distance Strategy for Sparse Data:
+%   -------------------------------------------
+%   Rather than requiring candidate neighbors to have ALL distance-relevant
+%   features non-NaN (which is overly strict and can eliminate most
+%   candidates when training data has scattered missingness), we require a
+%   minimum fraction (80%) of shared valid features and compute partial
+%   distances normalized by the number of shared features. This "available-
+%   case" approach prevents silent imputation failures in small or sparse
+%   cohorts while maintaining distance metric validity.
+%
     if nargin < 2, X_te = []; end
     if nargin < 3, k = 5; end
     if nargin < 4, pat_id_tr = []; end
@@ -52,6 +62,14 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     end
     if nargin < 5, pat_id_te = []; end
     if nargin < 6, target_cols = []; end
+
+    % Minimum fraction of shared valid features required for a candidate
+    % neighbor to be eligible.  Setting this to 0.8 means a reference row
+    % must have at least 80% of the query's distance-relevant features
+    % non-NaN.  This relaxes the previous requirement of 100%, preventing
+    % silent imputation failures in sparse datasets while still ensuring
+    % distance metrics are computed over a substantial feature overlap.
+    min_shared_feat_frac = 0.8;
 
     % Validate that patient ID types are consistent (both cell or both numeric)
     if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
@@ -139,9 +157,9 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
-            % Sparse optimization: only consider features that are relevant for distance computation
-            % Features that have no missing values anywhere don't need to be included in distance
-            % calculations for rows that don't have missing values in those features
+            % Determine which features contribute to distance computation.
+            % Start from the query's valid features, exclude target columns
+            % and near-zero-variance features.
             distance_feat = valid_feat;
             if ~isempty(target_cols)
                 distance_feat(target_cols) = false;
@@ -151,14 +169,19 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             % Skip features that are constant or have very low variance
             nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
             
-            if sum(nonzero_var_feat) == 0
+            num_dist_feat = sum(nonzero_var_feat);
+            if num_dist_feat == 0
                 continue;
             end
             
-            % Vectorized finding of valid reference indices
-            % A row is valid if it doesn't have any NaNs in the nonzero_var_feat columns
-            num_valid = sum(nonzero_var_feat);
-            is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
+            % --- RELAXED VALID-REFERENCE CRITERION ---
+            % Instead of requiring ALL nonzero_var_feat columns to be non-NaN
+            % in a candidate neighbor (which is overly strict and eliminates
+            % most candidates when training data has scattered missingness),
+            % require at least min_shared_feat_frac of them.
+            min_shared_feat_count = max(1, ceil(min_shared_feat_frac * num_dist_feat));
+            shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
+            is_valid_ref = shared_feat_counts >= min_shared_feat_count;
             
             % Apply cached patient blocking exclusions
             is_valid_ref = is_valid_ref & ~patient_blocking_mask(i, :)';
@@ -169,18 +192,36 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
-            % Extract pure coordinates using only features that contribute to distance
+            % --- PARTIAL DISTANCE COMPUTATION ---
+            % Compute distances over mutually valid (non-NaN) features
+            % between the query and each reference row, normalized by the
+            % number of shared features.  This "available-case" approach
+            % is appropriate when missingness is random (MCAR/MAR) and
+            % prevents candidates with fewer shared features from having
+            % artificially smaller raw distances.
+            %
+            % For each reference row, the partial distance is:
+            %   d_partial = (1/n_shared) * sum_over_shared( (z_query - z_ref)^2 )
+            %
+            % This normalizes by the number of shared features so that
+            % distances are comparable across references with different
+            % amounts of overlap.
             Y_coords = search_space(ref_idx, nonzero_var_feat);
             X_coord = query_pt(nonzero_var_feat);
             
-            % Calculate squared Euclidean distances.  Squared distances
-            % preserve the rank ordering needed for KNN selection while
-            % avoiding the sqrt() computation.  The distance is computed
-            % only over mutually valid (non-NaN) features between the
-            % query row and each reference row, which is the "available-
-            % case" approach — appropriate when missingness is random
-            % (MCAR/MAR), as is typical for missed MRI scans.
-            dists = sum((Y_coords - X_coord).^2, 2);
+            % Compute element-wise squared differences; NaN where either is NaN
+            sq_diff = (Y_coords - X_coord).^2;
+            
+            % Count shared valid features per reference row
+            shared_valid = ~isnan(sq_diff);
+            n_shared = sum(shared_valid, 2);
+            
+            % Compute mean squared difference over shared features (partial distance)
+            % Replace NaN with 0 for summation, then normalize by n_shared
+            sq_diff_zero = sq_diff;
+            sq_diff_zero(~shared_valid) = 0;
+            dists = sum(sq_diff_zero, 2) ./ max(n_shared, 1);
+            
             [~, sort_idx] = sort(dists);
 
             % For each missing column, filter to refs with valid data
@@ -258,12 +299,15 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 
                 nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
                 
-                if sum(nonzero_var_feat) == 0
+                num_dist_feat = sum(nonzero_var_feat);
+                if num_dist_feat == 0
                     continue;
                 end
                 
-                num_valid = sum(nonzero_var_feat);
-                is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
+                % --- RELAXED VALID-REFERENCE CRITERION (TEST SET) ---
+                min_shared_feat_count = max(1, ceil(min_shared_feat_frac * num_dist_feat));
+                shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
+                is_valid_ref = shared_feat_counts >= min_shared_feat_count;
                 
                 % Apply cached cross-patient blocking exclusions
                 if ~isempty(cross_patient_blocking_mask)
@@ -276,13 +320,25 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     continue;
                 end
                 
+                % --- PARTIAL DISTANCE COMPUTATION (TEST SET) ---
                 % Use training search_space for reference coordinates
                 % (neighbors are always training rows), but compute
                 % distances in the shared Z-score space.
                 Y_coords = search_space(ref_idx, nonzero_var_feat);
                 X_coord = search_space_te(i, nonzero_var_feat);
 
-                dists = sum((Y_coords - X_coord).^2, 2);
+                % Compute element-wise squared differences; NaN where either is NaN
+                sq_diff = (Y_coords - X_coord).^2;
+                
+                % Count shared valid features per reference row
+                shared_valid = ~isnan(sq_diff);
+                n_shared = sum(shared_valid, 2);
+                
+                % Compute mean squared difference over shared features (partial distance)
+                sq_diff_zero = sq_diff;
+                sq_diff_zero(~shared_valid) = 0;
+                dists = sum(sq_diff_zero, 2) ./ max(n_shared, 1);
+                
                 [~, sort_idx] = sort(dists);
 
                 % For each missing column, filter to refs with valid data
