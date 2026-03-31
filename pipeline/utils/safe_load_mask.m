@@ -19,6 +19,7 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
 %       3. Is not a complex object or script that could execute code.
 %       4. The file size is within acceptable limits.
 %       5. The file has a valid .mat structure.
+%       6. The variable dimensions are reasonable for anatomical masks.
 %
 %   Analytical Rationale — Why Safe Loading is Critical:
 %   ----------------------------------------------------
@@ -136,6 +137,14 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
                      'exceeds safety limit (%.1f MB). Aborting load.'], ...
                     dup_i, varname, dup_size_mb, max_file_size_mb);
             end
+            
+            % Check dimension validity for this duplicate
+            if ~validate_mask_dimensions(dup_info.size)
+                error('safe_load_mask:InvalidDimensions', ...
+                    ['Duplicate entry %d of variable ''%s'' has invalid dimensions ' ...
+                     'for anatomical mask data. Aborting load for security.'], ...
+                    dup_i, varname);
+            end
         end
 
         % Check that all duplicates agree on class and size. If they
@@ -183,6 +192,14 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         warning('safe_load_mask:VariableTooLarge', ...
             'Variable ''%s'' in-memory size (%.1f MB) exceeds safety limit (%.1f MB)', ...
             varname, var_size_mb, max_file_size_mb);
+        return;
+    end
+    
+    % Validate mask dimensions for anatomical reasonableness
+    if ~validate_mask_dimensions(target_info.size)
+        warning('safe_load_mask:InvalidDimensions', ...
+            'Variable ''%s'' has dimensions incompatible with anatomical mask data', ...
+            varname);
         return;
     end
 
@@ -310,6 +327,77 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         end
     end
 
+end
+
+
+function is_valid = validate_mask_dimensions(var_size)
+% VALIDATE_MASK_DIMENSIONS Validates that array dimensions are reasonable for anatomical masks.
+%
+%   is_valid = VALIDATE_MASK_DIMENSIONS(var_size)
+%
+%   INPUTS:
+%       var_size - Size vector from whos output (e.g., [512 512 100])
+%
+%   OUTPUTS:
+%       is_valid - True if dimensions are reasonable for anatomical masks, false otherwise
+%
+%   This function checks that:
+%   1. The array is 2D or 3D (anatomical masks are typically image slices or volumes)
+%   2. Individual dimensions are within reasonable bounds for medical imaging
+%   3. The total number of elements doesn't exceed anatomical limits
+%   4. The array is not degenerate (no dimension is zero)
+
+    is_valid = false;
+    
+    % Check for degenerate dimensions (any dimension is zero)
+    if any(var_size == 0)
+        return;
+    end
+    
+    % Remove singleton dimensions for analysis
+    non_singleton_dims = var_size(var_size > 1);
+    num_dims = length(non_singleton_dims);
+    
+    % Anatomical masks should be 2D (slice) or 3D (volume)
+    if num_dims < 2 || num_dims > 3
+        return;
+    end
+    
+    % Check individual dimension limits
+    % Medical imaging typically uses dimensions from ~32 to ~2048 pixels per axis
+    % Ultra-high resolution might go up to 4096, but beyond that is suspicious
+    min_reasonable_dim = 8;    % Allow for very small test masks
+    max_reasonable_dim = 8192; % Conservative upper bound for any single dimension
+    
+    if any(non_singleton_dims < min_reasonable_dim) || any(non_singleton_dims > max_reasonable_dim)
+        return;
+    end
+    
+    % Check total number of elements
+    % Typical high-resolution 3D anatomical volumes might be 1024^3 = ~1 billion elements
+    % Ultra-high resolution might reach 2048^3 = ~8 billion elements
+    % Beyond 10 billion elements is suspicious for anatomical data
+    total_elements = prod(var_size);
+    max_reasonable_elements = 10e9; % 10 billion elements
+    
+    if total_elements > max_reasonable_elements
+        return;
+    end
+    
+    % Additional check: ensure aspect ratios are reasonable
+    % Anatomical images typically don't have extreme aspect ratios
+    % (e.g., one dimension 1000x larger than another)
+    max_aspect_ratio = 100; % Conservative limit
+    
+    if num_dims >= 2
+        sorted_dims = sort(non_singleton_dims, 'descend');
+        if sorted_dims(1) / sorted_dims(end) > max_aspect_ratio
+            return;
+        end
+    end
+    
+    % If all checks pass, dimensions are valid
+    is_valid = true;
 end
 
 

@@ -147,8 +147,10 @@ def _check_requirements() -> bool:
 
     missing: list[str] = []
     import importlib.metadata as _meta
-
     from packaging.requirements import InvalidRequirement, Requirement
+
+    # Get all installed packages once
+    installed_packages = {dist.metadata["name"]: dist for dist in _meta.distributions()}
 
     for line in req_file.read_text().splitlines():
         line = line.strip()
@@ -165,9 +167,8 @@ def _check_requirements() -> bool:
             # very unusual syntax), warn and skip rather than crash.
             print(f"  [WARN] Could not parse requirement line, skipping: {line}")
             continue
-        try:
-            _meta.version(pkg_name)
-        except _meta.PackageNotFoundError:
+        
+        if pkg_name not in installed_packages:
             missing.append(line)
 
     if missing:

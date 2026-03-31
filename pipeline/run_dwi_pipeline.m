@@ -98,16 +98,33 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     % the orchestrator does not depend on internal session field names.
     session = prepare_pipeline_session(pipeline_dir, config_path, master_output_folder, steps_to_run);
 
-    % onCleanup guard: use the session-provided cleanup handle so that all
-    % resource teardown knowledge (diary, figure visibility, log file
-    % descriptor, GUI window) is encapsulated within the session creator.
-    % This MUST be created before the abort check so that an early return
-    % still triggers all resource cleanup.
+    % ----------------------------
+    % Session Cleanup Setup
+    % ----------------------------
+    % The session cleanup logic uses a structured approach with two fallback levels:
+    %
+    % 1. PREFERRED: session.cleanup function handle (modern structured approach)
+    %    - prepare_pipeline_session() provides a dedicated cleanup function handle that
+    %      encapsulates ALL resource teardown logic (diary, GUI, log files, figure settings)
+    %    - This ensures the orchestrator doesn't need to know about internal session structure
+    %    - Provides better error isolation and cleaner separation of concerns
+    %
+    % 2. FALLBACK: fallback_cleanup() using session fields (backwards compatibility)
+    %    - Used only when prepare_pipeline_session() doesn't provide session.cleanup
+    %    - Maintains compatibility with older session preparation code
+    %    - Directly accesses session fields (log_fid, prev_fig_vis, pipeGUI) for cleanup
+    %
+    % onCleanup guard: MUST be created before the abort check so that early returns
+    % still trigger all resource cleanup. The cleanup logic handles failures gracefully.
+    
     if isfield(session, 'cleanup') && isa(session.cleanup, 'function_handle')
+        % Modern structured cleanup: use the session-provided cleanup handle
         cleanup_guard = onCleanup(session.cleanup); %#ok<NASGU>
     else
-        % Fallback: if session does not provide a cleanup handle, build
-        % guards from known fields (backwards compatibility).
+        % Backwards compatibility: fallback to field-based cleanup
+        % NOTE: Consider migrating session preparation code to provide structured cleanup handles
+        warning('run_dwi_pipeline:UsingFallbackCleanup', ...
+            'Session does not provide structured cleanup handle. Using fallback cleanup method. Consider updating prepare_pipeline_session() to provide session.cleanup function handle.');
         cleanup_guard = onCleanup(@() fallback_cleanup(session)); %#ok<NASGU>
     end
 
@@ -147,11 +164,27 @@ end
 %% ===== Utility functions (remain in orchestrator) =====
 
 function fallback_cleanup(session)
-%FALLBACK_CLEANUP  Perform resource cleanup using known session fields.
-%   This is used only when prepare_pipeline_session does not provide a
-%   session.cleanup function handle (backwards compatibility).
-%   Each cleanup operation is wrapped in try-catch to ensure partial
-%   cleanup succeeds even if individual operations fail.
+%FALLBACK_CLEANUP  Perform resource cleanup using session fields (backwards compatibility).
+%   
+%   This function is used only when prepare_pipeline_session() does not provide 
+%   a structured session.cleanup function handle. It directly accesses known 
+%   session fields to perform cleanup operations.
+%
+%   BACKWARDS COMPATIBILITY NOTICE:
+%   This fallback approach is maintained for compatibility with older session 
+%   preparation code. New implementations should migrate to providing a structured
+%   session.cleanup function handle from prepare_pipeline_session().
+%
+%   Each cleanup operation is wrapped in try-catch to ensure partial cleanup 
+%   succeeds even if individual operations fail. This prevents cascading failures
+%   during resource teardown.
+%
+%   Cleaned resources:
+%   - MATLAB diary logging
+%   - Figure visibility settings (session.prev_fig_vis)
+%   - Log file descriptor (session.log_fid) 
+%   - GUI window handle (session.pipeGUI)
+
     try 
         diary('off'); 
     catch ME

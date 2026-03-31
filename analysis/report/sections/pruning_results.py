@@ -48,6 +48,19 @@ def _section_pruning_results(mat_data: dict, dwi_types: list[str]) -> list[str]:
         "threshold, manual exclusions, and/or minimum voxel count criteria.</p>"
     )
 
+    # Show min_core_voxels threshold if available from any DWI type
+    for dwi in DWI_TYPES:
+        pr = (mat_data or {}).get(dwi, {}).get("pruning", {})
+        mcv = pr.get("min_core_voxels")
+        if mcv is not None:
+            h.append(
+                f'<p class="meta">Insufficient voxels threshold: '
+                f'<code>min_core_voxels = {mcv}</code> '
+                f'(minimum for meaningful dosimetry; distinct from '
+                f'<code>min_vox_hist</code> used for histogram statistics).</p>'
+            )
+            break
+
     for dwi in DWI_TYPES:
         if dwi not in (mat_data or {}):
             continue
@@ -80,6 +93,19 @@ def _section_pruning_results(mat_data: dict, dwi_types: list[str]) -> list[str]:
             h.append("</tbody></table>")
         else:
             h.append("<p>No methods were pruned.</p>")
+
+        # Retained-with-warning methods (e.g. adc_threshold kept as fallback)
+        rw = pr.get("retained_with_warning", [])
+        if rw:
+            h.append("<h4>Retained with Warning</h4>")
+            h.append('<div class="warn-box">')
+            for rw_entry in rw:
+                rw_name = rw_entry.get("name", "")
+                rw_reason = rw_entry.get("reason", "")
+                rw_fr = rw_entry.get("failure_rate")
+                fr_str = f" ({rw_fr * 100:.1f}% failure rate)" if rw_fr is not None and isinstance(rw_fr, (int, float)) and rw_fr == rw_fr else ""
+                h.append(f"<p><strong>{_esc(rw_name)}</strong>{fr_str}: {_esc(rw_reason)}</p>")
+            h.append("</div>")
 
         # Retained methods
         if active:

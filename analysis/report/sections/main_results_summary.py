@@ -181,7 +181,26 @@ def _section_executive_summary(log_data, dwi_types_present, rows, csv_data, time
         if n_fdr > 0:
             result_bullets.append(f"{n_fdr} metric(s) survived Benjamini\u2013Hochberg FDR correction globally")
     if sig_hrs > 0:
-        result_bullets.append(f"{sig_hrs} of {total_hrs} Cox PH covariate(s) were statistically significant (p < 0.05)")
+        # Find the best (most significant) HR for detail
+        best_hr_entry = None
+        best_hr_p = 1.0
+        best_hr_dt = ""
+        if log_data:
+            for dt in dwi_types_present:
+                if dt in log_data:
+                    hrs = log_data[dt].get("survival", {}).get("hazard_ratios", [])
+                    for hr_item in hrs:
+                        p = hr_item.get("p", 1)
+                        if isinstance(p, (int, float)) and 0 < p < best_hr_p:
+                            best_hr_p = p
+                            best_hr_entry = hr_item
+                            best_hr_dt = dt
+        hr_detail = ""
+        if best_hr_entry:
+            cov = best_hr_entry.get("covariate", "?")
+            hr_val = best_hr_entry.get("hr", 0)
+            hr_detail = f" \u2014 best: {cov} via {best_hr_dt} (HR={hr_val:.2f}, p={best_hr_p:.3f})"
+        result_bullets.append(f"{sig_hrs} of {total_hrs} Cox PH covariate(s) were statistically significant (p < 0.05){hr_detail}")
     # Best AUC across all types
     best_roc_overall, best_auc_type = _find_best_auc(log_data, dwi_types_present)
     best_overall_auc = best_roc_overall.get("auc", 0.0) if best_roc_overall else 0.0

@@ -35,12 +35,16 @@ function escaped_arg = escape_shell_arg(arg, style)
 % names). The function detects system encoding and ensures proper character
 % representation for shell operations.
 
-    % --- Persistent encoding cache ---
-    % Cache the detected system encoding so that expensive system() calls
-    % (chcp on Windows, locale charmap on Unix) are executed only once per
-    % MATLAB session instead of on every invocation.
+    % --- Persistent encoding cache with validation ---
+    % Cache the detected system encoding with timestamps for validation
     persistent cached_pc_encoding;
     persistent cached_unix_encoding;
+    persistent cache_pc_timestamp;
+    persistent cache_unix_timestamp;
+    
+    % Configuration constants
+    CACHE_EXPIRY_SECONDS = 300; % 5 minutes - balance between performance and freshness
+    SAFE_DEFAULT_ENCODING = 'UTF-8'; % Fallback encoding if cache becomes invalid
 
     % --- OS Detection ---
     % Auto-detect the shell style based on the current platform. The optional
@@ -129,17 +133,34 @@ function escaped_arg = escape_shell_arg(arg, style)
             % Get system encoding to ensure proper character handling
             if strcmpi(style, 'pc')
                 % Windows: Check for system code page and handle Unicode paths
-                if isempty(cached_pc_encoding)
+                current_time = now * 24 * 3600; % Convert to seconds since epoch
+                
+                % Validate cache and refresh if needed
+                cache_valid = ~isempty(cached_pc_encoding) && ...
+                             ~isempty(cache_pc_timestamp) && ...
+                             (current_time - cache_pc_timestamp) < CACHE_EXPIRY_SECONDS;
+                
+                % Additional validation: check if cached encoding is still a valid string
+                if cache_valid && (~ischar(cached_pc_encoding) || isempty(cached_pc_encoding))
+                    cache_valid = false;
+                    warning('escape_shell_arg:cacheCorruption', 'PC encoding cache corruption detected, refreshing cache.');
+                end
+                
+                if ~cache_valid
                     try
-                        % Attempt to get system code page (runs only once)
-                        [~, cp_output] = system('chcp');
-                        if contains(cp_output, '65001') % UTF-8
+                        % Attempt to get system code page (runs periodically)
+                        [status, cp_output] = system('chcp');
+                        if status == 0 && contains(cp_output, '65001') % UTF-8
                             cached_pc_encoding = 'UTF-8';
                         else
                             cached_pc_encoding = 'windows-1252'; % Common Windows default
                         end
+                        cache_pc_timestamp = current_time;
                     catch
-                        cached_pc_encoding = 'windows-1252';
+                        % If system call fails, use safe default and log warning
+                        cached_pc_encoding = SAFE_DEFAULT_ENCODING;
+                        cache_pc_timestamp = current_time;
+                        warning('escape_shell_arg:encodingFallback', 'Failed to detect PC encoding, using safe default: %s', SAFE_DEFAULT_ENCODING);
                     end
                 end
                 system_encoding = cached_pc_encoding;
@@ -156,18 +177,63 @@ function escaped_arg = escape_shell_arg(arg, style)
                     end
                 end
             else
-                % Unix systems: Most modern Unix systems use UTF-8
-                if isempty(cached_unix_encoding)
-                    try
-                        % Check locale for encoding information (runs only once)
-                        [~, locale_output] = system('locale charmap');
-                        if contains(upper(locale_output), 'UTF-8')
-                            cached_unix_encoding = 'UTF-8';
-                        else
-                            cached_unix_encoding = 'ISO-8859-1';
+                % Unix systems: Enhanced encoding detection with fallbacks
+                current_time = now * 24 * 3600; % Convert to seconds since epoch
+                
+                % Validate cache and refresh if needed
+                cache_valid = ~isempty(cached_unix_encoding) && ...
+                             ~isempty(cache_unix_timestamp) && ...
+                             (current_time - cache_unix_timestamp) < CACHE_EXPIRY_SECONDS;
+                
+                % Additional validation: check if cached encoding is still a valid string
+                if cache_valid && (~ischar(cached_unix_encoding) || isempty(cached_unix_encoding))
+                    cache_valid = false;
+                    warning('escape_shell_arg:cacheCorruption', 'Unix encoding cache corruption detected, refreshing cache.');
+                end
+                
+                if ~cache_valid
+                    % First try environment variables (most reliable)
+                    lang_var = getenv('LANG');
+                    lc_all = getenv('LC_ALL');
+                    lc_ctype = getenv('LC_CTYPE');
+                    
+                    % Check environment variables for encoding info
+                    env_encoding = '';
+                    if ~isempty(lc_all) && contains(upper(lc_all), 'UTF')
+                        env_encoding = 'UTF-8';
+                    elseif ~isempty(lc_ctype) && contains(upper(lc_ctype), 'UTF')
+                        env_encoding = 'UTF-8';
+                    elseif ~isempty(lang_var) && contains(upper(lang_var), 'UTF')
+                        env_encoding = 'UTF-8';
+                    end
+                    
+                    if ~isempty(env_encoding)
+                        cached_unix_encoding = env_encoding;
+                        cache_unix_timestamp = current_time;
+                    else
+                        % Fallback to system() call if environment variables don't help
+                        try
+                            [status, locale_output] = system('locale charmap 2>/dev/null');
+                            if status == 0 && contains(upper(locale_output), 'UTF-8')
+                                cached_unix_encoding = 'UTF-8';
+                            else
+                                % Try alternative command if locale charmap fails
+                                [status2, locale_output2] = system('locale 2>/dev/null | grep -i utf');
+                                if status2 == 0 && ~isempty(locale_output2)
+                                    cached_unix_encoding = 'UTF-8';
+                                else
+                                    % Final fallback based on common modern Unix defaults
+                                    cached_unix_encoding = SAFE_DEFAULT_ENCODING;
+                                end
+                            end
+                            cache_unix_timestamp = current_time;
+                        catch
+                            % If all system calls fail (restricted environment, missing utilities)
+                            % assume UTF-8 as it's the most common encoding on modern Unix systems
+                            cached_unix_encoding = SAFE_DEFAULT_ENCODING;
+                            cache_unix_timestamp = current_time;
+                            warning('escape_shell_arg:encodingFallback', 'Failed to detect Unix encoding, using safe default: %s', SAFE_DEFAULT_ENCODING);
                         end
-                    catch
-                        cached_unix_encoding = 'UTF-8'; % Default assumption for modern Unix
                     end
                 end
             end
