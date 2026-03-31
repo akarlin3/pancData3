@@ -144,7 +144,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     if max_fail_rate < 1.0 || ~isempty(excl_methods)
         if exist(failure_rates_file, 'file')
             loaded = load(failure_rates_file, 'failure_table');
-            [active_methods, pruned_info] = filter_core_methods( ...
+            [active_methods, pruned_info, retained_with_warning] = filter_core_methods( ...
                 ALL_CORE_METHODS_DEFAULT, loaded.failure_table, config_struct);
             config_struct.active_core_methods = active_methods;
 
@@ -161,10 +161,19 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
                     numel(active_methods), strjoin(active_methods, ', '));
             end
 
-            % Save pruning results
+            % Log retained-with-warning methods
+            if ~isempty(retained_with_warning)
+                for wi = 1:numel(retained_with_warning)
+                    fprintf('   ⚠️ %s — %s\n', ...
+                        retained_with_warning(wi).name, retained_with_warning(wi).reason);
+                end
+            end
+
+            % Save pruning results (including retained_with_warning)
+            min_core_voxels_used = config_struct.min_core_voxels;
             save(fullfile(type_output_folder, ...
                 sprintf('core_pruning_%s.mat', config_struct.dwi_type_name)), ...
-                'active_methods', 'pruned_info');
+                'active_methods', 'pruned_info', 'retained_with_warning', 'min_core_voxels_used');
         else
             fprintf('⚠️ Core failure rates not found at %s. Skipping pruning.\n', failure_rates_file);
             config_struct.active_core_methods = ALL_CORE_METHODS_DEFAULT;

@@ -311,7 +311,7 @@ function config_struct = parse_config(json_path)
         % be retained. Methods that consistently produce very small cores
         % (below this count) are pruned as unreliable.
         if ~isfield(config_struct, 'min_core_voxels')
-            config_struct.min_core_voxels = 0;
+            config_struct.min_core_voxels = 10;
         end
 
         % run_core_method_outcomes: When true, test whether dose coverage

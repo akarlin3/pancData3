@@ -351,6 +351,31 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                         pruned_list.append(entry)
             pruning_entry["pruned_info"] = pruned_list
 
+            # Parse retained_with_warning struct array
+            rw_raw = mat.get("retained_with_warning")
+            rw_list: list[dict] = []
+            if rw_raw is not None:
+                if hasattr(rw_raw, "__len__") and not isinstance(rw_raw, str):
+                    rw_items = rw_raw if hasattr(rw_raw, "__iter__") else [rw_raw]
+                else:
+                    rw_items = [rw_raw]
+                for item in rw_items:
+                    rw_entry: dict = {}
+                    if hasattr(item, "name"):
+                        rw_entry["name"] = str(item.name)
+                    if hasattr(item, "failure_rate"):
+                        rw_entry["failure_rate"] = _safe_float(item.failure_rate)
+                    if hasattr(item, "reason"):
+                        rw_entry["reason"] = str(item.reason)
+                    if rw_entry:
+                        rw_list.append(rw_entry)
+            pruning_entry["retained_with_warning"] = rw_list
+
+            # Parse min_core_voxels_used
+            mcv = mat.get("min_core_voxels_used")
+            if mcv is not None:
+                pruning_entry["min_core_voxels"] = int(_safe_float(mcv))
+
             out_data["pruning"] = pruning_entry
         except Exception as e:
             print(f"Error parsing {pruning_mat.name}: {e}")

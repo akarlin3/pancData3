@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+#### Insufficient Voxels Failure Rate Inflation
+- **`pipeline/utils/extract_tumor_core.m`**: Changed insufficient voxels check from `min_vox_hist` (100, designed for histogram statistics) to `min_core_voxels` (default 10, appropriate for dosimetric evaluation). This eliminates false "insufficient voxels" failures for sub-volumes that are valid for D95/V50 computation.
+- **`pipeline/utils/parse_config.m`**: Changed `min_core_voxels` default from 0 (disabled) to 10 (meaningful dosimetry floor).
+- **`pipeline/utils/filter_core_methods.m`**: Added `retained_with_warning` third output — methods that would have been pruned but are kept as fallback (e.g. `adc_threshold`) are now flagged with reasons instead of silently retained.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: Updated call site to capture `retained_with_warning` and `min_core_voxels_used`; both are saved to the pruning MAT file and logged.
+
+### Changed
+
+#### Report Improvements
+- **`analysis/report/sections/main_results_summary.py`**: Executive summary HR bullet now includes the best covariate detail (e.g. "best: D via dnCNN (HR=0.14, p=0.036)") instead of just a count.
+- **`analysis/report/sections/pruning_results.py`**: Pruning section now displays `min_core_voxels` threshold used and shows retained-with-warning methods in a warning box explaining why they were kept despite exceeding thresholds.
+- **`analysis/parsers/parse_mat_metrics.py`**: Parses new `retained_with_warning` and `min_core_voxels_used` fields from core pruning MAT files.
+
 ### Added
 
 #### Sub-Volume Stability Analysis

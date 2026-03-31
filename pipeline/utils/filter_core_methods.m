@@ -1,4 +1,4 @@
-function [active_methods, pruned_info] = filter_core_methods(all_methods, failure_table, config_struct)
+function [active_methods, pruned_info, retained_with_warning] = filter_core_methods(all_methods, failure_table, config_struct)
 %FILTER_CORE_METHODS Remove core methods exceeding failure rate cutoff.
 %
 %   Reads the failure rate table from compute_core_failure_rates and removes
@@ -16,12 +16,16 @@ function [active_methods, pruned_info] = filter_core_methods(all_methods, failur
 %           .min_core_voxels         - minimum median core voxel count (0 = disabled)
 %
 %   Outputs:
-%       active_methods  - cell array of method names that passed the filter
-%       pruned_info     - struct array (one per pruned method) with fields:
-%           .name, .reason, .failure_rate, .pipeline
+%       active_methods        - cell array of method names that passed the filter
+%       pruned_info           - struct array (one per pruned method) with fields:
+%                               .name, .reason, .failure_rate, .pipeline
+%       retained_with_warning - struct array of methods that would have been
+%                               pruned but were kept as fallback (e.g. adc_threshold),
+%                               with fields: .name, .failure_rate, .reason
 
     active_methods = all_methods(:)';
     pruned_info = struct('name', {}, 'reason', {}, 'failure_rate', {}, 'pipeline', {});
+    retained_with_warning = struct('name', {}, 'failure_rate', {}, 'reason', {});
 
     ft_methods = failure_table.method_names;
     pipeline_names = failure_table.pipeline_names;
@@ -70,10 +74,14 @@ function [active_methods, pruned_info] = filter_core_methods(all_methods, failur
             if isnan(max_fr), continue; end
 
             if max_fr > max_rate
-                % Safety: never prune adc_threshold
+                % Safety: never prune adc_threshold — retain with warning
                 if strcmp(mname, 'adc_threshold')
-                    warning('filter_core_methods:adcProtected', ...
-                        'adc_threshold exceeds failure threshold (%.1f%%) but is protected.', max_fr * 100);
+                    warning('filter_core_methods:adcThresholdRetained', ...
+                        'adc_threshold has %.1f%% failure rate but is retained as the fallback method.', ...
+                        max_fr * 100);
+                    entry_warn = struct('name', mname, 'failure_rate', max_fr, ...
+                        'reason', sprintf('Exceeds %.0f%% failure threshold but retained as fallback', max_rate * 100));
+                    retained_with_warning(end+1) = entry_warn; %#ok<AGROW>
                     continue;
                 end
                 to_remove{end+1} = mname; %#ok<AGROW>
@@ -104,8 +112,11 @@ function [active_methods, pruned_info] = filter_core_methods(all_methods, failur
 
             if overall_med < min_vox
                 if strcmp(mname, 'adc_threshold')
-                    warning('filter_core_methods:adcProtected', ...
-                        'adc_threshold has low median voxels (%.0f) but is protected.', overall_med);
+                    warning('filter_core_methods:adcThresholdRetained', ...
+                        'adc_threshold has low median voxels (%.0f) but is retained as the fallback method.', overall_med);
+                    entry_warn = struct('name', mname, 'failure_rate', NaN, ...
+                        'reason', sprintf('Median voxels (%.0f) below min_core_voxels (%d) but retained as fallback', overall_med, min_vox));
+                    retained_with_warning(end+1) = entry_warn; %#ok<AGROW>
                     continue;
                 end
                 to_remove{end+1} = mname; %#ok<AGROW>
