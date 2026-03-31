@@ -162,6 +162,11 @@ function report = generate_patient_exclusion_report(config_path)
 
     % Find the most recent saved_files folder (lives in repo root, not dataloc)
     repo_root = fullfile(fileparts(mfilename('fullpath')), '..');
+    % Resolve '..' so that dir() glob works reliably on Windows
+    prev_dir = pwd;
+    cd(repo_root);
+    repo_root = pwd;
+    cd(prev_dir);
     saved_dirs = dir(fullfile(repo_root, 'saved_files_*'));
     if isempty(saved_dirs)
         fprintf('  ⚠️  No saved_files_* output folder found. Stage 2 checks skipped.\n');
