@@ -279,6 +279,12 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
     % strategy.
     varname_is_valid_identifier = isvarname(varname);
 
+    % Store the expected class and size from the pre-load metadata
+    % inspection for post-load verification (defense-in-depth against
+    % metadata/data inconsistency in corrupted v7.3 HDF5 files).
+    expected_class = target_info.class;
+    expected_size = target_info.size;
+
     % Load only the specific variable by name to minimize memory usage
     % and avoid deserializing any other (potentially unsafe) variables
     % in the file.  The whos check above has already verified this
@@ -324,6 +330,66 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         else
             warning('safe_load_mask:LoadError', 'Error loading variable: %s', ME.message);
             mask = [];
+        end
+    end
+
+    % ----------------------------------------------------------------
+    % Post-load validation (defense-in-depth)
+    % ----------------------------------------------------------------
+    % For .mat v7.3 (HDF5-based) files, the whos('-file',...) metadata
+    % can be inconsistent with what load() actually deserializes in rare
+    % corruption cases.  Additionally, when duplicate variable name
+    % entries exist, whos returns metadata for each duplicate but load()
+    % typically picks the last entry, which may differ from idx(1) — the
+    % entry we validated.  This post-load check ensures the actually
+    % loaded data matches the metadata we validated BEFORE loading.
+    if ~isempty(mask)
+        actual_class = class(mask);
+        actual_size = size(mask);
+
+        % Verify class matches what whos reported
+        if ~strcmp(actual_class, expected_class)
+            warning('safe_load_mask:PostLoadClassMismatch', ...
+                ['SECURITY WARNING: Post-load class mismatch for variable ''%s''. ' ...
+                 'Expected class ''%s'' from whos metadata, but loaded data has class ''%s''. ' ...
+                 'This indicates metadata/data inconsistency (possible file corruption or tampering). ' ...
+                 'Discarding loaded data for security.'], ...
+                varname, expected_class, actual_class);
+            clear mask;
+            mask = [];
+            return;
+        end
+
+        % Verify size matches what whos reported
+        if ~isequal(actual_size, expected_size)
+            warning('safe_load_mask:PostLoadSizeMismatch', ...
+                ['SECURITY WARNING: Post-load size mismatch for variable ''%s''. ' ...
+                 'Expected size [%s] from whos metadata, but loaded data has size [%s]. ' ...
+                 'This indicates metadata/data inconsistency (possible file corruption or tampering). ' ...
+                 'Discarding loaded data for security.'], ...
+                varname, num2str(expected_size), num2str(actual_size));
+            clear mask;
+            mask = [];
+            return;
+        end
+
+        % Re-verify that the loaded class is in the safe list.
+        % This is redundant with the pre-load check but provides a final
+        % safety net against any scenario where deserialization produced
+        % an unexpected type (e.g., a custom loadobj that returns a
+        % different class).
+        safe_classes_postload = {'double', 'single', 'logical', ...
+                        'int8', 'uint8', 'int16', 'uint16', ...
+                        'int32', 'uint32', 'int64', 'uint64'};
+        if ~ismember(actual_class, safe_classes_postload)
+            warning('safe_load_mask:PostLoadUnsafeClass', ...
+                ['SECURITY WARNING: Post-load class ''%s'' for variable ''%s'' is not in ' ...
+                 'the safe class list. This should not happen given pre-load validation. ' ...
+                 'Discarding loaded data for security.'], ...
+                actual_class, varname);
+            clear mask;
+            mask = [];
+            return;
         end
     end
 
