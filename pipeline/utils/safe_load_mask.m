@@ -282,8 +282,19 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
     % Store the expected class and size from the pre-load metadata
     % inspection for post-load verification (defense-in-depth against
     % metadata/data inconsistency in corrupted v7.3 HDF5 files).
+    %
+    % When duplicate variable entries exist, MATLAB's load() typically
+    % loads the LAST entry in the file, not necessarily idx(1) which we
+    % used for target_info above.  We therefore record metadata for ALL
+    % duplicate entries so the post-load check can verify the loaded data
+    % matches at least one of the validated entries.
     expected_class = target_info.class;
     expected_size = target_info.size;
+    has_duplicates = numel(idx) > 1;
+    if has_duplicates
+        all_expected_classes = {file_info(idx).class};
+        all_expected_sizes = {file_info(idx).size};
+    end
 
     % Load only the specific variable by name to minimize memory usage
     % and avoid deserializing any other (potentially unsafe) variables
@@ -347,8 +358,57 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         actual_class = class(mask);
         actual_size = size(mask);
 
-        % Verify class matches what whos reported
-        if ~strcmp(actual_class, expected_class)
+        % When duplicates exist, verify the loaded data matches at least
+        % one of the validated duplicate entries.  MATLAB's load()
+        % typically returns the last entry, not necessarily idx(1).
+        if has_duplicates
+            % Check if actual class/size matches ANY validated duplicate
+            matched_any_duplicate = false;
+            for dup_i = 1:numel(idx)
+                if strcmp(actual_class, all_expected_classes{dup_i}) && ...
+                   isequal(actual_size, all_expected_sizes{dup_i})
+                    matched_any_duplicate = true;
+                    break;
+                end
+            end
+
+            % Check specifically against idx(1) (the entry we used for
+            % target_info) — if the loaded data differs, log a warning
+            % so analysts know which duplicate was actually loaded.
+            if ~strcmp(actual_class, expected_class) || ~isequal(actual_size, expected_size)
+                if matched_any_duplicate
+                    % The loaded data matches a different validated
+                    % duplicate — this is expected behavior (load()
+                    % typically picks the last entry). Log an
+                    % informational warning so the discrepancy is
+                    % recorded.
+                    warning('safe_load_mask:DuplicateEntryLoaded', ...
+                        ['Post-load note: Variable ''%s'' was loaded with class ''%s'' ' ...
+                         'and size [%s], which differs from the primary whos entry ' ...
+                         '(class ''%s'', size [%s]) but matches another validated duplicate. ' ...
+                         'This is expected when duplicate entries exist (load() typically ' ...
+                         'picks the last entry).'], ...
+                        varname, actual_class, num2str(actual_size), ...
+                        expected_class, num2str(expected_size));
+                else
+                    % Loaded data does not match ANY validated duplicate.
+                    % This is a genuine metadata/data inconsistency.
+                    warning('safe_load_mask:PostLoadDuplicateMismatch', ...
+                        ['SECURITY WARNING: Post-load class/size for variable ''%s'' ' ...
+                         '(class ''%s'', size [%s]) does not match ANY of the %d validated ' ...
+                         'duplicate entries from whos metadata. This indicates metadata/data ' ...
+                         'inconsistency (possible file corruption or tampering). ' ...
+                         'Discarding loaded data for security.'], ...
+                        varname, actual_class, num2str(actual_size), numel(idx));
+                    clear mask;
+                    mask = [];
+                    return;
+                end
+            end
+        end
+
+        % Verify class matches what whos reported (primary entry)
+        if ~strcmp(actual_class, expected_class) && ~has_duplicates
             warning('safe_load_mask:PostLoadClassMismatch', ...
                 ['SECURITY WARNING: Post-load class mismatch for variable ''%s''. ' ...
                  'Expected class ''%s'' from whos metadata, but loaded data has class ''%s''. ' ...
@@ -360,8 +420,8 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
             return;
         end
 
-        % Verify size matches what whos reported
-        if ~isequal(actual_size, expected_size)
+        % Verify size matches what whos reported (primary entry)
+        if ~isequal(actual_size, expected_size) && ~has_duplicates
             warning('safe_load_mask:PostLoadSizeMismatch', ...
                 ['SECURITY WARNING: Post-load size mismatch for variable ''%s''. ' ...
                  'Expected size [%s] from whos metadata, but loaded data has size [%s]. ' ...
