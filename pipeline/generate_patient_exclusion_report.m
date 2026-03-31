@@ -60,11 +60,15 @@ function report = generate_patient_exclusion_report(config_path)
         pat_id_str{j} = strtmp{1};
     end
 
-    % Non-patient folders
+    % Non-patient folders — log but do not count in exclusions or totals
     non_patient = isnan(id_num);
-    for j = find(non_patient)'
-        exclusions = add_excl(exclusions, patlist(j).name, ...
-            'Non-patient folder (no numeric ID prefix)', 'Non-patient folder');
+    non_patient_names = {patlist(non_patient).name};
+    if ~isempty(non_patient_names)
+        fprintf('  💡 Skipping %d non-patient folder(s):', length(non_patient_names));
+        for npi = 1:length(non_patient_names)
+            fprintf(' %s', non_patient_names{npi});
+        end
+        fprintf('\n');
     end
 
     % Keep only patient folders
@@ -386,7 +390,7 @@ function report = generate_patient_exclusion_report(config_path)
 
             % Determine severity: fatal exclusions vs informational
             fatal_cats = {'Missing baseline data', 'Missing baseline imaging', ...
-                          'No clinical record', 'DL training set', 'Non-patient folder'};
+                          'No clinical record', 'DL training set'};
             is_fatal = false;
             for fi = 1:length(cats)
                 if any(strcmp(cats{fi}, fatal_cats))
