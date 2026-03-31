@@ -110,7 +110,15 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % distance metric.
     mu_tr = mean(X_tr, 1, 'omitnan');
     sd_tr = std(X_tr, 0, 1, 'omitnan');
-    sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero for constant features
+    % Prevent division by near-zero variance features.  Using exact
+    % floating-point equality (sd_tr == 0) misses features with
+    % near-zero variance due to floating-point noise (e.g., sd ~ 1e-16).
+    % Dividing by such tiny values produces astronomically large Z-scores
+    % that completely dominate the distance metric.  We use a tolerance-
+    % based threshold: eps(max(|mu|)) * 100 adapts to the data scale,
+    % with a fixed floor of 1e-10 for safety when all means are near zero.
+    sd_tol = max(eps(max(abs(mu_tr))) * 100, 1e-10);
+    sd_tr(sd_tr < sd_tol | isnan(sd_tr)) = 1; % Prevent division by near-zero or NaN for constant/near-constant features
     Z_tr = (X_tr - mu_tr) ./ sd_tr;
     
     % Create a boolean mask of valid search space coordinates.
@@ -166,8 +174,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             end
             
             % Further optimization: only use features that actually vary and contribute to distances
-            % Skip features that are constant or have very low variance
-            nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+            % Skip features that are constant or have very low variance.
+            % Use the same tolerance-based threshold as the sd_tr guard above
+            % to ensure consistency: features whose sd was clamped to 1 are
+            % excluded from distance computation since their Z-scores are
+            % all zero (or near-zero) and carry no discriminative information.
+            nonzero_var_feat = distance_feat & (sd_tr > sd_tol);
             
             num_dist_feat = sum(nonzero_var_feat);
             if num_dist_feat == 0
@@ -297,7 +309,7 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     distance_feat(target_cols) = false;
                 end
                 
-                nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+                nonzero_var_feat = distance_feat & (sd_tr > sd_tol);
                 
                 num_dist_feat = sum(nonzero_var_feat);
                 if num_dist_feat == 0
