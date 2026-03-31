@@ -65,9 +65,9 @@ pancData3/
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (81 files)
+│   ├── utils/                          # Helper utilities (82 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)
-│   ├── tests/                          # Full test suite (132 test files)
+│   ├── tests/                          # Full test suite (133 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
@@ -289,6 +289,7 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `compute_risk_dose_concordance.m` | Compare elastic net risk model vs dose coverage stratification (Cohen's kappa, combined AUC) |
 | `compute_per_method_cor.m` | Coefficient of Reproducibility for each core method's sub-volume from Fx1 repeat scans |
 | `compute_gtv_confounding.m` | Check if GTV volume change confounds D95-outcome association via adjusted Cox PH |
+| `compute_median_followup.m` | Median follow-up time (simple median + reverse Kaplan-Meier) with event/censoring breakdown |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -490,4 +491,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (19 files), utility modules (81 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (19 files), utility modules (82 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).

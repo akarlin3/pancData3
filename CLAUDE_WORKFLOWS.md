@@ -144,6 +144,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_time_varying_cox.m` | Time-varying Cox: stratified models, extended Cox, PH violation handling |
 | `test_decision_curve_analysis.m` | Decision curve analysis: net benefit, treat-all/none comparison, clinical utility |
 | `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
+| `test_compute_median_followup.m` | Median follow-up: all-censored, mixed cohort, competing risk, valid_pts subsetting, reverse KM |
 | `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
 | `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
 | `test_IVIMmodelfit.m` | IVIM model fitting dependency validation |
