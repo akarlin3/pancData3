@@ -101,7 +101,8 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     X_tr_imp = X_tr;
 
     % Identify columns that need imputation (sparse analysis)
-    % Only compute standardization and distance metrics for columns that have missing values
+    % Only compute standardization and distance metrics for columns that
+    % are involved in imputation or distance computation.
     has_missing_tr = any(isnan(X_tr), 1);
     has_missing_te = false(1, p);
     if ~isempty(X_te)
@@ -115,19 +116,48 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
         return;
     end
 
-    % Z-score standardize features based on training fold to compute
-    % distances.  Without standardization, features with large absolute
-    % values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the Euclidean
-    % distance over features with small absolute values (e.g., f ~ 0.05-
-    % 0.20), making KNN effectively ignore the latter.  Z-scoring puts
-    % all DWI parameters on a common scale so each contributes equally
+    % Determine which columns are potential distance features.
+    % Distance features are all columns EXCEPT target_cols.  However, we
+    % only need to Z-score columns that are either (a) used for distance
+    % computation or (b) needed as imputation targets.  The union of these
+    % is: all distance-eligible columns (for Z-scored search space) plus
+    % columns that need imputation (so we can find neighbors for them).
+    %
+    % For distance computation, any non-target column with non-zero
+    % variance could be used.  But we only need Z-scores for columns that
+    % appear in at least one query's distance feature set.  Since queries
+    % vary (each row has different valid features), the safe superset is:
+    % all non-target columns that have at least one non-NaN value in training
+    % data, PLUS any column that needs imputation.
+    distance_eligible = true(1, p);
+    if ~isempty(target_cols)
+        distance_eligible(target_cols) = false;
+    end
+    % A column is relevant if it could be used for distance computation
+    % (non-target, has at least one non-NaN training value) OR if it needs
+    % imputation (so we need to find neighbors for it).
+    has_any_value_tr = any(~isnan(X_tr), 1);
+    cols_relevant = (distance_eligible & has_any_value_tr) | cols_need_imputation;
+
+    % Z-score standardize ONLY relevant features based on training fold to
+    % compute distances.  Without standardization, features with large
+    % absolute values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the
+    % Euclidean distance over features with small absolute values (e.g.,
+    % f ~ 0.05-0.20), making KNN effectively ignore the latter.  Z-scoring
+    % puts all DWI parameters on a common scale so each contributes equally
     % to neighbor selection.
     %
     % Statistics are computed from training data only — using test-set
     % statistics would leak test-set distributional information into the
     % distance metric.
-    mu_tr = mean(X_tr, 1, 'omitnan');
-    sd_tr = std(X_tr, 0, 1, 'omitnan');
+    %
+    % We compute mu/sd only for relevant columns to avoid wasting
+    % computation on columns that will never be used.
+    mu_tr = zeros(1, p);
+    sd_tr = ones(1, p);  % Default to 1 so division is identity for unused columns
+    mu_tr(cols_relevant) = mean(X_tr(:, cols_relevant), 1, 'omitnan');
+    sd_tr(cols_relevant) = std(X_tr(:, cols_relevant), 0, 1, 'omitnan');
+
     % Prevent division by near-zero variance features.  Using exact
     % floating-point equality (sd_tr == 0) misses features with
     % near-zero variance due to floating-point noise (e.g., sd ~ 1e-16).
@@ -135,17 +165,23 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % that completely dominate the distance metric.  We use a tolerance-
     % based threshold: eps(max(|mu|)) * 100 adapts to the data scale,
     % with a fixed floor of 1e-10 for safety when all means are near zero.
-    sd_tol = max(eps(max(abs(mu_tr))) * 100, 1e-10);
+    sd_tol = max(eps(max(abs(mu_tr(cols_relevant)))) * 100, 1e-10);
     sd_tr(sd_tr < sd_tol | isnan(sd_tr)) = 1; % Prevent division by near-zero or NaN for constant/near-constant features
-    Z_tr = (X_tr - mu_tr) ./ sd_tr;
-    
-    % Create a boolean mask of valid search space coordinates.
-    % Target columns (e.g., the outcome variable or derived response
-    % features) are masked out of the distance metric to prevent
-    % circular reasoning: we should not use the outcome to find
-    % neighbors for imputing predictor features that will later predict
-    % that same outcome.
-    search_space = Z_tr;
+
+    % Z-score only the relevant columns of X_tr to create the search space.
+    % This avoids allocating and computing Z-scores for columns that are
+    % never used in distance computation or imputation, which is a
+    % significant saving when only a small fraction of columns have missing
+    % values (e.g., 5 out of 110).
+    cols_relevant_idx = find(cols_relevant);
+    Z_tr_relevant = (X_tr(:, cols_relevant_idx) - mu_tr(cols_relevant_idx)) ./ sd_tr(cols_relevant_idx);
+
+    % Create a sparse search space: full-width but only Z-scored for
+    % relevant columns; all others are NaN (excluded from distance).
+    % Using NaN for irrelevant columns ensures they are automatically
+    % excluded from partial distance computation without additional logic.
+    search_space = nan(n_tr, p);
+    search_space(:, cols_relevant_idx) = Z_tr_relevant;
     if ~isempty(target_cols)
         search_space(:, target_cols) = nan; % mask out target columns from distance metric
     end
@@ -292,10 +328,14 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % imputation.
     if ~isempty(X_te)
         X_te_imp = X_te;
-        Z_te = (X_te - mu_tr) ./ sd_tr;  % Standardize using TRAINING statistics
         n_te = size(X_te, 1);
-        
-        search_space_te = Z_te;
+
+        % Z-score only the relevant columns of X_te using TRAINING statistics.
+        % This mirrors the sparse Z-scoring applied to X_tr above, avoiding
+        % unnecessary computation on columns not involved in distance
+        % computation or imputation.
+        search_space_te = nan(n_te, p);
+        search_space_te(:, cols_relevant_idx) = (X_te(:, cols_relevant_idx) - mu_tr(cols_relevant_idx)) ./ sd_tr(cols_relevant_idx);
         if ~isempty(target_cols)
             search_space_te(:, target_cols) = nan;
         end
