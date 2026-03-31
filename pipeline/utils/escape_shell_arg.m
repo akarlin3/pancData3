@@ -132,8 +132,8 @@ function escaped_arg = escape_shell_arg(arg, style)
                 if isempty(cached_pc_encoding)
                     try
                         % Attempt to get system code page (runs only once)
-                        [~, cp_output] = system('chcp');
-                        if contains(cp_output, '65001') % UTF-8
+                        [status, cp_output] = system('chcp');
+                        if status == 0 && contains(cp_output, '65001') % UTF-8
                             cached_pc_encoding = 'UTF-8';
                         else
                             cached_pc_encoding = 'windows-1252'; % Common Windows default
@@ -156,18 +156,46 @@ function escaped_arg = escape_shell_arg(arg, style)
                     end
                 end
             else
-                % Unix systems: Most modern Unix systems use UTF-8
+                % Unix systems: Enhanced encoding detection with fallbacks
                 if isempty(cached_unix_encoding)
-                    try
-                        % Check locale for encoding information (runs only once)
-                        [~, locale_output] = system('locale charmap');
-                        if contains(upper(locale_output), 'UTF-8')
+                    % First try environment variables (most reliable)
+                    lang_var = getenv('LANG');
+                    lc_all = getenv('LC_ALL');
+                    lc_ctype = getenv('LC_CTYPE');
+                    
+                    % Check environment variables for encoding info
+                    env_encoding = '';
+                    if ~isempty(lc_all) && contains(upper(lc_all), 'UTF')
+                        env_encoding = 'UTF-8';
+                    elseif ~isempty(lc_ctype) && contains(upper(lc_ctype), 'UTF')
+                        env_encoding = 'UTF-8';
+                    elseif ~isempty(lang_var) && contains(upper(lang_var), 'UTF')
+                        env_encoding = 'UTF-8';
+                    end
+                    
+                    if ~isempty(env_encoding)
+                        cached_unix_encoding = env_encoding;
+                    else
+                        % Fallback to system() call if environment variables don't help
+                        try
+                            [status, locale_output] = system('locale charmap 2>/dev/null');
+                            if status == 0 && contains(upper(locale_output), 'UTF-8')
+                                cached_unix_encoding = 'UTF-8';
+                            else
+                                % Try alternative command if locale charmap fails
+                                [status2, locale_output2] = system('locale 2>/dev/null | grep -i utf');
+                                if status2 == 0 && ~isempty(locale_output2)
+                                    cached_unix_encoding = 'UTF-8';
+                                else
+                                    % Final fallback based on common modern Unix defaults
+                                    cached_unix_encoding = 'UTF-8';
+                                end
+                            end
+                        catch
+                            % If all system calls fail (restricted environment, missing utilities)
+                            % assume UTF-8 as it's the most common encoding on modern Unix systems
                             cached_unix_encoding = 'UTF-8';
-                        else
-                            cached_unix_encoding = 'ISO-8859-1';
                         end
-                    catch
-                        cached_unix_encoding = 'UTF-8'; % Default assumption for modern Unix
                     end
                 end
             end
