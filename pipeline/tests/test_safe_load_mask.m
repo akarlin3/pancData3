@@ -51,7 +51,7 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % Verifies that a standard double-precision 3D array (the typical
             % GTV mask format) loads successfully without any warnings.
             filename = fullfile(testCase.TempDir, 'valid_numeric.mat');
-            Stvol3d = rand(5,5,5);
+            Stvol3d = rand(8,8,8);
             save(filename, 'Stvol3d');
 
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
@@ -64,7 +64,7 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % Verifies that logical arrays (binary masks) are accepted.
             % Many GTV masks are stored as logical to save space.
             filename = fullfile(testCase.TempDir, 'valid_logical.mat');
-            Stvol3d = rand(5,5,5) > 0.5;
+            Stvol3d = rand(8,8,8) > 0.5;
             save(filename, 'Stvol3d');
 
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
@@ -79,7 +79,7 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % reject non-numeric types with a SecurityRisk warning and
             % return empty instead of the string content.
             filename = fullfile(testCase.TempDir, 'invalid_string.mat');
-            Stvol3d = "malicious_payload";
+            Stvol3d = repmat("malicious_payload", 8, 8, 8);
             save(filename, 'Stvol3d');
 
             % Verify warning is issued
@@ -100,7 +100,7 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % could contain function handles or other executable objects.
             % safe_load_mask must reject structs with SecurityRisk warning.
             filename = fullfile(testCase.TempDir, 'invalid_struct.mat');
-            Stvol3d = struct('field', 'value');
+            Stvol3d = repmat(struct('field', 'value'), 8, 8, 8);
             save(filename, 'Stvol3d');
 
             % Verify warning is issued
@@ -164,8 +164,8 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % the named variable and ignore others, even if some of those
             % others are unsafe types (like 'AnotherVar' which is a string).
             filename = fullfile(testCase.TempDir, 'multi_var.mat');
-            OtherVar = rand(3, 3);
-            Stvol3d = rand(5, 5, 5);
+            OtherVar = rand(8, 8);
+            Stvol3d = rand(8, 8, 8);
             AnotherVar = 'hello';
             save(filename, 'OtherVar', 'Stvol3d', 'AnotherVar');
 
@@ -179,7 +179,7 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
             % from third-party segmentation tools. They must be accepted as
             % valid numeric types alongside double and logical.
             filename = fullfile(testCase.TempDir, 'valid_uint8.mat');
-            Stvol3d = uint8(randi([0 1], 5, 5, 5));
+            Stvol3d = uint8(randi([0 1], 8, 8, 8));
             save(filename, 'Stvol3d');
 
             loaded_mask = safe_load_mask(filename, 'Stvol3d');
