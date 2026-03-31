@@ -36,11 +36,16 @@ function escaped_arg = escape_shell_arg(arg, style)
 % representation for shell operations.
 
     % --- Persistent encoding cache with validation ---
-    % Cache the detected system encoding with timestamps for validation
+    % Cache the detected system encoding with timestamps for validation.
+    % We use a monotonic tic-based clock to avoid floating-point precision
+    % issues that arise from using `now * 86400` (MATLAB serial date numbers
+    % are doubles with limited precision at large magnitudes).
     persistent cached_pc_encoding;
     persistent cached_unix_encoding;
-    persistent cache_pc_timestamp;
-    persistent cache_unix_timestamp;
+    persistent cache_pc_tic_ref;
+    persistent cache_pc_tic_val;
+    persistent cache_unix_tic_ref;
+    persistent cache_unix_tic_val;
     
     % Configuration constants
     CACHE_EXPIRY_SECONDS = 300; % 5 minutes - balance between performance and freshness
@@ -133,12 +138,15 @@ function escaped_arg = escape_shell_arg(arg, style)
             % Get system encoding to ensure proper character handling
             if strcmpi(style, 'pc')
                 % Windows: Check for system code page and handle Unicode paths
-                current_time = now * 24 * 3600; % Convert to seconds since epoch
+                current_tic = tic;
                 
-                % Validate cache and refresh if needed
+                % Validate cache and refresh if needed.
+                % We use toc() against the stored tic reference to compute
+                % elapsed seconds monotonically, avoiding the floating-point
+                % precision issues of `now * 86400`.
                 cache_valid = ~isempty(cached_pc_encoding) && ...
-                             ~isempty(cache_pc_timestamp) && ...
-                             (current_time - cache_pc_timestamp) < CACHE_EXPIRY_SECONDS;
+                             ~isempty(cache_pc_tic_ref) && ...
+                             (toc(cache_pc_tic_ref) < CACHE_EXPIRY_SECONDS);
                 
                 % Additional validation: check if cached encoding is still a valid string
                 if cache_valid && (~ischar(cached_pc_encoding) || isempty(cached_pc_encoding))
@@ -155,11 +163,11 @@ function escaped_arg = escape_shell_arg(arg, style)
                         else
                             cached_pc_encoding = 'windows-1252'; % Common Windows default
                         end
-                        cache_pc_timestamp = current_time;
+                        cache_pc_tic_ref = tic;
                     catch
                         % If system call fails, use safe default and log warning
                         cached_pc_encoding = SAFE_DEFAULT_ENCODING;
-                        cache_pc_timestamp = current_time;
+                        cache_pc_tic_ref = tic;
                         warning('escape_shell_arg:encodingFallback', 'Failed to detect PC encoding, using safe default: %s', SAFE_DEFAULT_ENCODING);
                     end
                 end
@@ -180,13 +188,13 @@ function escaped_arg = escape_shell_arg(arg, style)
                     end
                 end
             else
-                % Unix systems: Enhanced encoding detection with fallbacks
-                current_time = now * 24 * 3600; % Convert to seconds since epoch
+                % Unix systems: Enhanced encoding detection with fallbacks.
+                % Use tic/toc for monotonic, precision-safe cache expiry.
                 
                 % Validate cache and refresh if needed
                 cache_valid = ~isempty(cached_unix_encoding) && ...
-                             ~isempty(cache_unix_timestamp) && ...
-                             (current_time - cache_unix_timestamp) < CACHE_EXPIRY_SECONDS;
+                             ~isempty(cache_unix_tic_ref) && ...
+                             (toc(cache_unix_tic_ref) < CACHE_EXPIRY_SECONDS);
                 
                 % Additional validation: check if cached encoding is still a valid string
                 if cache_valid && (~ischar(cached_unix_encoding) || isempty(cached_unix_encoding))
@@ -212,29 +220,54 @@ function escaped_arg = escape_shell_arg(arg, style)
                     
                     if ~isempty(env_encoding)
                         cached_unix_encoding = env_encoding;
-                        cache_unix_timestamp = current_time;
+                        cache_unix_tic_ref = tic;
                     else
                         % Fallback to system() call if environment variables don't help
                         try
                             [status, locale_output] = system('locale charmap 2>/dev/null');
-                            if status == 0 && contains(upper(locale_output), 'UTF-8')
-                                cached_unix_encoding = 'UTF-8';
-                            else
-                                % Try alternative command if locale charmap fails
-                                [status2, locale_output2] = system('locale 2>/dev/null | grep -i utf');
-                                if status2 == 0 && ~isempty(locale_output2)
+                            if status == 0 && ~isempty(locale_output)
+                                % Normalize output: trim whitespace and
+                                % compare case-insensitively. The output
+                                % format differs between Linux (e.g.
+                                % "UTF-8\n") and macOS (e.g. "UTF-8\n" or
+                                % sometimes with extra info). Use a regex
+                                % that matches both.
+                                locale_trimmed = strtrim(locale_output);
+                                if ~isempty(regexp(locale_trimmed, '(?i)^UTF-?8$', 'once'))
                                     cached_unix_encoding = 'UTF-8';
+                                else
+                                    cached_unix_encoding = locale_trimmed;
+                                end
+                            else
+                                % locale charmap failed or returned empty;
+                                % try parsing full locale output. On macOS
+                                % the output of `locale` differs from
+                                % Linux (macOS uses LC_* lines without
+                                % quotes, Linux may include quotes). Use a
+                                % regex that handles both formats.
+                                [status2, locale_output2] = system('locale 2>/dev/null');
+                                if status2 == 0 && ~isempty(locale_output2)
+                                    % Match any line containing a UTF
+                                    % variant in the value portion,
+                                    % handling optional quotes and varied
+                                    % key=value formats on Linux/macOS.
+                                    utf_match = regexp(locale_output2, '(?i)(?:UTF-?8)', 'once');
+                                    if ~isempty(utf_match)
+                                        cached_unix_encoding = 'UTF-8';
+                                    else
+                                        cached_unix_encoding = SAFE_DEFAULT_ENCODING;
+                                    end
                                 else
                                     % Final fallback based on common modern Unix defaults
                                     cached_unix_encoding = SAFE_DEFAULT_ENCODING;
                                 end
                             end
-                            cache_unix_timestamp = current_time;
+                            cache_unix_tic_ref = tic;
                         catch
                             % If all system calls fail (restricted environment, missing utilities)
                             % assume UTF-8 as it's the most common encoding on modern Unix systems
                             cached_unix_encoding = SAFE_DEFAULT_ENCODING;
-                            cache_unix_timestamp = current_time;
+                            cache_unix_tic_ref = tic;
                             warning('escape_shell_arg:encodingFallback', 'Failed to detect Unix encoding, using safe default: %s', SAFE_DEFAULT_ENCODING);
                         end
                     end
