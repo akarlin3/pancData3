@@ -74,12 +74,12 @@ classdef test_safe_load_mask < matlab.unittest.TestCase
         end
 
         function testInvalidTypeString(testCase)
-            % Security test: a string variable stored as 'Stvol3d' could be
-            % crafted to exploit eval-based loaders. safe_load_mask must
-            % reject non-numeric types with a SecurityRisk warning and
-            % return empty instead of the string content.
+            % Security test: a cell array stored as 'Stvol3d' could contain
+            % function handles or other executable objects. safe_load_mask
+            % must reject non-numeric types with a SecurityRisk warning and
+            % return empty instead of the unsafe content.
             filename = fullfile(testCase.TempDir, 'invalid_string.mat');
-            Stvol3d = repmat("malicious_payload", 8, 8, 8);
+            Stvol3d = repmat({'malicious_payload'}, 8, 8, 8);
             save(filename, 'Stvol3d');
 
             % Verify warning is issued
