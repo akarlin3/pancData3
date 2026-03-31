@@ -180,8 +180,12 @@ function report = generate_patient_exclusion_report(config_path)
         dtype = config.dwi_types_to_run;
         dtype_name = dwi_type_names{dtype};
 
-        % Try to load summary_metrics
-        sm_file = fullfile(output_folder, sprintf('summary_metrics_%s.mat', dtype_name));
+        % Try to load summary_metrics (lives in the DWI-type subfolder)
+        sm_file = fullfile(output_folder, dtype_name, sprintf('summary_metrics_%s.mat', dtype_name));
+        if ~exist(sm_file, 'file')
+            % Fallback: check directly in output folder (legacy layout)
+            sm_file = fullfile(output_folder, sprintf('summary_metrics_%s.mat', dtype_name));
+        end
         if ~exist(sm_file, 'file')
             sm_file = fullfile(output_folder, 'summary_metrics.mat');
         end
