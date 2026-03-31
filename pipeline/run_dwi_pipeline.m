@@ -70,6 +70,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         master_output_folder = '';
     end
 
+    % Resolve the config path BEFORE any use, so that all downstream
+    % consumers (including the pre-flight test cache) operate on the same
+    % canonical path.
+    config_path = resolve_config_path(pipeline_dir, config_path);
+
     % Pre-flight tests (once per session via dedicated caching function).
     has_tests_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run, master_output_folder);
 
@@ -78,8 +83,6 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             '%s Pre-flight initialization failed. Cannot proceed with pipeline execution. Review test output above for details.', ...
             safe_icon('fail'));
     end
-
-    config_path = resolve_config_path(pipeline_dir, config_path);
 
     % If 'test' was the only requested step, stop here.
     other_steps = setdiff(steps_to_run, {'test'});
