@@ -64,6 +64,7 @@ pancData3/
 │   ├── run_dwi_pipeline.m              # Master orchestrator — main entry point
 │   ├── execute_all_workflows.m         # Runs all 3 DWI types sequentially
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
+│   ├── generate_patient_exclusion_report.m # Comprehensive patient exclusion report
 │   ├── core/                           # Primary pipeline modules (18 files)
 │   ├── utils/                          # Helper utilities (81 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)

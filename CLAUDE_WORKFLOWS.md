@@ -43,6 +43,15 @@ The optional 3rd argument specifies a parent output folder. If omitted, `run_dwi
 4. `metrics` — Summary metrics, baseline, longitudinal, dosimetry, stats, survival
 5. `compare_cores` — Pairwise comparison of all 11 core methods (Dice, Hausdorff, volumes). Not in default steps; invoke explicitly: `run_dwi_pipeline('config.json', {'compare_cores'})`
 
+### Patient exclusion report
+
+```matlab
+report = generate_patient_exclusion_report();           % uses default config.json
+report = generate_patient_exclusion_report('config.json');
+```
+
+Standalone script that scans the data directory and the most recent pipeline output to list every excluded patient with reasons. Stage 1 (file system) runs without a prior pipeline run; Stage 2 (baseline imaging, clinical records, competing risks, DL training set, 3×IQR outliers) requires saved pipeline outputs. Returns a struct with `report.exclusions`, `report.n_excluded`, `report.n_analysed`, and per-category summary counts.
+
 ### Agent workflow (`/run_data`)
 
 The structured `/run_data` workflow in `.agents/workflows/run_data.md` does:
