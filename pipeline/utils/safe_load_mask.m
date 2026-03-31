@@ -54,11 +54,38 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         return;
     end
 
-    % Check file size first to prevent loading oversized files
+    % Check file size first to prevent loading oversized files.
+    %
+    % NOTE: dir() can return multiple entries on case-insensitive
+    % filesystems (Windows) if similarly-named files exist, or if the
+    % filepath contains characters that dir() interprets as glob patterns
+    % (e.g., brackets in DICOM directory names acting as character
+    % classes).  We guard against this by checking numel(file_info_sys).
     file_info_sys = dir(filepath);
     if isempty(file_info_sys)
         warning('safe_load_mask:FileAccessError', 'Cannot access file: %s', filepath);
         return;
+    end
+    
+    if numel(file_info_sys) ~= 1
+        % dir() returned multiple entries.  This can happen when the path
+        % contains bracket characters that glob-expand, or on
+        % case-insensitive filesystems with similarly-named files.  Try to
+        % find the exact match by comparing names; if that fails, use the
+        % first entry but warn.
+        [~, target_name, target_ext] = fileparts(filepath);
+        target_basename = [target_name, target_ext];
+        exact_idx = find(strcmp({file_info_sys.name}, target_basename));
+        if numel(exact_idx) == 1
+            file_info_sys = file_info_sys(exact_idx);
+        else
+            warning('safe_load_mask:AmbiguousDirResult', ...
+                ['dir() returned %d entries for path: %s. ' ...
+                 'This may be caused by glob-like characters (e.g., brackets) in the path ' ...
+                 'or case-insensitive filesystem collisions. Using the first entry.'], ...
+                numel(file_info_sys), filepath);
+            file_info_sys = file_info_sys(1);
+        end
     end
     
     file_size_mb = file_info_sys.bytes / (1024 * 1024);
