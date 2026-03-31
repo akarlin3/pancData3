@@ -165,12 +165,15 @@ function escaped_arg = escape_shell_arg(arg, style)
                 end
                 system_encoding = cached_pc_encoding;
                 
-                % For Windows, ensure proper Unicode handling by converting
-                % to native encoding if needed
+                % For Windows, convert to the system's native encoding so
+                % that cmd.exe interprets the bytes correctly.  When the
+                % system code page is already UTF-8 no conversion is needed.
                 if ~strcmp(system_encoding, 'UTF-8')
                     try
-                        % Attempt to handle encoding conversion
-                        arg = native2unicode(unicode2native(arg, 'UTF-8'), system_encoding);
+                        % Re-encode from UTF-8 (MATLAB internal) to the
+                        % detected Windows code page so the shell receives
+                        % bytes it can display/process correctly.
+                        arg = native2unicode(unicode2native(arg, system_encoding), system_encoding);
                     catch
                         % If conversion fails, proceed with original string
                         % and hope the system can handle it
@@ -376,9 +379,19 @@ function escaped_arg = escape_shell_arg(arg, style)
         % is the single quote itself.
         %
         % To include a literal single quote, we end the current single-quoted
-        % segment, insert an escaped single quote (\'), and start a new
-        % single-quoted segment: 'don'\''t' evaluates to the string don't.
-        % This pattern is standard POSIX shell escaping.
+        % segment, insert a backslash-escaped single quote (\'), and start a
+        % new single-quoted segment. For example, for the input O'Brien:
+        %   'O'\''Brien'
+        % The shell sees three tokens that concatenate:
+        %   'O'   -> O
+        %   \'    -> '       (literal single quote, outside any quoting)
+        %   'Brien' -> Brien
+        % Result: O'Brien
+        %
+        % This is the standard POSIX shell idiom for embedding single quotes
+        % inside single-quoted strings and prevents shell injection via paths
+        % containing apostrophes (e.g., patient names like O'Brien in DICOM
+        % metadata that end up in directory names).
         escaped_arg = strrep(arg, '''', '''\''''' );
         
         escaped_arg = ['''' escaped_arg ''''];
