@@ -160,14 +160,15 @@ function report = generate_patient_exclusion_report(config_path)
     %  ===================================================================
     fprintf('📋 Stage 2: Checking pipeline output for analysis-stage exclusions...\n');
 
-    % Find the most recent saved_files folder
-    saved_dirs = dir(fullfile(dataloc, 'saved_files_*'));
+    % Find the most recent saved_files folder (lives in repo root, not dataloc)
+    repo_root = fullfile(fileparts(mfilename('fullpath')), '..');
+    saved_dirs = dir(fullfile(repo_root, 'saved_files_*'));
     if isempty(saved_dirs)
         fprintf('  ⚠️  No saved_files_* output folder found. Stage 2 checks skipped.\n');
         fprintf('     Run the pipeline first to get full exclusion reporting.\n\n');
     else
         [~, newest_idx] = max([saved_dirs.datenum]);
-        output_folder = fullfile(dataloc, saved_dirs(newest_idx).name);
+        output_folder = fullfile(repo_root, saved_dirs(newest_idx).name);
         fprintf('  Using output folder: %s\n', output_folder);
 
         dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
