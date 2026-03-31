@@ -48,10 +48,18 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 %   Rather than requiring candidate neighbors to have ALL distance-relevant
 %   features non-NaN (which is overly strict and can eliminate most
 %   candidates when training data has scattered missingness), we require a
-%   minimum fraction (80%) of shared valid features and compute partial
-%   distances normalized by the number of shared features. This "available-
-%   case" approach prevents silent imputation failures in small or sparse
-%   cohorts while maintaining distance metric validity.
+%   minimum fraction (80%) of shared valid features AND a minimum absolute
+%   count (5 features) and compute partial distances normalized by the
+%   number of shared features. This "available-case" approach prevents
+%   silent imputation failures in small or sparse cohorts while maintaining
+%   distance metric validity.
+%
+%   The absolute floor (min_absolute_shared = 5) is critical for sparse
+%   queries: when a query has very few valid features (e.g., 10 features
+%   at early timepoints where longitudinal change metrics are undefined),
+%   80% of 10 = 8 shared features is nearly meaningless. The absolute
+%   floor ensures neighbors are always based on a minimum number of
+%   informative features regardless of query sparsity.
 %
     if nargin < 2, X_te = []; end
     if nargin < 3, k = 5; end
@@ -70,6 +78,16 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % silent imputation failures in sparse datasets while still ensuring
     % distance metrics are computed over a substantial feature overlap.
     min_shared_feat_frac = 0.8;
+
+    % Minimum absolute number of shared valid features required for a
+    % candidate neighbor.  This floor prevents the fractional threshold
+    % from becoming meaningless for sparse queries.  For example, if a
+    % query at an early timepoint has only 10 valid features (because
+    % longitudinal change metrics are undefined), 80% of 10 = 8, which
+    % is too few features for a reliable distance estimate.  The absolute
+    % floor ensures that neighbors are always based on at least this many
+    % shared informative features, regardless of query sparsity.
+    min_absolute_shared = 5;
 
     % Validate that patient ID types are consistent (both cell or both numeric)
     if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
@@ -190,8 +208,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
             % Instead of requiring ALL nonzero_var_feat columns to be non-NaN
             % in a candidate neighbor (which is overly strict and eliminates
             % most candidates when training data has scattered missingness),
-            % require at least min_shared_feat_frac of them.
-            min_shared_feat_count = max(1, ceil(min_shared_feat_frac * num_dist_feat));
+            % require at least min_shared_feat_frac of them AND at least
+            % min_absolute_shared features.  The absolute floor prevents
+            % the fractional threshold from becoming meaningless for sparse
+            % queries (e.g., 80% of 10 = 8 is too few for reliable distances).
+            min_shared_feat_count = max(ceil(min_shared_feat_frac * num_dist_feat), ...
+                                        min(min_absolute_shared, num_dist_feat));
             shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
             is_valid_ref = shared_feat_counts >= min_shared_feat_count;
             
@@ -317,7 +339,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 end
                 
                 % --- RELAXED VALID-REFERENCE CRITERION (TEST SET) ---
-                min_shared_feat_count = max(1, ceil(min_shared_feat_frac * num_dist_feat));
+                % Apply both fractional and absolute minimum shared feature
+                % thresholds, consistent with training-set logic.  The
+                % min() with num_dist_feat ensures we don't require more
+                % shared features than the query itself has available.
+                min_shared_feat_count = max(ceil(min_shared_feat_frac * num_dist_feat), ...
+                                            min(min_absolute_shared, num_dist_feat));
                 shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
                 is_valid_ref = shared_feat_counts >= min_shared_feat_count;
                 
