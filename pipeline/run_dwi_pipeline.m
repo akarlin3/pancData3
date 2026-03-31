@@ -63,7 +63,26 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     if nargin < 2
-        steps_to_run = {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
+        % Default steps include the core pipeline stages that should always
+        % run for a standard analysis.
+        %
+        % The following optional steps are intentionally OMITTED from the
+        % default list because they require additional configuration or
+        % serve specialized comparison/QC purposes:
+        %   - 'compare_cores'        : Requires config.run_compare_cores=true;
+        %                              compares multiple core delineation methods.
+        %   - 'cross_pipeline_dice'  : Requires config.run_cross_pipeline_dice=true;
+        %                              computes Dice overlap across pipeline variants.
+        %   - 'core_failure_rates'   : Requires config.run_core_failure_rates=true;
+        %                              reports per-method fitting failure statistics.
+        %   - 'core_method_outcomes' : Requires config.run_core_method_outcomes=true;
+        %                              correlates core method choice with clinical outcomes.
+        % To include them, pass them explicitly in the steps_to_run argument
+        % or set the corresponding config flags to true.
+        steps_to_run = {'test', 'load', 'sanity', 'visualize', ...
+                        'metrics_baseline', 'metrics_longitudinal', ...
+                        'metrics_dosimetry', 'metrics_stats_comparisons', ...
+                        'metrics_stats_predictive', 'metrics_survival'};
     end
 
     if nargin < 3
