@@ -43,6 +43,15 @@ The optional 3rd argument specifies a parent output folder. If omitted, `run_dwi
 4. `metrics` — Summary metrics, baseline, longitudinal, dosimetry, stats, survival
 5. `compare_cores` — Pairwise comparison of all 11 core methods (Dice, Hausdorff, volumes). Not in default steps; invoke explicitly: `run_dwi_pipeline('config.json', {'compare_cores'})`
 
+### Patient exclusion report
+
+```matlab
+report = generate_patient_exclusion_report();           % uses default config.json
+report = generate_patient_exclusion_report('config.json');
+```
+
+Standalone script that scans the data directory and the most recent pipeline output to list every excluded patient with reasons. Stage 1 (file system) runs without a prior pipeline run; Stage 2 (baseline imaging, clinical records, competing risks, DL training set, 3×IQR outliers) requires saved pipeline outputs. Returns a struct with `report.exclusions`, `report.n_excluded`, `report.n_analysed`, and per-category summary counts.
+
 ### Agent workflow (`/run_data`)
 
 The structured `/run_data` workflow in `.agents/workflows/run_data.md` does:
@@ -144,6 +153,7 @@ run('pipeline/tests/run_all_tests.m')
 | `test_time_varying_cox.m` | Time-varying Cox: stratified models, extended Cox, PH violation handling |
 | `test_decision_curve_analysis.m` | Decision curve analysis: net benefit, treat-all/none comparison, clinical utility |
 | `test_compute_nri.m` | NRI computation: reclassification tables, continuous NRI, IDI |
+| `test_compute_median_followup.m` | Median follow-up: all-censored, mixed cohort, competing risk, valid_pts subsetting, reverse KM |
 | `test_prepare_external_validation.m` | External validation: model export, external dataset application, portability |
 | `test_load_auxiliary_biomarkers.m` | Auxiliary biomarkers: CSV loading, missing file handling, column validation |
 | `test_IVIMmodelfit.m` | IVIM model fitting dependency validation |
