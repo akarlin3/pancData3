@@ -378,7 +378,7 @@ Before running the pipeline, you can verify that your patient data directory is 
 
 ```matlab
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
-report = enrollment_check('config.json');
+report = patient_data_check('config.json');
 ```
 
 This scans the file system and reports:
@@ -389,6 +389,54 @@ This scans the file system and reports:
 - Per-patient: missing fraction folders, DWI DICOM files, GTV masks, and RT dose folders
 
 Issues are classified as errors (must fix before running), warnings (may affect results), or informational. The returned `report` struct contains a summary table for programmatic use.
+
+### Patient Exclusion Report
+
+Patient exclusion information is available at three stages: before, during, and after the pipeline run.
+
+#### 1. Pre-pipeline exclusion check
+
+Run `patient_data_check` (see above) to identify patients with missing data **before** committing to a pipeline run. The returned `report` struct contains:
+
+- `report.issues` — cell array of `{severity, patient_id, message}` rows
+- `report.n_errors` / `report.n_warnings` — issue counts
+- `report.patients` — table with per-patient data completeness (fractions, DWI, GTV, dose counts)
+
+Patients with `ERROR`-level issues (missing baseline Fx1 folder, DWI, or GTV mask) will be excluded from downstream analysis.
+
+#### 2. During pipeline execution (log output)
+
+The pipeline logs three categories of exclusions to the console and per-module log files:
+
+| Exclusion Stage | Module | Criteria | Log Pattern |
+|---|---|---|---|
+| **Baseline exclusion** | `metrics_baseline` | Missing baseline GTV volume or ADC data | `Excluded N/M patients due to missing baseline imaging` |
+| **Outlier removal** | `metrics_baseline` | IQR-fenced baseline metric outliers (outcome-blinded) | `Removed N patients as outliers (IDs: ...)` |
+| **Competing-risk exclusion** | `metrics_stats_comparisons` | Patients with `lf==2` (non-cancer death without local failure), excluded from time-dependent GLME models | `Excluded N/M (X%) competing-risk patients` |
+
+Baseline exclusion also reports local failure (LF) rates for included vs excluded patients to flag potential informative censoring bias.
+
+These log messages appear in the per-DWI-type pipeline log (`pipeline_log_{type}.txt`) and per-module logs within the timestamped output folder.
+
+#### 3. Post-pipeline HTML/PDF report
+
+The analysis report includes a **Patient Flow** section (CONSORT-style) summarizing attrition at each stage:
+
+```
+Initial Cohort → Baseline Excluded → Outliers Removed → Competing-Risk Excluded → Analysed
+```
+
+To generate the report:
+
+```bash
+# Full analysis (includes report generation)
+python analysis/run_analysis.py --folder saved_files_YYYYMMDD_HHMMSS
+
+# Report only (from existing parsed data)
+python analysis/run_analysis.py --folder saved_files_YYYYMMDD_HHMMSS --report-only
+```
+
+The Patient Flow table appears in the **Data** section of the report and shows per-DWI-type counts for each exclusion stage. The **Cohort Overview** section also displays baseline exclusion counts and LF rate comparisons in the Data Quality Summary table.
 
 ---
 
@@ -652,7 +700,7 @@ pancData3/
 ├── pipeline/                       # MATLAB pipeline
 │   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
 │   ├── execute_all_workflows.m     #   Sequential multi-type runner
-│   ├── enrollment_check.m        #   Pre-pipeline data validation
+│   ├── patient_data_check.m      #   Pre-pipeline data validation
 │   ├── core/                       #   Pipeline modules (18 files)
 │   │   ├── load_dwi_data.m         #     Data loading & model fitting
 │   │   ├── sanity_checks.m         #     Data validation
