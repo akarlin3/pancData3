@@ -355,14 +355,24 @@ def saved_files_with_logs(saved_files_dir: Path) -> Path:
         encoding="utf-8",
     )
 
-    # Survival log: two hazard ratio table rows (whitespace-delimited with
-    # covariate, HR, CI_lo, CI_hi, p-value), a global likelihood ratio test
-    # line, and an IPCW weight range annotation.
+    # Survival log: bracket-format Cox PH table rows (matching MATLAB output),
+    # Schoenfeld residuals PH test, TD Panel summary, a global likelihood
+    # ratio test line, and an IPCW weight range annotation.
     (std / "metrics_survival_output_Standard.txt").write_text(
-        "  mean_adc   1.250   0.980   1.590   0.0680\n"
-        "  delta_d    0.750   0.550   1.020   0.0340\n"
+        "  [TD Panel] 35 patients \u2192 210 intervals (10 events of interest, 0 competing)\n"
+        "\n"
+        "  Feature       Coeff       HR       95% CI  p-value\n"
+        "  ----------------------------------------------------\n"
+        "  mean_adc      0.223    1.250 [ 0.98- 1.59]   0.0680\n"
+        "  delta_d      -0.288    0.750 [ 0.55- 1.02]   0.0340\n"
         "Global LRT: chi2(2) = 7.82, p = 0.0200\n"
-        "IPCW weights applied ... range [0.85, 1.42]\n",
+        "IPCW weights applied ... range [0.85, 1.42]\n"
+        "\n"
+        "  --- Schoenfeld Residuals: PH Assumption Test ---\n"
+        "  Covariate        rho     chi2  p-value  PH_violated\n"
+        "  --------------------------------------------------------\n"
+        "  mean_adc      0.0909    0.0826    0.7737             \n"
+        "  delta_d       0.7091    5.0281    0.0249          ***\n",
         encoding="utf-8",
     )
 
