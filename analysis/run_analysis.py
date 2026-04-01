@@ -148,9 +148,10 @@ def _check_requirements() -> bool:
     missing: list[str] = []
     import importlib.metadata as _meta
     from packaging.requirements import InvalidRequirement, Requirement
+    from packaging.utils import canonicalize_name
 
-    # Get all installed packages once
-    installed_packages = {dist.metadata["name"]: dist for dist in _meta.distributions()}
+    # Get all installed packages once (normalize names for reliable lookup)
+    installed_packages = {canonicalize_name(dist.metadata["name"]): dist for dist in _meta.distributions()}
 
     for line in req_file.read_text().splitlines():
         line = line.strip()
@@ -168,7 +169,7 @@ def _check_requirements() -> bool:
             print(f"  [WARN] Could not parse requirement line, skipping: {line}")
             continue
         
-        if pkg_name not in installed_packages:
+        if canonicalize_name(pkg_name) not in installed_packages:
             missing.append(line)
 
     if missing:
