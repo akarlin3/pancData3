@@ -18,7 +18,7 @@ For running the pipeline, running tests, git workflow, documentation maintenance
 - Perform survival analysis, competing risks modeling, and treatment response prediction
 
 **Language:** MATLAB (R2021a+)
-**Version:** 2.3.1
+**Version:** 2.3.2
 **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 **Domain:** Medical Physics / Oncology Research
 **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
@@ -82,8 +82,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (41 files)
-│   └── tests/                          # Python test suite — 48 test files, pytest
+│   │   └── sections/                   # Section builders (46 files)
+│   └── tests/                          # Python test suite — 47 test files, pytest
 ├── project_config.yaml                  # Improvement loop project config (not committed)
 ├── project_config.example.yaml          # Improvement loop project config template (committed)
 ├── improvement_loop_config.example.json # Improvement loop runtime config template (committed)
@@ -390,7 +390,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `test_dose_response_roc_section.py` | Dose-response ROC report section: AUC/CI/threshold display, clinical guidance, empty data |
 | `test_gtv_confounding_section.py` | GTV confounding report section: HR comparison, confounding flag, warning box display |
 | `test_risk_dose_concordance_section.py` | Risk-dose concordance report section: kappa interpretation, concordance %, combined AUC |
-For the full list of 132 MATLAB test files and 47 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
+For the full list of 134 MATLAB test files and 47 Python test files with descriptions, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md#key-matlab-test-files).
 
 ---
 
@@ -492,4 +492,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (19 files), utility modules (82 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
+For detailed tables of all core modules (19 files), utility modules (82 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md). Pipeline also includes top-level scripts: `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m`, and `generate_patient_exclusion_report.m`.

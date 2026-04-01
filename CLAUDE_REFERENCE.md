@@ -6,6 +6,17 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 
 ---
 
+## Top-Level Pipeline Scripts
+
+| File | Purpose |
+|---|---|
+| `run_dwi_pipeline.m` | Master orchestrator — main entry point for single DWI-type pipeline runs |
+| `execute_all_workflows.m` | Runs all 3 DWI types (Standard, dnCNN, IVIMnet) sequentially |
+| `patient_data_check.m` | Pre-pipeline data integrity scanner |
+| `generate_patient_exclusion_report.m` | Comprehensive patient exclusion report — combines file-system checks with pipeline output to list every excluded patient with reasons |
+
+---
+
 ## Core Modules (`pipeline/core/`)
 
 | File | Purpose |
