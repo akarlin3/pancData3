@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.3.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-122%20MATLAB%20%2B%2042%20Python%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.3.2-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-133%20MATLAB%20%2B%2047%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.3.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.3.2 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -438,6 +438,18 @@ python analysis/run_analysis.py --folder saved_files_YYYYMMDD_HHMMSS --report-on
 
 The Patient Flow table appears in the **Data** section of the report and shows per-DWI-type counts for each exclusion stage. The **Cohort Overview** section also displays baseline exclusion counts and LF rate comparisons in the Data Quality Summary table.
 
+#### 4. Comprehensive exclusion report (standalone)
+
+After the pipeline has run, generate a detailed per-patient exclusion report combining file-system checks and pipeline output:
+
+```matlab
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
+report = generate_patient_exclusion_report();            % uses default config.json
+report = generate_patient_exclusion_report('config.json');
+```
+
+Stage 1 (file system) runs without a prior pipeline run; Stage 2 (baseline imaging, clinical records, competing risks, DL training set, 3xIQR outliers) requires saved pipeline outputs. Returns a struct with `report.exclusions`, `report.n_excluded`, `report.n_analysed`, and per-category summary counts.
+
 ---
 
 ## Pipeline Steps
@@ -490,7 +502,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 127 test files covering:
+The test suite includes 133 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -630,7 +642,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (36 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
+| `report/sections/` | Section builder modules for the HTML report (46 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
 
 ### Report Features
 
@@ -701,7 +713,8 @@ pancData3/
 │   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
 │   ├── execute_all_workflows.m     #   Sequential multi-type runner
 │   ├── patient_data_check.m      #   Pre-pipeline data validation
-│   ├── core/                       #   Pipeline modules (18 files)
+│   ├── generate_patient_exclusion_report.m  # Comprehensive exclusion report
+│   ├── core/                       #   Pipeline modules (19 files)
 │   │   ├── load_dwi_data.m         #     Data loading & model fitting
 │   │   ├── sanity_checks.m         #     Data validation
 │   │   ├── visualize_results.m     #     Visualization generation
@@ -709,13 +722,13 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (76 files)
+│   ├── utils/                      #   Helper utilities (82 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (127 test files)
+│   ├── tests/                      #   Test suite (133 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (6 files)
@@ -741,7 +754,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (43 test files)
+│   └── tests/                      #   Python test suite (47 test files)
 ├── project_config.example.yaml     # Improvement loop project config template
 ├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration
@@ -766,7 +779,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.3.1},
+  version   = {2.3.2},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {AGPL-3.0}
 }

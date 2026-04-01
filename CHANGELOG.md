@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-04-01
+
 ### Fixed
 
 #### Insufficient Voxels Failure Rate Inflation
@@ -13,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`pipeline/utils/parse_config.m`**: Changed `min_core_voxels` default from 0 (disabled) to 10 (meaningful dosimetry floor).
 - **`pipeline/utils/filter_core_methods.m`**: Added `retained_with_warning` third output — methods that would have been pruned but are kept as fallback (e.g. `adc_threshold`) are now flagged with reasons instead of silently retained.
 - **`pipeline/utils/dispatch_pipeline_steps.m`**: Updated call site to capture `retained_with_warning` and `min_core_voxels_used`; both are saved to the pruning MAT file and logged.
+
+#### Robustness Improvements (improvement loop)
+- **`pipeline/utils/knn_impute_train_test.m`**: Partial-distance strategy for sparse data — relaxed from requiring 100% shared features to 80% fraction with a minimum absolute floor of 5 features, preventing silent imputation failures in small cohorts. Added near-zero variance guard to skip z-scoring of near-constant features. Converted cell-array patient IDs to numeric indices once at entry for ~10-50x faster blocking-mask construction.
+- **`pipeline/utils/safe_load_mask.m`**: Added `dir()` multi-entry guard for paths with glob-like characters or case-insensitive filesystem collisions. Added post-load verification against pre-load metadata for defense-in-depth against corrupted v7.3 HDF5 files. Duplicate-variable handling now records metadata for all entries.
+- **`pipeline/utils/parse_config.m`**: Added `dir()` zero/multi-entry guard (same pattern as `safe_load_mask.m`). Refactored all isfield-plus-fallback defaults to a single defaults-iteration loop — adding a new config field now requires only one line.
+- **`pipeline/utils/escape_shell_arg.m`**: Replaced `now * 86400` cache expiry timestamps with monotonic `tic`/`toc`-based clock to avoid floating-point precision issues at large serial date magnitudes.
+- **`pipeline/run_dwi_pipeline.m`**: Moved `resolve_config_path` before `check_tests_cached` so all downstream consumers operate on the same canonical path. Added documentation of intentionally omitted optional steps in default `steps_to_run`.
+- **`pipeline/utils/normalize_patient_ids.m`**: Added dual-GTV suffix stripping (`-p`/`-n`) so spreadsheet rows like "P5-SB- twoGTVs-p" match on-disk folder "P5-SB- twoGTVs".
 
 ### Changed
 
@@ -22,6 +32,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`analysis/parsers/parse_mat_metrics.py`**: Parses new `retained_with_warning` and `min_core_voxels_used` fields from core pruning MAT files.
 
 ### Added
+
+#### Patient Exclusion Report
+- **`pipeline/generate_patient_exclusion_report.m`**: New top-level script — comprehensive patient exclusion report generator. Scans data directories, clinical spreadsheet, and pipeline outputs to produce a detailed exclusion breakdown by reason (missing data, incomplete fractions, GTV issues, etc.) with per-patient tabulation.
 
 #### Sub-Volume Stability Analysis
 - **`pipeline/utils/compute_subvolume_stability.m`**: New pipeline step — computes Dice between each fraction's core mask and Fx1 baseline for all active core methods. Generates line plot of mean Dice vs fractions. Gated on `run_subvolume_stability` config flag.
@@ -60,11 +73,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse 5 new MAT file types (per_method_cor, subvolume_stability, dose_response_roc, gtv_confounding, risk_dose_concordance).
 - **`analysis/report/generate_report.py`**: 5 new section builders wired into the statistics section pipeline.
 - **`analysis/report/sections/__init__.py`**: 5 new section builder exports.
+- **`pipeline/tests/test_normalize_patient_ids.m`**: New test file for dual-GTV suffix stripping.
 
-#### Documentation
-- Updated CLAUDE.md: 5 new utility modules (76→81), 5 new report sections (40→45), 5 new MATLAB tests (127→132), 5 new Python tests (42→47), 5 new config fields.
-- Updated CLAUDE_REFERENCE.md: matching test and module table entries.
-- Updated README.md: Python test count 42→47.
+### Documentation
+- Updated version to 2.3.2 across CLAUDE.md, README.md, CHANGELOG.md, CITATION.cff, SECURITY.md.
+- Added `generate_patient_exclusion_report.m` to README.md and CLAUDE_REFERENCE.md.
+- Test file counts: MATLAB 133 (128 test + 5 support), Python 47 (48 including conftest.py).
+- README utility count: 76 → 82, report sections: 41 → 46.
 
 ## [2.3.1] - 2026-03-29
 
