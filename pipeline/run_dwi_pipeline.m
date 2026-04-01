@@ -63,12 +63,36 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     end
 
     if nargin < 2
-        steps_to_run = {'test', 'load', 'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};
+        % Default steps include the core pipeline stages that should always
+        % run for a standard analysis.
+        %
+        % The following optional steps are intentionally OMITTED from the
+        % default list because they require additional configuration or
+        % serve specialized comparison/QC purposes:
+        %   - 'compare_cores'        : Requires config.run_compare_cores=true;
+        %                              compares multiple core delineation methods.
+        %   - 'cross_pipeline_dice'  : Requires config.run_cross_pipeline_dice=true;
+        %                              computes Dice overlap across pipeline variants.
+        %   - 'core_failure_rates'   : Requires config.run_core_failure_rates=true;
+        %                              reports per-method fitting failure statistics.
+        %   - 'core_method_outcomes' : Requires config.run_core_method_outcomes=true;
+        %                              correlates core method choice with clinical outcomes.
+        % To include them, pass them explicitly in the steps_to_run argument
+        % or set the corresponding config flags to true.
+        steps_to_run = {'test', 'load', 'sanity', 'visualize', ...
+                        'metrics_baseline', 'metrics_longitudinal', ...
+                        'metrics_dosimetry', 'metrics_stats_comparisons', ...
+                        'metrics_stats_predictive', 'metrics_survival'};
     end
 
     if nargin < 3
         master_output_folder = '';
     end
+
+    % Resolve the config path BEFORE any use, so that all downstream
+    % consumers (including the pre-flight test cache) operate on the same
+    % canonical path.
+    config_path = resolve_config_path(pipeline_dir, config_path);
 
     % Pre-flight tests (once per session via dedicated caching function).
     has_tests_passed = check_tests_cached(pipeline_dir, config_path, steps_to_run, master_output_folder);
@@ -78,8 +102,6 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
             '%s Pre-flight initialization failed. Cannot proceed with pipeline execution. Review test output above for details.', ...
             safe_icon('fail'));
     end
-
-    config_path = resolve_config_path(pipeline_dir, config_path);
 
     % If 'test' was the only requested step, stop here.
     other_steps = setdiff(steps_to_run, {'test'});
@@ -109,10 +131,11 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
     %    - This ensures the orchestrator doesn't need to know about internal session structure
     %    - Provides better error isolation and cleaner separation of concerns
     %
-    % 2. FALLBACK: fallback_cleanup() using session fields (backwards compatibility)
+    % 2. FALLBACK: fallback_cleanup() local function (backwards compatibility)
     %    - Used only when prepare_pipeline_session() doesn't provide session.cleanup
     %    - Maintains compatibility with older session preparation code
     %    - Directly accesses session fields (log_fid, prev_fig_vis, pipeGUI) for cleanup
+    %    - Defined as a local function within this file to guarantee availability
     %
     % onCleanup guard: MUST be created before the abort check so that early returns
     % still trigger all resource cleanup. The cleanup logic handles failures gracefully.
@@ -121,11 +144,16 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
         % Modern structured cleanup: use the session-provided cleanup handle
         cleanup_guard = onCleanup(session.cleanup); %#ok<NASGU>
     else
-        % Backwards compatibility: fallback to field-based cleanup
-        % NOTE: Consider migrating session preparation code to provide structured cleanup handles
+        % Backwards compatibility: fallback to field-based cleanup using local function.
+        % The fallback_cleanup local function is defined at the bottom of this file,
+        % so it is always available regardless of the MATLAB path.
         warning('run_dwi_pipeline:UsingFallbackCleanup', ...
             'Session does not provide structured cleanup handle. Using fallback cleanup method. Consider updating prepare_pipeline_session() to provide session.cleanup function handle.');
-        cleanup_guard = onCleanup(@() fallback_cleanup(session)); %#ok<NASGU>
+        % Capture session by value for the onCleanup callback; wrap in try-catch
+        % so that errors in cleanup are logged to stderr rather than silently
+        % swallowed by onCleanup's error suppression.
+        session_snapshot = session;
+        cleanup_guard = onCleanup(@() fallback_cleanup_safe(session_snapshot)); %#ok<NASGU>
     end
 
     if session.abort
@@ -162,6 +190,32 @@ function run_dwi_pipeline(config_path, steps_to_run, master_output_folder)
 end
 
 %% ===== Utility functions (remain in orchestrator) =====
+
+function fallback_cleanup_safe(session)
+%FALLBACK_CLEANUP_SAFE  Wrapper that calls fallback_cleanup with stderr logging.
+%
+%   onCleanup suppresses errors in callbacks, so this wrapper catches any
+%   exception from fallback_cleanup and writes the error details to stderr.
+%   This ensures resource-leak failures are visible to the user rather than
+%   being silently swallowed.
+    try
+        fallback_cleanup(session);
+    catch ME
+        % Log to stderr so the user is aware cleanup failed, even though
+        % onCleanup would have suppressed the error.
+        try
+            fprintf(2, '[ERROR] fallback_cleanup failed during onCleanup:\n');
+            fprintf(2, '  Identifier: %s\n', ME.identifier);
+            fprintf(2, '  Message:    %s\n', ME.message);
+            for k = 1:numel(ME.stack)
+                fprintf(2, '  In %s (line %d)\n', ME.stack(k).name, ME.stack(k).line);
+            end
+        catch
+            % Last resort: if even stderr logging fails, there is nothing
+            % more we can do.
+        end
+    end
+end
 
 function fallback_cleanup(session)
 %FALLBACK_CLEANUP  Perform resource cleanup using session fields (backwards compatibility).

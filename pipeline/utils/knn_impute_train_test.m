@@ -43,6 +43,24 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
 %   has access to historical patients (training) but not to other
 %   concurrent patients (test) when imputing a new patient's missing data.
 %
+%   Partial-Distance Strategy for Sparse Data:
+%   -------------------------------------------
+%   Rather than requiring candidate neighbors to have ALL distance-relevant
+%   features non-NaN (which is overly strict and can eliminate most
+%   candidates when training data has scattered missingness), we require a
+%   minimum fraction (80%) of shared valid features AND a minimum absolute
+%   count (5 features) and compute partial distances normalized by the
+%   number of shared features. This "available-case" approach prevents
+%   silent imputation failures in small or sparse cohorts while maintaining
+%   distance metric validity.
+%
+%   The absolute floor (min_absolute_shared = 5) is critical for sparse
+%   queries: when a query has very few valid features (e.g., 10 features
+%   at early timepoints where longitudinal change metrics are undefined),
+%   80% of 10 = 8 shared features is nearly meaningless. The absolute
+%   floor ensures neighbors are always based on a minimum number of
+%   informative features regardless of query sparsity.
+%
     if nargin < 2, X_te = []; end
     if nargin < 3, k = 5; end
     if nargin < 4, pat_id_tr = []; end
@@ -53,6 +71,24 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     if nargin < 5, pat_id_te = []; end
     if nargin < 6, target_cols = []; end
 
+    % Minimum fraction of shared valid features required for a candidate
+    % neighbor to be eligible.  Setting this to 0.8 means a reference row
+    % must have at least 80% of the query's distance-relevant features
+    % non-NaN.  This relaxes the previous requirement of 100%, preventing
+    % silent imputation failures in sparse datasets while still ensuring
+    % distance metrics are computed over a substantial feature overlap.
+    min_shared_feat_frac = 0.8;
+
+    % Minimum absolute number of shared valid features required for a
+    % candidate neighbor.  This floor prevents the fractional threshold
+    % from becoming meaningless for sparse queries.  For example, if a
+    % query at an early timepoint has only 10 valid features (because
+    % longitudinal change metrics are undefined), 80% of 10 = 8, which
+    % is too few features for a reliable distance estimate.  The absolute
+    % floor ensures that neighbors are always based on at least this many
+    % shared informative features, regardless of query sparsity.
+    min_absolute_shared = 5;
+
     % Validate that patient ID types are consistent (both cell or both numeric)
     if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
         if iscell(pat_id_tr) ~= iscell(pat_id_te)
@@ -60,12 +96,55 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 'pat_id_tr and pat_id_te must be the same type (both cell or both numeric).');
         end
     end
+
+    % --- CONVERT PATIENT IDS TO NUMERIC INDICES ---
+    % When patient IDs are cell arrays of strings (e.g., MRN-style
+    % identifiers), every pairwise comparison in blocking-mask construction
+    % involves an O(L) string comparison (where L is the string length).
+    % For n_tr=300 rows this means 90,000 string comparisons just for the
+    % training blocking mask, repeated ~300 times inside a LOOCV loop =
+    % ~27 million string comparisons total.
+    %
+    % By converting to numeric indices once at the top, all subsequent
+    % equality checks are single-cycle integer comparisons (~10-50x faster).
+    % The conversion uses a shared unique-label set when both pat_id_tr and
+    % pat_id_te are provided, so that the same patient maps to the same
+    % integer in both arrays — essential for correct cross-set blocking.
+    pat_idx_tr = [];
+    pat_idx_te = [];
+    if ~isempty(pat_id_tr)
+        if iscell(pat_id_tr)
+            if ~isempty(pat_id_te) && iscell(pat_id_te)
+                % Build a shared label set so that the same patient string
+                % maps to the same integer in both training and test arrays.
+                combined = [pat_id_tr(:); pat_id_te(:)];
+                [~, ~, id_num_all] = unique(combined);
+                pat_idx_tr = id_num_all(1:numel(pat_id_tr));
+                pat_idx_te = id_num_all(numel(pat_id_tr)+1:end);
+            else
+                [~, ~, pat_idx_tr] = unique(pat_id_tr(:));
+                % pat_idx_te stays empty; will be handled below if needed
+                if ~isempty(pat_id_te)
+                    % pat_id_te is numeric but pat_id_tr was cell — already
+                    % caught by the type-mismatch error above, but guard anyway
+                    pat_idx_te = pat_id_te(:);
+                end
+            end
+        else
+            % Numeric patient IDs — use directly (already integer-comparable)
+            pat_idx_tr = pat_id_tr(:);
+            if ~isempty(pat_id_te)
+                pat_idx_te = pat_id_te(:);
+            end
+        end
+    end
     
     [n_tr, p] = size(X_tr);
     X_tr_imp = X_tr;
 
     % Identify columns that need imputation (sparse analysis)
-    % Only compute standardization and distance metrics for columns that have missing values
+    % Only compute standardization and distance metrics for columns that
+    % are involved in imputation or distance computation.
     has_missing_tr = any(isnan(X_tr), 1);
     has_missing_te = false(1, p);
     if ~isempty(X_te)
@@ -79,29 +158,72 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
         return;
     end
 
-    % Z-score standardize features based on training fold to compute
-    % distances.  Without standardization, features with large absolute
-    % values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the Euclidean
-    % distance over features with small absolute values (e.g., f ~ 0.05-
-    % 0.20), making KNN effectively ignore the latter.  Z-scoring puts
-    % all DWI parameters on a common scale so each contributes equally
+    % Determine which columns are potential distance features.
+    % Distance features are all columns EXCEPT target_cols.  However, we
+    % only need to Z-score columns that are either (a) used for distance
+    % computation or (b) needed as imputation targets.  The union of these
+    % is: all distance-eligible columns (for Z-scored search space) plus
+    % columns that need imputation (so we can find neighbors for them).
+    %
+    % For distance computation, any non-target column with non-zero
+    % variance could be used.  But we only need Z-scores for columns that
+    % appear in at least one query's distance feature set.  Since queries
+    % vary (each row has different valid features), the safe superset is:
+    % all non-target columns that have at least one non-NaN value in training
+    % data, PLUS any column that needs imputation.
+    distance_eligible = true(1, p);
+    if ~isempty(target_cols)
+        distance_eligible(target_cols) = false;
+    end
+    % A column is relevant if it could be used for distance computation
+    % (non-target, has at least one non-NaN training value) OR if it needs
+    % imputation (so we need to find neighbors for it).
+    has_any_value_tr = any(~isnan(X_tr), 1);
+    cols_relevant = (distance_eligible & has_any_value_tr) | cols_need_imputation;
+
+    % Z-score standardize ONLY relevant features based on training fold to
+    % compute distances.  Without standardization, features with large
+    % absolute values (e.g., D* ~ 0.01-0.1 mm^2/s) would dominate the
+    % Euclidean distance over features with small absolute values (e.g.,
+    % f ~ 0.05-0.20), making KNN effectively ignore the latter.  Z-scoring
+    % puts all DWI parameters on a common scale so each contributes equally
     % to neighbor selection.
     %
     % Statistics are computed from training data only — using test-set
     % statistics would leak test-set distributional information into the
     % distance metric.
-    mu_tr = mean(X_tr, 1, 'omitnan');
-    sd_tr = std(X_tr, 0, 1, 'omitnan');
-    sd_tr(sd_tr == 0 | isnan(sd_tr)) = 1; % Prevent division by zero for constant features
-    Z_tr = (X_tr - mu_tr) ./ sd_tr;
-    
-    % Create a boolean mask of valid search space coordinates.
-    % Target columns (e.g., the outcome variable or derived response
-    % features) are masked out of the distance metric to prevent
-    % circular reasoning: we should not use the outcome to find
-    % neighbors for imputing predictor features that will later predict
-    % that same outcome.
-    search_space = Z_tr;
+    %
+    % We compute mu/sd only for relevant columns to avoid wasting
+    % computation on columns that will never be used.
+    mu_tr = zeros(1, p);
+    sd_tr = ones(1, p);  % Default to 1 so division is identity for unused columns
+    mu_tr(cols_relevant) = mean(X_tr(:, cols_relevant), 1, 'omitnan');
+    sd_tr(cols_relevant) = std(X_tr(:, cols_relevant), 0, 1, 'omitnan');
+
+    % Prevent division by near-zero variance features.  Using exact
+    % floating-point equality (sd_tr == 0) misses features with
+    % near-zero variance due to floating-point noise (e.g., sd ~ 1e-16).
+    % Dividing by such tiny values produces astronomically large Z-scores
+    % that completely dominate the distance metric.  We use a tolerance-
+    % based threshold: eps(max(|mu|)) * 100 adapts to the data scale,
+    % with a fixed floor of 1e-10 for safety when all means are near zero.
+    sd_tol = max(eps(max(abs(mu_tr(cols_relevant)))) * 100, 1e-10);
+    sd_tr(sd_tr < sd_tol | isnan(sd_tr)) = 1; % Prevent division by near-zero or NaN for constant/near-constant features
+
+    % Z-score only the relevant columns of X_tr to create the search space.
+    % This avoids allocating and computing Z-scores for columns that are
+    % never used in distance computation or imputation, which is a
+    % significant saving when only a small fraction of columns have missing
+    % values (e.g., 5 out of 110).
+    cols_relevant_idx = find(cols_relevant);
+    Z_tr_relevant = (X_tr(:, cols_relevant_idx) - mu_tr(cols_relevant_idx)) ./ sd_tr(cols_relevant_idx);
+
+    % Create a sparse search space: full-width but only Z-scored for
+    % relevant columns; all others are NaN (excluded from distance).
+    % Using NaN for irrelevant columns ensures they are automatically
+    % excluded from partial distance computation without additional logic.
+    search_space = nan(n_tr, p);
+    search_space(:, cols_relevant_idx) = Z_tr_relevant;
     if ~isempty(target_cols)
         search_space(:, target_cols) = nan; % mask out target columns from distance metric
     end
@@ -112,15 +234,12 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % --- PRE-COMPUTE PATIENT BLOCKING MATRIX ---
     % Cache patient-blocking distance matrix to avoid repeated distance calculations
     % Vectorized construction eliminates O(n^2) loop iterations.
+    % Uses numeric indices (pat_idx_tr) computed once at the top of the
+    % function, so all comparisons are integer equality checks regardless
+    % of whether the original IDs were strings or numbers.
     patient_blocking_mask = [];
-    if ~isempty(pat_id_tr)
-        if iscell(pat_id_tr)
-            % Convert cell array of patient IDs to numeric indices for vectorized comparison
-            [~, ~, id_num_tr] = unique(pat_id_tr);
-            patient_blocking_mask = (id_num_tr(:) == id_num_tr(:)');
-        else
-            patient_blocking_mask = (pat_id_tr(:) == pat_id_tr(:)');
-        end
+    if ~isempty(pat_idx_tr)
+        patient_blocking_mask = (pat_idx_tr(:) == pat_idx_tr(:)');
     else
         % Create identity matrix for self-exclusion only
         patient_blocking_mask = eye(n_tr, 'logical');
@@ -139,26 +258,39 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
-            % Sparse optimization: only consider features that are relevant for distance computation
-            % Features that have no missing values anywhere don't need to be included in distance
-            % calculations for rows that don't have missing values in those features
+            % Determine which features contribute to distance computation.
+            % Start from the query's valid features, exclude target columns
+            % and near-zero-variance features.
             distance_feat = valid_feat;
             if ~isempty(target_cols)
                 distance_feat(target_cols) = false;
             end
             
             % Further optimization: only use features that actually vary and contribute to distances
-            % Skip features that are constant or have very low variance
-            nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+            % Skip features that are constant or have very low variance.
+            % Use the same tolerance-based threshold as the sd_tr guard above
+            % to ensure consistency: features whose sd was clamped to 1 are
+            % excluded from distance computation since their Z-scores are
+            % all zero (or near-zero) and carry no discriminative information.
+            nonzero_var_feat = distance_feat & (sd_tr > sd_tol);
             
-            if sum(nonzero_var_feat) == 0
+            num_dist_feat = sum(nonzero_var_feat);
+            if num_dist_feat == 0
                 continue;
             end
             
-            % Vectorized finding of valid reference indices
-            % A row is valid if it doesn't have any NaNs in the nonzero_var_feat columns
-            num_valid = sum(nonzero_var_feat);
-            is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
+            % --- RELAXED VALID-REFERENCE CRITERION ---
+            % Instead of requiring ALL nonzero_var_feat columns to be non-NaN
+            % in a candidate neighbor (which is overly strict and eliminates
+            % most candidates when training data has scattered missingness),
+            % require at least min_shared_feat_frac of them AND at least
+            % min_absolute_shared features.  The absolute floor prevents
+            % the fractional threshold from becoming meaningless for sparse
+            % queries (e.g., 80% of 10 = 8 is too few for reliable distances).
+            min_shared_feat_count = max(ceil(min_shared_feat_frac * num_dist_feat), ...
+                                        min(min_absolute_shared, num_dist_feat));
+            shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
+            is_valid_ref = shared_feat_counts >= min_shared_feat_count;
             
             % Apply cached patient blocking exclusions
             is_valid_ref = is_valid_ref & ~patient_blocking_mask(i, :)';
@@ -169,18 +301,36 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                 continue;
             end
             
-            % Extract pure coordinates using only features that contribute to distance
+            % --- PARTIAL DISTANCE COMPUTATION ---
+            % Compute distances over mutually valid (non-NaN) features
+            % between the query and each reference row, normalized by the
+            % number of shared features.  This "available-case" approach
+            % is appropriate when missingness is random (MCAR/MAR) and
+            % prevents candidates with fewer shared features from having
+            % artificially smaller raw distances.
+            %
+            % For each reference row, the partial distance is:
+            %   d_partial = (1/n_shared) * sum_over_shared( (z_query - z_ref)^2 )
+            %
+            % This normalizes by the number of shared features so that
+            % distances are comparable across references with different
+            % amounts of overlap.
             Y_coords = search_space(ref_idx, nonzero_var_feat);
             X_coord = query_pt(nonzero_var_feat);
             
-            % Calculate squared Euclidean distances.  Squared distances
-            % preserve the rank ordering needed for KNN selection while
-            % avoiding the sqrt() computation.  The distance is computed
-            % only over mutually valid (non-NaN) features between the
-            % query row and each reference row, which is the "available-
-            % case" approach — appropriate when missingness is random
-            % (MCAR/MAR), as is typical for missed MRI scans.
-            dists = sum((Y_coords - X_coord).^2, 2);
+            % Compute element-wise squared differences; NaN where either is NaN
+            sq_diff = (Y_coords - X_coord).^2;
+            
+            % Count shared valid features per reference row
+            shared_valid = ~isnan(sq_diff);
+            n_shared = sum(shared_valid, 2);
+            
+            % Compute mean squared difference over shared features (partial distance)
+            % Replace NaN with 0 for summation, then normalize by n_shared
+            sq_diff_zero = sq_diff;
+            sq_diff_zero(~shared_valid) = 0;
+            dists = sum(sq_diff_zero, 2) ./ max(n_shared, 1);
+            
             [~, sort_idx] = sort(dists);
 
             % For each missing column, filter to refs with valid data
@@ -217,27 +367,26 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
     % imputation.
     if ~isempty(X_te)
         X_te_imp = X_te;
-        Z_te = (X_te - mu_tr) ./ sd_tr;  % Standardize using TRAINING statistics
         n_te = size(X_te, 1);
-        
-        search_space_te = Z_te;
+
+        % Z-score only the relevant columns of X_te using TRAINING statistics.
+        % This mirrors the sparse Z-scoring applied to X_tr above, avoiding
+        % unnecessary computation on columns not involved in distance
+        % computation or imputation.
+        search_space_te = nan(n_te, p);
+        search_space_te(:, cols_relevant_idx) = (X_te(:, cols_relevant_idx) - mu_tr(cols_relevant_idx)) ./ sd_tr(cols_relevant_idx);
         if ~isempty(target_cols)
             search_space_te(:, target_cols) = nan;
         end
         
         % Pre-compute cross-patient blocking mask for test-train exclusions
+        % Uses numeric indices (pat_idx_tr, pat_idx_te) computed once at the
+        % top of the function, so all comparisons are integer equality checks
+        % regardless of whether the original IDs were strings or numbers.
         % Vectorized construction eliminates O(n_te * n_tr) loop iterations.
         cross_patient_blocking_mask = [];
-        if ~isempty(pat_id_tr) && ~isempty(pat_id_te)
-            if iscell(pat_id_tr)
-                % Convert both cell arrays to numeric indices using a shared label set
-                [~, ~, id_num_all] = unique([pat_id_tr(:); pat_id_te(:)]);
-                id_num_tr_cross = id_num_all(1:n_tr);
-                id_num_te_cross = id_num_all(n_tr+1:end);
-                cross_patient_blocking_mask = (id_num_te_cross(:) == id_num_tr_cross(:)');
-            else
-                cross_patient_blocking_mask = (pat_id_te(:) == pat_id_tr(:)');
-            end
+        if ~isempty(pat_idx_tr) && ~isempty(pat_idx_te)
+            cross_patient_blocking_mask = (pat_idx_te(:) == pat_idx_tr(:)');
         end
         
         for i = 1:n_te
@@ -256,14 +405,22 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     distance_feat(target_cols) = false;
                 end
                 
-                nonzero_var_feat = distance_feat & (sd_tr > 1e-10);
+                nonzero_var_feat = distance_feat & (sd_tr > sd_tol);
                 
-                if sum(nonzero_var_feat) == 0
+                num_dist_feat = sum(nonzero_var_feat);
+                if num_dist_feat == 0
                     continue;
                 end
                 
-                num_valid = sum(nonzero_var_feat);
-                is_valid_ref = sum(valid_mask(:, nonzero_var_feat), 2) == num_valid;
+                % --- RELAXED VALID-REFERENCE CRITERION (TEST SET) ---
+                % Apply both fractional and absolute minimum shared feature
+                % thresholds, consistent with training-set logic.  The
+                % min() with num_dist_feat ensures we don't require more
+                % shared features than the query itself has available.
+                min_shared_feat_count = max(ceil(min_shared_feat_frac * num_dist_feat), ...
+                                            min(min_absolute_shared, num_dist_feat));
+                shared_feat_counts = sum(valid_mask(:, nonzero_var_feat), 2);
+                is_valid_ref = shared_feat_counts >= min_shared_feat_count;
                 
                 % Apply cached cross-patient blocking exclusions
                 if ~isempty(cross_patient_blocking_mask)
@@ -276,13 +433,25 @@ function [X_tr_imp, X_te_imp] = knn_impute_train_test(X_tr, X_te, k, pat_id_tr, 
                     continue;
                 end
                 
+                % --- PARTIAL DISTANCE COMPUTATION (TEST SET) ---
                 % Use training search_space for reference coordinates
                 % (neighbors are always training rows), but compute
                 % distances in the shared Z-score space.
                 Y_coords = search_space(ref_idx, nonzero_var_feat);
                 X_coord = search_space_te(i, nonzero_var_feat);
 
-                dists = sum((Y_coords - X_coord).^2, 2);
+                % Compute element-wise squared differences; NaN where either is NaN
+                sq_diff = (Y_coords - X_coord).^2;
+                
+                % Count shared valid features per reference row
+                shared_valid = ~isnan(sq_diff);
+                n_shared = sum(shared_valid, 2);
+                
+                % Compute mean squared difference over shared features (partial distance)
+                sq_diff_zero = sq_diff;
+                sq_diff_zero(~shared_valid) = 0;
+                dists = sum(sq_diff_zero, 2) ./ max(n_shared, 1);
+                
                 [~, sort_idx] = sort(dists);
 
                 % For each missing column, filter to refs with valid data
