@@ -88,11 +88,14 @@ function [core_mask, fit_info] = extract_tumor_core(config_struct, adc_vec, d_ve
     % Populate fit_info from result
     fit_info.n_core_voxels = sum(core_mask(:));
     fit_info.empty_mask = (fit_info.n_core_voxels == 0);
-    min_vox = 5;
-    if isfield(config_struct, 'min_vox_hist')
-        min_vox = config_struct.min_vox_hist;
+    % Use min_core_voxels for failure rate computation (not min_vox_hist which
+    % is for histogram statistics and is much higher)
+    if isfield(config_struct, 'min_core_voxels') && config_struct.min_core_voxels > 0
+        min_vox_for_failure = config_struct.min_core_voxels;
+    else
+        min_vox_for_failure = 10;  % 10 voxels minimum for meaningful dosimetry
     end
-    fit_info.insufficient_voxels = (fit_info.n_core_voxels > 0 && fit_info.n_core_voxels < min_vox);
+    fit_info.insufficient_voxels = (fit_info.n_core_voxels > 0 && fit_info.n_core_voxels < min_vox_for_failure);
 
     % Detect fallback to ADC threshold for non-adc_threshold methods
     if ~strcmp(valid_params.core_method, 'adc_threshold')

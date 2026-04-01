@@ -19,6 +19,7 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
 %       3. Is not a complex object or script that could execute code.
 %       4. The file size is within acceptable limits.
 %       5. The file has a valid .mat structure.
+%       6. The variable dimensions are reasonable for anatomical masks.
 %
 %   Analytical Rationale — Why Safe Loading is Critical:
 %   ----------------------------------------------------
@@ -53,11 +54,38 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         return;
     end
 
-    % Check file size first to prevent loading oversized files
+    % Check file size first to prevent loading oversized files.
+    %
+    % NOTE: dir() can return multiple entries on case-insensitive
+    % filesystems (Windows) if similarly-named files exist, or if the
+    % filepath contains characters that dir() interprets as glob patterns
+    % (e.g., brackets in DICOM directory names acting as character
+    % classes).  We guard against this by checking numel(file_info_sys).
     file_info_sys = dir(filepath);
     if isempty(file_info_sys)
         warning('safe_load_mask:FileAccessError', 'Cannot access file: %s', filepath);
         return;
+    end
+    
+    if numel(file_info_sys) ~= 1
+        % dir() returned multiple entries.  This can happen when the path
+        % contains bracket characters that glob-expand, or on
+        % case-insensitive filesystems with similarly-named files.  Try to
+        % find the exact match by comparing names; if that fails, use the
+        % first entry but warn.
+        [~, target_name, target_ext] = fileparts(filepath);
+        target_basename = [target_name, target_ext];
+        exact_idx = find(strcmp({file_info_sys.name}, target_basename));
+        if numel(exact_idx) == 1
+            file_info_sys = file_info_sys(exact_idx);
+        else
+            warning('safe_load_mask:AmbiguousDirResult', ...
+                ['dir() returned %d entries for path: %s. ' ...
+                 'This may be caused by glob-like characters (e.g., brackets) in the path ' ...
+                 'or case-insensitive filesystem collisions. Using the first entry.'], ...
+                numel(file_info_sys), filepath);
+            file_info_sys = file_info_sys(1);
+        end
     end
     
     file_size_mb = file_info_sys.bytes / (1024 * 1024);
@@ -136,6 +164,14 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
                      'exceeds safety limit (%.1f MB). Aborting load.'], ...
                     dup_i, varname, dup_size_mb, max_file_size_mb);
             end
+            
+            % Check dimension validity for this duplicate
+            if ~validate_mask_dimensions(dup_info.size)
+                error('safe_load_mask:InvalidDimensions', ...
+                    ['Duplicate entry %d of variable ''%s'' has invalid dimensions ' ...
+                     'for anatomical mask data. Aborting load for security.'], ...
+                    dup_i, varname);
+            end
         end
 
         % Check that all duplicates agree on class and size. If they
@@ -183,6 +219,14 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         warning('safe_load_mask:VariableTooLarge', ...
             'Variable ''%s'' in-memory size (%.1f MB) exceeds safety limit (%.1f MB)', ...
             varname, var_size_mb, max_file_size_mb);
+        return;
+    end
+    
+    % Validate mask dimensions for anatomical reasonableness
+    if ~validate_mask_dimensions(target_info.size)
+        warning('safe_load_mask:InvalidDimensions', ...
+            'Variable ''%s'' has dimensions incompatible with anatomical mask data', ...
+            varname);
         return;
     end
 
@@ -262,6 +306,23 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
     % strategy.
     varname_is_valid_identifier = isvarname(varname);
 
+    % Store the expected class and size from the pre-load metadata
+    % inspection for post-load verification (defense-in-depth against
+    % metadata/data inconsistency in corrupted v7.3 HDF5 files).
+    %
+    % When duplicate variable entries exist, MATLAB's load() typically
+    % loads the LAST entry in the file, not necessarily idx(1) which we
+    % used for target_info above.  We therefore record metadata for ALL
+    % duplicate entries so the post-load check can verify the loaded data
+    % matches at least one of the validated entries.
+    expected_class = target_info.class;
+    expected_size = target_info.size;
+    has_duplicates = numel(idx) > 1;
+    if has_duplicates
+        all_expected_classes = {file_info(idx).class};
+        all_expected_sizes = {file_info(idx).size};
+    end
+
     % Load only the specific variable by name to minimize memory usage
     % and avoid deserializing any other (potentially unsafe) variables
     % in the file.  The whos check above has already verified this
@@ -310,6 +371,186 @@ function mask = safe_load_mask(filepath, varname, max_file_size_mb)
         end
     end
 
+    % ----------------------------------------------------------------
+    % Post-load validation (defense-in-depth)
+    % ----------------------------------------------------------------
+    % For .mat v7.3 (HDF5-based) files, the whos('-file',...) metadata
+    % can be inconsistent with what load() actually deserializes in rare
+    % corruption cases.  Additionally, when duplicate variable name
+    % entries exist, whos returns metadata for each duplicate but load()
+    % typically picks the last entry, which may differ from idx(1) — the
+    % entry we validated.  This post-load check ensures the actually
+    % loaded data matches the metadata we validated BEFORE loading.
+    if ~isempty(mask)
+        actual_class = class(mask);
+        actual_size = size(mask);
+
+        % When duplicates exist, verify the loaded data matches at least
+        % one of the validated duplicate entries.  MATLAB's load()
+        % typically returns the last entry, not necessarily idx(1).
+        if has_duplicates
+            % Check if actual class/size matches ANY validated duplicate
+            matched_any_duplicate = false;
+            for dup_i = 1:numel(idx)
+                if strcmp(actual_class, all_expected_classes{dup_i}) && ...
+                   isequal(actual_size, all_expected_sizes{dup_i})
+                    matched_any_duplicate = true;
+                    break;
+                end
+            end
+
+            % Check specifically against idx(1) (the entry we used for
+            % target_info) — if the loaded data differs, log a warning
+            % so analysts know which duplicate was actually loaded.
+            if ~strcmp(actual_class, expected_class) || ~isequal(actual_size, expected_size)
+                if matched_any_duplicate
+                    % The loaded data matches a different validated
+                    % duplicate — this is expected behavior (load()
+                    % typically picks the last entry). Log an
+                    % informational warning so the discrepancy is
+                    % recorded.
+                    warning('safe_load_mask:DuplicateEntryLoaded', ...
+                        ['Post-load note: Variable ''%s'' was loaded with class ''%s'' ' ...
+                         'and size [%s], which differs from the primary whos entry ' ...
+                         '(class ''%s'', size [%s]) but matches another validated duplicate. ' ...
+                         'This is expected when duplicate entries exist (load() typically ' ...
+                         'picks the last entry).'], ...
+                        varname, actual_class, num2str(actual_size), ...
+                        expected_class, num2str(expected_size));
+                else
+                    % Loaded data does not match ANY validated duplicate.
+                    % This is a genuine metadata/data inconsistency.
+                    warning('safe_load_mask:PostLoadDuplicateMismatch', ...
+                        ['SECURITY WARNING: Post-load class/size for variable ''%s'' ' ...
+                         '(class ''%s'', size [%s]) does not match ANY of the %d validated ' ...
+                         'duplicate entries from whos metadata. This indicates metadata/data ' ...
+                         'inconsistency (possible file corruption or tampering). ' ...
+                         'Discarding loaded data for security.'], ...
+                        varname, actual_class, num2str(actual_size), numel(idx));
+                    clear mask;
+                    mask = [];
+                    return;
+                end
+            end
+        end
+
+        % Verify class matches what whos reported (primary entry)
+        if ~strcmp(actual_class, expected_class) && ~has_duplicates
+            warning('safe_load_mask:PostLoadClassMismatch', ...
+                ['SECURITY WARNING: Post-load class mismatch for variable ''%s''. ' ...
+                 'Expected class ''%s'' from whos metadata, but loaded data has class ''%s''. ' ...
+                 'This indicates metadata/data inconsistency (possible file corruption or tampering). ' ...
+                 'Discarding loaded data for security.'], ...
+                varname, expected_class, actual_class);
+            clear mask;
+            mask = [];
+            return;
+        end
+
+        % Verify size matches what whos reported (primary entry)
+        if ~isequal(actual_size, expected_size) && ~has_duplicates
+            warning('safe_load_mask:PostLoadSizeMismatch', ...
+                ['SECURITY WARNING: Post-load size mismatch for variable ''%s''. ' ...
+                 'Expected size [%s] from whos metadata, but loaded data has size [%s]. ' ...
+                 'This indicates metadata/data inconsistency (possible file corruption or tampering). ' ...
+                 'Discarding loaded data for security.'], ...
+                varname, num2str(expected_size), num2str(actual_size));
+            clear mask;
+            mask = [];
+            return;
+        end
+
+        % Re-verify that the loaded class is in the safe list.
+        % This is redundant with the pre-load check but provides a final
+        % safety net against any scenario where deserialization produced
+        % an unexpected type (e.g., a custom loadobj that returns a
+        % different class).
+        safe_classes_postload = {'double', 'single', 'logical', ...
+                        'int8', 'uint8', 'int16', 'uint16', ...
+                        'int32', 'uint32', 'int64', 'uint64'};
+        if ~ismember(actual_class, safe_classes_postload)
+            warning('safe_load_mask:PostLoadUnsafeClass', ...
+                ['SECURITY WARNING: Post-load class ''%s'' for variable ''%s'' is not in ' ...
+                 'the safe class list. This should not happen given pre-load validation. ' ...
+                 'Discarding loaded data for security.'], ...
+                actual_class, varname);
+            clear mask;
+            mask = [];
+            return;
+        end
+    end
+
+end
+
+
+function is_valid = validate_mask_dimensions(var_size)
+% VALIDATE_MASK_DIMENSIONS Validates that array dimensions are reasonable for anatomical masks.
+%
+%   is_valid = VALIDATE_MASK_DIMENSIONS(var_size)
+%
+%   INPUTS:
+%       var_size - Size vector from whos output (e.g., [512 512 100])
+%
+%   OUTPUTS:
+%       is_valid - True if dimensions are reasonable for anatomical masks, false otherwise
+%
+%   This function checks that:
+%   1. The array is 2D or 3D (anatomical masks are typically image slices or volumes)
+%   2. Individual dimensions are within reasonable bounds for medical imaging
+%   3. The total number of elements doesn't exceed anatomical limits
+%   4. The array is not degenerate (no dimension is zero)
+
+    is_valid = false;
+    
+    % Check for degenerate dimensions (any dimension is zero)
+    if any(var_size == 0)
+        return;
+    end
+    
+    % Remove singleton dimensions for analysis
+    non_singleton_dims = var_size(var_size > 1);
+    num_dims = length(non_singleton_dims);
+    
+    % Anatomical masks should be 2D (slice) or 3D (volume)
+    if num_dims < 2 || num_dims > 3
+        return;
+    end
+    
+    % Check individual dimension limits
+    % Medical imaging typically uses dimensions from ~32 to ~2048 pixels per axis
+    % Ultra-high resolution might go up to 4096, but beyond that is suspicious
+    min_reasonable_dim = 8;    % Allow for very small test masks
+    max_reasonable_dim = 8192; % Conservative upper bound for any single dimension
+    
+    if any(non_singleton_dims < min_reasonable_dim) || any(non_singleton_dims > max_reasonable_dim)
+        return;
+    end
+    
+    % Check total number of elements
+    % Typical high-resolution 3D anatomical volumes might be 1024^3 = ~1 billion elements
+    % Ultra-high resolution might reach 2048^3 = ~8 billion elements
+    % Beyond 10 billion elements is suspicious for anatomical data
+    total_elements = prod(var_size);
+    max_reasonable_elements = 10e9; % 10 billion elements
+    
+    if total_elements > max_reasonable_elements
+        return;
+    end
+    
+    % Additional check: ensure aspect ratios are reasonable
+    % Anatomical images typically don't have extreme aspect ratios
+    % (e.g., one dimension 1000x larger than another)
+    max_aspect_ratio = 100; % Conservative limit
+    
+    if num_dims >= 2
+        sorted_dims = sort(non_singleton_dims, 'descend');
+        if sorted_dims(1) / sorted_dims(end) > max_aspect_ratio
+            return;
+        end
+    end
+    
+    % If all checks pass, dimensions are valid
+    is_valid = true;
 end
 
 

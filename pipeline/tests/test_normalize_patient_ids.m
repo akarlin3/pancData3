@@ -93,6 +93,38 @@ classdef test_normalize_patient_ids < matlab.unittest.TestCase
             testCase.verifyEqual(id_norm, {'P01', 'P-02', 'P-03'});
         end
 
+        function test_twogtvs_suffix_stripped(testCase)
+            % Dual-GTV patients have -p/-n suffixes in the spreadsheet
+            % that should be stripped to match the single folder name
+            T_Pat = {'P5-SB- twoGTVs-p', 'P5-SB- twoGTVs-n', 'P01'};
+            id_list = {'P5-SB- twoGTVs', 'P01'};
+
+            [pat_norm, id_norm] = normalize_patient_ids(T_Pat, id_list);
+
+            % Both -p and -n should normalize to folder name
+            testCase.verifyEqual(pat_norm{1}, 'P5-SB- twoGTVs', ...
+                'Trailing -p should be stripped from twoGTVs patient.');
+            testCase.verifyEqual(pat_norm{2}, 'P5-SB- twoGTVs', ...
+                'Trailing -n should be stripped from twoGTVs patient.');
+            % Non-twoGTVs patients should be unaffected
+            testCase.verifyEqual(pat_norm{3}, 'P01');
+            % Folder names should match
+            testCase.verifyEqual(pat_norm{1}, id_norm{1});
+        end
+
+        function test_twogtvs_suffix_only_on_two_token(testCase)
+            % The -p/-n suffix should NOT be stripped from non-twoGTVs patients
+            T_Pat = {'P01-p', 'P8-MG-twoGTVs-n'};
+            id_list = {'P01-p', 'P8-MG-twoGTVs'};
+
+            [pat_norm, ~] = normalize_patient_ids(T_Pat, id_list);
+
+            testCase.verifyEqual(pat_norm{1}, 'P01-p', ...
+                'Non-twoGTVs patient should keep -p suffix.');
+            testCase.verifyEqual(pat_norm{2}, 'P8-MG-twoGTVs', ...
+                'twoGTVs patient should have -n suffix stripped.');
+        end
+
         function test_numeric_T_Pat_returns_empty(testCase)
             % Numeric T_Pat (possible in Octave) should return empty
             % This tests the isnumeric branch

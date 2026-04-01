@@ -6,6 +6,17 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 
 ---
 
+## Top-Level Pipeline Scripts
+
+| File | Purpose |
+|---|---|
+| `run_dwi_pipeline.m` | Master orchestrator — main entry point for single DWI-type pipeline runs |
+| `execute_all_workflows.m` | Runs all 3 DWI types (Standard, dnCNN, IVIMnet) sequentially |
+| `patient_data_check.m` | Pre-pipeline data integrity scanner |
+| `generate_patient_exclusion_report.m` | Comprehensive patient exclusion report — combines file-system checks with pipeline output to list every excluded patient with reasons |
+
+---
+
 ## Core Modules (`pipeline/core/`)
 
 | File | Purpose |
@@ -117,6 +128,7 @@ For project overview, safety rules, configuration, conventions, and workflow ins
 | `compute_risk_dose_concordance.m` | Compare elastic net risk model vs dose coverage stratification (Cohen's kappa, combined AUC) |
 | `compute_per_method_cor.m` | Coefficient of Reproducibility for each core method's sub-volume from Fx1 repeat scans |
 | `compute_gtv_confounding.m` | Check if GTV volume change confounds D95-outcome association via adjusted Cox PH |
+| `compute_median_followup.m` | Median follow-up time (simple median + reverse Kaplan-Meier) with event/censoring breakdown |
 
 ---
 
@@ -165,6 +177,7 @@ Contains 24 shim files for GNU Octave compatibility, including:
 | `test_compute_dose_response_roc.m` | Dose-response ROC tests (struct fields, AUC above chance, optimal threshold in range, AUC range [0,1]) |
 | `test_compute_gtv_confounding.m` | GTV confounding tests (struct fields, confounded/independent scenarios, missing GTV graceful handling) |
 | `test_compute_risk_dose_concordance.m` | Risk-dose concordance tests (struct fields, concordant/complementary scenarios, kappa range, missing data handling) |
+| `test_compute_median_followup.m` | Median follow-up tests (all-censored, mixed cohort, competing risk, valid_pts subsetting, reverse KM, month conversion) |
 | `test_compare_core_methods.m` | Core method pairwise comparison validation |
 | `test_multi_core_methods.m` | Multi-method core integration and backward compatibility |
 | `test_process_single_scan.m` | Per-scan pipeline processing (init, NaN defaults, struct layout) |
