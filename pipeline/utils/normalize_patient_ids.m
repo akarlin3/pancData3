@@ -58,6 +58,12 @@ function [pat_normalized, id_list_normalized] = normalize_patient_ids(T_Pat, id_
             % Strip leading/trailing single quotes that Excel may embed
             T_Pat_cell = strrep(T_Pat_cell, '''', '');
             pat_normalized = strrep(T_Pat_cell, '_', '-');
+            % Strip trailing -p/-n suffixes from dual-GTV patients so that
+            % spreadsheet rows like "P5-SB- twoGTVs-p" match folder name
+            % "P5-SB- twoGTVs".  The suffix distinguishes primary (GTVp)
+            % from nodal (GTVn) in the clinical sheet; the file system uses
+            % a single folder for both.
+            pat_normalized = strip_twogtvs_suffix(pat_normalized);
         catch
             pat_normalized = {};
         end
@@ -71,6 +77,17 @@ function [pat_normalized, id_list_normalized] = normalize_patient_ids(T_Pat, id_
             id_list_normalized = strrep(id_list, '_', '-');
         catch
             id_list_normalized = {};
+        end
+    end
+end
+
+function ids = strip_twogtvs_suffix(ids)
+% Strip trailing '-p' or '-n' from IDs that contain the 'two' token.
+% This aligns spreadsheet entries (e.g. "P5-SB- twoGTVs-p") with
+% their single on-disk folder name (e.g. "P5-SB- twoGTVs").
+    for k = 1:numel(ids)
+        if contains(ids{k}, 'two', 'IgnoreCase', true)
+            ids{k} = regexprep(ids{k}, '-[pn]$', '');
         end
     end
 end

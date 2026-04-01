@@ -1,6 +1,6 @@
 """Report section: model robustness (imputation sensitivity & time-varying Cox).
 
-Renders v2.1-dev pipeline outputs:
+Renders pipeline outputs:
 - Imputation method AUC comparison table
 - Time-varying Cox HR summary for PH-violating covariates
 """
@@ -20,7 +20,7 @@ def _section_model_robustness(log_data, dwi_types_present, mat_data) -> list[str
     """Build the Model Robustness section.
 
     Displays imputation sensitivity AUC comparison and time-varying Cox
-    HR summaries extracted from v2.1-dev MATLAB pipeline logs.
+    HR summaries extracted from MATLAB pipeline logs.
 
     Parameters
     ----------
@@ -54,7 +54,7 @@ def _section_model_robustness(log_data, dwi_types_present, mat_data) -> list[str
 
     h.append(_h2("Model Robustness", "model-robustness"))
     h.append(
-        '<p class="meta">Robustness analyses from v2.1-dev pipeline outputs: '
+        '<p class="meta">Robustness analyses from pipeline outputs: '
         "imputation sensitivity compares prediction stability across imputation "
         "strategies; time-varying Cox models address proportional hazards "
         "violations.</p>"

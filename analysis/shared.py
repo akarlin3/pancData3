@@ -162,6 +162,42 @@ def _normalize_dwi_type(dwi_type: str, canonical_types: list[str]) -> str:
     return lower_map.get(dwi_type.lower(), dwi_type)
 
 
+def _is_string_well_formed(text: str) -> bool:
+    """Validate that JSON-like text has balanced quotes and proper escaping.
+    
+    This function performs a simplified check to determine if string
+    literals in JSON-like text are properly formed before attempting
+    comment stripping. It counts quote characters while respecting
+    escape sequences to detect unbalanced strings.
+    
+    Returns
+    -------
+    bool
+        True if strings appear well-formed, False otherwise.
+    """
+    in_string = False
+    i = 0
+    n = len(text)
+    
+    while i < n:
+        char = text[i]
+        if char == '"':
+            # Check if this quote is escaped by counting preceding backslashes
+            backslash_count = 0
+            j = i - 1
+            while j >= 0 and text[j] == '\\':
+                backslash_count += 1
+                j -= 1
+            
+            # If even number of backslashes (including 0), quote is not escaped
+            if backslash_count % 2 == 0:
+                in_string = not in_string
+        i += 1
+    
+    # String should not still be open at end of text
+    return not in_string
+
+
 def _strip_json_comments(text: str) -> str:
     """Remove single-line (``//``) and block (``/* */``) comments from JSON
     text while preserving string literals that may contain ``//``.
@@ -177,17 +213,15 @@ def _strip_json_comments(text: str) -> str:
 
     .. note::
 
-       This function assumes that JSON string literals are well-formed —
-       i.e. every opening ``"`` has a matching closing ``"`` and escape
-       sequences within strings are valid.  Malformed strings (e.g. an
-       odd number of trailing backslashes before a closing quote, as in
-       ``"C:\\Users\\"``) would cause the parser to consume past the
-       intended string boundary, potentially stripping valid JSON content
-       as a comment.  Such input would also fail ``json.loads()``
-       regardless, so this is not a loss of correctness — but callers
-       should be aware that comment stripping on malformed JSON may
-       produce surprising results.
+       This function validates string balance before processing to avoid
+       corruption from malformed escape sequences. If validation fails,
+       the original text is returned unchanged to prevent incorrect
+       comment stripping that could corrupt valid JSON content.
     """
+    # Validate string balance before proceeding
+    if not _is_string_well_formed(text):
+        return text
+        
     result: list[str] = []
     i = 0
     n = len(text)
@@ -195,14 +229,6 @@ def _strip_json_comments(text: str) -> str:
         # Check if we're entering a JSON string literal
         if text[i] == '"':
             # Consume the entire string literal, including escaped characters.
-            # NOTE: This correctly handles escaped characters by consuming
-            # backslash + next-char pairs.  For example, "path\\\\" (four
-            # chars between quotes: \, \, \, \) is consumed as two escape
-            # pairs, leaving the closing quote to be matched.  However, a
-            # *malformed* string like "path\\\" (three backslashes — the
-            # last one escapes the quote) would cause the loop to read past
-            # the intended end.  Such input is invalid JSON and would also
-            # fail json.loads(), so this is acceptable.
             result.append('"')
             i += 1
             while i < n:
@@ -254,11 +280,10 @@ def _permissive_json_loads(text: str) -> dict:
     *token-aware*: ``//`` sequences inside JSON string values (e.g. URLs)
     are preserved.
 
-    After comment stripping and trailing-comma removal, the result is
-    validated with ``json.loads()``.  If the stripped text fails to parse,
-    ``json.JSONDecodeError`` is raised — this catches any corruption that
-    might have been introduced by comment stripping on malformed input
-    (e.g. strings with unbalanced escape sequences).
+    The function validates string balance before attempting comment
+    stripping to prevent corruption from malformed escape sequences.
+    If validation fails, the original text is parsed as-is to preserve
+    the original error for debugging.
 
     Parameters
     ----------
@@ -282,11 +307,7 @@ def _permissive_json_loads(text: str) -> dict:
     except json.JSONDecodeError:
         pass
 
-    # Use token-aware comment stripping that preserves string contents.
-    # Note: _strip_json_comments assumes well-formed JSON strings.  If the
-    # input contains malformed strings (e.g. odd trailing backslashes),
-    # the stripping may produce corrupted output — but the json.loads()
-    # call below will catch this and raise JSONDecodeError.
+    # Use token-aware comment stripping with validation
     sanitised = _strip_json_comments(text)
     # Strip trailing commas before } or ]
     sanitised = re.sub(r",\s*([}\]])", r"\1", sanitised)

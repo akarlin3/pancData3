@@ -351,6 +351,31 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                         pruned_list.append(entry)
             pruning_entry["pruned_info"] = pruned_list
 
+            # Parse retained_with_warning struct array
+            rw_raw = mat.get("retained_with_warning")
+            rw_list: list[dict] = []
+            if rw_raw is not None:
+                if hasattr(rw_raw, "__len__") and not isinstance(rw_raw, str):
+                    rw_items = rw_raw if hasattr(rw_raw, "__iter__") else [rw_raw]
+                else:
+                    rw_items = [rw_raw]
+                for item in rw_items:
+                    rw_entry: dict = {}
+                    if hasattr(item, "name"):
+                        rw_entry["name"] = str(item.name)
+                    if hasattr(item, "failure_rate"):
+                        rw_entry["failure_rate"] = _safe_float(item.failure_rate)
+                    if hasattr(item, "reason"):
+                        rw_entry["reason"] = str(item.reason)
+                    if rw_entry:
+                        rw_list.append(rw_entry)
+            pruning_entry["retained_with_warning"] = rw_list
+
+            # Parse min_core_voxels_used
+            mcv = mat.get("min_core_voxels_used")
+            if mcv is not None:
+                pruning_entry["min_core_voxels"] = int(_safe_float(mcv))
+
             out_data["pruning"] = pruning_entry
         except Exception as e:
             print(f"Error parsing {pruning_mat.name}: {e}")
@@ -491,6 +516,147 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                     out_data["longitudinal"]["num_timepoints"] = int(adc.shape[-1])
         except Exception as e:
             print(f"Error parsing {summary_mat.name}: {e}")
+
+    # ── Per-Method CoR ──
+    cor_mat = folder / f"{dwi}" / f"per_method_cor_{dwi}.mat"
+    if cor_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(cor_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("cor_results")
+            if results:
+                methods = results.method_names.tolist()
+                if isinstance(methods, str):
+                    methods = [methods]
+                cor_entry: dict = {
+                    "method_names": [str(m) for m in methods],
+                    "median_wcv": _array_to_list(results.median_wcv) if hasattr(results, "median_wcv") else [],
+                    "cor": _array_to_list(results.cor) if hasattr(results, "cor") else [],
+                    "n_patients_with_repeats": int(results.n_patients_with_repeats) if hasattr(results, "n_patients_with_repeats") else 0,
+                }
+                out_data["per_method_cor"] = cor_entry
+        except Exception as e:
+            print(f"Error parsing {cor_mat.name}: {e}")
+
+    # ── Sub-Volume Stability ──
+    stab_mat = folder / f"{dwi}" / f"subvolume_stability_{dwi}.mat"
+    if stab_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(stab_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("stability")
+            if results:
+                methods = results.method_names.tolist()
+                if isinstance(methods, str):
+                    methods = [methods]
+                stab_entry: dict = {
+                    "method_names": [str(m) for m in methods],
+                    "n_patients": int(results.n_patients) if hasattr(results, "n_patients") else 0,
+                    "n_timepoints": int(results.n_timepoints) if hasattr(results, "n_timepoints") else 0,
+                    "dice_vs_baseline": _array_to_list(results.dice_vs_baseline) if hasattr(results, "dice_vs_baseline") else [],
+                }
+                out_data["subvolume_stability"] = _nested_safe(stab_entry)
+        except Exception as e:
+            print(f"Error parsing {stab_mat.name}: {e}")
+
+    # ── Dose-Response ROC ──
+    roc_mat = folder / f"{dwi}" / f"dose_response_roc_{dwi}.mat"
+    if roc_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(roc_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("roc_results")
+            if results:
+                roc_entry: dict = {"method_results": [], "ranking": []}
+                if hasattr(results, "ranking"):
+                    ranking = results.ranking
+                    if isinstance(ranking, str):
+                        ranking = [ranking]
+                    else:
+                        ranking = [str(r) for r in ranking.tolist()] if hasattr(ranking, "tolist") else list(ranking)
+                    roc_entry["ranking"] = ranking
+                if hasattr(results, "method_results"):
+                    mrs = results.method_results
+                    if not hasattr(mrs, "__len__"):
+                        mrs = [mrs]
+                    for mr in mrs:
+                        mr_dict: dict = {
+                            "method_name": str(mr.method_name) if hasattr(mr, "method_name") else "",
+                            "best_metric": str(mr.best_metric) if hasattr(mr, "best_metric") else "",
+                            "best_auc": _safe_float(mr.best_auc) if hasattr(mr, "best_auc") else None,
+                            "metrics": [],
+                        }
+                        if hasattr(mr, "metrics"):
+                            mets = mr.metrics
+                            if not hasattr(mets, "__len__"):
+                                mets = [mets]
+                            for met in mets:
+                                met_dict: dict = {
+                                    "metric_name": str(met.metric_name) if hasattr(met, "metric_name") else "",
+                                    "auc": _safe_float(met.auc) if hasattr(met, "auc") else None,
+                                    "auc_ci": _array_to_list(met.auc_ci) if hasattr(met, "auc_ci") else [],
+                                    "optimal_threshold": _safe_float(met.optimal_threshold) if hasattr(met, "optimal_threshold") else None,
+                                    "sensitivity": _safe_float(met.sensitivity) if hasattr(met, "sensitivity") else None,
+                                    "specificity": _safe_float(met.specificity) if hasattr(met, "specificity") else None,
+                                }
+                                mr_dict["metrics"].append(met_dict)
+                        roc_entry["method_results"].append(mr_dict)
+                out_data["dose_response_roc"] = _nested_safe(roc_entry)
+        except Exception as e:
+            print(f"Error parsing {roc_mat.name}: {e}")
+
+    # ── GTV Confounding ──
+    gtv_mat = folder / f"{dwi}" / f"gtv_confounding_{dwi}.mat"
+    if gtv_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(gtv_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("confound")
+            if results:
+                gtv_entry: dict = {"method_results": [], "summary": ""}
+                if hasattr(results, "summary"):
+                    gtv_entry["summary"] = str(results.summary)
+                if hasattr(results, "method_results"):
+                    mrs = results.method_results
+                    if not hasattr(mrs, "__len__"):
+                        mrs = [mrs]
+                    for mr in mrs:
+                        mr_dict = {
+                            "method_name": str(mr.method_name) if hasattr(mr, "method_name") else "",
+                            "d95_gtv_correlation": _safe_float(mr.d95_gtv_correlation) if hasattr(mr, "d95_gtv_correlation") else None,
+                            "d95_gtv_pvalue": _safe_float(mr.d95_gtv_pvalue) if hasattr(mr, "d95_gtv_pvalue") else None,
+                            "unadjusted_hr": _safe_float(mr.unadjusted_hr) if hasattr(mr, "unadjusted_hr") else None,
+                            "adjusted_hr": _safe_float(mr.adjusted_hr) if hasattr(mr, "adjusted_hr") else None,
+                            "confounding_flag": bool(mr.confounding_flag) if hasattr(mr, "confounding_flag") else False,
+                        }
+                        gtv_entry["method_results"].append(mr_dict)
+                out_data["gtv_confounding"] = _nested_safe(gtv_entry)
+        except Exception as e:
+            print(f"Error parsing {gtv_mat.name}: {e}")
+
+    # ── Risk-Dose Concordance ──
+    rdc_mat = folder / f"{dwi}" / f"risk_dose_concordance_{dwi}.mat"
+    if rdc_mat.exists():
+        try:
+            mat: typing.Any = scipy_io.loadmat(str(rdc_mat), squeeze_me=True, struct_as_record=False)  # type: ignore
+            results = mat.get("concordance")
+            if results:
+                rdc_entry: dict = {"method_results": [], "summary": ""}
+                if hasattr(results, "summary"):
+                    rdc_entry["summary"] = str(results.summary)
+                if hasattr(results, "method_results"):
+                    mrs = results.method_results
+                    if not hasattr(mrs, "__len__"):
+                        mrs = [mrs]
+                    for mr in mrs:
+                        mr_dict = {
+                            "method_name": str(mr.method_name) if hasattr(mr, "method_name") else "",
+                            "best_dose_metric": str(mr.best_dose_metric) if hasattr(mr, "best_dose_metric") else "",
+                            "cohen_kappa": _safe_float(mr.cohen_kappa) if hasattr(mr, "cohen_kappa") else None,
+                            "concordance_pct": _safe_float(mr.concordance_pct) if hasattr(mr, "concordance_pct") else None,
+                            "n_complementary": _safe_float(mr.n_complementary) if hasattr(mr, "n_complementary") else None,
+                            "combined_auc": _safe_float(mr.combined_auc) if hasattr(mr, "combined_auc") else None,
+                        }
+                        rdc_entry["method_results"].append(mr_dict)
+                out_data["risk_dose_concordance"] = _nested_safe(rdc_entry)
+        except Exception as e:
+            print(f"Error parsing {rdc_mat.name}: {e}")
 
     return out_data
 

@@ -185,6 +185,8 @@ if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
     % not the focus of the dose-response hypothesis.
     group_colors = {[0.0 0.4 0.8], [0.9 0.1 0.1], [0.5 0.5 0.5]};  % blue=LC, red=LF, grey=CR
     group_markers = {'o', 's', 'd'};
+    % Small x-offsets to prevent error bar overlap between groups
+    group_offsets = [-0.08, 0.0, 0.08];
 
     figure('Name', ['Longitudinal by Outcome — ' dtype_label], ...
            'Position', [100, 100, 1400, 700]);
@@ -193,11 +195,13 @@ if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
         % Top row: absolute values
         subplot(2, 4, i); hold on;
         legend_entries = {};
+        h_lines = [];
         for g = 1:numel(outcome_codes)
             idx_g = find(m_lf == outcome_codes(g));
             if isempty(idx_g), continue; end
             dat_g = metrics_abs{i}(idx_g, :);
-            plot_group_mean_sem(x_vals, dat_g, group_colors{g}, group_markers{g});
+            h_g = plot_group_mean_sem(x_vals + group_offsets(g), dat_g, group_colors{g}, group_markers{g});
+            h_lines(end+1) = h_g; %#ok<AGROW>
             legend_entries{end+1} = sprintf('%s (n=%d)', outcome_titles{g}, numel(idx_g)); %#ok<AGROW>
         end
         set(gca, 'XTick', x_vals, 'XTickLabel', x_labels, 'FontSize', 10);
@@ -206,7 +210,8 @@ if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
         xlim([0.5, nTp+0.5]);
         grid on; box on;
         if i == 1 && ~isempty(legend_entries)
-            legend(legend_entries, 'Location', 'best', 'FontSize', 7);
+            legend(h_lines, legend_entries, 'Location', 'best', 'FontSize', 7, ...
+                'Box', 'on', 'EdgeColor', [0.5 0.5 0.5]);
         end
 
         % Bottom row: percent change (or absolute change for f)
@@ -215,7 +220,7 @@ if ~isempty(m_lf) && numel(m_lf) == size(ADC_abs, 1)
             idx_g = find(m_lf == outcome_codes(g));
             if isempty(idx_g), continue; end
             dat_g = metrics_pct{i}(idx_g, :);
-            plot_group_mean_sem(x_vals, dat_g, group_colors{g}, group_markers{g});
+            plot_group_mean_sem(x_vals + group_offsets(g), dat_g, group_colors{g}, group_markers{g});
         end
         if strcmp(metric_names{i}, 'f')
             title_str_pct = ['\Delta ', metric_names{i}, ' (abs)'];
@@ -312,16 +317,24 @@ end
 % decreasing ADC (potentially resistant).  Divergent trajectories between
 % responders and non-responders are the biological signal this pipeline
 % aims to quantify.
-plot(x_vals, dat', 'Color', [0.8 0.8 0.8], 'LineWidth', 0.5);
+h_indiv = plot(x_vals, dat', 'Color', [0.8 0.8 0.8 0.4], 'LineWidth', 0.5);
 
 % Plot population average with error bars
 if exist('OCTAVE_VERSION', 'builtin')
     % Octave's errorbar doesn't support the line spec string correctly with the Marker property
     % the same way MATLAB does in this specific overload, so we simplify for the mock
-    errorbar(x_vals, pop_mean, pop_se);
+    h_mean = errorbar(x_vals, pop_mean, pop_se);
 else
-    errorbar(x_vals, pop_mean, pop_se, ['-' color_spec], 'LineWidth', 2, ...
-        'Marker', marker_style, 'MarkerFaceColor', color_spec);
+    h_mean = errorbar(x_vals, pop_mean, pop_se, ['-' color_spec], 'LineWidth', 2, ...
+        'Marker', marker_style, 'MarkerFaceColor', color_spec, 'MarkerSize', 7, ...
+        'CapSize', 8);
+end
+
+% Add legend on first subplot only to avoid clutter
+if idx == 1 || idx == 5
+    n_pts = size(dat, 1);
+    legend([h_indiv(1), h_mean], {sprintf('Individual (n=%d)', n_pts), 'Mean \pm SEM'}, ...
+        'Location', 'best', 'FontSize', 7, 'Box', 'on', 'EdgeColor', [0.5 0.5 0.5]);
 end
 
 if add_zero_line
@@ -348,7 +361,7 @@ grid on; box on;
 
 end
 
-function plot_group_mean_sem(x_vals, dat, color_rgb, marker_style)
+function h = plot_group_mean_sem(x_vals, dat, color_rgb, marker_style)
 % PLOT_GROUP_MEAN_SEM — Plot mean+SEM line for a single outcome group
 %
 % Used by the combined stratified overlay figure.  Plots into the current
@@ -381,10 +394,11 @@ else
 end
 
 if exist('OCTAVE_VERSION', 'builtin')
-    errorbar(x_vals, grp_mean, grp_se);
+    h = errorbar(x_vals, grp_mean, grp_se);
 else
-    errorbar(x_vals, grp_mean, grp_se, '-', 'Color', color_rgb, 'LineWidth', 2, ...
-        'Marker', marker_style, 'MarkerFaceColor', color_rgb, 'MarkerSize', 6);
+    h = errorbar(x_vals, grp_mean, grp_se, '-', 'Color', color_rgb, 'LineWidth', 2, ...
+        'Marker', marker_style, 'MarkerFaceColor', color_rgb, 'MarkerSize', 7, ...
+        'CapSize', 8);
 end
 
 end

@@ -230,7 +230,7 @@ if can_run_parallel
     % --- Phase 2: serial tests sequentially ---
     fprintf('\nRunning %d serial tests sequentially...\n', numel(serial_suite));
     ser_runner = TestRunner.withTextOutput();
-    ser_runner.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
+    ser_runner.addPlugin(ProgressBarPlugin(numel(suite), active_diary_file, parallel_done));
     if ~isempty(hGUI) && hGUI.isValid()
         ser_runner.addPlugin(WaitbarProgressPlugin(hGUI, numel(suite), parallel_done));
     end
@@ -275,7 +275,7 @@ if can_run_parallel
             clear matlab.unittest.TestRunner matlab.unittest.TestSuite matlab.unittest.TestCase
             ser_runner2 = matlab.unittest.TestRunner.withTextOutput();
             try
-                ser_runner2.addPlugin(ProgressBarPlugin(numel(serial_suite), active_diary_file));
+                ser_runner2.addPlugin(ProgressBarPlugin(numel(suite), active_diary_file, parallel_done));
             catch; end
             if ~isempty(hGUI) && hGUI.isValid()
                 try

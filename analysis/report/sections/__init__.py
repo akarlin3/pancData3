@@ -97,3 +97,18 @@ from .forest_plot import (  # noqa: F401
     extract_hr_data,
     generate_forest_plot,
 )
+from .subvolume_stability import (  # noqa: F401
+    _section_subvolume_stability,
+)
+from .per_method_cor import (  # noqa: F401
+    _section_per_method_cor,
+)
+from .dose_response_roc import (  # noqa: F401
+    _section_dose_response_roc,
+)
+from .gtv_confounding import (  # noqa: F401
+    _section_gtv_confounding,
+)
+from .risk_dose_concordance import (  # noqa: F401
+    _section_risk_dose_concordance,
+)

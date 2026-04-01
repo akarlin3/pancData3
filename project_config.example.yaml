@@ -1,32 +1,29 @@
-# project_config.yaml — Configuration for code-improvement-loop
-# See: https://github.com/akarlin3/improvementLoop
-#
-# All fields are flat top-level keys matching ProjectConfig dataclass fields.
-# Only the `prompts:` section is nested (the loader flattens it automatically).
+# project_config.example.yaml
+# Copy this file to project_config.yaml and customise for your project.
+# The improvement loop searches for config in this order:
+#   1. Explicit path passed to load_project_config()
+#   2. PROJECT_CONFIG environment variable
+#   3. ./project_config.yaml
+#   4. ./improvement_loop_project.yaml
 
-name: "pancData3"
-description: >-
+# --- Project metadata ---
+name: "pancData3"                        # Short project name
+description: >-                          # One-liner shown in audit context
   MATLAB + Python medical-imaging research pipeline for pancreatic DWI
   analysis at Memorial Sloan Kettering Cancer Center.
-languages:
-  - "MATLAB"
-  - "Python"
 
-default_branch: "v2.2-dev"
-branch_prefix: "improvement/"
+# --- Languages & branches ---
+languages: ["MATLAB", "Python"]          # Languages present in the codebase
+default_branch: "v2.3.2-dev"             # Branch to diff against / merge into
+branch_prefix: "improvement/"            # Prefix for improvement branches
 
-source_dirs:
-  - "pipeline/"
-  - "analysis/"
-test_command: "python -m pytest analysis/tests/ -q --tb=short"
-test_ignores: []
-read_only_dirs:
-  - "pipeline/dependencies/"
-skip_dirs:
-  - "pipeline/dependencies/"
-  - "pipeline/.octave_compat/"
-  - ".git/"
-key_files:
+# --- Directory layout ---
+source_dirs: ["pipeline/", "analysis/"]  # Directories containing source code to audit
+test_command: "python -m pytest analysis/tests/ -q --tb=short"  # Command to run the test suite
+test_ignores: []                         # Pytest node-ids or patterns to skip
+read_only_dirs: ["pipeline/dependencies/"]  # Dirs the loop may read but must not modify
+skip_dirs: ["pipeline/dependencies/", "pipeline/.octave_compat/", ".git/"]  # Dirs to skip when indexing
+key_files:                               # Important files the auditor should always review
   - "pipeline/run_dwi_pipeline.m"
   - "pipeline/core/fit_models.m"
   - "pipeline/core/metrics_survival.m"
@@ -38,28 +35,13 @@ key_files:
   - "analysis/run_analysis.py"
   - "analysis/shared.py"
 
-risk_flags:
-  - "LEAKAGE_RISK"
-  - "PHI_RISK"
-  - "DEPS_MODIFIED"
-  - "INCORRECT_FINDING"
-critical_flags:
-  - "LEAKAGE_RISK"
-  - "PHI_RISK"
-forbidden_patterns: []
+# --- API ---
+anthropic_api_key:                       # If empty, falls back to loop config
+audit_model: "claude-opus-4-6"         # If empty, falls back to loop config default
+fix_model: "claude-opus-4-6"           # If empty, falls back to loop config default
+judge_model: "claude-opus-4-6"         # If empty, falls back to loop config default
 
-collection_name: "pancdata3_codebase"
-skip_extensions:
-  - ".mat"
-  - ".nii"
-  - ".nii.gz"
-  - ".dcm"
-  - ".xlsx"
-  - ".csv"
-  - ".png"
-  - ".jpg"
-  - ".pdf"
-
+# --- Prompts (multi-line YAML strings recommended) ---
 prompts:
   audit_system: |
     You are a senior code auditor for a MATLAB + Python medical-imaging research pipeline
@@ -147,6 +129,20 @@ prompts:
     Use "request_changes" when the change has minor issues that could be fixed.
     Use "reject" when the change is fundamentally flawed, dangerous, or out of scope.
     Return an empty list for risk_flags if none apply.
+
+  fix_system: |
+    You are a code fixer for a MATLAB + Python medical-imaging research pipeline
+    (pancreatic DWI analysis at Memorial Sloan Kettering). Given the original file
+    and a description of the fix, return ONLY the complete updated file content.
+    No markdown fences, no commentary — just the raw file content ready to be
+    written to disk.
+
+    ## Safety rules
+    - Do NOT modify files under `pipeline/dependencies/` — they are read-only.
+    - Do NOT remove patient-stratified cross-validation or leakage guards.
+    - Do NOT expose patient health information in code, logs, or output.
+    - New config fields MUST have defaults in `pipeline/utils/parse_config.m`.
+    - Use `fullfile()` / `filesep` for paths, `escape_shell_arg()` for shell args.
 
   judge_system: |
     You are an expert code-audit judge for a MATLAB + Python medical-imaging research pipeline
@@ -249,3 +245,19 @@ prompts:
       "flags": [<string>, ...],
       "reasoning": "<1-3 sentence justification for the overall score>"
     }
+
+  judge_calibration: |
+    Calibration guidance for scoring:
+    - 9-10: Critical fix, high confidence, low risk
+    - 7-8: Significant improvement, good confidence
+    - 5-6: Minor improvement or moderate risk
+    - 1-4: Low value or high risk, should likely be skipped
+
+# --- Risk / safety ---
+risk_flags: ["LEAKAGE_RISK", "PHI_RISK", "DEPS_MODIFIED", "INCORRECT_FINDING"]
+critical_flags: ["LEAKAGE_RISK", "PHI_RISK"]
+forbidden_patterns: []                   # Regex patterns that must never appear in patches
+
+# --- Vector index ---
+collection_name: "pancdata3_codebase"    # ChromaDB collection name
+skip_extensions: [".mat", ".nii", ".nii.gz", ".dcm", ".xlsx", ".csv", ".png", ".jpg", ".pdf"]

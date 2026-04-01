@@ -6,6 +6,83 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-04-01
+
+### Fixed
+
+#### Insufficient Voxels Failure Rate Inflation
+- **`pipeline/utils/extract_tumor_core.m`**: Changed insufficient voxels check from `min_vox_hist` (100, designed for histogram statistics) to `min_core_voxels` (default 10, appropriate for dosimetric evaluation). This eliminates false "insufficient voxels" failures for sub-volumes that are valid for D95/V50 computation.
+- **`pipeline/utils/parse_config.m`**: Changed `min_core_voxels` default from 0 (disabled) to 10 (meaningful dosimetry floor).
+- **`pipeline/utils/filter_core_methods.m`**: Added `retained_with_warning` third output — methods that would have been pruned but are kept as fallback (e.g. `adc_threshold`) are now flagged with reasons instead of silently retained.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: Updated call site to capture `retained_with_warning` and `min_core_voxels_used`; both are saved to the pruning MAT file and logged.
+
+#### Robustness Improvements (improvement loop)
+- **`pipeline/utils/knn_impute_train_test.m`**: Partial-distance strategy for sparse data — relaxed from requiring 100% shared features to 80% fraction with a minimum absolute floor of 5 features, preventing silent imputation failures in small cohorts. Added near-zero variance guard to skip z-scoring of near-constant features. Converted cell-array patient IDs to numeric indices once at entry for ~10-50x faster blocking-mask construction.
+- **`pipeline/utils/safe_load_mask.m`**: Added `dir()` multi-entry guard for paths with glob-like characters or case-insensitive filesystem collisions. Added post-load verification against pre-load metadata for defense-in-depth against corrupted v7.3 HDF5 files. Duplicate-variable handling now records metadata for all entries.
+- **`pipeline/utils/parse_config.m`**: Added `dir()` zero/multi-entry guard (same pattern as `safe_load_mask.m`). Refactored all isfield-plus-fallback defaults to a single defaults-iteration loop — adding a new config field now requires only one line.
+- **`pipeline/utils/escape_shell_arg.m`**: Replaced `now * 86400` cache expiry timestamps with monotonic `tic`/`toc`-based clock to avoid floating-point precision issues at large serial date magnitudes.
+- **`pipeline/run_dwi_pipeline.m`**: Moved `resolve_config_path` before `check_tests_cached` so all downstream consumers operate on the same canonical path. Added documentation of intentionally omitted optional steps in default `steps_to_run`.
+- **`pipeline/utils/normalize_patient_ids.m`**: Added dual-GTV suffix stripping (`-p`/`-n`) so spreadsheet rows like "P5-SB- twoGTVs-p" match on-disk folder "P5-SB- twoGTVs".
+
+### Changed
+
+#### Report Improvements
+- **`analysis/report/sections/main_results_summary.py`**: Executive summary HR bullet now includes the best covariate detail (e.g. "best: D via dnCNN (HR=0.14, p=0.036)") instead of just a count.
+- **`analysis/report/sections/pruning_results.py`**: Pruning section now displays `min_core_voxels` threshold used and shows retained-with-warning methods in a warning box explaining why they were kept despite exceeding thresholds.
+- **`analysis/parsers/parse_mat_metrics.py`**: Parses new `retained_with_warning` and `min_core_voxels_used` fields from core pruning MAT files.
+
+### Added
+
+#### Patient Exclusion Report
+- **`pipeline/generate_patient_exclusion_report.m`**: New top-level script — comprehensive patient exclusion report generator. Scans data directories, clinical spreadsheet, and pipeline outputs to produce a detailed exclusion breakdown by reason (missing data, incomplete fractions, GTV issues, etc.) with per-patient tabulation.
+
+#### Sub-Volume Stability Analysis
+- **`pipeline/utils/compute_subvolume_stability.m`**: New pipeline step — computes Dice between each fraction's core mask and Fx1 baseline for all active core methods. Generates line plot of mean Dice vs fractions. Gated on `run_subvolume_stability` config flag.
+- **`analysis/report/sections/subvolume_stability.py`**: New report section builder — method × timepoint table of mean Dice vs Fx1 with color coding (green ≥0.7, yellow 0.5–0.7, red <0.5).
+- **`pipeline/tests/test_compute_subvolume_stability.m`**: 4 MATLAB unit tests (struct fields, Fx1 Dice=1.0, Dice range, dimensions).
+- **`analysis/tests/test_subvolume_stability_section.py`**: 6 Python tests for the report section builder.
+
+#### Dose-Response ROC Analysis
+- **`pipeline/utils/compute_dose_response_roc.m`**: New pipeline step — ROC analysis on D95/V50 of sub-volumes to find optimal dose cutoff separating LC from LF. Bootstrap AUC CI, Youden index threshold. Gated on `run_dose_response_roc` config flag.
+- **`analysis/report/sections/dose_response_roc.py`**: New report section builder — AUC, CI, optimal threshold, sensitivity/specificity table with clinical guidance text.
+- **`pipeline/tests/test_compute_dose_response_roc.m`**: 4 MATLAB unit tests (struct fields, AUC above chance, threshold in range, AUC range).
+- **`analysis/tests/test_dose_response_roc_section.py`**: 7 Python tests for the report section builder.
+
+#### Risk-Dose Concordance
+- **`pipeline/utils/compute_risk_dose_concordance.m`**: New pipeline step — compares elastic net risk model classifications against D95-based stratification using Cohen's kappa, concordance %, and combined AUC. Gated on `run_risk_dose_concordance` config flag.
+- **`analysis/report/sections/risk_dose_concordance.py`**: New report section builder — kappa with interpretation, concordance %, complementary patients, combined AUC.
+- **`pipeline/tests/test_compute_risk_dose_concordance.m`**: 4 MATLAB unit tests (struct fields, concordant/complementary scenarios, kappa range, missing data).
+- **`analysis/tests/test_risk_dose_concordance_section.py`**: 7 Python tests for the report section builder.
+
+#### Per-Method CoR from Fx1 Repeats
+- **`pipeline/utils/compute_per_method_cor.m`**: New pipeline step — extends wCV/CoR repeatability analysis to all active core methods using Fx1 repeat scans. Generates bar chart with reproducibility thresholds. Gated on `run_per_method_cor` config flag.
+- **`analysis/report/sections/per_method_cor.py`**: New report section builder — method × wCV/CoR table with color coding (green <15%, yellow 15–30%, red >30%).
+- **`pipeline/tests/test_compute_per_method_cor.m`**: 5 MATLAB unit tests (struct fields, CoR positivity, identical repeats near-zero, dimensions, repeat count).
+- **`analysis/tests/test_per_method_cor_section.py`**: 6 Python tests for the report section builder.
+
+#### GTV Volume Confounding Check
+- **`pipeline/utils/compute_gtv_confounding.m`**: New pipeline step — tests whether D95-outcome association is confounded by GTV shrinkage via Spearman correlation, Wilcoxon rank-sum, and GTV-adjusted Cox PH. Gated on `run_gtv_confounding` config flag.
+- **`analysis/report/sections/gtv_confounding.py`**: New report section builder — D95-GTV correlation, unadjusted/adjusted HR, % change, confounding flag with warning box.
+- **`pipeline/tests/test_compute_gtv_confounding.m`**: 4 MATLAB unit tests (struct fields, confounded/independent scenarios, missing GTV graceful handling).
+- **`analysis/tests/test_gtv_confounding_section.py`**: 6 Python tests for the report section builder.
+
+#### Pipeline Integration
+- **`pipeline/utils/parse_config.m`**: 5 new config flags: `run_subvolume_stability`, `run_dose_response_roc`, `run_risk_dose_concordance`, `run_per_method_cor`, `run_gtv_confounding` (all default `false`). Added to `logical_fields` for type validation.
+- **`pipeline/utils/dispatch_pipeline_steps.m`**: 5 new step dispatchers with wrapper functions, gated on config flags and data availability.
+- **`pipeline/utils/prepare_pipeline_session.m`**: 5 new step injection entries with dependency-aware ordering.
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to parse 5 new MAT file types (per_method_cor, subvolume_stability, dose_response_roc, gtv_confounding, risk_dose_concordance).
+- **`analysis/report/generate_report.py`**: 5 new section builders wired into the statistics section pipeline.
+- **`analysis/report/sections/__init__.py`**: 5 new section builder exports.
+- **`pipeline/tests/test_normalize_patient_ids.m`**: New test file for dual-GTV suffix stripping.
+
+### Documentation
+- Updated version to 2.3.2 across CLAUDE.md, README.md, CHANGELOG.md, CITATION.cff, SECURITY.md.
+- Added `generate_patient_exclusion_report.m` to README.md and CLAUDE_REFERENCE.md.
+- Test file counts: MATLAB 133 (128 test + 5 support), Python 47 (48 including conftest.py).
+- README utility count: 76 → 82, report sections: 41 → 46.
+
+## [2.3.1] - 2026-03-29
+
 ### Added
 
 #### Core Method Failure Rates
@@ -44,6 +121,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`pipeline/utils/dispatch_pipeline_steps.m`**: New `cross_pipeline_dice` step block with heatmap figure generation.
 - **`pipeline/tests/test_compute_cross_pipeline_dice.m`**: 6 MATLAB unit tests covering struct fields, dimensions, range, identical pipelines, single patient, and empty pipeline edge cases.
 - **`analysis/tests/test_cross_pipeline_dice_section.py`**: 8 Python tests for the report section builder.
+
+### Documentation
+- Updated version to 2.3.1 across CLAUDE.md, README.md, CHANGELOG.md, CITATION.cff, SECURITY.md
+- Test file counts: MATLAB 124 → 127, Python 41 → 42 (43 including conftest.py)
+- README utility count: 72 → 76, Octave shims: 21 → 24
+
+---
 
 ## [2.2.0] - 2026-03-26
 

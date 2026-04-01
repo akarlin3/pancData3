@@ -144,7 +144,7 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     if max_fail_rate < 1.0 || ~isempty(excl_methods)
         if exist(failure_rates_file, 'file')
             loaded = load(failure_rates_file, 'failure_table');
-            [active_methods, pruned_info] = filter_core_methods( ...
+            [active_methods, pruned_info, retained_with_warning] = filter_core_methods( ...
                 ALL_CORE_METHODS_DEFAULT, loaded.failure_table, config_struct);
             config_struct.active_core_methods = active_methods;
 
@@ -161,10 +161,19 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
                     numel(active_methods), strjoin(active_methods, ', '));
             end
 
-            % Save pruning results
+            % Log retained-with-warning methods
+            if ~isempty(retained_with_warning)
+                for wi = 1:numel(retained_with_warning)
+                    fprintf('   ⚠️ %s — %s\n', ...
+                        retained_with_warning(wi).name, retained_with_warning(wi).reason);
+                end
+            end
+
+            % Save pruning results (including retained_with_warning)
+            min_core_voxels_used = config_struct.min_core_voxels;
             save(fullfile(type_output_folder, ...
                 sprintf('core_pruning_%s.mat', config_struct.dwi_type_name)), ...
-                'active_methods', 'pruned_info');
+                'active_methods', 'pruned_info', 'retained_with_warning', 'min_core_voxels_used');
         else
             fprintf('⚠️ Core failure rates not found at %s. Skipping pruning.\n', failure_rates_file);
             config_struct.active_core_methods = ALL_CORE_METHODS_DEFAULT;
@@ -310,6 +319,75 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
             pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
     else
         if ~isempty(pipeGUI), pipeGUI.completeStep('core_method_outcomes', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Per-Method Coefficient of Reproducibility (Prompt D)
+    % =====================================================================
+    if ismember('per_method_cor', steps_to_run)
+        execute_pipeline_step('per_method_cor', @() run_per_method_cor_step( ...
+            validated_data_gtvp, summary_metrics, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('per_method_cor', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Sub-Volume Stability Over Fractions (Prompt A)
+    % =====================================================================
+    if ismember('subvolume_stability', steps_to_run)
+        execute_pipeline_step('subvolume_stability', @() run_subvolume_stability_step( ...
+            validated_data_gtvp, summary_metrics, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('subvolume_stability', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Dose-Response ROC (Prompt B)
+    % =====================================================================
+    if ismember('dose_response_roc', steps_to_run) && ...
+            ~isempty(fieldnames(dosimetry_results)) && ...
+            isfield(dosimetry_results, 'per_method_dosimetry')
+        execute_pipeline_step('dose_response_roc', @() run_dose_response_roc_step( ...
+            dosimetry_results, baseline_results, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('dose_response_roc', 'skipped'); end
+    end
+
+    % =====================================================================
+    % GTV Volume Confounding Check (Prompt E)
+    % =====================================================================
+    if ismember('gtv_confounding', steps_to_run) && ...
+            ~isempty(fieldnames(dosimetry_results)) && ...
+            isfield(dosimetry_results, 'per_method_dosimetry')
+        execute_pipeline_step('gtv_confounding', @() run_gtv_confounding_step( ...
+            dosimetry_results, baseline_results, config_struct, current_name), ...
+            pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('gtv_confounding', 'skipped'); end
+    end
+
+    % =====================================================================
+    % Risk-Dose Concordance (Prompt C)
+    % =====================================================================
+    if ismember('risk_dose_concordance', steps_to_run)
+        predictive_results_loaded = struct();
+        if exist(session.predictive_results_file, 'file')
+            predictive_results_loaded = load(session.predictive_results_file);
+        end
+        if isfield(predictive_results_loaded, 'is_high_risk') && ...
+                ~isempty(fieldnames(dosimetry_results)) && ...
+                isfield(dosimetry_results, 'per_method_dosimetry')
+            execute_pipeline_step('risk_dose_concordance', @() run_risk_dose_concordance_step( ...
+                predictive_results_loaded, dosimetry_results, baseline_results, config_struct, current_name), ...
+                pipeGUI, log_fid, master_diary_file, type_output_folder, current_name);
+        else
+            if ~isempty(pipeGUI), pipeGUI.completeStep('risk_dose_concordance', 'skipped'); end
+        end
+    else
+        if ~isempty(pipeGUI), pipeGUI.completeStep('risk_dose_concordance', 'skipped'); end
     end
 
     % =====================================================================
@@ -506,6 +584,57 @@ function run_core_method_outcomes_step(dosimetry_results, baseline_results, conf
 
     save(fullfile(config_struct.output_folder, ...
         sprintf('core_method_outcomes_%s.mat', config_struct.dwi_type_name)), 'outcome_results');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_per_method_cor_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Computing per-method Coefficient of Reproducibility...\n', current_name);
+    cor_results = compute_per_method_cor(validated_data_gtvp, config_struct, ...
+        summary_metrics.id_list, summary_metrics.gtv_locations); %#ok<NASGU>
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('per_method_cor_%s.mat', config_struct.dwi_type_name)), 'cor_results');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_subvolume_stability_step(validated_data_gtvp, summary_metrics, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Computing sub-volume stability over fractions...\n', current_name);
+    stability = compute_subvolume_stability(validated_data_gtvp, config_struct, ...
+        summary_metrics.id_list, summary_metrics.gtv_locations); %#ok<NASGU>
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('subvolume_stability_%s.mat', config_struct.dwi_type_name)), 'stability');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_dose_response_roc_step(dosimetry_results, baseline_results, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Running dose-response ROC analysis...\n', current_name);
+    active_methods = config_struct.active_core_methods;
+    roc_results = compute_dose_response_roc( ...
+        dosimetry_results.per_method_dosimetry, baseline_results, ...
+        active_methods, config_struct); %#ok<NASGU>
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('dose_response_roc_%s.mat', config_struct.dwi_type_name)), 'roc_results');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_gtv_confounding_step(dosimetry_results, baseline_results, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Running GTV confounding check...\n', current_name);
+    active_methods = config_struct.active_core_methods;
+    confound = compute_gtv_confounding( ...
+        dosimetry_results.per_method_dosimetry, baseline_results, ...
+        active_methods, config_struct); %#ok<NASGU>
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('gtv_confounding_%s.mat', config_struct.dwi_type_name)), 'confound');
+    fprintf('      ✅ Done.\n');
+end
+
+function run_risk_dose_concordance_step(predictive_results, dosimetry_results, baseline_results, config_struct, current_name)
+    fprintf('\n⚙️ [%s] Running risk-dose concordance analysis...\n', current_name);
+    active_methods = config_struct.active_core_methods;
+    concordance = compute_risk_dose_concordance( ...
+        predictive_results, dosimetry_results.per_method_dosimetry, ...
+        baseline_results, active_methods, config_struct); %#ok<NASGU>
+    save(fullfile(config_struct.output_folder, ...
+        sprintf('risk_dose_concordance_%s.mat', config_struct.dwi_type_name)), 'concordance');
     fprintf('      ✅ Done.\n');
 end
 

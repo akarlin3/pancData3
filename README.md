@@ -2,14 +2,14 @@
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.0-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-119%20MATLAB%20%2B%2037%20Python%20files-brightgreen)](#running-tests)
+[![Version](https://img.shields.io/badge/version-2.3.2-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-133%20MATLAB%20%2B%2047%20Python%20files-brightgreen)](#running-tests)
 
 **A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
 
-**Current version:** 2.2.0 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.3.2 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -378,7 +378,7 @@ Before running the pipeline, you can verify that your patient data directory is 
 
 ```matlab
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
-report = enrollment_check('config.json');
+report = patient_data_check('config.json');
 ```
 
 This scans the file system and reports:
@@ -389,6 +389,66 @@ This scans the file system and reports:
 - Per-patient: missing fraction folders, DWI DICOM files, GTV masks, and RT dose folders
 
 Issues are classified as errors (must fix before running), warnings (may affect results), or informational. The returned `report` struct contains a summary table for programmatic use.
+
+### Patient Exclusion Report
+
+Patient exclusion information is available at three stages: before, during, and after the pipeline run.
+
+#### 1. Pre-pipeline exclusion check
+
+Run `patient_data_check` (see above) to identify patients with missing data **before** committing to a pipeline run. The returned `report` struct contains:
+
+- `report.issues` — cell array of `{severity, patient_id, message}` rows
+- `report.n_errors` / `report.n_warnings` — issue counts
+- `report.patients` — table with per-patient data completeness (fractions, DWI, GTV, dose counts)
+
+Patients with `ERROR`-level issues (missing baseline Fx1 folder, DWI, or GTV mask) will be excluded from downstream analysis.
+
+#### 2. During pipeline execution (log output)
+
+The pipeline logs three categories of exclusions to the console and per-module log files:
+
+| Exclusion Stage | Module | Criteria | Log Pattern |
+|---|---|---|---|
+| **Baseline exclusion** | `metrics_baseline` | Missing baseline GTV volume or ADC data | `Excluded N/M patients due to missing baseline imaging` |
+| **Outlier removal** | `metrics_baseline` | IQR-fenced baseline metric outliers (outcome-blinded) | `Removed N patients as outliers (IDs: ...)` |
+| **Competing-risk exclusion** | `metrics_stats_comparisons` | Patients with `lf==2` (non-cancer death without local failure), excluded from time-dependent GLME models | `Excluded N/M (X%) competing-risk patients` |
+
+Baseline exclusion also reports local failure (LF) rates for included vs excluded patients to flag potential informative censoring bias.
+
+These log messages appear in the per-DWI-type pipeline log (`pipeline_log_{type}.txt`) and per-module logs within the timestamped output folder.
+
+#### 3. Post-pipeline HTML/PDF report
+
+The analysis report includes a **Patient Flow** section (CONSORT-style) summarizing attrition at each stage:
+
+```
+Initial Cohort → Baseline Excluded → Outliers Removed → Competing-Risk Excluded → Analysed
+```
+
+To generate the report:
+
+```bash
+# Full analysis (includes report generation)
+python analysis/run_analysis.py --folder saved_files_YYYYMMDD_HHMMSS
+
+# Report only (from existing parsed data)
+python analysis/run_analysis.py --folder saved_files_YYYYMMDD_HHMMSS --report-only
+```
+
+The Patient Flow table appears in the **Data** section of the report and shows per-DWI-type counts for each exclusion stage. The **Cohort Overview** section also displays baseline exclusion counts and LF rate comparisons in the Data Quality Summary table.
+
+#### 4. Comprehensive exclusion report (standalone)
+
+After the pipeline has run, generate a detailed per-patient exclusion report combining file-system checks and pipeline output:
+
+```matlab
+addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
+report = generate_patient_exclusion_report();            % uses default config.json
+report = generate_patient_exclusion_report('config.json');
+```
+
+Stage 1 (file system) runs without a prior pipeline run; Stage 2 (baseline imaging, clinical records, competing risks, DL training set, 3xIQR outliers) requires saved pipeline outputs. Returns a struct with `report.exclusions`, `report.n_excluded`, `report.n_analysed`, and per-category summary counts.
 
 ---
 
@@ -442,7 +502,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 124 test files covering:
+The test suite includes 133 test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -582,7 +642,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
 | `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
 | `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (36 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
+| `report/sections/` | Section builder modules for the HTML report (46 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
 
 ### Report Features
 
@@ -597,7 +657,7 @@ The generated HTML/PDF report includes:
 
 ### Analysis Test Suite
 
-The analysis scripts have a comprehensive Python test suite (38 test files) using pytest:
+The analysis scripts have a comprehensive Python test suite (47 test files) using pytest:
 
 ```bash
 cd analysis/tests && python -m pytest -v
@@ -652,8 +712,9 @@ pancData3/
 ├── pipeline/                       # MATLAB pipeline
 │   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
 │   ├── execute_all_workflows.m     #   Sequential multi-type runner
-│   ├── enrollment_check.m        #   Pre-pipeline data validation
-│   ├── core/                       #   Pipeline modules (18 files)
+│   ├── patient_data_check.m      #   Pre-pipeline data validation
+│   ├── generate_patient_exclusion_report.m  # Comprehensive exclusion report
+│   ├── core/                       #   Pipeline modules (19 files)
 │   │   ├── load_dwi_data.m         #     Data loading & model fitting
 │   │   ├── sanity_checks.m         #     Data validation
 │   │   ├── visualize_results.m     #     Visualization generation
@@ -661,18 +722,18 @@ pancData3/
 │   │   ├── metrics_baseline.m      #     Baseline metric computation
 │   │   ├── metrics_survival.m      #     Survival analysis
 │   │   └── ...
-│   ├── utils/                      #   Helper utilities (72 files)
+│   ├── utils/                      #   Helper utilities (82 files)
 │   │   ├── parse_config.m          #     Configuration parser
 │   │   ├── safe_load_mask.m        #     Secure .mat loading
 │   │   ├── escape_shell_arg.m      #     Shell argument escaping
 │   │   ├── init_scan_structs.m     #     Scan data structure initialization
 │   │   └── ...
-│   ├── tests/                      #   Test suite (124 test files)
+│   ├── tests/                      #   Test suite (133 test files)
 │   │   ├── run_all_tests.m         #     Master test runner
 │   │   ├── benchmarks/             #     Performance benchmarks (7 files)
 │   │   └── diagnostics/            #     Diagnostic spot-checks (6 files)
 │   ├── dependencies/               #   Third-party scripts (read-only)
-│   └── .octave_compat/             #   GNU Octave compatibility shims (21 files)
+│   └── .octave_compat/             #   GNU Octave compatibility shims (24 files)
 ├── analysis/                       # Python post-hoc analysis suite
 │   ├── run_analysis.py             #   Orchestrator (full workflow runner)
 │   ├── shared.py                   #   Shared utilities
@@ -693,7 +754,7 @@ pancData3/
 │   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
-│   └── tests/                      #   Python test suite (38 test files)
+│   └── tests/                      #   Python test suite (47 test files)
 ├── project_config.example.yaml     # Improvement loop project config template
 ├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration
@@ -718,7 +779,7 @@ If you use this software in your research, please cite it:
   author    = {Karlin, Avery},
   title     = {pancData3: Pancreatic DWI Analysis Pipeline},
   year      = {2026},
-  version   = {2.2.0},
+  version   = {2.3.2},
   url       = {https://github.com/akarlin3/pancData3},
   license   = {AGPL-3.0}
 }
