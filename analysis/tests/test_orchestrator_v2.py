@@ -9,15 +9,15 @@ from unittest.mock import patch, MagicMock
 # Add repo root so modules are importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from improvement_loop import loop_tracker
-from improvement_loop import orchestrator_v2
-from improvement_loop.orchestrator_v2 import (
+from averyloop import loop_tracker
+from averyloop import orchestrator_v2
+from averyloop.orchestrator_v2 import (
     FindingState,
     IterationState,
     run_loop,
     _print_run_summary,
 )
-from improvement_loop.evaluator import Finding
+from averyloop.evaluator import Finding
 
 
 @pytest.fixture(autouse=True)

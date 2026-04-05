@@ -1,4 +1,4 @@
-"""Tests for improvement_loop.agents.implementer module."""
+"""Tests for averyloop.agents.implementer module."""
 
 import os
 import sys
@@ -10,12 +10,12 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from improvement_loop.agents.implementer import (
+from averyloop.agents.implementer import (
     apply_fix,
     get_fix_system_prompt,
     DEFAULT_FIX_PROMPT,
 )
-from improvement_loop.evaluator import Finding
+from averyloop.evaluator import Finding
 
 
 def _make_finding(**overrides) -> Finding:
@@ -78,7 +78,7 @@ class TestApplyFixMockedAPI:
 
         expected_content = "% fixed content\nfunction y = fit_adc(x)\n  y = x + 1;\nend\n"
         monkeypatch.setattr(
-            "improvement_loop.agents.implementer.api_call_with_retry",
+            "averyloop.agents.implementer.api_call_with_retry",
             lambda kwargs: expected_content,
         )
         finding = _make_finding()
@@ -99,7 +99,7 @@ class TestApplyFixMockedAPI:
             return "% fixed"
 
         monkeypatch.setattr(
-            "improvement_loop.agents.implementer.api_call_with_retry",
+            "averyloop.agents.implementer.api_call_with_retry",
             mock_api,
         )
         finding = _make_finding(

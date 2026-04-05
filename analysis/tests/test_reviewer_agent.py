@@ -1,4 +1,4 @@
-"""Tests for improvement_loop.agents.reviewer module."""
+"""Tests for averyloop.agents.reviewer module."""
 
 import json
 import os
@@ -11,14 +11,14 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
-from improvement_loop.agents.reviewer import (
+from averyloop.agents.reviewer import (
     VALID_VERDICTS,
     _parse_review,
     review,
     get_review_system_prompt,
     DEFAULT_REVIEW_PROMPT,
 )
-from improvement_loop.evaluator import Finding
+from averyloop.evaluator import Finding
 
 
 def _make_finding(**overrides) -> Finding:
@@ -138,7 +138,7 @@ class TestReviewMockedAPI:
             "reasoning": "Change is correct.",
         })
         monkeypatch.setattr(
-            "improvement_loop.agents.reviewer.api_call_with_retry",
+            "averyloop.agents.reviewer.api_call_with_retry",
             lambda kwargs: api_response,
         )
         finding = _make_finding()
@@ -153,7 +153,7 @@ class TestReviewMockedAPI:
             "reasoning": "Not allowed.",
         })
         monkeypatch.setattr(
-            "improvement_loop.agents.reviewer.api_call_with_retry",
+            "averyloop.agents.reviewer.api_call_with_retry",
             lambda kwargs: api_response,
         )
         finding = _make_finding()
@@ -170,7 +170,7 @@ class TestReviewParseFallback:
 
     def test_fallback_on_garbage(self, monkeypatch):
         monkeypatch.setattr(
-            "improvement_loop.agents.reviewer.api_call_with_retry",
+            "averyloop.agents.reviewer.api_call_with_retry",
             lambda kwargs: "this is not valid json at all",
         )
         finding = _make_finding()

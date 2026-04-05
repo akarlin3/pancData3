@@ -1,10 +1,10 @@
 # project_config.example.yaml
 # Copy this file to project_config.yaml and customise for your project.
-# The improvement loop searches for config in this order:
+# The AveryLoop searches for config in this order:
 #   1. Explicit path passed to load_project_config()
 #   2. PROJECT_CONFIG environment variable
 #   3. ./project_config.yaml
-#   4. ./improvement_loop_project.yaml
+#   4. ./averyloop_project.yaml
 
 # --- Project metadata ---
 name: "pancData3"                        # Short project name

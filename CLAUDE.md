@@ -4,7 +4,7 @@ This file provides essential context for AI assistants (Claude, Antigravity, etc
 
 For detailed module tables, test file lists, utility descriptions, and analysis script references, see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md).
 
-For running the pipeline, running tests, git workflow, documentation maintenance rules, and the improvement loop, see [CLAUDE_WORKFLOWS.md](CLAUDE_WORKFLOWS.md).
+For running the pipeline, running tests, git workflow, documentation maintenance rules, and the AveryLoop, see [CLAUDE_WORKFLOWS.md](CLAUDE_WORKFLOWS.md).
 
 ---
 
@@ -33,7 +33,7 @@ This repository uses a multi-agent architecture:
 |---|---|---|
 | **Claude Code** (interactive) | Feature implementation, pipeline enhancements, debugging, code review | Runs locally with full repository access |
 | **Antigravity** (local) | Core physics modeling, MRI calibration, specialized scripts | Runs locally with access to patient data |
-| **Improvement Loop** (external) | Autonomous audit → implement → review → merge (RAG-enhanced) | External package ([code-improvement-loop](https://github.com/akarlin3/improvementLoop)), configured via `project_config.yaml` |
+| **AveryLoop** (external) | Autonomous audit → implement → review → merge (RAG-enhanced) | External package ([averyloop](https://github.com/akarlin3/averyLoop)), configured via `project_config.yaml` |
 
 ### Critical Safety Rules
 
@@ -84,9 +84,9 @@ pancData3/
 │   │   ├── report_constants.py         # CSS, JS, references, templates
 │   │   └── sections/                   # Section builders (41 files)
 │   └── tests/                          # Python test suite — 48 test files, pytest
-├── project_config.yaml                  # Improvement loop project config (not committed)
-├── project_config.example.yaml          # Improvement loop project config template (committed)
-├── improvement_loop_config.example.json # Improvement loop runtime config template (committed)
+├── project_config.yaml                  # AveryLoop project config (not committed)
+├── project_config.example.yaml          # AveryLoop project config template (committed)
+├── averyloop_config.example.json # AveryLoop runtime config template (committed)
 ├── .agents/
 │   ├── rules/physics_rules.md          # Agent safety and delegation rules
 │   └── workflows/run_data.md           # Structured /run_data workflow definition
@@ -340,7 +340,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/sections/gtv_confounding.py` | GTV confounding section builder: D95-GTV correlation, adjusted/unadjusted HR comparison |
 | `report/sections/risk_dose_concordance.py` | Risk-dose concordance section builder: Cohen's kappa, confusion matrix, combined AUC |
 
-**Python Test Suite (pytest):** 47 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+**Python Test Suite (pytest):** 47 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (AveryLoop tests are in the [averyloop](https://github.com/akarlin3/averyLoop) package.)
 
 | File | What it covers |
 |---|---|
