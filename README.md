@@ -1,15 +1,95 @@
 # pancData3
 
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.3.1-blue)](#citation)
-[![Tests](https://img.shields.io/badge/tests-122%20MATLAB%20%2B%2042%20Python%20files-brightgreen)](#running-tests)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)](https://www.python.org/)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/akarlin3/pancData3/blob/main/LICENSE)
+[![Version](https://img.shields.io/badge/version-2.3.2-blue)](#citation)
+[![Tests](https://img.shields.io/badge/tests-133%20MATLAB%20%2B%2047%20Python%20files-brightgreen)](#running-tests)
 
-**A MATLAB-based analysis pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research.**
+**An open-source MATLAB and Python pipeline for MRI-guided pancreatic cancer radiotherapy research.**
 
-Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes MRI data to fit IVIM and ADC diffusion models, apply deep learning denoising, correlate findings with radiotherapy dose maps, and perform survival analysis for treatment response prediction.
+Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes diffusion-weighted MRI data to fit biophysical models, apply deep learning denoising, quantify tumor–dose relationships, and predict treatment outcomes using survival analysis — all from a single configuration file.
 
-**Current version:** 2.3.1 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.3.2 — see [CHANGELOG.md](CHANGELOG.md) for details.
+
+---
+
+## Why This Exists
+
+Pancreatic cancer has some of the lowest survival rates of any solid tumor. MRI-guided adaptive radiotherapy is emerging as a promising treatment approach, but analyzing diffusion-weighted imaging (DWI) data to predict which patients will respond is a complex, multi-step computational problem. This pipeline automates the entire workflow: from raw DICOM images through diffusion model fitting, deep learning denoising, dose–response quantification, and survival modeling — enabling researchers to go from scan to clinical prediction in a single reproducible run.
+
+---
+
+## Key Technical Highlights
+
+| Area | What It Does |
+|------|-------------|
+| **Deep Learning** | DnCNN and IVIMnet models for MRI denoising and diffusion parameter estimation |
+| **Biophysical Modeling** | IVIM (segmented, Bayesian) and mono-exponential ADC fitting on DWI data |
+| **Survival Analysis** | Competing risks (Cause-Specific Hazards), IPCW weighting, Kaplan-Meier estimation |
+| **Predictive Modeling** | Cross-validated elastic net with strict train/test data leakage prevention and optional Firth penalized refit |
+| **Tumor Segmentation** | 11 core delineation methods with pairwise spatial agreement benchmarking (Dice, HD95) |
+| **Dose–Response** | Dose-volume histogram analysis correlating diffusion-defined GTV subvolumes with radiotherapy dose maps |
+| **Reproducibility** | Docker support, parallel-safe checkpointing, config-driven execution, 180-file test suite |
+| **Cross-Platform** | Runs on Linux, macOS, and Windows with platform-aware shell escaping and path handling |
+
+---
+
+## Pipeline Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         config.json                                 │
+│            (data paths, DWI type, model parameters)                 │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  1. LOAD                                                             │
+│  DICOM → NIfTI (dcm2niix) → IVIM/ADC model fitting                  │
+│  Optional: DnCNN or IVIMnet deep learning denoising                  │
+│  Parallel-safe checkpointing with parfor                             │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  2. SANITY CHECKS                                                    │
+│  Convergence validation · Missingness audit · Spatial alignment      │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  3. VISUALIZE                                                        │
+│  Parameter maps · Distributions · Longitudinal trajectories          │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  4. METRICS                                                          │
+│  ┌────────────┐ ┌──────────────┐ ┌────────────┐ ┌───────────────┐   │
+│  │ Baseline   │ │ Longitudinal │ │ Dosimetry  │ │ Comparisons   │   │
+│  │ metrics,   │ │ change       │ │ D95, V50   │ │ group stats   │   │
+│  │ outliers   │ │ analysis     │ │ in GTV     │ │               │   │
+│  └────────────┘ └──────────────┘ └────────────┘ └───────────────┘   │
+│  ┌─────────────────────┐ ┌──────────────────────────────────────┐   │
+│  │ Predictive modeling │ │ Survival analysis                    │   │
+│  │ elastic net + CV    │ │ competing risks, IPCW, Kaplan-Meier │   │
+│  └─────────────────────┘ └──────────────────────────────────────┘   │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  5. COMPARE CORES (optional)                                         │
+│  11 tumor core delineation methods · Dice/HD95 agreement matrices    │
+└──────────────────────────┬───────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  POST-HOC ANALYSIS (Python)                                          │
+│  Log parsing · Graph extraction (Gemini vision) · Statistical        │
+│  relevance scoring · Cross-DWI-type comparison · HTML/PDF report     │
+└──────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -48,7 +128,7 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 ## Supported Platforms
 
 | Platform | MATLAB Pipeline | Python Analysis | CI Tested |
-|---|---|---|---|
+|----------|:-:|:-:|:-:|
 | **Linux** (Ubuntu 22.04+) | Yes | Yes | Yes |
 | **macOS** (13 Ventura+) | Yes | Yes | Yes |
 | **Windows** (10/11) | Yes | Yes | Yes |
@@ -67,7 +147,7 @@ The codebase uses platform-aware code paths throughout:
 ### MATLAB Toolboxes
 
 | Toolbox | Required |
-|---|---|
+|---------|:-:|
 | MATLAB R2021a+ | Yes |
 | Statistics and Machine Learning Toolbox | Yes |
 | Image Processing Toolbox | Yes |
@@ -75,7 +155,7 @@ The codebase uses platform-aware code paths throughout:
 ### External Tools
 
 | Tool | Purpose | Installation |
-|---|---|---|
+|------|---------|-------------|
 | [dcm2niix](https://github.com/rordenlab/dcm2niix) (MRIcroGL) | DICOM-to-NIfTI conversion | [Download](https://github.com/rordenlab/dcm2niix/releases) for Windows, macOS, or Linux. Must be on your system PATH or specified in `config.json` as `dcm2nii_call`. |
 
 ---
@@ -100,7 +180,7 @@ A Docker image provides fully reproducible execution without installing MATLAB t
 #### Prerequisites
 
 | Platform | Requirement |
-|---|---|
+|----------|------------|
 | **Windows** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) with WSL 2 backend enabled |
 | **macOS** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
 | **Linux** | Docker Engine 20.10+ and Docker Compose v2.0+ |
@@ -108,163 +188,34 @@ A Docker image provides fully reproducible execution without installing MATLAB t
 Verify your installation:
 
 ```bash
-docker --version          # Docker version 20.10+
-docker compose version    # Docker Compose version v2.0+
+docker --version
+docker compose version
 ```
 
-#### Building the image
+#### Quick Start
 
 ```bash
-docker build -t pancdata3:latest .
+# Build the image
+docker compose build
+
+# Run the full pipeline (mount your data directory)
+docker compose run --rm pipeline
+
+# Run tests
+docker compose run --rm test
 ```
 
-The first build takes approximately 10--15 minutes (compiles `dcm2niix` from source and installs the MATLAB Runtime). Subsequent builds use Docker layer caching and complete in seconds unless `pipeline/` or `analysis/` code has changed.
-
-#### Config setup
-
-Copy the example config and set **container-internal** paths (not host paths):
-
-```bash
-cp config.example.json config.json
-```
-
-```json
-{
-  "dataloc": "/opt/pancData3/data/",
-  "dcm2nii_call": "dcm2niix",
-  "skip_to_reload": false,
-  "dwi_type": "Standard"
-}
-```
-
-> **Note:** Inside the container, patient data is mounted at `/opt/pancData3/data/` and `dcm2niix` is on the system PATH, so `dcm2nii_call` should be `"dcm2niix"` (not a host path).
-
-#### Environment setup (`.env` file)
-
-Docker Compose automatically reads a `.env` file in the project root. Copy the template and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-Then edit `.env` with your host paths and (optionally) API keys:
-
-```dotenv
-# Required
-DATA_DIR=/path/to/patient_dwi_data
-
-# Optional (defaults shown)
-OUTPUT_DIR=./output
-CONFIG_FILE=./config.json
-
-# Optional: vision-based graph analysis API keys
-GEMINI_API_KEY=your-gemini-key
-ANTHROPIC_API_KEY=your-anthropic-key
-```
-
-> **Security:** The `.env` file is gitignored and should never be committed, as it may contain API keys. Only `.env.example` (which contains no real values) is tracked.
-
-Alternatively, you can export the variables in your shell instead of using a `.env` file.
-
-#### Running with Docker Compose
-
-Use Compose targets to run the pipeline, analysis, or both:
-
-```bash
-# Pipeline + analysis (default)
-docker compose up
-
-# Pipeline only
-docker compose up pipeline
-
-# Analysis only (requires existing pipeline output in OUTPUT_DIR)
-docker compose up analysis
-```
-
-#### Running with `docker run`
-
-```bash
-# Full pipeline (all DWI types)
-docker run --rm \
-  -v /path/to/patient_data:/opt/pancData3/data:ro \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest pipeline
-
-# Analysis only
-docker run --rm \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest analysis
-
-# Both pipeline and analysis
-docker run --rm \
-  -v /path/to/patient_data:/opt/pancData3/data:ro \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest all
-```
-
-#### Dry run
-
-Validate your setup (config, volume mounts, MATLAB Runtime, Python) without executing the pipeline:
-
-```bash
-docker run --rm \
-  -v /path/to/patient_data:/opt/pancData3/data:ro \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest --dry-run pipeline
-```
-
-#### Optional: Vision analysis API keys
-
-To enable vision-based graph analysis, pass API key(s) for your chosen provider:
-
-```bash
-# Gemini (default provider)
-docker run --rm \
-  -e GEMINI_API_KEY=your_key_here \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest analysis --skip-checks
-
-# Claude
-docker run --rm \
-  -e ANTHROPIC_API_KEY=your_key_here \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest analysis --skip-checks --provider claude
-
-# Both (comparison mode)
-docker run --rm \
-  -e GEMINI_API_KEY=your_gemini_key \
-  -e ANTHROPIC_API_KEY=your_anthropic_key \
-  -v /path/to/output:/opt/pancData3/output \
-  -v /path/to/config.json:/opt/pancData3/config.json:ro \
-  pancdata3:latest analysis --skip-checks --provider both
-```
-
-#### Output
-
-Results are written to the `/opt/pancData3/output` mount point inside the container, which maps to your host `OUTPUT_DIR` (or the `-v .../output` path). The pipeline creates a timestamped `saved_files_YYYYMMDD_HHMMSS/` folder containing all logs, figures, and MAT files.
-
-#### Rebuilding after code changes
-
-After modifying pipeline or analysis code, re-run the build command. Docker layer caching ensures only changed layers are rebuilt:
-
-```bash
-docker build -t pancdata3:latest .
-```
+See [`docs/DOCKER.md`](docs/DOCKER.md) for data mounting, GPU passthrough, and troubleshooting.
 
 ---
 
 ## Configuration
 
-Copy the example configuration files and update paths for your environment:
+Copy the example configuration and update paths for your environment:
 
 ```bash
 cp config.example.json config.json
-cp averyloop_config.example.json averyloop_config.json
+cp improvement_loop_config.example.json improvement_loop_config.json
 ```
 
 Edit `config.json` with your local paths:
@@ -281,7 +232,7 @@ Edit `config.json` with your local paths:
 ```
 
 | Field | Description |
-|---|---|
+|-------|------------|
 | `dataloc` | Root directory containing patient DWI data |
 | `dcm2nii_call` | Path to `dcm2niix` executable |
 | `dwi_type` | One of: `"Standard"`, `"dnCNN"`, `"IVIMnet"` |
@@ -299,30 +250,18 @@ Edit `config.json` with your local paths:
 | `spectral_min_voxels` | Minimum valid voxels required for the `"spectral"` core method (default: `20`) |
 | `store_core_masks` | Store per-method 1D core masks for reuse by `compare_core_methods` (default: `false`) |
 | `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
-| `compute_fine_gray` | Compute Fine-Gray subdistribution hazard model alongside cause-specific hazard (default: `true`) |
-| `exclude_motion_volumes` | Exclude motion-corrupted DWI volumes before model fitting (default: `false`) |
-| `use_texture_features` | Compute GLCM and first-order texture features from parameter maps (default: `false`) |
-| `texture_quantization_method` | IBSI quantization for texture features: `"fixed_bin_number"` (default) or `"fixed_bin_width"` |
-| `use_gpu` | Offload ADC WLS fitting and DnCNN inference to a CUDA GPU via `gpuArray`. Requires Parallel Computing Toolbox and a CUDA-capable GPU. Falls back to CPU when unavailable (default: `false`) |
-| `gpu_device` | 1-based index of the CUDA GPU device to use when `use_gpu` is true (default: `1`) |
-| `run_imputation_sensitivity` | Compare KNN imputation against LOCF, Mean, and Linear Interpolation alternatives (default: `false`) |
-| `fit_time_varying_cox` | Fit stratified and extended Cox models when proportional hazards assumption is violated (default: `true`) |
-| `export_validation_model` | Export trained predictive model for external validation (default: `false`) |
-| `external_validation_data` | Path to external validation data folder (default: `""`) |
-| `auxiliary_biomarker_csv` | Path to CSV file containing non-DWI auxiliary biomarkers (default: `""`) |
-| `use_auxiliary_biomarkers` | Include auxiliary biomarkers in the predictive modeling feature matrix (default: `false`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 
-### AveryLoop Configuration
+### Improvement Loop Configuration
 
-The automated AveryLoop has its own config file. Copy the example and customize:
+The automated improvement loop has its own config file. Copy the example and customize:
 
 ```bash
-cp averyloop_config.example.json averyloop_config.json
+cp improvement_loop_config.example.json improvement_loop_config.json
 ```
 
-Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`averyloop_config.example.json`](averyloop_config.example.json) for the full template.
+Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`improvement_loop_config.example.json`](improvement_loop_config.example.json) for the full template.
 
 ---
 
@@ -378,7 +317,7 @@ Before running the pipeline, you can verify that your patient data directory is 
 
 ```matlab
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
-report = enrollment_check('config.json');
+report = patient_data_check('config.json');
 ```
 
 This scans the file system and reports:
@@ -397,7 +336,7 @@ Issues are classified as errors (must fix before running), warnings (may affect 
 The pipeline executes the following steps in order:
 
 | Step | Module | Description |
-|---|---|---|
+|------|--------|------------|
 | 1. **Load** | `load_dwi_data` | DICOM conversion, model fitting, DL denoising, checkpointing |
 | 2. **Sanity** | `sanity_checks` | Convergence validation, missingness, spatial alignment |
 | 3. **Visualize** | `visualize_results` | Parameter maps, distributions, longitudinal trajectories |
@@ -424,10 +363,10 @@ run_dwi_pipeline('config.json', {'compare_cores'});
 **Output files** (saved to the DWI-type subfolder):
 
 | File | Description |
-|---|---|
+|------|------------|
 | `compare_core_results_{type}.mat` | Full comparison struct: pairwise Dice and HD95 matrices, per-method volume fractions, fallback flags |
-| `core_method_dice_heatmap_{type}.png` | 11x11 heatmap of mean pairwise Dice coefficients |
-| `core_method_hd95_heatmap_{type}.png` | 11x11 heatmap of mean pairwise 95th-percentile Hausdorff distance (only when 3D GTV masks are available) |
+| `core_method_dice_heatmap_{type}.png` | 11×11 heatmap of mean pairwise Dice coefficients |
+| `core_method_hd95_heatmap_{type}.png` | 11×11 heatmap of mean pairwise 95th-percentile Hausdorff distance (only when 3D GTV masks are available) |
 | `core_method_volume_comparison_{type}.png` | Bar chart of mean core volume (% of GTV) per method with error bars |
 | `core_method_fallbacks_{type}.png` | Bar chart showing how often each method fell back to `adc_threshold` (e.g., fDM at baseline, spatial methods without 3D masks) |
 | `compare_core_methods_output_{type}.txt` | Console log |
@@ -442,7 +381,7 @@ The MAT file contains a `compare_results` struct with fields: `method_names`, `m
 run('pipeline/tests/run_all_tests.m')
 ```
 
-The test suite includes 127 test files covering:
+The test suite includes 133 MATLAB test files and 47 Python test files covering:
 
 - **Integration tests** -- End-to-end pipeline validation
 - **Unit tests** -- Individual module correctness
@@ -464,69 +403,7 @@ The `analysis/` folder contains a comprehensive Python analysis suite for automa
 
 - Python 3.12+
 - `pip install -r analysis/requirements.txt`
-- Vision API key(s) — see [API Key Setup](#api-key-setup) below
-
-#### API Key Setup
-
-Vision-based graph analysis requires API key(s) depending on your chosen provider:
-
-| Provider | Environment Variable | Get a Key |
-|---|---|---|
-| Gemini (default) | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) |
-| Claude | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) |
-| Both (comparison) | Both of the above | Both links above |
-
-Set the key(s) as environment variables before running:
-
-```bash
-# Option 1: Export in your shell
-export GEMINI_API_KEY="your-gemini-key-here"
-export ANTHROPIC_API_KEY="your-claude-key-here"
-
-# Option 2: Inline with the command
-GEMINI_API_KEY="..." python analysis/run_analysis.py
-
-# Option 3: Interactive prompt — if a required key is missing,
-# run_analysis.py will prompt you to paste it at startup
-python analysis/run_analysis.py --provider claude
-# → ANTHROPIC_API_KEY is not set. Paste your key: ▌
-```
-
-Provider selection: `--provider gemini` (default), `--provider claude`, or `--provider both` (runs both APIs and writes a comparison CSV noting per-image differences).
-
-You can also set defaults in `analysis/analysis_config.json` or via environment variables:
-
-```bash
-export PANCDATA3_VISION_PROVIDER="both"
-export PANCDATA3_GEMINI_MODEL="gemini-2.5-flash"
-export PANCDATA3_CLAUDE_MODEL="claude-opus-4-6"
-```
-
-#### WeasyPrint System Dependencies (PDF report generation)
-
-WeasyPrint requires **Cairo**, **Pango**, and **GDK-PixBuf** installed at the system level. These are *not* installed by `pip` and must be set up separately. If you only need HTML reports (use `--no-pdf`), you can skip this step.
-
-**Ubuntu / Debian:**
-
-```bash
-sudo apt-get install -y libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libffi-dev
-```
-
-**macOS (Homebrew):**
-
-```bash
-brew install cairo pango gdk-pixbuf libffi
-```
-
-**Windows:**
-
-Install the GTK3 runtime, which bundles Cairo, Pango, and GDK-PixBuf:
-
-1. Download the latest GTK3 installer from <https://github.com/nickvdp/gtk3-windows-installer/releases> or install via MSYS2: `pacman -S mingw-w64-x86_64-gtk3`
-2. Add the GTK3 `bin` directory to your system `PATH`
-3. Restart your terminal before running `pip install weasyprint`
-
-See the [WeasyPrint installation docs](https://doc.courtbouillon.org/weasyprint/stable/first_steps.html) for the latest platform-specific instructions.
+- `GEMINI_API_KEY` environment variable (only needed for vision-based graph analysis)
 
 ### Usage
 
@@ -549,15 +426,6 @@ python analysis/run_analysis.py --folder saved_files_20260308_010713
 # Skip pre-flight checks (requirements verification and test suite)
 python analysis/run_analysis.py --skip-checks
 
-# Generate interactive report with client-side filtering and Chart.js charts
-python analysis/run_analysis.py --interactive
-
-# Use Claude API instead of Gemini for vision analysis
-python analysis/run_analysis.py --provider claude
-
-# Run both Gemini and Claude, compare results (writes graph_analysis_comparison.csv)
-python analysis/run_analysis.py --provider both
-
 # Individual scripts can still be run standalone
 python analysis/parsers/batch_graph_analysis.py
 python analysis/parsers/parse_log_metrics.py [saved_files_path]
@@ -565,7 +433,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 ```
 
 | Script | Description |
-|---|---|
+|--------|------------|
 | `run_analysis.py` | Orchestrator: runs the full analysis workflow with CLI flags |
 | `shared.py` | Shared utilities: folder discovery, DWI type parsing, regex extractors |
 | **`parsers/`** | **Data extraction subpackage** |
@@ -573,41 +441,15 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 | `parsers/parse_log_metrics.py` | Direct parsing of MATLAB log files for Wilcoxon p-values, AUC, hazard ratios, GLME results |
 | `parsers/parse_csv_results.py` | Direct parsing of pipeline CSV exports with cross-DWI significance comparison |
 | `parsers/parse_mat_metrics.py` | Parses MATLAB `.mat` output files (core comparison, dosimetry, summary metrics) into JSON |
-| `parsers/statistical_relevance.py` | Extracts p-values and correlation coefficients; reports significant findings |
-| `parsers/statistical_by_graph_type.py` | Filters statistical findings by graph type (scatter, box, line, etc.) |
-| **`cross_reference/`** | **Cross-DWI comparison subpackage** |
-| `cross_reference/cross_reference_dwi.py` | Full side-by-side comparison of Standard vs dnCNN vs IVIMnet results |
-| `cross_reference/cross_reference_summary.py` | Concise summary of trend agreement/disagreement across DWI types |
-| **`report/`** | **Report generation subpackage** |
-| `report/generate_report.py` | HTML+PDF report generator combining all data sources into `analysis_report.html` and `analysis_report.pdf` |
-| `report/report_formatters.py` | Formatting utilities for the HTML report (escaping, badges, nav bar, stat cards, etc.) |
-| `report/report_constants.py` | Large constants (CSS stylesheet, JavaScript, publication references, HTML template) |
-| `report/sections/` | Section builder modules for the HTML report (36 submodules organized into core, main results, manuscript, data, analysis, statistics groups, plus 3 legacy shims) |
-
-### Report Features
-
-The generated HTML/PDF report includes:
-
-- **Cover page** — print-only title page with run timestamp, DWI types, and graph count
-- **Table of Contents** — grouped two-column TOC visible on screen; occupies its own page in the PDF
-- **Part breaks** — 6 logical divisions (Overview / Data / Statistics / Outcomes / Discussion / Appendix) force page breaks in the PDF
-- **PDF page numbers** — WeasyPrint-native footer: `Page N of M`, suppressed on the cover page
-- **Clinical context** — RTOG D95/V50 benchmarks, evidence hierarchy (High/Moderate/Exploratory), Research Use Only disclaimer
-- **Improved parsers** — NaN/Inf → JSON `null`, timepoint normalization, parse-failure warnings, IPCW range validation
-
-### Analysis Test Suite
-
-The analysis scripts have a comprehensive Python test suite (47 test files) using pytest:
-
-```bash
-cd analysis/tests && python -m pytest -v
-```
+| `parsers/statistical_relevance.py` | Scores and ranks findings by clinical significance, effect size, and novelty |
+| **`reports/`** | **Report generation subpackage** |
+| `reports/generate_report.py` | Builds final HTML/PDF report with templated sections, embedded figures, and ranked findings |
 
 ---
 
 ## AveryLoop
 
-The AveryLoop is an **external package**: [`averyloop`](https://github.com/akarlin3/averyLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
+The improvement loop is an **external package**: [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
 
 ### Installation
 
@@ -617,20 +459,20 @@ pip install -r analysis/requirements.txt
 
 ### Configuration
 
-Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `averyloop_config.json`.
+Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `improvement_loop_config.json`.
 
 ### Usage
 
 ```bash
 # v2 pipeline (recommended) — four-agent RAG-enhanced loop
-python -m averyloop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # v1 fallback — single-pass orchestrator
-python -m averyloop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # RAG index management
-python -m averyloop.rag.indexer --stats
-python -m averyloop.rag.indexer --force-rebuild --stats
+python -m improvement_loop.rag.indexer --stats
+python -m improvement_loop.rag.indexer --force-rebuild --stats
 ```
 
 **Requirement:** `ANTHROPIC_API_KEY` environment variable must be set.
@@ -694,8 +536,8 @@ pancData3/
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
 │   └── tests/                      #   Python test suite (43 test files)
-├── project_config.example.yaml     # AveryLoop project config template
-├── averyloop_config.example.json  # AveryLoop runtime config template
+├── project_config.example.yaml     # Improvement loop project config template
+├── improvement_loop_config.example.json  # Improvement loop runtime config template
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows
@@ -705,31 +547,28 @@ pancData3/
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
 ## Citation
 
-If you use this software in your research, please cite it:
+If you use this pipeline in your research, please cite:
 
 ```bibtex
-@software{karlin2026pancdata3,
-  author    = {Karlin, Avery},
-  title     = {pancData3: Pancreatic DWI Analysis Pipeline},
-  year      = {2026},
-  version   = {2.3.1},
-  url       = {https://github.com/akarlin3/pancData3},
-  license   = {AGPL-3.0}
+@software{pancData3,
+  author = {Karlin, Avery and Aliotta, Eric},
+  title = {pancData3: A Pipeline for Pancreatic DWI Analysis},
+  url = {https://github.com/akarlin3/pancData3},
+  version = {2.3.2},
+  year = {2026}
 }
 ```
 
-See [CITATION.cff](CITATION.cff) for a machine-readable citation file.
+See also [CITATION.cff](CITATION.cff) for machine-readable citation metadata.
 
 ---
 
 ## License
 
-This project is licensed under the GNU Affero General Public License v3.0. See [LICENSE](LICENSE) for details.
-
-Copyright (c) 2026 Avery Karlin
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).

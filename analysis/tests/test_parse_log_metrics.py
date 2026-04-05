@@ -226,8 +226,63 @@ class TestParseSurvival:
         """Empty input yields empty hazard ratios and None for LRT/IPCW."""
         result = parse_survival("")
         assert result["hazard_ratios"] == []
+        assert result["cox_covariates"] == []
         assert result["global_lrt"] is None
         assert result["ipcw"] is None
+        assert result["schoenfeld_tested"] is False
+        assert result["ph_tests"] == []
+        assert result["n_intervals"] is None
+
+    def test_bracket_format_cox_rows(self):
+        """Bracket-format Cox PH rows with coefficient and bracket CI are parsed."""
+        text = (
+            "  Feature       Coeff       HR       95% CI  p-value\n"
+            "  ----------------------------------------------------\n"
+            "  ADC           0.768    2.156 [ 0.28-16.70]   0.4621\n"
+            "  D            -0.837    0.433 [ 0.05- 3.61]   0.4390\n"
+        )
+        result = parse_survival(text)
+        assert len(result["cox_covariates"]) == 2
+        cov0 = result["cox_covariates"][0]
+        assert cov0["name"] == "ADC"
+        assert cov0["coeff"] == pytest.approx(0.768)
+        assert cov0["hr"] == pytest.approx(2.156)
+        assert cov0["ci_lo"] == pytest.approx(0.28)
+        assert cov0["ci_hi"] == pytest.approx(16.70)
+        assert cov0["p"] == pytest.approx(0.4621)
+        # Also populates hazard_ratios for backward compatibility
+        assert len(result["hazard_ratios"]) == 2
+        assert result["hazard_ratios"][0]["covariate"] == "ADC"
+
+    def test_schoenfeld_residuals(self):
+        """Schoenfeld PH test rows are extracted with violation markers."""
+        text = (
+            "  --- Schoenfeld Residuals: PH Assumption Test ---\n"
+            "  Covariate        rho     chi2  p-value  PH_violated\n"
+            "  --------------------------------------------------------\n"
+            "  ADC          0.0909    0.0826    0.7737             \n"
+            "  D            0.7091    5.0281    0.0249          ***\n"
+        )
+        result = parse_survival(text)
+        assert result["schoenfeld_tested"] is True
+        assert len(result["ph_tests"]) == 2
+        assert result["ph_tests"][0]["name"] == "ADC"
+        assert result["ph_tests"][0]["rho"] == pytest.approx(0.0909)
+        assert result["ph_tests"][0]["chi2"] == pytest.approx(0.0826)
+        assert result["ph_tests"][0]["p"] == pytest.approx(0.7737)
+        assert result["ph_tests"][0]["violated"] is False
+        assert result["ph_tests"][1]["name"] == "D"
+        assert result["ph_tests"][1]["violated"] is True
+        assert result["schoenfeld_violated"] == ["D"]
+
+    def test_td_panel_summary(self):
+        """TD Panel summary line extracts patient/interval/event counts."""
+        text = "  [TD Panel] 35 patients \u2192 210 intervals (10 events of interest, 0 competing)\n"
+        result = parse_survival(text)
+        assert result["n_patients"] == 35
+        assert result["n_intervals"] == 210
+        assert result["n_events"] == 10
+        assert result["n_competing"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -339,9 +394,17 @@ class TestParseAllLogs:
         assert len(std["stats_predictive"]["feature_selections"]) == 2
         assert len(std["stats_predictive"]["roc_analyses"]) == 2
 
-        # Survival: 2 hazard ratio rows and a global LRT with df=2
+        # Survival: 2 hazard ratio rows (bracket format), global LRT, Schoenfeld, TD Panel
         assert len(std["survival"]["hazard_ratios"]) == 2
+        assert len(std["survival"]["cox_covariates"]) == 2
         assert std["survival"]["global_lrt"]["df"] == 2
+        assert std["survival"]["n_patients"] == 35
+        assert std["survival"]["n_intervals"] == 210
+        assert std["survival"]["n_events"] == 10
+        assert std["survival"]["n_competing"] == 0
+        assert std["survival"]["schoenfeld_tested"] is True
+        assert len(std["survival"]["ph_tests"]) == 2
+        assert "delta_d" in std["survival"]["schoenfeld_violated"]
 
         # Baseline: 2 outlier flag entries and 4 total outliers removed
         assert len(std["baseline"]["outlier_flags"]) == 2

@@ -160,22 +160,32 @@ function report = generate_patient_exclusion_report(config_path)
     %  ===================================================================
     fprintf('📋 Stage 2: Checking pipeline output for analysis-stage exclusions...\n');
 
-    % Find the most recent saved_files folder
-    saved_dirs = dir(fullfile(dataloc, 'saved_files_*'));
+    % Find the most recent saved_files folder (lives in repo root, not dataloc)
+    repo_root = fullfile(fileparts(mfilename('fullpath')), '..');
+    % Resolve '..' so that dir() glob works reliably on Windows
+    prev_dir = pwd;
+    cd(repo_root);
+    repo_root = pwd;
+    cd(prev_dir);
+    saved_dirs = dir(fullfile(repo_root, 'saved_files_*'));
     if isempty(saved_dirs)
         fprintf('  ⚠️  No saved_files_* output folder found. Stage 2 checks skipped.\n');
         fprintf('     Run the pipeline first to get full exclusion reporting.\n\n');
     else
         [~, newest_idx] = max([saved_dirs.datenum]);
-        output_folder = fullfile(dataloc, saved_dirs(newest_idx).name);
+        output_folder = fullfile(repo_root, saved_dirs(newest_idx).name);
         fprintf('  Using output folder: %s\n', output_folder);
 
         dwi_type_names = {'Standard', 'dnCNN', 'IVIMnet'};
         dtype = config.dwi_types_to_run;
         dtype_name = dwi_type_names{dtype};
 
-        % Try to load summary_metrics
-        sm_file = fullfile(output_folder, sprintf('summary_metrics_%s.mat', dtype_name));
+        % Try to load summary_metrics (lives in the DWI-type subfolder)
+        sm_file = fullfile(output_folder, dtype_name, sprintf('summary_metrics_%s.mat', dtype_name));
+        if ~exist(sm_file, 'file')
+            % Fallback: check directly in output folder (legacy layout)
+            sm_file = fullfile(output_folder, sprintf('summary_metrics_%s.mat', dtype_name));
+        end
         if ~exist(sm_file, 'file')
             sm_file = fullfile(output_folder, 'summary_metrics.mat');
         end
