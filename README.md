@@ -105,7 +105,7 @@ Pancreatic cancer has some of the lowest survival rates of any solid tumor. MRI-
 - [Pipeline Steps](#pipeline-steps)
 - [Running Tests](#running-tests)
 - [Post-Hoc Analysis Scripts](#post-hoc-analysis-scripts)
-- [Improvement Loop](#improvement-loop)
+- [AveryLoop](#averyloop)
 - [Repository Structure](#repository-structure)
 - [Contributing](#contributing)
 - [Citation](#citation)
@@ -215,6 +215,7 @@ Copy the example configuration and update paths for your environment:
 
 ```bash
 cp config.example.json config.json
+cp averyloop_config.example.json averyloop_config.json
 ```
 
 Edit `config.json` with your local paths:
@@ -251,6 +252,16 @@ Edit `config.json` with your local paths:
 | `use_firth_refit` | Refit predictive models with Firth penalized logistic regression after elastic net feature selection to handle perfect separation (default: `true`) |
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
+
+### AveryLoop Configuration
+
+AveryLoop has its own config file. Copy the example and customize:
+
+```bash
+cp averyloop_config.example.json averyloop_config.json
+```
+
+Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`averyloop_config.example.json`](averyloop_config.example.json) for the full template.
 
 ---
 
@@ -436,9 +447,35 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 
 ---
 
-## Improvement Loop
+## AveryLoop
 
-The pipeline includes a self-improvement workflow powered by the analysis suite. After each pipeline run, the analysis scripts identify the highest-impact findings and generate suggestions for configuration or code improvements. See [`docs/IMPROVEMENT_LOOP.md`](docs/IMPROVEMENT_LOOP.md) for details.
+AveryLoop is an **external package**: [`averyloop`](https://github.com/akarlin3/averyLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
+
+### Installation
+
+```bash
+pip install -r analysis/requirements.txt
+```
+
+### Configuration
+
+Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `averyloop_config.json`.
+
+### Usage
+
+```bash
+# v2 pipeline (recommended) — four-agent RAG-enhanced loop
+python -m averyloop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
+
+# v1 fallback — single-pass orchestrator
+python -m averyloop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
+
+# RAG index management
+python -m averyloop.rag.indexer --stats
+python -m averyloop.rag.indexer --force-rebuild --stats
+```
+
+**Requirement:** `ANTHROPIC_API_KEY` environment variable must be set.
 
 ---
 
@@ -446,24 +483,64 @@ The pipeline includes a self-improvement workflow powered by the analysis suite.
 
 ```
 pancData3/
-├── pipeline/
-│   ├── core/           # Main pipeline modules
-│   ├── utils/          # Helper functions
-│   ├── dependencies/   # Third-party MATLAB dependencies
-│   └── tests/          # MATLAB test suite (133 files)
-├── analysis/
-│   ├── parsers/        # Python data extraction scripts
-│   ├── reports/        # Report generation
-│   └── tests/          # Python test suite (47 files)
-├── .agents/            # AI agent configurations
-├── .github/            # GitHub Actions CI
-├── docs/               # Extended documentation
-├── config.example.json # Template configuration
-├── CHANGELOG.md        # Version history
-├── CITATION.cff        # Citation metadata
-├── CONTRIBUTING.md     # Contribution guidelines
-├── LICENSE             # AGPL-3.0
-└── README.md           # This file
+├── config.example.json             # Configuration template
+├── Dockerfile                      # Multi-stage Docker build
+├── docker-compose.yml              # Pipeline + analysis services
+├── .dockerignore                   # Docker build exclusions
+├── docker/                         # Docker support files
+│   └── entrypoint.sh              #   Container entrypoint script
+├── docs/                           # Additional documentation
+│   └── DOCKER.md                  #   Docker usage guide
+├── pipeline/                       # MATLAB pipeline
+│   ├── run_dwi_pipeline.m          #   Main orchestrator entry point
+│   ├── execute_all_workflows.m     #   Sequential multi-type runner
+│   ├── enrollment_check.m        #   Pre-pipeline data validation
+│   ├── core/                       #   Pipeline modules (18 files)
+│   │   ├── load_dwi_data.m         #     Data loading & model fitting
+│   │   ├── sanity_checks.m         #     Data validation
+│   │   ├── visualize_results.m     #     Visualization generation
+│   │   ├── process_single_scan.m   #     Per-scan DICOM/model processing
+│   │   ├── metrics_baseline.m      #     Baseline metric computation
+│   │   ├── metrics_survival.m      #     Survival analysis
+│   │   └── ...
+│   ├── utils/                      #   Helper utilities (76 files)
+│   │   ├── parse_config.m          #     Configuration parser
+│   │   ├── safe_load_mask.m        #     Secure .mat loading
+│   │   ├── escape_shell_arg.m      #     Shell argument escaping
+│   │   ├── init_scan_structs.m     #     Scan data structure initialization
+│   │   └── ...
+│   ├── tests/                      #   Test suite (127 test files)
+│   │   ├── run_all_tests.m         #     Master test runner
+│   │   ├── benchmarks/             #     Performance benchmarks (7 files)
+│   │   └── diagnostics/            #     Diagnostic spot-checks (6 files)
+│   ├── dependencies/               #   Third-party scripts (read-only)
+│   └── .octave_compat/             #   GNU Octave compatibility shims (24 files)
+├── analysis/                       # Python post-hoc analysis suite
+│   ├── run_analysis.py             #   Orchestrator (full workflow runner)
+│   ├── shared.py                   #   Shared utilities
+│   ├── parsers/                    #   Data extraction subpackage
+│   │   ├── batch_graph_analysis.py #     Vision API batch graph extraction
+│   │   ├── parse_log_metrics.py    #     Direct MATLAB log parsing
+│   │   ├── parse_csv_results.py    #     Direct CSV export parsing
+│   │   ├── parse_mat_metrics.py    #     MATLAB .mat file parser → JSON
+│   │   ├── statistical_relevance.py #    Statistical significance extraction
+│   │   └── statistical_by_graph_type.py # Stats filtered by graph type
+│   ├── cross_reference/            #   Cross-DWI comparison subpackage
+│   │   ├── cross_reference_dwi.py  #     Full cross-DWI type comparison
+│   │   └── cross_reference_summary.py #  Concise cross-DWI summary
+│   ├── report/                     #   Report generation subpackage
+│   │   ├── generate_report.py      #     HTML+PDF report generator
+│   │   ├── report_formatters.py    #     Formatting utilities
+│   │   ├── report_constants.py     #     CSS, JS, references, HTML template
+│   │   ├── generate_interactive_report.py  # Interactive HTML report with filtering
+│   │   ├── interactive_constants.py #     CSS/JS for interactive report
+│   │   └── sections/              #     Section builder modules
+│   └── tests/                      #   Python test suite (43 test files)
+├── project_config.example.yaml     # AveryLoop project config template
+├── averyloop_config.example.json   # AveryLoop runtime config template
+└── .agents/                        # AI agent configuration
+    ├── rules/                      #   Agent safety rules
+    └── workflows/                  #   Structured workflows
 ```
 
 ---

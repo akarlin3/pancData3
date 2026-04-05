@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`pipeline/utils/filter_core_methods.m`**: Added `retained_with_warning` third output — methods that would have been pruned but are kept as fallback (e.g. `adc_threshold`) are now flagged with reasons instead of silently retained.
 - **`pipeline/utils/dispatch_pipeline_steps.m`**: Updated call site to capture `retained_with_warning` and `min_core_voxels_used`; both are saved to the pruning MAT file and logged.
 
-#### Robustness Improvements (improvement loop)
+#### Robustness Improvements (AveryLoop)
 - **`pipeline/utils/knn_impute_train_test.m`**: Partial-distance strategy for sparse data — relaxed from requiring 100% shared features to 80% fraction with a minimum absolute floor of 5 features, preventing silent imputation failures in small cohorts. Added near-zero variance guard to skip z-scoring of near-constant features. Converted cell-array patient IDs to numeric indices once at entry for ~10-50x faster blocking-mask construction.
 - **`pipeline/utils/safe_load_mask.m`**: Added `dir()` multi-entry guard for paths with glob-like characters or case-insensitive filesystem collisions. Added post-load verification against pre-load metadata for defense-in-depth against corrupted v7.3 HDF5 files. Duplicate-variable handling now records metadata for all entries.
 - **`pipeline/utils/parse_config.m`**: Added `dir()` zero/multi-entry guard (same pattern as `safe_load_mask.m`). Refactored all isfield-plus-fallback defaults to a single defaults-iteration loop — adding a new config field now requires only one line.
@@ -144,7 +144,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 #### Pipeline Utilities
 - **`pipeline/utils/get_system_memory.m`**: New utility — cross-platform physical memory query (total and available GB); used by `load_dwi_data.m` to log memory headroom before parallel patient loading; returns `[NaN, NaN]` on unsupported platforms
 
-#### Python Tests (improvement_loop v2 API)
+#### Python Tests (averyloop v2 API)
 - **`analysis/tests/test_implementer_agent.py`**: 10 tests for `ImplementResult` dataclass, `implement()` dry-run, file-not-found and branch-exists failure paths, and `_generate_fix()` API call contract
 - **`analysis/tests/test_orchestrator_v2.py`**: 13 tests for `FindingState`/`IterationState` dataclasses, `run_loop()` dry-run and exit-condition behavior, rejected-finding non-merge guarantee, and `_print_agent_summary()` output
 - **`analysis/tests/test_reviewer_agent.py`**: 23 tests for `ReviewVerdict` dataclass, `_generate_diff()`, `_parse_review_verdict()` (valid JSON, fenced, preamble, all invalid cases), critical-flag override (`LEAKAGE_RISK`/`PHI_RISK` force reject), and parse-failure fallback
@@ -167,10 +167,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-#### improvement_loop Package — v2 Structured API
-- **`improvement_loop.agents.implementer`**: Added `ImplementResult` dataclass (`success`, `original_content`, `new_content`, `error`); `_generate_fix(finding, original_content)` API wrapper; `implement(finding, base_branch, dry_run)` function that replaces direct `apply_fix` calls in the orchestrator
-- **`improvement_loop.agents.reviewer`**: Added `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`); `_generate_diff(original, new, filename)` unified-diff helper; `_parse_review_verdict(raw)` JSON parser (handles markdown fences, preamble, all validation failures); new `review(finding, old_content, new_content, dry_run)` replaces diff-based signature; `LEAKAGE_RISK`/`PHI_RISK` flags force rejection regardless of LLM verdict; parse failure returns `request_changes` + `EVALUATION_FAILED` flag
-- **`improvement_loop.orchestrator_v2`**: `FindingState` updated — added `implement_result: Optional[ImplementResult]`, `review_verdict: Optional[ReviewVerdict]`, `error` defaults to `""`; `IterationState` updated — added `context: str`, `findings: List[FindingState]`, `dry_run` now optional; module-level `_audit(iteration, context, dry_run)`, `_implement(finding, base_branch, dry_run)`, `_review(finding, old_content, new_content, dry_run)` wrappers (monkeypatchable for tests); `_print_agent_summary(state)` per-iteration console summary; `run_loop` rewritten to use new agent wrappers
+#### averyloop Package — v2 Structured API
+- **`averyloop.agents.implementer`**: Added `ImplementResult` dataclass (`success`, `original_content`, `new_content`, `error`); `_generate_fix(finding, original_content)` API wrapper; `implement(finding, base_branch, dry_run)` function that replaces direct `apply_fix` calls in the orchestrator
+- **`averyloop.agents.reviewer`**: Added `ReviewVerdict` dataclass (`verdict`, `reasoning`, `risk_flags`); `_generate_diff(original, new, filename)` unified-diff helper; `_parse_review_verdict(raw)` JSON parser (handles markdown fences, preamble, all validation failures); new `review(finding, old_content, new_content, dry_run)` replaces diff-based signature; `LEAKAGE_RISK`/`PHI_RISK` flags force rejection regardless of LLM verdict; parse failure returns `request_changes` + `EVALUATION_FAILED` flag
+- **`averyloop.orchestrator_v2`**: `FindingState` updated — added `implement_result: Optional[ImplementResult]`, `review_verdict: Optional[ReviewVerdict]`, `error` defaults to `""`; `IterationState` updated — added `context: str`, `findings: List[FindingState]`, `dry_run` now optional; module-level `_audit(iteration, context, dry_run)`, `_implement(finding, base_branch, dry_run)`, `_review(finding, old_content, new_content, dry_run)` wrappers (monkeypatchable for tests); `_print_agent_summary(state)` per-iteration console summary; `run_loop` rewritten to use new agent wrappers
 
 ### Documentation
 - Updated version to 2.2.0 across CLAUDE.md, README.md, CHANGELOG.md
@@ -183,11 +183,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-#### Improvement Loop Extracted to External Package
-- **`improvement_loop/`** directory removed — now installed as [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop) via `pip install -r analysis/requirements.txt`
+#### AveryLoop Extracted to External Package
+- **`averyloop/`** directory removed — now installed as [`averyloop`](https://github.com/akarlin3/averyLoop) via `pip install -r analysis/requirements.txt`
 - **`project_config.yaml`** (gitignored) + **`project_config.example.yaml`** (committed) replace inline agent prompts and key file lists; contains full audit/review/judge system prompts, safety flags, RAG collection config
-- **`improvement_loop_config.json`** retained for runtime tuning (API models, token limits, exit strategy)
-- 12 improvement loop test files moved to the external package; pancData3 Python test suite: 46 → 34 files
+- **`averyloop_config.json`** retained for runtime tuning (API models, token limits, exit strategy)
+- 12 AveryLoop test files moved to the external package; pancData3 Python test suite: 46 → 34 files
 
 #### Bug Fixes & Stability
 - **`knn_impute_train_test.m`**: Restored after truncation; NaN handling in BH FDR correction
@@ -196,10 +196,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`test_octave_shims.m`**: Moved to serial execution to avoid parallel conflicts
 - **`test_source_code_standards.m`**: Updated to match actual implementations
 - **`run_all_tests.m`**: Persistent variable scope fix for parallel capability caching
-- Three improvement-loop regressions repaired (16 tests fixed)
+- Three AveryLoop regressions repaired (16 tests fixed)
 
 ### Documentation
-- Updated CLAUDE.md, CLAUDE_WORKFLOWS.md, CLAUDE_REFERENCE.md, README.md for external improvement loop
+- Updated CLAUDE.md, CLAUDE_WORKFLOWS.md, CLAUDE_REFERENCE.md, README.md for external AveryLoop
 - Python test suite count: 46 → 34 files (loop tests moved to external package)
 - Repository structure updated to reflect `project_config.yaml` / `project_config.example.yaml`
 
@@ -209,7 +209,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-#### Test Quality & Cross-Platform Hardening (13 improvement loop iterations)
+#### Test Quality & Cross-Platform Hardening (13 AveryLoop iterations)
 - **`test_benjamini_hochberg_fdr.m`**: Cross-platform RNG determinism — replaced `rng(123)` with platform-independent test data; added edge case tests; tests now call the production `benjamini_hochberg_fdr` function instead of reimplementing inline; assertions upgraded to `verifyEqual` with `AbsTol`
 - **`test_parsave_dir_cache.m`**: Improved `parfor` test assertions
 - **`test_text_progress_bar.m`**: Progress bar test assertions tightened
@@ -253,16 +253,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Multi-Agent Improvement Loop (v2)
-- **`improvement_loop/orchestrator_v2.py`**: Four-agent pipeline orchestrator (audit → implement → review → test & merge) replacing the single-pass v1 architecture
-- **`improvement_loop/agents/` subpackage**: Extracted agent modules from the orchestrator:
+#### Multi-Agent AveryLoop (v2)
+- **`averyloop/orchestrator_v2.py`**: Four-agent pipeline orchestrator (audit → implement → review → test & merge) replacing the single-pass v1 architecture
+- **`averyloop/agents/` subpackage**: Extracted agent modules from the orchestrator:
   - **`auditor.py`** — RAG-enhanced code audit agent returning structured `Finding` objects
   - **`implementer.py`** — Fix implementation agent with branch creation, code generation, and syntax checking
   - **`reviewer.py`** — Code review quality gate with approve/request_changes/reject verdicts and critical risk flag enforcement (`LEAKAGE_RISK`, `PHI_RISK`)
   - **`_api.py`** — Shared API retry helper used by all agents
 
 #### RAG (Retrieval-Augmented Generation)
-- **`improvement_loop/rag/` subpackage**: Semantic code search via ChromaDB vector store:
+- **`averyloop/rag/` subpackage**: Semantic code search via ChromaDB vector store:
   - **`chunker.py`** — Splits MATLAB, Python, Markdown, and JSON files into semantically meaningful chunks (functions, classes, sections) via regex-based parsing
   - **`indexer.py`** — ChromaDB persistent index with full/incremental build, improvement history indexing, and `--force-rebuild` / `--stats` CLI interface
   - **`retriever.py`** — Query interface with type/language/file filtering, relevance scoring, and agent-specific context builders (`get_context_for_audit`, `get_context_for_fix`, `get_context_for_review`)
@@ -283,15 +283,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `test_new_report_sections.py` — New report section builder tests
 
 #### Configuration
-- **`improvement_loop_config.example.json`**: Added `review_model`, `review_max_tokens`, `rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance` fields
+- **`averyloop_config.example.json`**: Added `review_model`, `review_max_tokens`, `rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance` fields
 - **`loop_config.py`**: `LoopConfig` dataclass extended with review agent and RAG settings (all with sensible defaults)
 
 ### Fixed
-- **`improvement_loop/rag/indexer.py`**: Fixed duplicate chunk ID crash when a file has multiple functions with the same name (e.g., `imputation_sensitivity.m` has four local functions named `impute`). Chunk IDs now include start line: `file_path::name::L{start_line}`
+- **`averyloop/rag/indexer.py`**: Fixed duplicate chunk ID crash when a file has multiple functions with the same name (e.g., `imputation_sensitivity.m` has four local functions named `impute`). Chunk IDs now include start line: `file_path::name::L{start_line}`
 
 ### Changed
 - `orchestrator_v2.py` is now the canonical loop driver; `orchestrator_v1.py` retained as legacy fallback
-- Session cleanup and encapsulation improvements from improvement loop iterations
+- Session cleanup and encapsulation improvements from AveryLoop iterations
 - Safe load variable name checking hardened
 - JSON comment stripping edge cases fixed
 - Windows shell escape ampersand handling fixed
@@ -302,7 +302,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - MATLAB test suite: 121 → 122 files; Python test suite: 37 → 45 files (1576 → 1790 tests)
 - Report sections: 18 → 37 files (16 new sub-section builders)
 - Added 37 previously undocumented MATLAB test files to reference tables
-- Expanded improvement loop documentation with v2 pipeline, RAG subsystem, and agent architecture
+- Expanded AveryLoop documentation with v2 pipeline, RAG subsystem, and agent architecture
 
 ---
 
@@ -314,7 +314,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - External validation round-trip — `apply_external_validation.m` now called from orchestrator when `external_validation_data` config field is set
 - Report sections for decision curve analysis, NRI/IDI, texture features, and registration quality
 - Longitudinal trajectory visualizations — waterfall, swimmer, and spider plots
-- Programmatic improvement loop orchestrator (`improvement_loop/orchestrator_v1.py`)
+- Programmatic AveryLoop orchestrator (`averyloop/orchestrator_v1.py`)
 - Structured finding schema with Pydantic validation
 - Diminishing returns detection in loop exit condition
 - Parallel implementation phase in orchestrator (configurable `--max-workers`)
@@ -332,7 +332,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - API key masking regex in `run_analysis.py` expanded to cover additional secret patterns
 
 ### Changed
-- `improvement_loop_log.json` moved to `.gitignore` as a runtime artifact
+- `averyloop_log.json` moved to `.gitignore` as a runtime artifact
 - CLAUDE_WORKFLOWS.md updated — `orchestrator_v1.py` is now canonical loop driver
 
 ---
@@ -341,9 +341,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Improvement Loop Configuration System
-- **`improvement_loop/loop_config.py`**: Centralised configuration for the improvement loop via `improvement_loop_config.json` — all tuneable knobs in a single `LoopConfig` dataclass with built-in defaults (same pattern as `parse_config.m` for the MATLAB pipeline)
-- **`improvement_loop_config.example.json`**: Committed template with all configurable fields
+#### AveryLoop Configuration System
+- **`averyloop/loop_config.py`**: Centralised configuration for the AveryLoop via `averyloop_config.json` — all tuneable knobs in a single `LoopConfig` dataclass with built-in defaults (same pattern as `parse_config.m` for the MATLAB pipeline)
+- **`averyloop_config.example.json`**: Committed template with all configurable fields
 - **Configurable exit strategy**: `exit_strategy` field selects `"classic"` (threshold-only), `"diminishing_returns"` (staleness detector), or `"both"` (default) for loop termination
 - **Configurable API settings**: `anthropic_api_key`, `audit_model`, `fix_model`, `judge_model` fields — API key can live in the config file instead of requiring an environment variable
 - **Configurable thresholds**: All classic exit thresholds (`importance_threshold`, `min_coverage_score`) and diminishing returns parameters (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`) are tuneable via config
@@ -359,7 +359,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 #### Model Upgrade to Claude Opus 4.6
-- **Improvement loop**: Default `audit_model`, `fix_model`, and `judge_model` switched from `claude-sonnet-4-20250514` to `claude-opus-4-6`
+- **AveryLoop**: Default `audit_model`, `fix_model`, and `judge_model` switched from `claude-sonnet-4-20250514` to `claude-opus-4-6`
 - **Vision analysis**: Default `claude_model` switched from `claude-sonnet-4-6` to `claude-opus-4-6` in `analysis_config.json`, `shared.py`, `batch_graph_analysis.py`, and `run_analysis.py`
 - All hardcoded model strings replaced with config-driven values
 
@@ -368,11 +368,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`orchestrator_v1.py`**: `_api_call_with_retry()`, `_run_audit()`, `_apply_single_fix()`, and `_collect_source_files()` all use `LoopConfig` for retries, delays, models, and file size limits; client created via `_get_client()`
 
 #### Documentation
-- **`README.md`**: Configuration section updated to mention both `config.json` and `improvement_loop_config.json`; new "Improvement Loop Configuration" subsection; Claude model example updated to Opus 4.6
+- **`README.md`**: Configuration section updated to mention both `config.json` and `averyloop_config.json`; new "AveryLoop Configuration" subsection; Claude model example updated to Opus 4.6
 - **`CLAUDE.md`**, **`CLAUDE_REFERENCE.md`**: Updated file counts, module tables, and test suite numbers
 
 ### Fixed
-- `improvement_loop_config.json` added to `.gitignore` (may contain API keys)
+- `averyloop_config.json` added to `.gitignore` (may contain API keys)
 
 ### Test Suite
 - Python test suite: 36 → 37 files (1559 → 1576 tests)
@@ -385,8 +385,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-#### Automated Improvement Loop
-- **`improvement_loop/` package**: Programmatic audit → fix → test → commit cycle with Claude API integration
+#### Automated AveryLoop
+- **`averyloop/` package**: Programmatic audit → fix → test → commit cycle with Claude API integration
   - **`orchestrator_v1.py`**: Main loop driver with configurable max iterations and dry-run mode
   - **`evaluator.py`**: Finding schema (Pydantic) and audit quality scoring with exit condition logic
   - **`loop_tracker.py`**: Iteration logging, context generation for subsequent iterations, score drift detection
@@ -399,12 +399,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`analysis/report/sections/analysis_features.py`**: Feature overlap analysis section builder
 
 #### New Test Files (4 Python)
-- `test_evaluator_finding.py`, `test_git_utils.py`, `test_loop_tracker.py`, `test_orchestrator.py` for the improvement loop package
+- `test_evaluator_finding.py`, `test_git_utils.py`, `test_loop_tracker.py`, `test_orchestrator.py` for the AveryLoop package
 - Python test suite: 32 → 36 files (~1559 tests)
 
 ### Changed
 
-#### Correctness Fixes (Improvement Loop — 5 iterations)
+#### Correctness Fixes (AveryLoop — 5 iterations)
 - **`metrics_survival.m`**: Replaced invalid MATLAB ternary syntax (`? :`) with proper if/else blocks
 - **`compute_calibration_metrics.m`**: Replaced 3 invalid MATLAB ternary expressions with if/else blocks
 - **`fit_time_varying_cox.m`**: Replaced 2 invalid MATLAB ternaries; guard empty finite values before median; fixed entry weight denominator; changed log(0) minimum from 0.5 to 1 day

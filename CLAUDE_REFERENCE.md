@@ -310,7 +310,7 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 
 ## Python Test Suite (`analysis/tests/`)
 
-47 test files. Run with `cd analysis/tests && python -m pytest -v`. (Improvement loop tests are in the [code-improvement-loop](https://github.com/akarlin3/improvementLoop) package.)
+47 test files. Run with `cd analysis/tests && python -m pytest -v`. (AveryLoop tests are in the [averyloop](https://github.com/akarlin3/averyLoop) package.)
 
 | File | What it covers |
 |---|---|
