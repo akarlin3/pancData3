@@ -112,6 +112,36 @@ RE_HR_ROW = re.compile(
     re.MULTILINE,
 )
 
+# Matches bracket-format Cox PH rows produced by metrics_survival.m, e.g.:
+#   "  ADC           0.768    2.156 [ 0.28-16.70]   0.4621"
+# Format: %-10s %8.3f %8.3f [%5.2f-%5.2f] %8.4f
+# Captures: feature (1), coeff (2), HR (3), CI_lo (4), CI_hi (5), p (6).
+RE_HR_ROW_BRACKET = re.compile(
+    r"^\s{2,}(\S+)\s+([-\d.]+)\s+([\d.]+)\s+\[\s*([\d.]+)-\s*([\d.]+)\]\s+([\d.]+)",
+    re.MULTILINE,
+)
+
+# Matches Schoenfeld residuals PH test table rows, e.g.:
+#   "  ADC         0.0909    0.0826    0.7737             "
+#   "  D           0.7091    5.0281    0.0249          ***"
+# Captures: covariate (1), rho (2), chi2 (3), p-value (4), violation marker (5).
+RE_SCHOENFELD_ROW = re.compile(
+    r"^\s{2,}(\S+)\s+([-\d.]+)\s+([\d.]+)\s+([\d.]+)\s*(\*{3})?\s*$",
+    re.MULTILINE,
+)
+
+# Matches the Schoenfeld section header to confirm its presence.
+RE_SCHOENFELD_HEADER = re.compile(
+    r"Schoenfeld Residuals.*PH Assumption Test",
+)
+
+# Matches TD Panel summary line from build_td_panel.m, e.g.:
+#   "  [TD Panel] 35 patients → 210 intervals (10 events of interest, 0 competing)"
+RE_TD_PANEL = re.compile(
+    r"\[TD Panel\]\s*(\d+)\s*patients?\s*\u2192\s*(\d+)\s*intervals?\s*"
+    r"\((\d+)\s*events?\s*of interest,\s*(\d+)\s*competing\)"
+)
+
 # Matches: "Global LRT: chi2(3) = 12.45, p = 0.0061"
 # Captures degrees of freedom (1), chi-squared statistic (2), p-value (3).
 RE_GLOBAL_LRT = re.compile(
@@ -484,19 +514,31 @@ def parse_survival(text: str, log_path: str = "") -> dict:
     Returns
     -------
     dict
-        Keys: ``hazard_ratios``, ``global_lrt``, ``ipcw``,
-        ``fine_gray``, ``time_varying_cox``, ``parse_warnings``.
+        Keys: ``hazard_ratios``, ``cox_covariates``, ``global_lrt``,
+        ``ipcw``, ``fine_gray``, ``time_varying_cox``, ``ph_tests``,
+        ``schoenfeld_tested``, ``schoenfeld_violated``,
+        ``time_varying_cox_fitted``, ``n_intervals``, ``n_events``,
+        ``n_patients``, ``n_competing``, ``parse_warnings``.
     """
     result: dict = {
         "hazard_ratios": [],
+        "cox_covariates": [],
         "global_lrt": None,
         "ipcw": None,
         "fine_gray": None,
         "time_varying_cox": None,
+        "ph_tests": [],
+        "schoenfeld_tested": False,
+        "schoenfeld_violated": [],
+        "time_varying_cox_fitted": False,
+        "n_intervals": None,
+        "n_events": None,
+        "n_patients": None,
+        "n_competing": None,
         "parse_warnings": [],
     }
 
-    # Parse whitespace-delimited Cox PH table rows.
+    # Parse whitespace-delimited Cox PH table rows (legacy format).
     for m in RE_HR_ROW.finditer(text):
         result["hazard_ratios"].append({  # type: ignore
             "covariate": m.group(1),
@@ -505,6 +547,50 @@ def parse_survival(text: str, log_path: str = "") -> dict:
             "ci_hi": float(m.group(4)),
             "p": float(m.group(5)),
         })
+
+    # Parse bracket-format Cox PH table rows (current MATLAB output).
+    for m in RE_HR_ROW_BRACKET.finditer(text):
+        entry = {
+            "name": m.group(1),
+            "coeff": float(m.group(2)),
+            "hr": float(m.group(3)),
+            "ci_lo": float(m.group(4)),
+            "ci_hi": float(m.group(5)),
+            "p": float(m.group(6)),
+        }
+        result["cox_covariates"].append(entry)  # type: ignore
+        # Also populate hazard_ratios for backward compatibility.
+        result["hazard_ratios"].append({  # type: ignore
+            "covariate": entry["name"],
+            "hr": entry["hr"],
+            "ci_lo": entry["ci_lo"],
+            "ci_hi": entry["ci_hi"],
+            "p": entry["p"],
+        })
+
+    # Parse Schoenfeld residuals PH test table.
+    if RE_SCHOENFELD_HEADER.search(text):
+        result["schoenfeld_tested"] = True
+        for m in RE_SCHOENFELD_ROW.finditer(text):
+            violated = m.group(5) is not None
+            entry = {
+                "name": m.group(1),
+                "rho": float(m.group(2)),
+                "chi2": float(m.group(3)),
+                "p": float(m.group(4)),
+                "violated": violated,
+            }
+            result["ph_tests"].append(entry)  # type: ignore
+            if violated:
+                result["schoenfeld_violated"].append(entry["name"])  # type: ignore
+
+    # Parse TD Panel summary line.
+    m_td = RE_TD_PANEL.search(text)
+    if m_td:
+        result["n_patients"] = int(m_td.group(1))
+        result["n_intervals"] = int(m_td.group(2))
+        result["n_events"] = int(m_td.group(3))
+        result["n_competing"] = int(m_td.group(4))
 
     # Global likelihood-ratio test (single occurrence).
     m = RE_GLOBAL_LRT.search(text)
@@ -591,6 +677,7 @@ def parse_survival(text: str, log_path: str = "") -> dict:
             tv_data["interaction_models"].append(entry)
 
         result["time_varying_cox"] = tv_data  # type: ignore
+        result["time_varying_cox_fitted"] = True
 
     return result
 

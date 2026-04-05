@@ -253,10 +253,10 @@ After **every feature implementation** (adding a new file, adding a config field
 
 ---
 
-# Pipeline Improvement Loop
+# Pipeline AveryLoop
 
-> The improvement loop is now an **external package**: [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop).
-> The package name (`improvement_loop`) is unchanged — it is now installed from an external source via `pip`.
+> The AveryLoop is now an **external package**: [`averyloop`](https://github.com/akarlin3/averyLoop).
+> The package name (`averyloop`) is unchanged — it is now installed from an external source via `pip`.
 
 ## Installation
 
@@ -264,7 +264,7 @@ After **every feature implementation** (adding a new file, adding a config field
 pip install -r analysis/requirements.txt
 ```
 
-This installs `code-improvement-loop` from GitHub along with all other dependencies.
+This installs `averyloop` from GitHub along with all other dependencies.
 
 ## Configuration
 
@@ -282,16 +282,16 @@ The config file defines:
 - Safety critical flags (`LEAKAGE_RISK`, `PHI_RISK`)
 - RAG collection name
 
-Runtime tuning (API models, token limits, exit strategy thresholds, RAG settings) is still configured via `improvement_loop_config.json` at the repo root.
+Runtime tuning (API models, token limits, exit strategy thresholds, RAG settings) is still configured via `averyloop_config.json` at the repo root.
 
 ## Running
 
 ```bash
 # Full run
-python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m averyloop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # Legacy single-pass fallback
-python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m averyloop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
 ```
 
 **v2 pipeline flow:** Each iteration runs four agent phases in sequence:
@@ -308,13 +308,13 @@ The RAG index is automatically built/updated on the first `orchestrator_v2` run 
 
 ```bash
 # View index statistics
-python -m improvement_loop.rag.indexer --stats
+python -m averyloop.rag.indexer --stats
 
 # Force full rebuild (drops and recreates)
-python -m improvement_loop.rag.indexer --force-rebuild --stats
+python -m averyloop.rag.indexer --force-rebuild --stats
 ```
 
-RAG can be disabled by setting `"rag_enabled": false` in `improvement_loop_config.json`.
+RAG can be disabled by setting `"rag_enabled": false` in `averyloop_config.json`.
 
 ## Exit Condition
 
@@ -333,7 +333,7 @@ If ANY finding scores 2/10 or higher, you MUST continue the loop.
 ## Completion
 After the loop exits, print the full history:
 ```python
-from improvement_loop.loop_tracker import print_full_summary
+from averyloop.loop_tracker import print_full_summary
 print_full_summary()
 ```
 
