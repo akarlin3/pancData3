@@ -215,7 +215,7 @@ Copy the example configuration and update paths for your environment:
 
 ```bash
 cp config.example.json config.json
-cp improvement_loop_config.example.json improvement_loop_config.json
+cp averyloop_config.example.json averyloop_config.json
 ```
 
 Edit `config.json` with your local paths:
@@ -253,15 +253,15 @@ Edit `config.json` with your local paths:
 
 See [`config.example.json`](config.example.json) for all available fields and threshold parameters.
 
-### Improvement Loop Configuration
+### AveryLoop Configuration
 
-The automated improvement loop has its own config file. Copy the example and customize:
+AveryLoop has its own config file. Copy the example and customize:
 
 ```bash
-cp improvement_loop_config.example.json improvement_loop_config.json
+cp averyloop_config.example.json averyloop_config.json
 ```
 
-Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`improvement_loop_config.example.json`](improvement_loop_config.example.json) for the full template.
+Key fields include `exit_strategy` (`"classic"`, `"diminishing_returns"`, or `"both"`), diminishing returns thresholds (`dr_window`, `dr_max_merge_rate`, `dr_max_avg_importance`, `dr_min_file_repeats`, `dr_max_audit_score`), API settings (`anthropic_api_key`, `audit_model`, `fix_model`, `judge_model`, `review_model`), orchestrator knobs (`max_api_retries`, `retry_base_delay`, `max_file_chars`), and RAG settings (`rag_enabled`, `rag_db_path`, `rag_top_k`, `rag_min_relevance`). All fields have sensible defaults — the file is optional. See [`averyloop_config.example.json`](averyloop_config.example.json) for the full template.
 
 ---
 
@@ -449,7 +449,7 @@ python analysis/parsers/statistical_relevance.py [saved_files_path]
 
 ## AveryLoop
 
-The improvement loop is an **external package**: [`code-improvement-loop`](https://github.com/akarlin3/improvementLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
+AveryLoop is an **external package**: [`averyloop`](https://github.com/akarlin3/averyLoop). It provides an automated audit-fix-evaluate cycle that uses the Claude API to iteratively improve the codebase via a four-agent pipeline (audit → implement → review → merge) with RAG-enhanced context retrieval.
 
 ### Installation
 
@@ -459,20 +459,20 @@ pip install -r analysis/requirements.txt
 
 ### Configuration
 
-Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `improvement_loop_config.json`.
+Copy `project_config.example.yaml` to `project_config.yaml` and edit as needed. Runtime tuning (API models, token limits, RAG settings) uses `averyloop_config.json`.
 
 ### Usage
 
 ```bash
 # v2 pipeline (recommended) — four-agent RAG-enhanced loop
-python -m improvement_loop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m averyloop.orchestrator_v2 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # v1 fallback — single-pass orchestrator
-python -m improvement_loop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
+python -m averyloop.orchestrator_v1 [--max-iterations N] [--dry-run] [--single-iteration]
 
 # RAG index management
-python -m improvement_loop.rag.indexer --stats
-python -m improvement_loop.rag.indexer --force-rebuild --stats
+python -m averyloop.rag.indexer --stats
+python -m averyloop.rag.indexer --force-rebuild --stats
 ```
 
 **Requirement:** `ANTHROPIC_API_KEY` environment variable must be set.
@@ -536,8 +536,8 @@ pancData3/
 │   │   ├── interactive_constants.py #     CSS/JS for interactive report
 │   │   └── sections/              #     Section builder modules
 │   └── tests/                      #   Python test suite (43 test files)
-├── project_config.example.yaml     # Improvement loop project config template
-├── improvement_loop_config.example.json  # Improvement loop runtime config template
+├── project_config.example.yaml     # AveryLoop project config template
+├── averyloop_config.example.json   # AveryLoop runtime config template
 └── .agents/                        # AI agent configuration
     ├── rules/                      #   Agent safety rules
     └── workflows/                  #   Structured workflows

@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`pipeline/utils/filter_core_methods.m`**: Added `retained_with_warning` third output — methods that would have been pruned but are kept as fallback (e.g. `adc_threshold`) are now flagged with reasons instead of silently retained.
 - **`pipeline/utils/dispatch_pipeline_steps.m`**: Updated call site to capture `retained_with_warning` and `min_core_voxels_used`; both are saved to the pruning MAT file and logged.
 
-#### Robustness Improvements (improvement loop)
+#### Robustness Improvements (AveryLoop)
 - **`pipeline/utils/knn_impute_train_test.m`**: Partial-distance strategy for sparse data — relaxed from requiring 100% shared features to 80% fraction with a minimum absolute floor of 5 features, preventing silent imputation failures in small cohorts. Added near-zero variance guard to skip z-scoring of near-constant features. Converted cell-array patient IDs to numeric indices once at entry for ~10-50x faster blocking-mask construction.
 - **`pipeline/utils/safe_load_mask.m`**: Added `dir()` multi-entry guard for paths with glob-like characters or case-insensitive filesystem collisions. Added post-load verification against pre-load metadata for defense-in-depth against corrupted v7.3 HDF5 files. Duplicate-variable handling now records metadata for all entries.
 - **`pipeline/utils/parse_config.m`**: Added `dir()` zero/multi-entry guard (same pattern as `safe_load_mask.m`). Refactored all isfield-plus-fallback defaults to a single defaults-iteration loop — adding a new config field now requires only one line.
@@ -184,7 +184,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 #### AveryLoop Extracted to External Package
-- **`averyloop/`** directory removed — now installed as [`averyloop`](https://github.com/akarlin3/improvementLoop) via `pip install -r analysis/requirements.txt`
+- **`averyloop/`** directory removed — now installed as [`averyloop`](https://github.com/akarlin3/averyLoop) via `pip install -r analysis/requirements.txt`
 - **`project_config.yaml`** (gitignored) + **`project_config.example.yaml`** (committed) replace inline agent prompts and key file lists; contains full audit/review/judge system prompts, safety flags, RAG collection config
 - **`averyloop_config.json`** retained for runtime tuning (API models, token limits, exit strategy)
 - 12 AveryLoop test files moved to the external package; pancData3 Python test suite: 46 → 34 files
