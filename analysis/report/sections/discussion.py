@@ -622,9 +622,15 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
                             n_agree = int(n_agree + 1)  # type: ignore
         if n_total > 0:
             pct = 100 * float(n_agree) / float(n_total)  # type: ignore
+            if pct >= 70:
+                _robustness_word = "supporting"
+            elif pct >= 50:
+                _robustness_word = "showing moderate"
+            else:
+                _robustness_word = "suggesting limited"
             findings.append(
                 f"Cross-DWI-type trend agreement is {pct:.0f}% ({n_agree}/{n_total} "
-                f"series), {'supporting' if pct >= 70 else 'suggesting limited'} "
+                f"series), {_robustness_word} "
                 f"robustness of findings across acquisition strategies."
             )
 
@@ -748,17 +754,23 @@ def _section_conclusions(log_data, dwi_types_present, csv_data, mat_data, groups
         if _n_total > 0:
             cross_dwi_pct = 100 * float(_n_agree) / float(_n_total)
 
-    if cross_dwi_pct >= 50:
+    if cross_dwi_pct >= 70:
         robustness_text = (
             "The cross-DWI-type analysis demonstrates that key findings are robust "
             "to the choice of post-processing strategy, increasing confidence "
             "in their clinical applicability."
         )
+    elif cross_dwi_pct >= 50:
+        robustness_text = (
+            f"Cross-DWI trend agreement ({cross_dwi_pct:.0f}%) shows moderate consistency "
+            "across processing strategies. While not all biomarkers replicate, "
+            "specific parameters (D, f) show consistent directional changes."
+        )
     else:
         robustness_text = (
-            "While overall trend agreement is limited, specific biomarkers "
-            "(D, f) show consistent directional changes across processing "
-            "strategies."
+            f"While overall cross-DWI trend agreement is limited ({cross_dwi_pct:.0f}%), "
+            "specific biomarkers show consistent directional changes across processing "
+            "strategies, suggesting parameter-specific rather than global robustness."
         )
 
     h.append(
