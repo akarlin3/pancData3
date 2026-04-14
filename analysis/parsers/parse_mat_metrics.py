@@ -514,6 +514,52 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                 if hasattr(adc, "shape") and len(adc.shape) >= 2:
                     out_data["longitudinal"]["num_patients"] = int(adc.shape[0])
                     out_data["longitudinal"]["num_timepoints"] = int(adc.shape[-1])
+
+            # ── Fx1 Repeat Dice (spatial repeatability) ──
+            # summary_metrics stores dice_rpt_{adc,d,f,dstar} as
+            # [nPatients x 3] arrays (3 DWI types: Standard=0, DnCNN=1, IVIMnet=2).
+            # Extract the column for the current DWI type and compute
+            # mean/std across patients with non-NaN entries.
+            if summary:
+                dwi_col_map = {"Standard": 0, "dnCNN": 1, "DnCNN": 1, "IVIMnet": 2}
+                dwi_col = dwi_col_map.get(dwi)
+                if dwi_col is not None:
+                    rpt_fields = {
+                        "adc": "dice_rpt_adc",
+                        "d": "dice_rpt_d",
+                        "f": "dice_rpt_f",
+                        "dstar": "dice_rpt_dstar",
+                    }
+                    rpt_entry: dict = {}
+                    for param, field_name in rpt_fields.items():
+                        if not hasattr(summary, field_name):
+                            continue
+                        arr = getattr(summary, field_name)
+                        if not hasattr(arr, "shape"):
+                            continue
+                        # Select column for this DWI type (may be 1-D if single DWI type).
+                        try:
+                            if arr.ndim >= 2 and arr.shape[-1] > dwi_col:
+                                col = arr[:, dwi_col]
+                            elif arr.ndim == 1:
+                                col = arr
+                            else:
+                                continue
+                        except Exception:
+                            continue
+                        col = numpy_np.asarray(col, dtype=float)  # type: ignore
+                        valid = col[~numpy_np.isnan(col)]  # type: ignore
+                        n_valid = int(valid.size)
+                        if n_valid == 0:
+                            rpt_entry[param] = {"mean": None, "std": None, "n": 0}
+                        else:
+                            rpt_entry[param] = {
+                                "mean": _safe_float(numpy_np.mean(valid)),  # type: ignore
+                                "std": _safe_float(numpy_np.std(valid)),  # type: ignore
+                                "n": n_valid,
+                            }
+                    if rpt_entry:
+                        out_data["repeatability_dice"] = rpt_entry
         except Exception as e:
             print(f"Error parsing {summary_mat.name}: {e}")
 

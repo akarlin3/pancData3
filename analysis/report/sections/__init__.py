@@ -103,6 +103,9 @@ from .subvolume_stability import (  # noqa: F401
 from .per_method_cor import (  # noqa: F401
     _section_per_method_cor,
 )
+from .repeatability_dice import (  # noqa: F401
+    _section_repeatability_dice,
+)
 from .dose_response_roc import (  # noqa: F401
     _section_dose_response_roc,
 )
