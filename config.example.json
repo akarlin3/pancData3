@@ -55,5 +55,7 @@
     "run_dose_response_roc": false,
     "run_risk_dose_concordance": false,
     "run_per_method_cor": false,
-    "run_gtv_confounding": false
+    "run_gtv_confounding": false,
+    "run_optimize_threshold": false,
+    "run_baseline_vs_delta": false
 }

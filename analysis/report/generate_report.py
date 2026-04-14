@@ -127,9 +127,14 @@ from report.sections import (  # noqa: F401  # type: ignore
     build_registration_quality_section,
     _section_subvolume_stability,
     _section_per_method_cor,
+    _section_repeatability_dice,
     _section_dose_response_roc,
     _section_gtv_confounding,
     _section_risk_dose_concordance,
+    _section_dose_context,
+    _section_subvolume_sizes,
+    _section_threshold_optimization,
+    _section_baseline_vs_delta,
 )
 
 setup_utf8_stdout()
@@ -433,8 +438,12 @@ def generate_report(folder: Path) -> str:
         ("Core method pruning", _section_pruning_results, (mat_data, dwi_types_present)),
         ("Core method outcomes", _section_core_method_outcomes, (mat_data, dwi_types_present)),
         ("Per-method CoR", _section_per_method_cor, (mat_data, dwi_types_present)),
+        ("Repeat Dice", _section_repeatability_dice, (mat_data, dwi_types_present)),
+        ("Threshold optimisation", _section_threshold_optimization, (mat_data, dwi_types_present)),
         ("Sub-volume stability", _section_subvolume_stability, (mat_data, dwi_types_present)),
+        ("Sub-volume sizes", _section_subvolume_sizes, (mat_data, dwi_types_present)),
         ("Dose-response ROC", _section_dose_response_roc, (mat_data, dwi_types_present)),
+        ("Sub-volume dose context", _section_dose_context, (mat_data, dwi_types_present)),
         ("GTV confounding", _section_gtv_confounding, (mat_data, dwi_types_present)),
         ("Risk-dose concordance", _section_risk_dose_concordance, (mat_data, dwi_types_present)),
     ]
@@ -494,6 +503,7 @@ def generate_report(folder: Path) -> str:
         ("__break__", None, "Part 4 — Outcomes"),
         ("Correlations", _section_correlations, (rows,)),
         ("Treatment response", _section_treatment_response, (groups,)),
+        ("Baseline vs Delta", _section_baseline_vs_delta, (mat_data, dwi_types_present)),
         ("Predictive performance", _section_predictive_performance, (log_data, dwi_types_present)),
         ("Forest plot", _section_forest_plot_figure, (log_data, dwi_types_present, folder)),
         ("Feature overlap", _section_feature_overlap, (log_data, dwi_types_present)),
