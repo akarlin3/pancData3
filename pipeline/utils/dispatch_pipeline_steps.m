@@ -233,6 +233,38 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     end
 
     % =====================================================================
+    % Dose vs Delta D scatter plots (WU3)
+    % =====================================================================
+    if isfield(baseline_results, 'D_pct') && ~isempty(fieldnames(dosimetry_results))
+        try
+            plot_dose_vs_delta(baseline_results, dosimetry_results, config_struct);
+        catch ME_delta
+            fprintf('  \xe2\x9a\xa0\xef\xb8\x8f plot_dose_vs_delta failed: %s\n', ME_delta.message);
+        end
+    end
+
+    % =====================================================================
+    % ADC Threshold Optimization (WU4)
+    % =====================================================================
+    % Sweeps ADC threshold 0.8e-3..2.0e-3 and finds the value maximizing
+    % Fx1 repeat Dice. Output is saved to type_output_folder (DWI subfolder)
+    % as adc_threshold_optimization_{dwi}.mat (variable: opt_results).
+    if isfield(config_struct, 'run_optimize_threshold') && config_struct.run_optimize_threshold
+        try
+            opt_results = optimize_adc_threshold(validated_data_gtvp, config_struct, ...
+                summary_metrics.id_list, summary_metrics.gtv_locations); %#ok<NASGU>
+            save(fullfile(type_output_folder, ...
+                sprintf('adc_threshold_optimization_%s.mat', current_name)), 'opt_results');
+        catch ME_opt
+            fprintf('  \xe2\x9a\xa0\xef\xb8\x8f optimize_adc_threshold failed: %s\n', ME_opt.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] optimize_adc_threshold failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME_opt.message);
+            end
+        end
+    end
+
+    % =====================================================================
     % Stats Comparisons
     % =====================================================================
     if ismember('metrics_stats_comparisons', steps_to_run)
@@ -412,6 +444,24 @@ function dispatch_pipeline_steps(session, validated_data_gtvp, validated_data_gt
     else
         if ~isempty(pipeGUI), pipeGUI.completeStep('metrics_survival', 'skipped'); end
         fprintf('⏭️ [5.5/5] [%s] Skipping metrics_survival.\n', current_name);
+    end
+
+    % =====================================================================
+    % Baseline vs Delta Cox PH comparison (WU7)
+    % =====================================================================
+    if isfield(config_struct, 'run_baseline_vs_delta') && config_struct.run_baseline_vs_delta ...
+            && isfield(baseline_results, 'D_pct')
+        try
+            comparison = compare_baseline_vs_delta(baseline_results, config_struct); %#ok<NASGU>
+            save(fullfile(config_struct.output_folder, ...
+                sprintf('baseline_vs_delta_%s.mat', current_name)), 'comparison');
+        catch ME_bvd
+            fprintf('  \xe2\x9a\xa0\xef\xb8\x8f compare_baseline_vs_delta failed: %s\n', ME_bvd.message);
+            if log_fid > 0
+                fprintf(log_fid, '[%s] [WARNING] compare_baseline_vs_delta failed: %s\n', ...
+                    datestr(now, 'yyyy-mm-dd HH:MM:SS'), ME_bvd.message);
+            end
+        end
     end
 end
 
