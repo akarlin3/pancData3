@@ -11,6 +11,8 @@ _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _repo_root not in sys.path:
     sys.path.insert(0, _repo_root)
 
+pytest.importorskip("averyloop", reason="averyloop package not installed")
+
 from averyloop.agents.reviewer import (
     VALID_VERDICTS,
     _parse_review,

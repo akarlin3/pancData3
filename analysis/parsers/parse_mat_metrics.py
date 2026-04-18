@@ -485,8 +485,11 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                 NaN results are returned as None so JSON serialisation does
                 not produce invalid output.
                 """
-                mean_val = _safe_float(numpy_np.nanmean(arr))  # type: ignore
-                std_val = _safe_float(numpy_np.nanstd(arr))  # type: ignore
+                a = numpy_np.asarray(arr, dtype=float).ravel()  # type: ignore
+                if a.size == 0 or numpy_np.all(numpy_np.isnan(a)):  # type: ignore
+                    return {"mean": None, "std": None}
+                mean_val = _safe_float(numpy_np.nanmean(a))  # type: ignore
+                std_val = _safe_float(numpy_np.nanstd(a))  # type: ignore
                 return {"mean": mean_val, "std": std_val}
 
             nan_scalar = numpy_np.array([float("nan")])  # type: ignore
