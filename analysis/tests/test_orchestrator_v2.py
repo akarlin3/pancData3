@@ -9,6 +9,8 @@ from unittest.mock import patch, MagicMock
 # Add repo root so modules are importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+pytest.importorskip("averyloop", reason="averyloop package not installed")
+
 from averyloop import loop_tracker
 from averyloop import orchestrator_v2
 from averyloop.orchestrator_v2 import (

@@ -39,6 +39,15 @@ def bland_altman(x: np.ndarray, y: np.ndarray) -> dict:
         Keys: bias, sd, loa_lo, loa_hi, pct_outside_loa, n
     """
     diff = x - y
+    if len(diff) == 0:
+        return {
+            "bias": float("nan"),
+            "sd": float("nan"),
+            "loa_lo": float("nan"),
+            "loa_hi": float("nan"),
+            "pct_outside_loa": 0.0,
+            "n": 0,
+        }
     mean_xy = (x + y) / 2
     bias = float(np.mean(diff))
     sd = float(np.std(diff, ddof=1))
