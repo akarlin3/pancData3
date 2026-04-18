@@ -78,14 +78,27 @@ for di = 1:n_diff_metrics
         % 2=competing risk (non-cancer death without prior LF).
         lf_group_col = lf_group(:);
 
-        % Exclude competing-risk patients (lf==2) from scatter and statistics
-        % to prevent Simpson's paradox from masking group-specific trends.
-        eligible = (lf_group_col <= 1);
-        clean = eligible & ~isnan(x_vals) & ~isnan(y_vals);
+        % Include all outcome groups; competing risks shown separately
+        % (lf==2) are displayed as gray squares but excluded from per-group
+        % LC/LF correlation statistics to prevent Simpson's paradox.
+        eligible_lc_lf = (lf_group_col <= 1);
+        eligible_all = ~isnan(lf_group_col);
+        clean_all = eligible_all & ~isnan(x_vals) & ~isnan(y_vals);
+        clean = eligible_lc_lf & ~isnan(x_vals) & ~isnan(y_vals);
         if sum(clean) < 3
             title([diff_names{di} ' — insufficient data']);
             plot_idx = plot_idx + 1;
             continue;
+        end
+
+        % Plot competing-risk patients (lf==2) first as gray squares so
+        % they appear behind the LC/LF markers.
+        cr_mask = clean_all & lf_group_col==2;
+        if sum(cr_mask) > 0
+            scatter(x_vals(cr_mask), y_vals(cr_mask), ...
+                40, [0.5 0.5 0.5], 's', 'filled', 'MarkerEdgeColor', [0.3 0.3 0.3], ...
+                'DisplayName', 'CR');
+            hold on;
         end
 
         % Plot LC (blue, MATLAB default blue) and LF (red/orange, MATLAB default orange)
@@ -154,23 +167,42 @@ for di = 1:n_diff_metrics
         else
             ylabel([diff_names{di} ' (' diff_units{di} ')']);
         end
+        % Compute actual N per outcome group for display (always shown,
+        % even when the correlation cannot be computed due to n<3).
+        n_lc = sum(clean & lf_group_col==0);
+        n_lf = sum(clean & lf_group_col==1);
+        n_cr = sum(clean_all & lf_group_col==2);
+
         % Format correlation strings; show "n<3" when a group has insufficient data.
         if isnan(r_lc)
-            lc_corr_str = 'LC: n<3';
+            lc_corr_str = sprintf('LC (n=%d): n<3', n_lc);
         else
-            lc_corr_str = sprintf('LC r_s=%.2f %s', r_lc, format_p_value(p_lc));
+            lc_corr_str = sprintf('LC (n=%d) r_s=%.2f %s', n_lc, r_lc, format_p_value(p_lc));
         end
         if isnan(r_lf)
-            lf_corr_str = 'LF: n<3';
+            lf_corr_str = sprintf('LF (n=%d): n<3', n_lf);
         else
-            lf_corr_str = sprintf('LF r_s=%.2f %s', r_lf, format_p_value(p_lf));
+            lf_corr_str = sprintf('LF (n=%d) r_s=%.2f %s', n_lf, r_lf, format_p_value(p_lf));
         end
-        title(sprintf('%s vs Dose\n%s | %s', diff_names{di}, lc_corr_str, lf_corr_str), ...
-            'FontSize', 10);
-        if exist('OCTAVE_VERSION', 'builtin')
-            legend('LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
+        if n_cr > 0
+            title(sprintf('%s vs Dose\n%s | %s | CR: n=%d', diff_names{di}, lc_corr_str, lf_corr_str, n_cr), ...
+                'FontSize', 9);
         else
-            lg = legend('Location', 'best', 'FontSize', 8);
+            title(sprintf('%s vs Dose\n%s | %s', diff_names{di}, lc_corr_str, lf_corr_str), ...
+                'FontSize', 10);
+        end
+        if exist('OCTAVE_VERSION', 'builtin')
+            if n_cr > 0
+                legend('CR', 'LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
+            else
+                legend('LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
+            end
+        else
+            if n_cr > 0
+                lg = legend('CR', 'LC', 'LF', 'Location', 'best', 'FontSize', 8);
+            else
+                lg = legend('LC', 'LF', 'Location', 'best', 'FontSize', 8);
+            end
             set(lg, 'Box', 'on', 'EdgeColor', [0.5 0.5 0.5]);
         end
         grid on;

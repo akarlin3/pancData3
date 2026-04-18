@@ -103,6 +103,9 @@ from .subvolume_stability import (  # noqa: F401
 from .per_method_cor import (  # noqa: F401
     _section_per_method_cor,
 )
+from .repeatability_dice import (  # noqa: F401
+    _section_repeatability_dice,
+)
 from .dose_response_roc import (  # noqa: F401
     _section_dose_response_roc,
 )
@@ -111,4 +114,16 @@ from .gtv_confounding import (  # noqa: F401
 )
 from .risk_dose_concordance import (  # noqa: F401
     _section_risk_dose_concordance,
+)
+from .dose_context import (  # noqa: F401
+    _section_dose_context,
+)
+from .subvolume_sizes import (  # noqa: F401
+    _section_subvolume_sizes,
+)
+from .threshold_optimization import (  # noqa: F401
+    _section_threshold_optimization,
+)
+from .baseline_vs_delta import (  # noqa: F401
+    _section_baseline_vs_delta,
 )

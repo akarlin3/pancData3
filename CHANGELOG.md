@@ -4,7 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [Unreleased] - v2.4
+
+### Added
+
+- **`analysis/report/sections/repeatability_dice.py`**: New report section — Fx1 spatial repeatability Dice table per parameter (ADC, D, f, D*) × DWI type with color coding (green ≥0.70, yellow 0.50–0.70, red <0.50).
+- **`pipeline/utils/plot_dose_vs_delta.m`**: New MATLAB module — scatter plots of whole-GTV and sub-volume D95 vs percent change in D at Fx2/Fx3, with LC/LF/CR colour coding and per-group Spearman annotations.
+- **`pipeline/utils/optimize_adc_threshold.m`**: New MATLAB module — sweeps ADC threshold 0.8e-3 to 2.0e-3 in 13 steps and reports the threshold that maximises median Fx1 repeat Dice. Gated on `run_optimize_threshold` config flag.
+- **`pipeline/utils/compare_baseline_vs_delta.m`**: New MATLAB module — fits univariable Cox PH for baseline and percent-change predictors per parameter/timepoint and compares Harrell's C-index. Gated on `run_baseline_vs_delta` config flag.
+- **`analysis/report/sections/dose_context.py`**: New report section — side-by-side whole-GTV vs sub-volume D95, Dmean, V50 with dose-deficit warnings (>5 Gy, >10%).
+- **`analysis/report/sections/subvolume_sizes.py`**: New report section — sub-volume size (cm³ and % of GTV) per timepoint split by LC/LF with Wilcoxon p-values.
+- **`analysis/report/sections/threshold_optimization.py`**: New report section — renders the ADC threshold sweep results with an optimal-row highlight and a comparison box (default 0.0010 vs proposed 0.0016 vs optimal).
+- **`analysis/report/sections/baseline_vs_delta.py`**: New report section — HR/p/C-index table comparing baseline vs delta predictors with a winner column.
+- **Config flags**: `run_optimize_threshold`, `run_baseline_vs_delta` (both default `false`) added to `parse_config.m` and `config.example.json`.
+- Tests: 11 pytest cases for repeat Dice, 9 for dose context, 9 for sub-volume sizes, 10 for threshold optimisation, 10 for baseline-vs-delta. MATLAB tests for `plot_dose_vs_delta`, `optimize_adc_threshold`, and `compare_baseline_vs_delta`.
+
+### Fixed
+
+- **`pipeline/core/plot_scatter_correlations.m`**: Competing-risk (lf==2) patients are now shown as gray squares behind LC/LF markers instead of being filtered out silently; LC/LF/CR counts are displayed in the panel title and legend even when correlation is not computable (n<3).
+- **`analysis/report/sections/discussion.py`**: Aligned cross-DWI robustness thresholds to a consistent three-tier scheme (≥70 strong, ≥50 moderate, <50 limited) to eliminate contradictory wording between the findings and conclusions sections.
+
+### Changed
+
+- **`analysis/parsers/parse_mat_metrics.py`**: Extended to extract Fx1 repeat Dice (`dice_rpt_{adc,d,f,dstar}`) from `summary_metrics_*.mat`, whole-GTV dosimetry fields from `baseline_results_*.mat`, sub-volume size arrays, ADC threshold optimisation results, and baseline-vs-delta comparison results.
 
 ## [2.3.2] - 2026-04-01
 

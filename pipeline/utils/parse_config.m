@@ -150,6 +150,8 @@ function config_struct = parse_config(json_path)
         defaults.run_risk_dose_concordance   = false;
         defaults.run_per_method_cor          = false;
         defaults.run_gtv_confounding         = false;
+        defaults.run_optimize_threshold      = false;
+        defaults.run_baseline_vs_delta       = false;
 
         % --- Numeric scalar thresholds and counts ---
         defaults.adc_thresh                  = 0.001;
@@ -253,7 +255,8 @@ function config_struct = parse_config(json_path)
             'use_gpu', 'run_trajectory_plots', ...
             'run_subvolume_stability', 'run_dose_response_roc', ...
             'run_risk_dose_concordance', 'run_per_method_cor', ...
-            'run_gtv_confounding'};
+            'run_gtv_confounding', 'run_optimize_threshold', ...
+            'run_baseline_vs_delta'};
         for i = 1:numel(logical_fields)
             fn = logical_fields{i};
             if isfield(config_struct, fn)

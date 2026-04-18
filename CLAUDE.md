@@ -66,9 +66,9 @@ pancData3/
 │   ├── patient_data_check.m            # Pre-pipeline data integrity scanner
 │   ├── generate_patient_exclusion_report.m # Comprehensive patient exclusion report
 │   ├── core/                           # Primary pipeline modules (18 files)
-│   ├── utils/                          # Helper utilities (82 files)
+│   ├── utils/                          # Helper utilities (85 files)
 │   ├── .octave_compat/                 # Octave compatibility shims (24 files)
-│   ├── tests/                          # Full test suite (133 test files)
+│   ├── tests/                          # Full test suite (136 test files)
 │   │   ├── run_all_tests.m             # MATLAB unittest test runner
 │   │   ├── benchmarks/                 # Performance benchmarks (7 files)
 │   │   └── diagnostics/                # Diagnostic spot-check scripts (6 files)
@@ -82,8 +82,8 @@ pancData3/
 │   │   ├── generate_report.py          # Report orchestrator
 │   │   ├── report_formatters.py        # Formatting utilities
 │   │   ├── report_constants.py         # CSS, JS, references, templates
-│   │   └── sections/                   # Section builders (41 files)
-│   └── tests/                          # Python test suite — 48 test files, pytest
+│   │   └── sections/                   # Section builders (51 files)
+│   └── tests/                          # Python test suite — 52 test files, pytest
 ├── project_config.yaml                  # AveryLoop project config (not committed)
 ├── project_config.example.yaml          # AveryLoop project config template (committed)
 ├── averyloop_config.example.json # AveryLoop runtime config template (committed)
@@ -161,7 +161,9 @@ Key fields:
   "run_dose_response_roc": false,
   "run_risk_dose_concordance": false,
   "run_per_method_cor": false,
-  "run_gtv_confounding": false
+  "run_gtv_confounding": false,
+  "run_optimize_threshold": false,
+  "run_baseline_vs_delta": false
 }
 ```
 
@@ -291,6 +293,9 @@ If a change (addition or removal) truly cannot be made backwards-compatible, you
 | `compute_per_method_cor.m` | Coefficient of Reproducibility for each core method's sub-volume from Fx1 repeat scans |
 | `compute_gtv_confounding.m` | Check if GTV volume change confounds D95-outcome association via adjusted Cox PH |
 | `compute_median_followup.m` | Median follow-up time (simple median + reverse Kaplan-Meier) with event/censoring breakdown |
+| `plot_dose_vs_delta.m` | Scatter plots of whole-GTV and sub-volume D95 vs percent change in D at Fx2/Fx3, colour-coded by outcome |
+| `optimize_adc_threshold.m` | ADC threshold sweep (0.8e-3 to 2.0e-3) with Fx1 repeat Dice optimisation; gated on `run_optimize_threshold` |
+| `compare_baseline_vs_delta.m` | Univariable Cox PH comparison of baseline vs percent-change predictors (HR, p, Harrell's C); gated on `run_baseline_vs_delta` |
 
 ### Octave Compatibility (`pipeline/.octave_compat/`)
 
@@ -339,8 +344,13 @@ Python scripts for post-hoc analysis of pipeline outputs, organized into subpack
 | `report/sections/dose_response_roc.py` | Dose-response ROC section builder: AUC, optimal threshold, sensitivity/specificity with clinical guidance |
 | `report/sections/gtv_confounding.py` | GTV confounding section builder: D95-GTV correlation, adjusted/unadjusted HR comparison |
 | `report/sections/risk_dose_concordance.py` | Risk-dose concordance section builder: Cohen's kappa, confusion matrix, combined AUC |
+| `report/sections/repeatability_dice.py` | Fx1 repeat Dice section builder: parameter × DWI-type table with colour-coded reproducibility thresholds |
+| `report/sections/dose_context.py` | Sub-volume vs whole-GTV dose context section: D95/Dmean/V50 deficit table with clinical-significance warnings |
+| `report/sections/subvolume_sizes.py` | Sub-volume size section: cm³ and % of GTV per timepoint stratified by LC/LF with Wilcoxon p-values |
+| `report/sections/threshold_optimization.py` | ADC threshold sweep section: optimal-row highlighted table with default-vs-optimal comparison box |
+| `report/sections/baseline_vs_delta.py` | Baseline vs delta section: HR/p/C-index table with winner column for each parameter × timepoint |
 
-**Python Test Suite (pytest):** 47 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (AveryLoop tests are in the [averyloop](https://github.com/akarlin3/averyLoop) package.)
+**Python Test Suite (pytest):** 52 test files in `analysis/tests/`. Run with `cd analysis/tests && python -m pytest -v`. (AveryLoop tests are in the [averyloop](https://github.com/akarlin3/averyLoop) package.)
 
 | File | What it covers |
 |---|---|
@@ -492,4 +502,4 @@ Contains third-party scripts. Treat as read-only. For the full file listing, see
 
 ## Module Reference
 
-For detailed tables of all core modules (19 files), utility modules (82 files), Octave compatibility shims (24 files), analysis scripts (46 report section files), and Python test files (47 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md). Pipeline also includes top-level scripts: `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m`, and `generate_patient_exclusion_report.m`.
+For detailed tables of all core modules (19 files), utility modules (85 files), Octave compatibility shims (24 files), analysis scripts (51 report section files), and Python test files (52 files), see [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md). Pipeline also includes top-level scripts: `run_dwi_pipeline.m`, `execute_all_workflows.m`, `patient_data_check.m`, and `generate_patient_exclusion_report.m`.
