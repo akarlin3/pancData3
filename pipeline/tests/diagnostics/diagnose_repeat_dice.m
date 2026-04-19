@@ -16,15 +16,50 @@ function diagnose_repeat_dice()
 
     cfg = parse_config('config.json');
     dataloc = cfg.dataloc;
-    sm_path = fullfile(dataloc, 'summary_metrics_Standard.mat');
-    dv_path = fullfile(dataloc, 'dwi_vectors_Standard.mat');
 
     fprintf('\n=== Repeat Dice Diagnostic ===\n');
+    fprintf('dataloc: %s\n', dataloc);
+
+    % Locate summary_metrics and dwi_vectors, trying several candidate names.
+    sm_candidates = { ...
+        fullfile(dataloc, 'summary_metrics_Standard.mat'), ...
+        fullfile(dataloc, 'summary_metrics.mat') };
+    dv_candidates = { ...
+        fullfile(dataloc, 'dwi_vectors_Standard.mat'), ...
+        fullfile(dataloc, 'dwi_vectors.mat') };
+
+    sm_path = '';
+    for i = 1:length(sm_candidates)
+        if exist(sm_candidates{i}, 'file'); sm_path = sm_candidates{i}; break; end
+    end
+    dv_path = '';
+    for i = 1:length(dv_candidates)
+        if exist(dv_candidates{i}, 'file'); dv_path = dv_candidates{i}; break; end
+    end
+
+    if isempty(sm_path)
+        fprintf('\n❌ summary_metrics not found at any of:\n');
+        for i = 1:length(sm_candidates); fprintf('     %s\n', sm_candidates{i}); end
+        fprintf('\nFiles present in dataloc matching summary_metrics*.mat:\n');
+        d = dir(fullfile(dataloc, 'summary_metrics*.mat'));
+        if isempty(d)
+            fprintf('  (none)\n');
+        else
+            for i = 1:length(d); fprintf('  %s  (%s)\n', d(i).name, d(i).date); end
+        end
+        fprintf('\nTop-level .mat files in dataloc (first 20):\n');
+        d = dir(fullfile(dataloc, '*.mat'));
+        for i = 1:min(length(d), 20); fprintf('  %s\n', d(i).name); end
+        error('Please point the script at the correct dataloc or MAT file.');
+    end
+    if isempty(dv_path)
+        fprintf('\n❌ dwi_vectors not found at any of:\n');
+        for i = 1:length(dv_candidates); fprintf('     %s\n', dv_candidates{i}); end
+        error('dwi_vectors missing.');
+    end
+
     fprintf('summary_metrics: %s\n', sm_path);
     fprintf('dwi_vectors:     %s\n\n', dv_path);
-
-    if ~exist(sm_path, 'file'); error('summary_metrics not found at %s', sm_path); end
-    if ~exist(dv_path, 'file'); error('dwi_vectors not found at %s', dv_path); end
 
     sm = load(sm_path, 'summary_metrics');
     sm = sm.summary_metrics;
