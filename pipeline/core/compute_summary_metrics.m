@@ -114,7 +114,43 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
                   isfield(sm, 'adc_sub_vol_rpt') && ...
                   size(sm.adc_mean_rpt, 1) == nPat_expected && ...
                   size(sm.adc_mean_rpt, 2) == nRpt_expected;
-        if dims_ok
+
+        % Invalidate checkpoints that pre-date the shared-Fx1 fallback
+        % used by compute_spatial_repeatability / optimize_adc_threshold.
+        % If the cached dice_rpt_adc column is entirely NaN for the
+        % current DWI type but the cohort actually has patients with
+        % >=2 non-empty Fx1 repeats, the checkpoint was produced by the
+        % old code path and must be recomputed.
+        rpt_stale = false;
+        if dims_ok && isfield(sm, 'dice_rpt_adc')
+            try
+                dwi_col = 1;
+                if isfield(config_struct, 'dwi_types_to_run') && ...
+                        ~isempty(config_struct.dwi_types_to_run)
+                    dwi_col = config_struct.dwi_types_to_run(1);
+                end
+                dra = sm.dice_rpt_adc;
+                if size(dra, 2) >= dwi_col && all(isnan(dra(:, dwi_col)))
+                    has_repeats = false;
+                    for jj = 1:size(data_vectors_gtvp, 1)
+                        n_nonempty = 0;
+                        for rr = 1:size(data_vectors_gtvp, 3)
+                            if ~isempty(data_vectors_gtvp(jj, 1, rr).adc_vector)
+                                n_nonempty = n_nonempty + 1;
+                            end
+                        end
+                        if n_nonempty >= 2
+                            has_repeats = true; break;
+                        end
+                    end
+                    if has_repeats; rpt_stale = true; end
+                end
+            catch
+                % Conservative: if we cannot verify, treat as fresh.
+            end
+        end
+
+        if dims_ok && ~rpt_stale
             summary_metrics = sm;
             % Ensure fx_dates survives stale checkpoints that pre-date its
             % addition.  The caller always passes the current fx_dates, so
@@ -123,6 +159,8 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
                 summary_metrics.fx_dates = fx_dates;
             end
             return;
+        elseif rpt_stale
+            fprintf('  [CHECKPOINT] Stale checkpoint (dice_rpt all-NaN but cohort has Fx1 repeats). Recomputing...\n');
         else
             fprintf('  [CHECKPOINT] Stale checkpoint (dimension mismatch). Recomputing...\n');
         end

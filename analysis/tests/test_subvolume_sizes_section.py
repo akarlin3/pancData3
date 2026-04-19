@@ -15,6 +15,11 @@ from report.sections.subvolume_sizes import _section_subvolume_sizes
 def _make_subvol(lf_frac_pct=None, wilcoxon_p=None):
     return {
         "timepoints": [1, 2, 3],
+        "overall": {
+            "mean_vol_cm3": [5.5, 4.9, 4.3],
+            "std_vol_cm3": [1.1, 1.0, 0.9],
+            "mean_frac_pct": [0.20, 0.18, 0.15],
+        },
         "lc": {
             "mean_vol_cm3": [5.0, 4.2, 3.5],
             "std_vol_cm3": [1.0, 0.9, 0.8],
@@ -90,3 +95,13 @@ class TestSubvolumeSizesSection:
         html = "\n".join(result)
         # 0.18 fraction -> ~18%
         assert "18" in html or "18.0%" in html
+
+    def test_overall_column_rendered(self):
+        result = _section_subvolume_sizes(_make_mat_data(), ["Standard"])
+        html = "\n".join(result)
+        assert "Overall Vol" in html
+        assert "Overall Frac" in html
+        # 5.50 overall vol at Fx1
+        assert "5.50" in html
+        # 0.20 overall frac -> 20.0%
+        assert "20.0%" in html
