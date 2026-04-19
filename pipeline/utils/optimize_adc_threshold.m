@@ -101,7 +101,17 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
             continue;
         end
 
-        % Load 3D GTV masks for each valid repeat.
+        % Load 3D GTV masks for each valid repeat.  When only one shared
+        % Fx1 contour exists (gtv_locations{j,1,1} populated but {j,1,2..N}
+        % empty), fall back to that shared path so the sweep is not skipped
+        % for every patient in the cohort.
+        shared_fx1_path = '';
+        if ~isempty(gtv_locations) && size(gtv_locations, 1) >= j
+            for ri_shared = 1:size(gtv_locations, 3)
+                candidate = gtv_locations{j, 1, ri_shared};
+                if ~isempty(candidate); shared_fx1_path = candidate; break; end
+            end
+        end
         rpt_masks_3d = cell(numel(valid_rpis), 1);
         has_all_3d = true;
         for ri = 1:numel(valid_rpis)
@@ -111,6 +121,7 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
                 has_all_3d = false; break;
             end
             gtv_path = gtv_locations{j, 1, rpi_idx};
+            if isempty(gtv_path); gtv_path = shared_fx1_path; end
             if isempty(gtv_path) || ~exist(gtv_path, 'file')
                 has_all_3d = false; break;
             end

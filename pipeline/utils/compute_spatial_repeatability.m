@@ -83,11 +83,26 @@ end
 % The 3D mask is needed to embed 1D voxel parameter vectors back into
 % their spatial positions for morphological cleanup and Dice/Hausdorff
 % computation. Without 3D masks, spatial repeatability cannot be assessed.
+%
+% Shared-mask fallback: many sites contour a single GTV per Fx1 session
+% (one indexed file, typically GTV1.mat or GTV.mat) and reuse it across
+% every back-to-back repeat because the tumour does not move between
+% acquisitions.  In that case gtv_locations{j,1,1} is populated but
+% {j,1,2..N} are empty, and without a fallback this function would return
+% NaN for every patient in the cohort.  Find the first non-empty Fx1 path
+% and reuse it for any repeat that is missing its own path.
+shared_fx1_path = '';
+for ri = 1:size(gtv_locations, 3)
+    candidate = gtv_locations{j, 1, ri};
+    if ~isempty(candidate); shared_fx1_path = candidate; break; end
+end
+
 rpt_masks_3d = cell(numel(valid_rpis), 1);
 rpt_has_3d = true;
 for ri = 1:numel(valid_rpis)
     rpi_idx = valid_rpis(ri);
     gtv_mat_path = gtv_locations{j, 1, rpi_idx};
+    if isempty(gtv_mat_path); gtv_mat_path = shared_fx1_path; end
     if ~isempty(gtv_mat_path)
         % Normalize path separators for cross-platform compatibility
         % (strsplit on both / and \ handles Windows and Unix paths)
