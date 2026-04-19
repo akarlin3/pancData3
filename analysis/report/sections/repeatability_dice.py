@@ -50,11 +50,19 @@ def _section_repeatability_dice(mat_data: dict, dwi_types: list[str]) -> list[st
     if not mat_data:
         return []
 
-    # Find which DWI types have repeatability data.
+    # Find which DWI types have repeatability data with at least one
+    # parameter containing a real (non-NaN) sample.
     dwi_with_data: list[str] = []
     for dwi in DWI_TYPES:
         entry = (mat_data or {}).get(dwi, {})
-        if entry and entry.get("repeatability_dice"):
+        rpt = entry.get("repeatability_dice") if entry else None
+        if not rpt:
+            continue
+        any_samples = any(
+            (info or {}).get("n", 0) > 0 and (info or {}).get("mean") is not None
+            for info in rpt.values()
+        )
+        if any_samples:
             dwi_with_data.append(dwi)
 
     if not dwi_with_data:

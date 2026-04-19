@@ -40,7 +40,14 @@ def _section_threshold_optimization(mat_data: dict, dwi_types: list[str]) -> lis
     for dwi in DWI_TYPES:
         entry = (mat_data or {}).get(dwi) or {}
         opt = entry.get("threshold_optimization")
-        if opt and opt.get("thresholds"):
+        if not opt or not opt.get("thresholds"):
+            continue
+        # Require at least one valid Dice value and at least one patient
+        # with repeats; otherwise the sweep produced no usable data.
+        n_pts = opt.get("n_patients") or 0
+        md = opt.get("median_dice") or []
+        has_real_dice = any(v is not None for v in md)
+        if n_pts > 0 and has_real_dice:
             dwi_with_data.append(dwi)
 
     if not dwi_with_data:
