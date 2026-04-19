@@ -83,9 +83,13 @@ def _section_subvolume_sizes(mat_data: dict, dwi_types: list[str]) -> list[str]:
         entry = mat_data[dwi]
         svs = entry["subvolume_sizes"]
         tps = svs.get("timepoints") or []
+        overall = svs.get("overall") or {}
         lc = svs.get("lc") or {}
         lf = svs.get("lf") or {}
         ps = svs.get("wilcoxon_p") or [None] * len(tps)
+        ov_vol = overall.get("mean_vol_cm3") or []
+        ov_svol = overall.get("std_vol_cm3") or []
+        ov_frac = overall.get("mean_frac_pct") or []
         lc_vol = lc.get("mean_vol_cm3") or []
         lc_svol = lc.get("std_vol_cm3") or []
         lf_vol = lf.get("mean_vol_cm3") or []
@@ -96,6 +100,8 @@ def _section_subvolume_sizes(mat_data: dict, dwi_types: list[str]) -> list[str]:
         h.append(f"<h3>{_dwi_badge(dwi)}</h3>")
         h.append("<table><thead><tr>"
                  "<th>Timepoint</th>"
+                 "<th>Overall Vol (cm\u00b3)</th>"
+                 "<th>Overall Frac (%)</th>"
                  "<th>LC Vol (cm\u00b3)</th>"
                  "<th>LF Vol (cm\u00b3)</th>"
                  "<th>LC Frac (%)</th>"
@@ -110,6 +116,8 @@ def _section_subvolume_sizes(mat_data: dict, dwi_types: list[str]) -> list[str]:
                 except (IndexError, TypeError):
                     return None
 
+            ovv, ovs = _get(ov_vol, i), _get(ov_svol, i)
+            ovf = _get(ov_frac, i)
             lcv, lcs = _get(lc_vol, i), _get(lc_svol, i)
             lfv, lfs = _get(lf_vol, i), _get(lf_svol, i)
             lcf, lff = _get(lc_frac, i), _get(lf_frac, i)
@@ -130,6 +138,8 @@ def _section_subvolume_sizes(mat_data: dict, dwi_types: list[str]) -> list[str]:
 
             h.append("<tr>")
             h.append(f"<td><strong>Fx{_esc(str(tp))}</strong></td>")
+            h.append(f"<td>{_fmt_mean_std(ovv, ovs)}</td>")
+            h.append(f"<td>{_fmt_pct(ovf)}</td>")
             h.append(f"<td>{_fmt_mean_std(lcv, lcs)}</td>")
             h.append(f"<td>{_fmt_mean_std(lfv, lfs)}</td>")
             h.append(f"<td>{_fmt_pct(lcf)}</td>")

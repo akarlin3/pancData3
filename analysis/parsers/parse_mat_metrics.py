@@ -683,6 +683,9 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                             lf_mean_pct: list[typing.Optional[float]] = []
                             wilcoxon_p: list[typing.Optional[float]] = []
                             median_vox: list[typing.Optional[float]] = []
+                            overall_mean_vol: list[typing.Optional[float]] = []
+                            overall_std_vol: list[typing.Optional[float]] = []
+                            overall_mean_pct: list[typing.Optional[float]] = []
 
                             for k in range(n_tp):
                                 timepoints.append(k + 1)
@@ -694,6 +697,27 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                                     median_vox.append(_safe_float(numpy_np.nanmedian(col_vol)))  # type: ignore
                                 except Exception:
                                     median_vox.append(None)
+
+                                # Overall mean/std across all patients
+                                # (not stratified by outcome).
+                                try:
+                                    finite_vol = col_vol[~numpy_np.isnan(col_vol)]  # type: ignore
+                                    overall_mean_vol.append(
+                                        _safe_float(numpy_np.nanmean(finite_vol)) if finite_vol.size else None)  # type: ignore
+                                    overall_std_vol.append(
+                                        _safe_float(numpy_np.nanstd(finite_vol)) if finite_vol.size else None)  # type: ignore
+                                except Exception:
+                                    overall_mean_vol.append(None)
+                                    overall_std_vol.append(None)
+                                try:
+                                    if col_pc is not None:
+                                        finite_pc = col_pc[~numpy_np.isnan(col_pc)]  # type: ignore
+                                        overall_mean_pct.append(
+                                            _safe_float(numpy_np.nanmean(finite_pc)) if finite_pc.size else None)  # type: ignore
+                                    else:
+                                        overall_mean_pct.append(None)
+                                except Exception:
+                                    overall_mean_pct.append(None)
 
                                 if m_lf is not None and m_lf.size == col_vol.size:
                                     lf_mask = (m_lf == 1) & ~numpy_np.isnan(col_vol)  # type: ignore
@@ -731,6 +755,11 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
 
                             out_data["subvolume_sizes"] = {
                                 "timepoints": timepoints,
+                                "overall": {
+                                    "mean_vol_cm3": overall_mean_vol,
+                                    "std_vol_cm3": overall_std_vol,
+                                    "mean_frac_pct": overall_mean_pct,
+                                },
                                 "lc": {
                                     "mean_vol_cm3": lc_mean_vol,
                                     "std_vol_cm3": lc_std_vol,
