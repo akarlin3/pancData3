@@ -1,5 +1,9 @@
-function diagnose_repeat_dice()
+function diagnose_repeat_dice(output_folder)
 % DIAGNOSE_REPEAT_DICE  Investigate why dice_rpt_* arrays are all NaN.
+%
+% Usage:
+%   diagnose_repeat_dice();                              % auto-detect most recent saved_files_*
+%   diagnose_repeat_dice('saved_files_20260418_194711'); % explicit output folder
 %
 % Checks, for each patient in summary_metrics_Standard.mat:
 %   1. Whether gtv_locations{j, 1, rpi} points to real files for Fx1 repeats.
@@ -14,11 +18,38 @@ function diagnose_repeat_dice()
 %
 % Output: a printed table showing per-patient Fx1 repeat status plus a summary.
 
+    if nargin < 1, output_folder = ''; end
+
     cfg = parse_config('config.json');
     dataloc = cfg.dataloc;
 
     fprintf('\n=== Repeat Dice Diagnostic ===\n');
     fprintf('dataloc: %s\n', dataloc);
+
+    % Auto-detect the most recent saved_files_* folder when none was provided.
+    % compute_summary_metrics saves the checkpoint under dataloc, but the
+    % canonical output is under <project>/saved_files_<timestamp>/.
+    if isempty(output_folder)
+        % Search both current working directory and dataloc's parent.
+        search_roots = {pwd};
+        if ~isempty(dataloc); search_roots{end+1} = dataloc; end
+        candidates = [];
+        for r = 1:length(search_roots)
+            d = dir(fullfile(search_roots{r}, 'saved_files_*'));
+            d = d([d.isdir]);
+            for i = 1:length(d)
+                d(i).fullpath = fullfile(search_roots{r}, d(i).name);
+            end
+            if ~isempty(d); candidates = [candidates; d]; end %#ok<AGROW>
+        end
+        if ~isempty(candidates)
+            [~, idx] = max([candidates.datenum]);
+            output_folder = candidates(idx).fullpath;
+            fprintf('output_folder (auto): %s\n', output_folder);
+        end
+    else
+        fprintf('output_folder: %s\n', output_folder);
+    end
 
     % Locate summary_metrics and dwi_vectors, trying several candidate names.
     sm_candidates = { ...
@@ -27,6 +58,16 @@ function diagnose_repeat_dice()
     dv_candidates = { ...
         fullfile(dataloc, 'dwi_vectors_Standard.mat'), ...
         fullfile(dataloc, 'dwi_vectors.mat') };
+    if ~isempty(output_folder)
+        sm_candidates = [ ...
+            {fullfile(output_folder, 'summary_metrics_Standard.mat'), ...
+             fullfile(output_folder, 'Standard', 'summary_metrics_Standard.mat')}, ...
+            sm_candidates];
+        dv_candidates = [ ...
+            {fullfile(output_folder, 'dwi_vectors_Standard.mat'), ...
+             fullfile(output_folder, 'Standard', 'dwi_vectors_Standard.mat')}, ...
+            dv_candidates];
+    end
 
     sm_path = '';
     for i = 1:length(sm_candidates)
@@ -40,17 +81,25 @@ function diagnose_repeat_dice()
     if isempty(sm_path)
         fprintf('\n❌ summary_metrics not found at any of:\n');
         for i = 1:length(sm_candidates); fprintf('     %s\n', sm_candidates{i}); end
-        fprintf('\nFiles present in dataloc matching summary_metrics*.mat:\n');
-        d = dir(fullfile(dataloc, 'summary_metrics*.mat'));
-        if isempty(d)
-            fprintf('  (none)\n');
-        else
-            for i = 1:length(d); fprintf('  %s  (%s)\n', d(i).name, d(i).date); end
+
+        fprintf('\nFiles in dataloc matching summary_metrics*.mat:\n');
+        d1 = dir(fullfile(dataloc, 'summary_metrics*.mat'));
+        if isempty(d1); fprintf('  (none)\n'); else
+            for i = 1:length(d1); fprintf('  %s  (%s)\n', d1(i).name, d1(i).date); end
         end
-        fprintf('\nTop-level .mat files in dataloc (first 20):\n');
-        d = dir(fullfile(dataloc, '*.mat'));
-        for i = 1:min(length(d), 20); fprintf('  %s\n', d(i).name); end
-        error('Please point the script at the correct dataloc or MAT file.');
+
+        if ~isempty(output_folder)
+            fprintf('\nFiles in output_folder matching summary_metrics*.mat (recursive):\n');
+            d2 = dir(fullfile(output_folder, '**', 'summary_metrics*.mat'));
+            if isempty(d2); fprintf('  (none)\n'); else
+                for i = 1:length(d2)
+                    fprintf('  %s  (%s)\n', fullfile(d2(i).folder, d2(i).name), d2(i).date);
+                end
+            end
+        end
+
+        error(['Please pass the correct output folder: ' ...
+               'diagnose_repeat_dice(''C:\\Projects\\pancData3\\saved_files_YYYYMMDD_HHMMSS'')']);
     end
     if isempty(dv_path)
         fprintf('\n❌ dwi_vectors not found at any of:\n');
