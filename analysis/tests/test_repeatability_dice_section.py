@@ -104,7 +104,8 @@ class TestRepeatabilityDiceSection:
         assert "&plusmn;" in html
 
     def test_all_nan_returns_empty(self):
-        # repeatability_dice exists but all entries have n=0.
+        # repeatability_dice exists but every entry has n=0 / mean=None
+        # (no patient had >=2 Fx1 repeats) -> hide the section entirely.
         mat = {
             "Standard": {
                 "repeatability_dice": {
@@ -114,8 +115,4 @@ class TestRepeatabilityDiceSection:
             }
         }
         result = _section_repeatability_dice(mat, ["Standard"])
-        html = "\n".join(result)
-        # Section still rendered with em-dashes (non-empty repeatability_dice dict).
-        # But each cell is missing — check header still rendered.
-        assert "Spatial Repeatability" in html
-        assert "&mdash;" in html
+        assert result == []
