@@ -1,10 +1,11 @@
-function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d, direction)
+function [d95, v50, dmean] = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d, direction)
 % CALCULATE_SUBVOLUME_METRICS — Computes dose metrics for a sub-volume
 %   defined by a diffusion parameter threshold within the GTV.
 %
 %   Syntax:
-%       [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d)
-%       [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d, direction)
+%       [d95, v50]        = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d)
+%       [d95, v50, dmean] = calculate_subvolume_metrics(vector, threshold, dose_vec, has_3d, gtv_mask_3d)
+%       [...] = calculate_subvolume_metrics(..., direction)
 %
 %   Inputs:
 %       vector       - 1D array of diffusion parameters (e.g., ADC, D, f, D*).
@@ -18,6 +19,8 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
 %   Outputs:
 %       d95          - The dose covering 95% of the sub-volume.
 %       v50          - The percentage of the sub-volume receiving at least 50 Gy.
+%       dmean        - The mean dose (Gy) delivered to the sub-volume,
+%                      computed over valid (non-NaN) voxels only.
 %
 %   Analytical Rationale — DWI-Guided Dose Assessment:
 %   ---------------------------------------------------
@@ -47,6 +50,7 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
     % Default return values
     d95 = NaN;
     v50 = NaN;
+    dmean = NaN;
 
     % Morphological structuring element for noise cleanup.  A sphere of
     % radius 1 (6-connected neighborhood in 3D) is used for opening/closing
@@ -135,6 +139,10 @@ function [d95, v50] = calculate_subvolume_metrics(vector, threshold, dose_vec, h
         % that unknown-dose voxels conservatively deflate coverage.  Using
         % only valid voxels would inflate V50 when dose data is sparse.
         v50 = sum(dose_sub >= 50) / max(n_total, 1) * 100;
+        % Dmean: arithmetic mean of valid (non-NaN) dose voxels in the
+        % sub-volume.  Complements D95 (cold-spot coverage) by describing
+        % average dose to the biologically aggressive region.
+        dmean = mean(dose_sub);
         nan_frac = 1 - n_valid / max(n_total, 1);
         if nan_frac > 0.2
             warning('calculate_subvolume_metrics:highNaNFrac', ...
