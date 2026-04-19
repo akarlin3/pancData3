@@ -14,7 +14,7 @@ function diagnose_repeat_dice()
 %
 % Output: a printed table showing per-patient Fx1 repeat status plus a summary.
 
-    cfg = parse_config();
+    cfg = parse_config('config.json');
     dataloc = cfg.dataloc;
     sm_path = fullfile(dataloc, 'summary_metrics_Standard.mat');
     dv_path = fullfile(dataloc, 'dwi_vectors_Standard.mat');
