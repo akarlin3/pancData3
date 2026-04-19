@@ -76,11 +76,28 @@ end
 summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_prefix '.mat']);
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     checkpoint_loaded = false;
-    if exist(summary_metrics_file, 'file')
+    % Invalidate the summary_metrics checkpoint when its upstream
+    % dependency (dwi_vectors_*.mat) is newer.  Without this guard, a
+    % fresh dwi_vectors run that re-discovers file paths (e.g. newly
+    % contoured Fx1 GTV masks) is silently paired with a stale summary
+    % that still reflects the old discovery state, producing all-NaN
+    % downstream repeatability fields.
+    dwi_vectors_file = fullfile(config_struct.dataloc, ['dwi_vectors' file_prefix '.mat']);
+    is_stale_vs_vectors = false;
+    if exist(summary_metrics_file, 'file') && exist(dwi_vectors_file, 'file')
+        sm_info = dir(summary_metrics_file);
+        dv_info = dir(dwi_vectors_file);
+        if ~isempty(sm_info) && ~isempty(dv_info) && sm_info.datenum < dv_info.datenum
+            is_stale_vs_vectors = true;
+            fprintf('  [CHECKPOINT] %s is older than %s — ignoring stale checkpoint and recomputing.\n', ...
+                ['summary_metrics' file_prefix '.mat'], ['dwi_vectors' file_prefix '.mat']);
+        end
+    end
+    if exist(summary_metrics_file, 'file') && ~is_stale_vs_vectors
         fprintf('  [CHECKPOINT] Found existing %s. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat']);
         tmp_metrics = load(summary_metrics_file, 'summary_metrics');
         checkpoint_loaded = true;
-    else
+    elseif ~is_stale_vs_vectors
         fallback_metrics_file = fullfile(config_struct.dataloc, 'summary_metrics.mat');
         if exist(fallback_metrics_file, 'file')
             fprintf('  [CHECKPOINT] Specific %s not found but fallback %s exists. Loading and skipping metrics computation...\n', ['summary_metrics' file_prefix '.mat'], 'summary_metrics.mat');
