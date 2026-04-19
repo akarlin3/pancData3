@@ -13,9 +13,9 @@ from report.sections.dose_context import _section_dose_context
 
 
 def _make_dosi(whole_d95=55.0, whole_dmean=54.0, whole_v50=0.98,
-               sub_d95=48.0, sub_v50=0.80):
+               sub_d95=48.0, sub_v50=0.80, sub_dmean=46.0):
     """Build a dosimetry dict with whole-GTV and sub-volume fields."""
-    return {
+    d = {
         "d95_adc_mean": {"mean": sub_d95, "std": 5.0},
         "v50_adc_mean": {"mean": sub_v50, "std": 0.1},
         "whole_gtv_d95_mean": whole_d95,
@@ -25,6 +25,9 @@ def _make_dosi(whole_d95=55.0, whole_dmean=54.0, whole_v50=0.98,
         "whole_gtv_dmean_mean": whole_dmean,
         "whole_gtv_dmean_std": 2.0,
     }
+    if sub_dmean is not None:
+        d["dmean_adc_mean"] = {"mean": sub_dmean, "std": 2.0}
+    return d
 
 
 def _make_mat_data(**kw):
@@ -43,9 +46,11 @@ class TestDoseContextSection:
     def test_no_deficit_no_warning(self):
         # Whole D95 = 50, sub D95 = 49 -> deficit = 1 < 5 (not flagged)
         # Whole V50 98%, sub V50 95% -> deficit = 3 < 10 (not flagged)
+        # Whole Dmean 52, sub Dmean 51 -> deficit = 1 < 5 (not flagged)
         result = _section_dose_context(
             _make_mat_data(whole_d95=50.0, sub_d95=49.0,
-                            whole_v50=0.98, sub_v50=0.95),
+                            whole_v50=0.98, sub_v50=0.95,
+                            whole_dmean=52.0, sub_dmean=51.0),
             ["Standard"],
         )
         html = "\n".join(result)
@@ -95,3 +100,11 @@ class TestDoseContextSection:
         )
         html = "\n".join(result)
         assert "Clinically significant dose deficit" in html
+
+    def test_sub_dmean_rendered(self):
+        # Whole Dmean = 54, sub Dmean = 46 -> deficit 8 > 5 (flagged)
+        result = _section_dose_context(_make_mat_data(), ["Standard"])
+        html = "\n".join(result)
+        # Both whole and sub Dmean values should render (not em-dash).
+        assert "54.0 Gy" in html
+        assert "46.0 Gy" in html

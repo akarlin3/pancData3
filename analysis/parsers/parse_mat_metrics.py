@@ -493,8 +493,10 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
             out_data["dosimetry"] = {  # type: ignore
                 "d95_adc_mean": _safe_nanmean_std(mat.get("d95_adc_sub", nan_scalar)),  # type: ignore
                 "v50_adc_mean": _safe_nanmean_std(mat.get("v50_adc_sub", nan_scalar)),  # type: ignore
+                "dmean_adc_mean": _safe_nanmean_std(mat.get("dmean_adc_sub", nan_scalar)),  # type: ignore
                 "d95_d_mean": _safe_nanmean_std(mat.get("d95_d_sub", nan_scalar)),  # type: ignore
                 "v50_d_mean": _safe_nanmean_std(mat.get("v50_d_sub", nan_scalar)),  # type: ignore
+                "dmean_d_mean": _safe_nanmean_std(mat.get("dmean_d_sub", nan_scalar)),  # type: ignore
             }
         except Exception as e:
             print(f"Error parsing {dosimetry_mat.name}: {e}")

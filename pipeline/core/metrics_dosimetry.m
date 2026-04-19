@@ -1,4 +1,4 @@
-function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry] = metrics_dosimetry(m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations)
+function [d95_adc_sub, v50_adc_sub, d95_d_sub, v50_d_sub, d95_f_sub, v50_f_sub, d95_dstar_sub, v50_dstar_sub, per_method_dosimetry, dmean_adc_sub, dmean_d_sub, dmean_f_sub, dmean_dstar_sub] = metrics_dosimetry(m_id_list, id_list, nTp, config_struct, m_data_vectors_gtvp, gtv_locations)
 % METRICS_DOSIMETRY — Pancreatic Cancer DWI/IVIM Treatment Response Analysis
 % Part 3/5 of the metrics step. Computes dose metrics (D95, V50) for resistant sub-volumes.
 %
@@ -73,15 +73,19 @@ end
 % metrics are computed independently for each parameter's resistant region.
 d95_adc_sub = nan(length(m_id_list), nTp);
 v50_adc_sub = nan(length(m_id_list), nTp);
+dmean_adc_sub = nan(length(m_id_list), nTp);
 
 d95_d_sub = nan(length(m_id_list), nTp);
 v50_d_sub = nan(length(m_id_list), nTp);
+dmean_d_sub = nan(length(m_id_list), nTp);
 
 d95_f_sub = nan(length(m_id_list), nTp);
 v50_f_sub = nan(length(m_id_list), nTp);
+dmean_f_sub = nan(length(m_id_list), nTp);
 
 d95_dstar_sub = nan(length(m_id_list), nTp);
 v50_dstar_sub = nan(length(m_id_list), nTp);
+dmean_dstar_sub = nan(length(m_id_list), nTp);
 
 % --- Multi-method dosimetry setup ---
 if isfield(config_struct, 'active_core_methods') && ~isempty(config_struct.active_core_methods)
@@ -249,18 +253,18 @@ for j = 1:n_pat_dosimetry
             % on the resulting sub-region.  If the sub-volume is empty (no
             % voxels below threshold), NaN is returned — indicating the entire
             % GTV appears non-resistant by that metric.
-            [d95_adc_sub(j,k), v50_adc_sub(j,k)] = calculate_subvolume_metrics(adc_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+            [d95_adc_sub(j,k), v50_adc_sub(j,k), dmean_adc_sub(j,k)] = calculate_subvolume_metrics(adc_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
             % For unified core methods, use the same core_mask for all
             % parameters; for legacy threshold methods, keep per-parameter thresholds.
             unified_methods = {'percentile', 'spectral', 'fdm'};
             if any(strcmpi(config_struct.core_method, unified_methods))
-                [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
-                [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
-                [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+                [d95_d_sub(j,k), v50_d_sub(j,k), dmean_d_sub(j,k)]         = calculate_subvolume_metrics(d_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+                [d95_f_sub(j,k), v50_f_sub(j,k), dmean_f_sub(j,k)]         = calculate_subvolume_metrics(f_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
+                [d95_dstar_sub(j,k), v50_dstar_sub(j,k), dmean_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, core_mask, dose_vec, has_3d, gtv_mask_3d);
             else
-                [d95_d_sub(j,k), v50_d_sub(j,k)]     = calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
-                [d95_f_sub(j,k), v50_f_sub(j,k)]     = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
-                [d95_dstar_sub(j,k), v50_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
+                [d95_d_sub(j,k), v50_d_sub(j,k), dmean_d_sub(j,k)]         = calculate_subvolume_metrics(d_vec, d_thresh, dose_vec, has_3d, gtv_mask_3d);
+                [d95_f_sub(j,k), v50_f_sub(j,k), dmean_f_sub(j,k)]         = calculate_subvolume_metrics(f_vec, f_thresh, dose_vec, has_3d, gtv_mask_3d);
+                [d95_dstar_sub(j,k), v50_dstar_sub(j,k), dmean_dstar_sub(j,k)] = calculate_subvolume_metrics(dstar_vec, dstar_thresh, dose_vec, has_3d, gtv_mask_3d);
             end
 
             % --- Multi-method dosimetry (when enabled) ---
