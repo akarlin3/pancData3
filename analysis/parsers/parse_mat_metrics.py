@@ -656,18 +656,30 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
 
                         if vol2d is not None and vol2d.ndim == 2 and vol2d.size > 0:
                             n_tp = int(vol2d.shape[1])
-                            # Outcome vector — prefer baseline-filtered m_lf,
-                            # fall back to summary_metrics.lf (unfiltered) when
-                            # baseline length does not match the summary
-                            # patient axis (baseline filters invalid patients).
-                            m_lf_list = out_data.get("_baseline_m_lf") or []
-                            m_lf = numpy_np.asarray(m_lf_list, dtype=float) if m_lf_list else None  # type: ignore
+                            # Outcome vector — prefer the raw clinical
+                            # encoding from summary_metrics.lf (binary
+                            # 0 = LC / 1 = LF, read straight from the
+                            # clinical spreadsheet) over the baseline
+                            # m_lf variant, which may re-encode competing-
+                            # risk deaths as 2 and therefore empty the LF
+                            # group for cohorts with few pure local-failure
+                            # events.  Fall back to baseline m_lf only when
+                            # summary.lf is unavailable or sized wrong.
                             n_pat_summary = int(vol2d.shape[0])
-                            if (m_lf is None or m_lf.size != n_pat_summary) and hasattr(summary, "lf"):
+                            m_lf = None
+                            if hasattr(summary, "lf"):
                                 try:
-                                    m_lf = numpy_np.asarray(summary.lf, dtype=float).ravel()  # type: ignore
+                                    cand = numpy_np.asarray(summary.lf, dtype=float).ravel()  # type: ignore
+                                    if cand.size == n_pat_summary:
+                                        m_lf = cand
                                 except Exception:
                                     m_lf = None
+                            if m_lf is None:
+                                m_lf_list = out_data.get("_baseline_m_lf") or []
+                                if m_lf_list:
+                                    cand = numpy_np.asarray(m_lf_list, dtype=float)  # type: ignore
+                                    if cand.size == n_pat_summary:
+                                        m_lf = cand
 
                             # Attempt scipy Mann-Whitney (optional dependency).
                             try:
