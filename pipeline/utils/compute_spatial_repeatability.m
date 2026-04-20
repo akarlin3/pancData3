@@ -104,15 +104,10 @@ for ri = 1:numel(valid_rpis)
     gtv_mat_path = gtv_locations{j, 1, rpi_idx};
     if isempty(gtv_mat_path); gtv_mat_path = shared_fx1_path; end
     if ~isempty(gtv_mat_path)
-        % Normalize path separators for cross-platform compatibility
-        % (strsplit on both / and \ handles Windows and Unix paths)
-        path_parts = strsplit(gtv_mat_path, {'/', '\'});
-        gtv_mat_path = fullfile(path_parts{:});
-        % Restore leading slash for absolute Unix paths (strsplit produces
-        % an empty first element for paths starting with /)
-        if isunix && ~startsWith(gtv_mat_path, filesep) && isempty(path_parts{1})
-            gtv_mat_path = [filesep gtv_mat_path]; %#ok<AGROW>
-        end
+        % Normalize path separators for cross-platform compatibility.
+        % Preserve the Windows UNC prefix (\\server\share) and the Unix
+        % leading slash (/abs/path) which strsplit would otherwise strip.
+        gtv_mat_path = normalize_path_preserving_roots(gtv_mat_path);
         if exist(gtv_mat_path, 'file')
             % Cache the last loaded mask to avoid redundant disk I/O when
             % multiple repeats share the same GTV contour file

@@ -117,36 +117,38 @@ if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
 
         % Invalidate checkpoints that pre-date the shared-Fx1 fallback
         % used by compute_spatial_repeatability / optimize_adc_threshold.
-        % If the cached dice_rpt_adc column is entirely NaN for the
-        % current DWI type but the cohort actually has patients with
-        % >=2 non-empty Fx1 repeats, the checkpoint was produced by the
-        % old code path and must be recomputed.
+        % Trigger when: (a) dice_rpt_adc field is missing entirely (pre-v2.4
+        % checkpoint), or (b) the column for the current DWI type is all-NaN.
+        % In either case, only invalidate if the cohort actually has patients
+        % with >=2 non-empty Fx1 repeat ADC vectors.
         rpt_stale = false;
-        if dims_ok && isfield(sm, 'dice_rpt_adc')
-            try
-                dwi_col = 1;
-                if isfield(config_struct, 'dwi_types_to_run') && ...
-                        ~isempty(config_struct.dwi_types_to_run)
-                    dwi_col = config_struct.dwi_types_to_run(1);
-                end
+        if dims_ok
+            dwi_col = 1;
+            if isfield(config_struct, 'dwi_types_to_run') && ...
+                    ~isempty(config_struct.dwi_types_to_run)
+                dwi_col = config_struct.dwi_types_to_run(1);
+            end
+
+            dice_all_nan = true;  % assume stale until proven otherwise
+            if isfield(sm, 'dice_rpt_adc')
                 dra = sm.dice_rpt_adc;
-                if size(dra, 2) >= dwi_col && all(isnan(dra(:, dwi_col)))
-                    has_repeats = false;
-                    for jj = 1:size(data_vectors_gtvp, 1)
-                        n_nonempty = 0;
-                        for rr = 1:size(data_vectors_gtvp, 3)
-                            if ~isempty(data_vectors_gtvp(jj, 1, rr).adc_vector)
-                                n_nonempty = n_nonempty + 1;
-                            end
-                        end
-                        if n_nonempty >= 2
-                            has_repeats = true; break;
+                if size(dra, 2) >= dwi_col && ~all(isnan(dra(:, dwi_col)))
+                    dice_all_nan = false;
+                end
+            end
+
+            if dice_all_nan
+                for jj = 1:size(data_vectors_gtvp, 1)
+                    n_nonempty = 0;
+                    for rr = 1:size(data_vectors_gtvp, 3)
+                        if ~isempty(data_vectors_gtvp(jj, 1, rr).adc_vector)
+                            n_nonempty = n_nonempty + 1;
                         end
                     end
-                    if has_repeats; rpt_stale = true; end
+                    if n_nonempty >= 2
+                        rpt_stale = true; break;
+                    end
                 end
-            catch
-                % Conservative: if we cannot verify, treat as fresh.
             end
         end
 
@@ -782,6 +784,19 @@ end
 % Package texture features when enabled
 if use_texture
     summary_metrics.texture_features = texture_features;
+end
+
+% Repeat-Dice sanity summary so the log makes it obvious whether the
+% shared-Fx1 fallback / path normalization actually succeeded this run.
+try
+    n_pat = size(summary_metrics.dice_rpt_adc, 1);
+    n_dwi = size(summary_metrics.dice_rpt_adc, 2);
+    for dc = 1:n_dwi
+        col = summary_metrics.dice_rpt_adc(:, dc);
+        fprintf('  [REPEAT-DICE] dwi_col=%d: %d/%d patients with finite dice_rpt_adc\n', ...
+            dc, sum(~isnan(col)), n_pat);
+    end
+catch
 end
 
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
