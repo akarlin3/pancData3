@@ -786,6 +786,19 @@ if use_texture
     summary_metrics.texture_features = texture_features;
 end
 
+% Repeat-Dice sanity summary so the log makes it obvious whether the
+% shared-Fx1 fallback / path normalization actually succeeded this run.
+try
+    n_pat = size(summary_metrics.dice_rpt_adc, 1);
+    n_dwi = size(summary_metrics.dice_rpt_adc, 2);
+    for dc = 1:n_dwi
+        col = summary_metrics.dice_rpt_adc(:, dc);
+        fprintf('  [REPEAT-DICE] dwi_col=%d: %d/%d patients with finite dice_rpt_adc\n', ...
+            dc, sum(~isnan(col)), n_pat);
+    end
+catch
+end
+
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     fprintf('  [CHECKPOINT] Saving summary_metrics to %s...\n', summary_metrics_file);
     save(summary_metrics_file, 'summary_metrics');

@@ -122,7 +122,11 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
             end
             gtv_path = gtv_locations{j, 1, rpi_idx};
             if isempty(gtv_path); gtv_path = shared_fx1_path; end
-            if isempty(gtv_path) || ~exist(gtv_path, 'file')
+            if isempty(gtv_path)
+                has_all_3d = false; break;
+            end
+            gtv_path = normalize_path_preserving_roots(gtv_path);
+            if ~exist(gtv_path, 'file')
                 has_all_3d = false; break;
             end
             try
