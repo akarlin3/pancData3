@@ -36,6 +36,22 @@ dice_d = NaN; hd_max_d = NaN; hd95_d = NaN;
 dice_f = NaN; hd_max_f = NaN; hd95_f = NaN;
 dice_dstar = NaN; hd_max_dstar = NaN; hd95_dstar = NaN;
 
+% --- Diagnostic trace (temporary; gated to first ~30 calls to limit I/O) ---
+% Writes per-patient status to <tempdir>/repeat_dice_trace.txt so failure
+% points (empty path / file-not-found / empty mask / voxel mismatch) can
+% be pinpointed when dice_rpt_* comes back all-NaN.
+persistent trace_n
+if isempty(trace_n); trace_n = 0; end
+trace_on = trace_n < 30;
+if trace_on
+    trace_n = trace_n + 1;
+    trace_path = fullfile(tempdir, 'repeat_dice_trace.txt');
+    trace_fid = fopen(trace_path, 'a');
+else
+    trace_fid = -1;
+end
+trace('--- enter compute_spatial_repeatability ---');
+
 % Determine voxel dimensions for physical Hausdorff distances (mm).
 % Hausdorff distance measures worst-case spatial disagreement between
 % two binary masks; it must be in physical units (mm) rather than voxel
@@ -74,8 +90,12 @@ for rpi2 = 1:size(data_vectors_gtvp, 3)
     end
 end
 
+trace('n_valid_rpis=%d  (indices: %s)', numel(valid_rpis), num2str(valid_rpis));
+
 % Need at least 2 valid repeats to compute pairwise spatial overlap
 if numel(valid_rpis) < 2
+    trace('EXIT: fewer than 2 valid repeats');
+    if trace_fid > 0; fclose(trace_fid); end
     return;
 end
 
@@ -96,29 +116,46 @@ for ri = 1:size(gtv_locations, 3)
     candidate = gtv_locations{j, 1, ri};
     if ~isempty(candidate); shared_fx1_path = candidate; break; end
 end
+trace('shared_fx1_path="%s"', shared_fx1_path);
+trace('gtv_locations size: [%s]', num2str(size(gtv_locations)));
 
 rpt_masks_3d = cell(numel(valid_rpis), 1);
 rpt_has_3d = true;
 for ri = 1:numel(valid_rpis)
     rpi_idx = valid_rpis(ri);
-    gtv_mat_path = gtv_locations{j, 1, rpi_idx};
-    if isempty(gtv_mat_path); gtv_mat_path = shared_fx1_path; end
-    if ~isempty(gtv_mat_path)
+    gtv_mat_path_raw = gtv_locations{j, 1, rpi_idx};
+    used_shared = false;
+    if isempty(gtv_mat_path_raw)
+        gtv_mat_path_raw = shared_fx1_path;
+        used_shared = true;
+    end
+    trace('  ri=%d rpi=%d raw_path="%s" used_shared=%d', ri, rpi_idx, gtv_mat_path_raw, used_shared);
+    gtv_mat_path = '';
+    if ~isempty(gtv_mat_path_raw)
         % Normalize path separators for cross-platform compatibility.
         % Preserve the Windows UNC prefix (\\server\share) and the Unix
         % leading slash (/abs/path) which strsplit would otherwise strip.
-        gtv_mat_path = normalize_path_preserving_roots(gtv_mat_path);
-        if exist(gtv_mat_path, 'file')
+        gtv_mat_path = normalize_path_preserving_roots(gtv_mat_path_raw);
+        file_exists = exist(gtv_mat_path, 'file') == 2;
+        trace('  ri=%d normalized="%s" exists=%d', ri, gtv_mat_path, file_exists);
+        if file_exists
             % Cache the last loaded mask to avoid redundant disk I/O when
             % multiple repeats share the same GTV contour file
             if strcmp(gtv_mat_path, last_rpt_gtv_mat)
                 rpt_masks_3d{ri} = last_rpt_gtv_mask;
+                trace('  ri=%d reused cached mask', ri);
             else
                 % safe_load_mask validates variable type before loading
                 % to prevent arbitrary code execution from malicious .mat files
                 rpt_masks_3d{ri} = safe_load_mask(gtv_mat_path, 'Stvol3d');
                 last_rpt_gtv_mat = gtv_mat_path;
                 last_rpt_gtv_mask = rpt_masks_3d{ri};
+                if isempty(rpt_masks_3d{ri})
+                    trace('  ri=%d safe_load_mask returned EMPTY', ri);
+                else
+                    trace('  ri=%d loaded mask size=[%s] n_gtv=%d', ri, ...
+                        num2str(size(rpt_masks_3d{ri})), sum(rpt_masks_3d{ri}(:) == 1));
+                end
             end
         end
     end
@@ -129,8 +166,11 @@ end
 
 % All repeats must have valid 3D masks for spatial comparison
 if ~rpt_has_3d
+    trace('EXIT: not all repeats have valid 3D masks');
+    if trace_fid > 0; fclose(trace_fid); end
     return;
 end
+trace('all repeats have 3D masks, proceeding to pair computation');
 
 % Accumulate pairwise Dice and Hausdorff metrics across all repeat pairs.
 % With N repeats, there are N*(N-1)/2 unique pairs. Each pair gets its
@@ -151,6 +191,8 @@ for ri1 = 1:numel(valid_rpis)-1
         % Verify compatible 3D mask dimensions (mismatched grids indicate
         % different reconstruction matrices and cannot be directly compared)
         if ~isequal(size(mask_3d_1), size(mask_3d_2))
+            trace('  pair (%d,%d) SKIP: mask size mismatch [%s] vs [%s]', ...
+                ri1, ri2, num2str(size(mask_3d_1)), num2str(size(mask_3d_2)));
             continue;
         end
 
@@ -158,6 +200,8 @@ for ri1 = 1:numel(valid_rpis)-1
             vec_1 = rpt_vecs.(param_names{pi}){ri1};
             vec_2 = rpt_vecs.(param_names{pi}){ri2};
             if isempty(vec_1) || isempty(vec_2)
+                trace('  pair (%d,%d) param %s SKIP: empty vec (n1=%d n2=%d)', ...
+                    ri1, ri2, param_names{pi}, numel(vec_1), numel(vec_2));
                 continue;
             end
 
@@ -166,8 +210,12 @@ for ri1 = 1:numel(valid_rpis)-1
             n_gtv_1 = sum(mask_3d_1(:) == 1);
             n_gtv_2 = sum(mask_3d_2(:) == 1);
             if numel(vec_1) ~= n_gtv_1 || numel(vec_2) ~= n_gtv_2
+                trace('  pair (%d,%d) param %s SKIP: voxel mismatch vec=%d/%d vs gtv=%d/%d', ...
+                    ri1, ri2, param_names{pi}, numel(vec_1), numel(vec_2), n_gtv_1, n_gtv_2);
                 continue;
             end
+            trace('  pair (%d,%d) param %s OK: vec=%d gtv=%d', ...
+                ri1, ri2, param_names{pi}, numel(vec_1), n_gtv_1);
 
             % Threshold parameter vector to create a binary sub-volume.
             % For ADC and D: values below threshold indicate restricted
@@ -227,6 +275,15 @@ hd95_d   = mean_hd95(2);
 hd95_f   = mean_hd95(3);
 hd95_dstar = mean_hd95(4);
 
+trace('EXIT OK: dice_adc=%g dice_d=%g dice_f=%g dice_dstar=%g', ...
+    dice_adc, dice_d, dice_f, dice_dstar);
+if trace_fid > 0; fclose(trace_fid); end
+
+    function trace(fmt, varargin)
+        if trace_fid > 0
+            fprintf(trace_fid, ['[j=%d dwi=%d] ' fmt '\n'], j, dwi_type, varargin{:});
+        end
+    end
 end
 
 %% --- Local helper function ---

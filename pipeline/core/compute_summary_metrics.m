@@ -401,6 +401,14 @@ gtv_mask_cache = containers.Map('KeyType', 'char', 'ValueType', 'any');
 last_rpt_gtv_mat = '';
 last_rpt_gtv_mask = [];
 
+% Reset the per-call trace file and persistent counter so each pipeline
+% run starts with a clean repeat_dice_trace.txt.
+trace_reset = fullfile(tempdir, 'repeat_dice_trace.txt');
+if exist(trace_reset, 'file') == 2
+    try; delete(trace_reset); catch; end
+end
+try; clear compute_spatial_repeatability; catch; end
+
 % --- Main analysis loop: patient × timepoint × DWI pipeline ---
 % This triple-nested loop (patient × timepoint × DWI type) is the
 % computational core that transforms voxel-level parameter vectors into
@@ -804,6 +812,18 @@ try
         fprintf(diag_fid, 'Timestamp: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
         fclose(diag_fid);
         fprintf('  [REPEAT-DICE] Diagnostic written to %s\n', diag_file);
+    end
+    % Also copy the per-call trace file from tempdir (written by
+    % compute_spatial_repeatability) into dataloc so the user can inspect
+    % per-patient failure points (empty path / exist=false / voxel mismatch).
+    trace_src = fullfile(tempdir, 'repeat_dice_trace.txt');
+    if exist(trace_src, 'file') == 2
+        trace_dst = fullfile(config_struct.dataloc, 'repeat_dice_trace.txt');
+        try
+            copyfile(trace_src, trace_dst);
+            fprintf('  [REPEAT-DICE] Per-patient trace copied to %s\n', trace_dst);
+        catch
+        end
     end
 catch
 end
