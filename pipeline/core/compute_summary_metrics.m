@@ -791,10 +791,19 @@ end
 try
     n_pat = size(summary_metrics.dice_rpt_adc, 1);
     n_dwi = size(summary_metrics.dice_rpt_adc, 2);
+    diag_file = fullfile(config_struct.dataloc, 'repeat_dice_diagnostic.txt');
+    diag_fid = fopen(diag_file, 'w');
     for dc = 1:n_dwi
         col = summary_metrics.dice_rpt_adc(:, dc);
-        fprintf('  [REPEAT-DICE] dwi_col=%d: %d/%d patients with finite dice_rpt_adc\n', ...
+        msg = sprintf('[REPEAT-DICE] dwi_col=%d: %d/%d patients with finite dice_rpt_adc', ...
             dc, sum(~isnan(col)), n_pat);
+        fprintf('  %s\n', msg);
+        if diag_fid > 0; fprintf(diag_fid, '%s\n', msg); end
+    end
+    if diag_fid > 0
+        fprintf(diag_fid, 'Timestamp: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+        fclose(diag_fid);
+        fprintf('  [REPEAT-DICE] Diagnostic written to %s\n', diag_file);
     end
 catch
 end
