@@ -120,5 +120,68 @@ classdef test_find_gtv_files < matlab.unittest.TestCase
                 'GTVn should be found when "two" appears anywhere in pat_name.');
         end
 
+        function testGtvInNonIndexedSubfolder(testCase)
+            % Some sites nest GTV masks in a "GTV/" subfolder shared across
+            % repeats.  find_gtv_files should locate masks there when the Fx
+            % folder itself is empty.
+            subfolder = fullfile(testCase.TempDir, 'GTV');
+            mkdir(subfolder);
+            fid = fopen(fullfile(subfolder, 'ROI_GTV1_20210212.mat'), 'w'); fclose(fid);
+
+            [gtvp_path, ~] = find_gtv_files(testCase.TempDir, 1, 'Patient_X');
+
+            testCase.verifyNotEmpty(gtvp_path, ...
+                'gtvp_path should be found inside a non-indexed GTV/ subfolder.');
+            testCase.verifyTrue(contains(gtvp_path, 'GTV'), ...
+                'Returned path should be inside the GTV subfolder.');
+        end
+
+        function testGtvInIndexedTimepointSubfolder(testCase)
+            % Some sites nest masks in timepoint-specific subfolders like
+            % GTVtimepoint1/, GTVtp2/, GTVfx3/.  find_gtv_files should only
+            % pick up the folder whose trailing index matches dwii.
+            mkdir(fullfile(testCase.TempDir, 'GTVtimepoint1'));
+            mkdir(fullfile(testCase.TempDir, 'GTVtimepoint2'));
+            fid = fopen(fullfile(testCase.TempDir, 'GTVtimepoint1', ...
+                'ROI_GTV1_20210212.mat'), 'w'); fclose(fid);
+            fid = fopen(fullfile(testCase.TempDir, 'GTVtimepoint2', ...
+                'ROI_GTV2_20210212.mat'), 'w'); fclose(fid);
+
+            [gtvp1, ~] = find_gtv_files(testCase.TempDir, 1, 'Patient_Y');
+            [gtvp2, ~] = find_gtv_files(testCase.TempDir, 2, 'Patient_Y');
+
+            testCase.verifyTrue(contains(gtvp1, 'timepoint1'), ...
+                'dwii=1 should resolve to GTVtimepoint1/.');
+            testCase.verifyTrue(contains(gtvp2, 'timepoint2'), ...
+                'dwii=2 should resolve to GTVtimepoint2/.');
+        end
+
+        function testGtvOriPatternIsMatchedByBroadFallback(testCase)
+            % ROI_GTVori1_<date>.mat is the most common naming variant in the
+            % MSK cohort.  It must be caught by the '*GTV*' broad fallback
+            % via the '*GTV*1_*.mat' glob, not missed.
+            fid = fopen(fullfile(testCase.TempDir, 'ROI_GTVori1_20210212.mat'), 'w');
+            fclose(fid);
+
+            [gtvp_path, ~] = find_gtv_files(testCase.TempDir, 1, 'Patient_Z');
+
+            testCase.verifyNotEmpty(gtvp_path, ...
+                'Broad *GTV* fallback should match ROI_GTVori1_<date>.mat.');
+        end
+
+        function testFxFolderWinsOverSubfolder(testCase)
+            % When matching masks exist both in fxfolder and in a GTV/
+            % subfolder, fxfolder must take priority (candidate list order).
+            fid = fopen(fullfile(testCase.TempDir, 'GTV_panc1.mat'), 'w'); fclose(fid);
+            subfolder = fullfile(testCase.TempDir, 'GTV');
+            mkdir(subfolder);
+            fid = fopen(fullfile(subfolder, 'GTV_panc1.mat'), 'w'); fclose(fid);
+
+            [gtvp_path, ~] = find_gtv_files(testCase.TempDir, 1, 'Patient_Q');
+
+            testCase.verifyTrue(strcmp(fileparts(gtvp_path), testCase.TempDir), ...
+                'fxfolder match should win over subfolder match.');
+        end
+
     end
 end
