@@ -20,6 +20,11 @@ function diagnose_repeat_dice(output_folder)
 
     if nargin < 1, output_folder = ''; end
 
+    % Make sure utils (normalize_path_preserving_roots, safe_load_mask,
+    % compute_spatial_repeatability) are on the path.
+    here = fileparts(mfilename('fullpath'));
+    addpath(fullfile(here, '..', '..', 'utils'));
+
     cfg = parse_config('config.json');
     dataloc = cfg.dataloc;
 
@@ -127,9 +132,12 @@ function diagnose_repeat_dice(output_folder)
         nPat, nRpt, num2str(size(gtv_locs)));
 
     % Tally
-    has_path     = zeros(nPat, 1);   % #Fx1 repeats with a non-empty path
-    file_exists  = zeros(nPat, 1);   % #Fx1 repeats where the file exists on disk
-    has_stvol3d  = zeros(nPat, 1);   % #Fx1 repeats whose .mat has 'Stvol3d'
+    has_path        = zeros(nPat, 1);   % #Fx1 repeats with non-empty raw path
+    file_exists_raw = zeros(nPat, 1);   % #Fx1 repeats where raw path exists
+    file_exists_norm= zeros(nPat, 1);   % #Fx1 repeats where normalized path exists
+    has_stvol3d     = zeros(nPat, 1);   % #Fx1 repeats whose .mat has 'Stvol3d'
+    has_path_effective = zeros(nPat, 1);% post-shared-Fx1 fallback path count
+    voxel_match     = zeros(nPat, 1);   % #Fx1 repeats where mask n_gtv==numel(adc_vec)
     non_stvol_var_list = containers.Map('KeyType','char','ValueType','double');
     rp_count_vec = zeros(nPat, 1);
 
@@ -142,42 +150,73 @@ function diagnose_repeat_dice(output_folder)
         end
         rp_count_vec(j) = rp_count;
 
+        % --- Shared Fx1 fallback (mirrors compute_spatial_repeatability) ---
+        shared_fx1 = '';
+        for ri = 1:nRpt
+            c = gtv_locs{j, 1, ri};
+            if ~isempty(c); shared_fx1 = c; break; end
+        end
+
         for rpi = 1:nRpt
-            p = gtv_locs{j, 1, rpi};
-            if ~isempty(p)
-                has_path(j) = has_path(j) + 1;
-                if exist(p, 'file')
-                    file_exists(j) = file_exists(j) + 1;
-                    try
-                        vars = whos('-file', p);
-                        names = {vars.name};
-                        if any(strcmp(names, 'Stvol3d'))
-                            has_stvol3d(j) = has_stvol3d(j) + 1;
-                        else
-                            % Collect other variable names in this mask file.
-                            for nn = 1:numel(names)
-                                key = names{nn};
-                                if isKey(non_stvol_var_list, key)
-                                    non_stvol_var_list(key) = non_stvol_var_list(key) + 1;
-                                else
-                                    non_stvol_var_list(key) = 1;
-                                end
+            p_raw = gtv_locs{j, 1, rpi};
+            if ~isempty(p_raw); has_path(j) = has_path(j) + 1; end
+
+            % Effective path = raw or shared-Fx1 fallback.
+            p_eff = p_raw;
+            if isempty(p_eff); p_eff = shared_fx1; end
+            if isempty(p_eff); continue; end
+            has_path_effective(j) = has_path_effective(j) + 1;
+
+            % Raw-path exist check (pre-normalization).
+            if exist(p_eff, 'file') == 2
+                file_exists_raw(j) = file_exists_raw(j) + 1;
+            end
+
+            % Normalized-path exist check (what compute_spatial_repeatability
+            % actually uses).
+            p_norm = normalize_path_preserving_roots(p_eff);
+            if exist(p_norm, 'file') == 2
+                file_exists_norm(j) = file_exists_norm(j) + 1;
+                try
+                    vars = whos('-file', p_norm);
+                    names = {vars.name};
+                    if any(strcmp(names, 'Stvol3d'))
+                        has_stvol3d(j) = has_stvol3d(j) + 1;
+                        % Voxel-count match check: load mask and compare to
+                        % adc_vector length for this repeat.
+                        try
+                            m = safe_load_mask(p_norm, 'Stvol3d');
+                            adc_vec = dwi_vectors_gtvp(j, 1, rpi).adc_vector;
+                            n_gtv = sum(m(:) == 1);
+                            if ~isempty(adc_vec) && numel(adc_vec) == n_gtv
+                                voxel_match(j) = voxel_match(j) + 1;
+                            end
+                        catch
+                        end
+                    else
+                        for nn = 1:numel(names)
+                            key = names{nn};
+                            if isKey(non_stvol_var_list, key)
+                                non_stvol_var_list(key) = non_stvol_var_list(key) + 1;
+                            else
+                                non_stvol_var_list(key) = 1;
                             end
                         end
-                    catch
-                        % leave counters alone
                     end
+                catch
                 end
             end
         end
     end
 
     % Per-patient Fx1 diagnostic (first 15 patients).
-    fprintf('%-20s %-10s %-10s %-12s %-12s\n', 'Patient', 'rp_count', 'paths', 'files exist', 'Stvol3d');
-    fprintf('%s\n', repmat('-', 1, 68));
+    fprintf(['%-20s %-8s %-8s %-11s %-12s %-12s %-8s %-10s\n'], ...
+        'Patient','rp_cnt','raw_p','eff_path','exist_raw','exist_norm','Stvol3d','vox_match');
+    fprintf('%s\n', repmat('-', 1, 100));
     for j = 1:min(nPat, 15)
-        fprintf('%-20s %-10d %-10d %-12d %-12d\n', ...
-            sm.id_list{j}, rp_count_vec(j), has_path(j), file_exists(j), has_stvol3d(j));
+        fprintf('%-20s %-8d %-8d %-11d %-12d %-12d %-8d %-10d\n', ...
+            sm.id_list{j}, rp_count_vec(j), has_path(j), has_path_effective(j), ...
+            file_exists_raw(j), file_exists_norm(j), has_stvol3d(j), voxel_match(j));
     end
     if nPat > 15
         fprintf('... (%d more patients)\n', nPat - 15);
@@ -185,14 +224,55 @@ function diagnose_repeat_dice(output_folder)
 
     % Cohort summary.
     fprintf('\n=== Summary ===\n');
-    fprintf('Patients with rp_count >= 2 (required for Dice): %d / %d\n', ...
+    fprintf('Patients with rp_count >= 2 (required for Dice):      %d / %d\n', ...
         sum(rp_count_vec >= 2), nPat);
-    fprintf('Patients with >=2 Fx1 GTV paths:                  %d / %d\n', ...
+    fprintf('Patients with >=2 raw Fx1 GTV paths:                  %d / %d\n', ...
         sum(has_path >= 2), nPat);
-    fprintf('Patients with >=2 Fx1 GTV files that exist:       %d / %d\n', ...
-        sum(file_exists >= 2), nPat);
-    fprintf('Patients with >=2 Fx1 GTV files containing Stvol3d: %d / %d\n', ...
+    fprintf('Patients with >=2 paths post-shared-Fx1 fallback:     %d / %d\n', ...
+        sum(has_path_effective >= 2), nPat);
+    fprintf('Patients with >=2 files that exist (raw path):        %d / %d\n', ...
+        sum(file_exists_raw >= 2), nPat);
+    fprintf('Patients with >=2 files that exist (normalized path): %d / %d\n', ...
+        sum(file_exists_norm >= 2), nPat);
+    fprintf('Patients with >=2 Fx1 GTV files containing Stvol3d:   %d / %d\n', ...
         sum(has_stvol3d >= 2), nPat);
+    fprintf('Patients with >=2 voxel-count matches:                %d / %d\n', ...
+        sum(voxel_match >= 2), nPat);
+
+    % Actually call compute_spatial_repeatability for first 3 rp_count>=2
+    % patients and show the result (this will also write a per-patient
+    % trace to <tempdir>/repeat_dice_trace.txt).
+    fprintf('\n=== Live compute_spatial_repeatability for first 3 eligible patients ===\n');
+    trace_file = fullfile(tempdir, 'repeat_dice_trace.txt');
+    if exist(trace_file, 'file') == 2
+        try; delete(trace_file); catch; end
+    end
+    try; clear compute_spatial_repeatability; catch; end
+    eligible = find(rp_count_vec >= 2);
+    nTry = min(3, numel(eligible));
+    adc_thresh  = cfg.adc_thresh;
+    d_thresh    = cfg.d_thresh;
+    f_thresh    = cfg.f_thresh;
+    dstar_thresh= cfg.dstar_thresh;
+    morph_se    = strel('disk', 1);
+    morph_min_cc= 3;
+    for kk = 1:nTry
+        j = eligible(kk);
+        last_m = ''; last_mask = [];
+        try
+            [dice_a, ~, ~, dice_d, ~, ~, dice_f, ~, ~, dice_ds, ~, ~] = ...
+                compute_spatial_repeatability(dwi_vectors_gtvp, j, 1, gtv_locs, ...
+                    adc_thresh, d_thresh, f_thresh, dstar_thresh, ...
+                    morph_se, morph_min_cc, last_m, last_mask);
+            fprintf('  j=%d (%s): dice_adc=%g dice_d=%g dice_f=%g dice_dstar=%g\n', ...
+                j, sm.id_list{j}, dice_a, dice_d, dice_f, dice_ds);
+        catch err
+            fprintf('  j=%d (%s): ERROR %s\n', j, sm.id_list{j}, err.message);
+        end
+    end
+    if exist(trace_file, 'file') == 2
+        fprintf('\nPer-patient trace written to: %s\n', trace_file);
+    end
 
     if non_stvol_var_list.Count > 0
         fprintf('\n=== Non-Stvol3d variable names found in Fx1 GTV files ===\n');
