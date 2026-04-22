@@ -7,7 +7,7 @@
 %
 % The test:
 %   1. Constructs a minimal config_struct with skip_to_reload=true
-%   2. Creates a dummy dwi_vectors_Standard.mat with all required variables
+%   2. Creates a dummy pipeline_voxels_Standard.mat with all required variables
 %      (empty arrays for each field that load_dwi_data expects)
 %   3. Calls load_dwi_data() and verifies it completes without error
 %
@@ -43,7 +43,7 @@ id_list = {'test1'};
 data_vectors_gtvn=[]; data_vectors_gtvp=[]; lf=[]; immuno=[]; mrn_list={}; fx_dates=[]; dwi_locations=[]; rtdose_locations=[]; gtv_locations=[]; gtvn_locations=[]; dmean_gtvp=[]; dmean_gtvn=[]; d95_gtvp=[]; d95_gtvn=[]; v50gy_gtvp=[]; v50gy_gtvn=[]; bad_dwi_locations=[]; bad_dwi_count=[];
 
 % Save the checkpoint file that load_dwi_data will attempt to reload
-save(fullfile(config_struct.dataloc, 'dwi_vectors_Standard.mat'), 'data_vectors_gtvn', 'data_vectors_gtvp', 'lf', 'immuno', 'mrn_list', 'id_list', 'fx_dates', 'dwi_locations', 'rtdose_locations', 'gtv_locations', 'gtvn_locations', 'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', 'v50gy_gtvp', 'v50gy_gtvn', 'bad_dwi_locations', 'bad_dwi_count');
+save(fullfile(config_struct.dataloc, 'pipeline_voxels_Standard.mat'), 'data_vectors_gtvn', 'data_vectors_gtvp', 'lf', 'immuno', 'mrn_list', 'id_list', 'fx_dates', 'dwi_locations', 'rtdose_locations', 'gtv_locations', 'gtvn_locations', 'dmean_gtvp', 'dmean_gtvn', 'd95_gtvp', 'd95_gtvn', 'v50gy_gtvp', 'v50gy_gtvn', 'bad_dwi_locations', 'bad_dwi_count');
 
 % Attempt the reload path; success means load_dwi_data can parse the
 % checkpoint file and return without error.

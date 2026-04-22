@@ -16,7 +16,7 @@ You are a research-focused AI agent for a Medical Physics researcher at MSK.
 # File Deletion Safety
 - **Never delete a file or directory that the pipeline did not create.**
 - Pipeline-created directories (output folders, checkpoint dirs) contain a `.pipeline_created` sentinel file. Before calling `rmdir` on any directory, verify this sentinel exists.
-- Pipeline-created cache files (`dwi_vectors_*.mat`, `summary_metrics_*.mat`, `adc_vectors.mat`) use known naming patterns. Protected files (e.g., `dwi_vectors_ea.mat`) must never be deleted.
+- Pipeline-owned cache files (`pipeline_voxels_*.mat`, `summary_metrics_*.mat`, `adc_vectors.mat`) use known naming patterns and may be cleared by `clear_pipeline_cache`. The `dwi_vectors*.mat` nameset is reserved for the user's curated files — the pipeline never reads, writes, or deletes files matching that pattern.
 - Lock files (`.lock`) are only deleted when they are orphaned (stale from a crashed worker) or after successful checkpoint completion.
 - Diary/log files are only deleted immediately before being recreated by the same module.
 - Test cleanup must only remove artifacts the test itself created (use pre/post snapshots or sentinel checks).

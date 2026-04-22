@@ -56,21 +56,21 @@ function diagnose_repeat_dice(output_folder)
         fprintf('output_folder: %s\n', output_folder);
     end
 
-    % Locate summary_metrics and dwi_vectors, trying several candidate names.
+    % Locate summary_metrics and the voxel cache, trying several candidate names.
     sm_candidates = { ...
         fullfile(dataloc, 'summary_metrics_Standard.mat'), ...
         fullfile(dataloc, 'summary_metrics.mat') };
     dv_candidates = { ...
-        fullfile(dataloc, 'dwi_vectors_Standard.mat'), ...
-        fullfile(dataloc, 'dwi_vectors.mat') };
+        fullfile(dataloc, 'pipeline_voxels_Standard.mat'), ...
+        fullfile(dataloc, 'pipeline_voxels.mat') };
     if ~isempty(output_folder)
         sm_candidates = [ ...
             {fullfile(output_folder, 'summary_metrics_Standard.mat'), ...
              fullfile(output_folder, 'Standard', 'summary_metrics_Standard.mat')}, ...
             sm_candidates];
         dv_candidates = [ ...
-            {fullfile(output_folder, 'dwi_vectors_Standard.mat'), ...
-             fullfile(output_folder, 'Standard', 'dwi_vectors_Standard.mat')}, ...
+            {fullfile(output_folder, 'pipeline_voxels_Standard.mat'), ...
+             fullfile(output_folder, 'Standard', 'pipeline_voxels_Standard.mat')}, ...
             dv_candidates];
     end
 
@@ -107,13 +107,13 @@ function diagnose_repeat_dice(output_folder)
                'diagnose_repeat_dice(''C:\\Projects\\pancData3\\saved_files_YYYYMMDD_HHMMSS'')']);
     end
     if isempty(dv_path)
-        fprintf('\n❌ dwi_vectors not found at any of:\n');
+        fprintf('\n❌ voxel cache not found at any of:\n');
         for i = 1:length(dv_candidates); fprintf('     %s\n', dv_candidates{i}); end
-        error('dwi_vectors missing.');
+        error('voxel cache missing.');
     end
 
     fprintf('summary_metrics: %s\n', sm_path);
-    fprintf('dwi_vectors:     %s\n\n', dv_path);
+    fprintf('voxel cache:     %s\n\n', dv_path);
 
     sm = load(sm_path, 'summary_metrics');
     sm = sm.summary_metrics;

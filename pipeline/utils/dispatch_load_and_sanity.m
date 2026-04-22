@@ -13,8 +13,8 @@ function [validated_data_gtvp, validated_data_gtvn, summary_metrics, abort] = di
 %   Inputs:
 %     session - Session struct from prepare_pipeline_session containing:
 %       steps_to_run, config_struct, pipeGUI, log_fid, master_diary_file,
-%       current_name, current_dtype, dwi_vectors_file,
-%       fallback_dwi_vectors_file, summary_metrics_file
+%       current_name, current_dtype, voxel_cache_file,
+%       voxel_cache_fallback_file, summary_metrics_file
 %
 %   Outputs:
 %     validated_data_gtvp  - Validated GTVp data vectors
@@ -29,8 +29,8 @@ function [validated_data_gtvp, validated_data_gtvn, summary_metrics, abort] = di
     master_diary_file = session.master_diary_file;
     current_name = session.current_name;
     current_dtype = session.current_dtype;
-    dwi_vectors_file = session.dwi_vectors_file;
-    fallback_dwi_vectors_file = session.fallback_dwi_vectors_file;
+    voxel_cache_file = session.voxel_cache_file;
+    voxel_cache_fallback_file = session.voxel_cache_fallback_file;
     summary_metrics_file = session.summary_metrics_file;
 
     validated_data_gtvp = [];
@@ -88,7 +88,7 @@ function [validated_data_gtvp, validated_data_gtvn, summary_metrics, abort] = di
         fprintf('⏭️ [2/5] [%s] Skipping Load Step. Loading from disk...\n', current_name);
         try
             [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = ...
-                load_data_from_disk(dwi_vectors_file, fallback_dwi_vectors_file, ...
+                load_data_from_disk(voxel_cache_file, voxel_cache_fallback_file, ...
                                     summary_metrics_file, current_dtype, current_name);
             if isempty(summary_metrics)
                 error('Data files not found. Please run "load" step first.');
@@ -158,7 +158,7 @@ function [validated_data_gtvp, validated_data_gtvn, summary_metrics, abort] = di
         else
             try
                 [validated_data_gtvp, validated_data_gtvn, sm_tmp] = ...
-                    load_data_from_disk(dwi_vectors_file, fallback_dwi_vectors_file, ...
+                    load_data_from_disk(voxel_cache_file, voxel_cache_fallback_file, ...
                                         summary_metrics_file, current_dtype, current_name);
                 if ~exist('summary_metrics', 'var') || isempty(summary_metrics)
                     if ~isempty(sm_tmp)

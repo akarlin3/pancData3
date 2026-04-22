@@ -63,7 +63,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
 
     methods
         function createDummySave(testCase, filename)
-            % Creates a minimal but valid dwi_vectors .mat file containing
+            % Creates a minimal but valid voxel-cache .mat file containing
             % all variables that load_dwi_data expects when reloading:
             % data_vectors_gtvp/gtvn (struct arrays), patient metadata
             % (id_list, mrn_list, lf, immuno), DICOM dates, file locations,
@@ -104,13 +104,13 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
 
         function testSkipToReloadSuccess(testCase)
             % Verifies the happy path for skip_to_reload=true: when
-            % dwi_vectors.mat exists in dataloc, load_dwi_data should
+            % pipeline_voxels.mat exists in dataloc, load_dwi_data should
             % successfully load it, run compute_summary_metrics, and return
             % non-empty GTVp data vectors and a summary_metrics struct
             % with the expected patient ID.
 
-            % 1. Create a dummy dwi_vectors.mat
-            testCase.createDummySave('dwi_vectors.mat');
+            % 1. Create a dummy pipeline_voxels.mat
+            testCase.createDummySave('pipeline_voxels.mat');
 
             % 2. Execute load_dwi_data — should succeed and return valid outputs
             try
@@ -127,13 +127,13 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
 
         function testSkipToReloadFallback(testCase)
             % Verifies that if a specific dwi_type_name is requested but missing,
-            % the code falls back to loading the default 'dwi_vectors.mat'
+            % the code falls back to loading the default 'pipeline_voxels.mat'
 
             % 1. Request a specific DWI pipeline variant
             testCase.ConfigStruct.dwi_type_name = 'DnCNN';
 
-            % 2. Create ONLY the default dwi_vectors.mat (simulate missing specific variant)
-            testCase.createDummySave('dwi_vectors.mat');
+            % 2. Create ONLY the default pipeline_voxels.mat (simulate missing specific variant)
+            testCase.createDummySave('pipeline_voxels.mat');
 
             % 3. Execute - it should fallback and succeed
             try
@@ -151,7 +151,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
             % 1. Ensure directory is empty
             % 2. Execute and expect error
             testCase.verifyError(@() load_dwi_data(testCase.ConfigStruct), ...
-                ?MException, 'Should throw an error when dwi_vectors.mat is missing');
+                ?MException, 'Should throw an error when pipeline_voxels.mat is missing');
         end
 
         function testSkipToReloadMissingSpecificFallthrough(testCase)
@@ -192,7 +192,7 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
 
                 % Since there are no DICOM folders, output structs should be empty
                 % or initialized to empty states.
-                % Because skip_to_reload is false, Section 3 will save a new dwi_vectors.mat
+                % Because skip_to_reload is false, Section 3 will save a new pipeline_voxels.mat
                 % and Section 4 will reload it, and compute_summary_metrics will process empty arrays.
 
                 testCase.verifyTrue(isempty(gtvp) || numel(fieldnames(gtvp)) == 0, ...
@@ -202,8 +202,8 @@ classdef test_load_dwi_data < matlab.unittest.TestCase
                 testCase.verifyEmpty(summary.id_list, 'Summary id_list should be empty');
 
                 % Verify it saved the empty state
-                testCase.verifyTrue(exist(fullfile(testCase.TempDataLoc, 'dwi_vectors.mat'), 'file') == 2, ...
-                    'Should save empty state to dwi_vectors.mat');
+                testCase.verifyTrue(exist(fullfile(testCase.TempDataLoc, 'pipeline_voxels.mat'), 'file') == 2, ...
+                    'Should save empty state to pipeline_voxels.mat');
             catch ME
                 testCase.verifyFail(sprintf('Empty discovery failed: %s', ME.message));
             end

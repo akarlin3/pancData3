@@ -6,7 +6,7 @@
 % the mask and the extracted feature vectors have diverged, which would
 % invalidate all downstream per-voxel analyses.
 %
-% The script requires local patient data (dwi_vectors.mat) and the
+% The script requires local patient data (pipeline_voxels.mat) and the
 % original GTV .mat mask files on disk.  If neither is available it
 % exits gracefully with a skip message.
 %
@@ -28,7 +28,7 @@ else
 end
 
 % Load the pre-computed DWI data vectors and GTV file paths.
-data_file = fullfile(dataloc, 'dwi_vectors.mat');
+data_file = fullfile(dataloc, 'pipeline_voxels.mat');
 if ~exist(data_file, 'file')
     fprintf('Skipping test_mask_loading: no local data_vectors.mat found.\n');
     diary off;

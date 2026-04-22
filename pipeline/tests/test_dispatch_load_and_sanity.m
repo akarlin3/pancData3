@@ -45,10 +45,10 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
             % Verify data loads correctly and abort=false.
             session = testCase.makeSession({});
 
-            % Create dwi_vectors .mat
+            % Create voxel-cache .mat
             data_vectors_gtvp = struct('adc', rand(5,1), 'D', rand(5,1));
             data_vectors_gtvn = struct('adc', rand(3,1), 'D', rand(3,1));
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             % Create summary_metrics .mat
             summary_metrics = struct('mean_adc', 0.001, 'n_patients', 10);
@@ -69,8 +69,8 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
             % Skip load step but point to non-existent .mat file.
             % Verify abort=true.
             session = testCase.makeSession({});
-            session.dwi_vectors_file = fullfile(testCase.TempDir, 'nonexistent.mat');
-            session.fallback_dwi_vectors_file = fullfile(testCase.TempDir, 'also_nonexistent.mat');
+            session.voxel_cache_file = fullfile(testCase.TempDir, 'nonexistent.mat');
+            session.voxel_cache_fallback_file = fullfile(testCase.TempDir, 'also_nonexistent.mat');
 
             evalc('[~, ~, ~, ab] = dispatch_load_and_sanity(session)');
 
@@ -85,7 +85,7 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
 
             data_vectors_gtvp = struct('adc', [1.1; 2.2; 3.3]);
             data_vectors_gtvn = struct('adc', [4.4; 5.5]);
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             summary_metrics = struct('ok', true);
             save(session.summary_metrics_file, 'summary_metrics');
@@ -106,7 +106,7 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
 
             data_vectors_gtvp = struct('adc', rand(3,1));
             data_vectors_gtvn = struct('adc', rand(3,1));
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             summary_metrics = struct('mean_adc', 0.002);
             save(session.summary_metrics_file, 'summary_metrics');
@@ -124,7 +124,7 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
 
             data_vectors_gtvp = struct('adc', rand(8,1));
             data_vectors_gtvn = struct('adc', rand(4,1));
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             summary_metrics = struct('count', 8);
             save(session.summary_metrics_file, 'summary_metrics');
@@ -140,7 +140,7 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
 
             data_vectors_gtvp = struct('adc', rand(5,1));
             data_vectors_gtvn = struct('adc', rand(5,1));
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             summary_metrics = struct('val', 42);
             save(session.summary_metrics_file, 'summary_metrics');
@@ -170,8 +170,8 @@ classdef test_dispatch_load_and_sanity < matlab.unittest.TestCase
             session.master_diary_file = fullfile(testCase.TempDir, 'test_diary.log');
             session.current_name = 'Standard';
             session.current_dtype = 1;
-            session.dwi_vectors_file = fullfile(testCase.TempDir, 'dwi_vectors_Standard.mat');
-            session.fallback_dwi_vectors_file = fullfile(testCase.TempDir, 'dwi_vectors.mat');
+            session.voxel_cache_file = fullfile(testCase.TempDir, 'pipeline_voxels_Standard.mat');
+            session.voxel_cache_fallback_file = fullfile(testCase.TempDir, 'pipeline_voxels.mat');
             session.summary_metrics_file = fullfile(testCase.TempDir, 'summary_metrics_Standard.mat');
         end
     end

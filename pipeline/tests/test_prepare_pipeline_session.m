@@ -80,7 +80,7 @@ classdef test_prepare_pipeline_session < matlab.unittest.TestCase
             set(0, 'DefaultFigureVisible', session.prev_fig_vis);
             diary off;
 
-            testCase.verifySubstring(session.dwi_vectors_file, 'Standard');
+            testCase.verifySubstring(session.voxel_cache_file, 'Standard');
             testCase.verifySubstring(session.summary_metrics_file, 'Standard');
             testCase.verifySubstring(session.results_file, 'Standard');
             testCase.verifySubstring(session.baseline_results_file, 'Standard');

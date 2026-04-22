@@ -309,7 +309,7 @@ saved_files_YYYYMMDD_HHMMSS/
 └── IVIMnet/
 ```
 
-> **File deletion safety:** The pipeline never deletes files or directories it did not create. Pipeline-created directories contain a `.pipeline_created` sentinel file; all cleanup code verifies this sentinel before removing a directory. Manually curated files (e.g., `dwi_vectors_ea.mat`) are explicitly protected from cache clearing.
+> **File deletion safety:** The pipeline never deletes files or directories it did not create. Pipeline-created directories contain a `.pipeline_created` sentinel file; all cleanup code verifies this sentinel before removing a directory. The `dwi_vectors*.mat` nameset is reserved for the user's curated files — the pipeline never reads, writes, or deletes files matching that pattern. The pipeline's own voxel cache lives under `pipeline_voxels*.mat`.
 
 ### Pre-Pipeline Data Check
 
@@ -356,7 +356,7 @@ The `compare_cores` step runs all 11 tumor core delineation methods on every pat
 ```matlab
 addpath('pipeline/core', 'pipeline/utils', 'pipeline/dependencies');
 
-% Run after data has been loaded (requires dwi_vectors and summary_metrics on disk)
+% Run after data has been loaded (requires pipeline_voxels and summary_metrics on disk)
 run_dwi_pipeline('config.json', {'compare_cores'});
 ```
 

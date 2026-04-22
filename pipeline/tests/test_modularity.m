@@ -85,7 +85,7 @@ classdef test_modularity < matlab.unittest.TestCase
 
             type_dir = fullfile(testCase.TempDir, 'Standard');
             mkdir(type_dir);
-            save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(fullfile(testCase.TempDir, 'pipeline_voxels.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
             save(fullfile(testCase.TempDir, 'summary_metrics.mat'), 'summary_metrics');
             save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
@@ -107,13 +107,13 @@ classdef test_modularity < matlab.unittest.TestCase
              calculated_results = struct();
              save(fullfile(type_dir, 'calculated_results_Standard.mat'), 'calculated_results');
 
-             % Also need dwi_vectors and summary_metrics for visualize arg list
+             % Also need voxel cache and summary_metrics for visualize arg list
              data_vectors_gtvp = struct('adc_vector', []);
              data_vectors_gtvn = struct();
              summary_metrics = struct('id_list', {{'Test'}}, 'mrn_list', {{'123'}}, ...
                 'adc_mean', 1, 'd_mean', 1, 'f_mean', 1, 'dstar_mean', 1, ...
                 'd95_gtvp', 1, 'dmean_gtvp', 1, 'lf', 0);
-             save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
+             save(fullfile(testCase.TempDir, 'pipeline_voxels.mat'), 'data_vectors_gtvp', 'data_vectors_gtvn');
              save(fullfile(type_dir, 'summary_metrics_Standard.mat'), 'summary_metrics');
 
              cmd_safe = sprintf("addpath('%s'); try, clear run_dwi_pipeline; run_dwi_pipeline('%s', {'visualize'}, '%s'); diary off; catch, diary off; end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
@@ -130,7 +130,7 @@ classdef test_modularity < matlab.unittest.TestCase
             % aggregation) creates summary_metrics_Standard.mat in the
             % type subfolder.
 
-             % 1. Create dwi_vectors.mat with sufficient dummy data for load_dwi_data Section 5
+             % 1. Create pipeline_voxels.mat with sufficient dummy data for load_dwi_data Section 5
              id_list = {'Test'};
              mrn_list = {'123'};
              fx_dates = {'20230101'};
@@ -165,7 +165,7 @@ classdef test_modularity < matlab.unittest.TestCase
                  data_vectors_gtvp(1,i,1).dstar_vector_ivimnet = [0.01; 0.01];
              end
 
-             save(fullfile(testCase.TempDir, 'dwi_vectors.mat'), 'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
+             save(fullfile(testCase.TempDir, 'pipeline_voxels.mat'), 'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
 
              cmd_safe = sprintf("addpath('%s'); try, clear run_dwi_pipeline; run_dwi_pipeline('%s', {'load'}, '%s'); diary off; catch ME, diary off; disp(ME.message); end", testCase.RepoRoot, testCase.ConfigPath, testCase.TempDir);
              T = evalc(cmd_safe);
