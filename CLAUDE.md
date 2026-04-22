@@ -103,8 +103,9 @@ Key enumerated fields:
 ### File Deletion Safety
 The pipeline must **never delete a file or directory it did not create**. All deletion sites use provenance verification:
 
+- **`dwi_vectors*.mat` is off-limits.** Never delete, clear, or sweep `dwi_vectors*.mat` (any variant: `dwi_vectors.mat`, `dwi_vectors_Standard.mat`, `dwi_vectors_ea.mat`, date-stamped backups, etc.) under any circumstances. It is the upstream voxel-extraction checkpoint — hours of DICOM conversion + model fitting — and must only be regenerated via a full pipeline run that overwrites it in place via `save()`. `clear_pipeline_cache.m` deliberately omits it from its patterns and has a defensive guard; new code must not add a delete path for these files. Manual deletion by the user is the only sanctioned way to force a full rebuild.
 - **Sentinel files:** Pipeline-created directories (`saved_files_*`, `processed_patients/`) contain a `.pipeline_created` sentinel. Verify it exists before `rmdir`.
-- **Cache clearing** (`pipeline/run_dwi_pipeline.m`): deletes only pipeline-generated patterns (`dwi_vectors_*.mat`, `summary_metrics_*.mat`, `adc_vectors.mat`). Manually curated files are protected via the `protected_files` list.
+- **Cache clearing** (`pipeline/utils/clear_pipeline_cache.m`): deletes only derived caches (`summary_metrics_*.mat`, `adc_vectors.mat`). `dwi_vectors*.mat` is excluded by design.
 - **Lock files:** deleted only when orphaned (stale crashed worker) or after successful checkpoint completion.
 - **Diary/log files:** deleted only immediately before recreation by the same module.
 - **Test cleanup:** only remove artifacts the test itself created — use pre/post directory snapshots or sentinel checks.
