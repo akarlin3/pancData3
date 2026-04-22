@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **`analysis/parsers/parse_mat_metrics.py`**: Extended to extract Fx1 repeat Dice (`dice_rpt_{adc,d,f,dstar}`) from `summary_metrics_*.mat`, whole-GTV dosimetry fields from `baseline_results_*.mat`, sub-volume size arrays, ADC threshold optimisation results, and baseline-vs-delta comparison results.
+- **Voxel cache renamed from `dwi_vectors*.mat` to `pipeline_voxels*.mat` (breaking).** The `dwi_vectors*` nameset is now reserved for the user's curated files — the pipeline never reads, writes, or deletes files matching that pattern. All production read/write sites (`load_dwi_data.m`, `compute_summary_metrics.m`, `prepare_pipeline_session.m`, `load_data_from_disk.m`, `dispatch_load_and_sanity.m`) and tests have been updated. Session fields renamed: `session.dwi_vectors_file` → `session.voxel_cache_file`, `session.fallback_dwi_vectors_file` → `session.voxel_cache_fallback_file`. `clear_pipeline_cache.m` now clears `pipeline_voxels*.mat` (and preserves a defensive guard skipping any file starting with `dwi_vectors`). Existing `dwi_vectors*.mat` files on disk are left untouched; the first run after upgrade regenerates voxel data under the new filename.
 
 ## [2.3.2] - 2026-04-01
 

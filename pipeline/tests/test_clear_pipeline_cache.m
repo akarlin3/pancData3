@@ -1,11 +1,11 @@
 classdef test_clear_pipeline_cache < matlab.unittest.TestCase
     % TEST_CLEAR_PIPELINE_CACHE Unit tests for clear_pipeline_cache.
     %
-    % Validates cache clearing: deletion of derived .mat files
-    % (summary_metrics*, adc_vectors), full protection of every
-    % dwi_vectors*.mat file, sentinel-verified checkpoint removal,
-    % once-per-session guard via persistent variable, and no-op when
-    % clear_cache is false.
+    % Validates cache clearing: deletion of pipeline-owned .mat files
+    % (pipeline_voxels*, summary_metrics*, adc_vectors), full protection
+    % of every dwi_vectors*.mat file (reserved for the user), sentinel-
+    % verified checkpoint removal, once-per-session guard via persistent
+    % variable, and no-op when clear_cache is false.
 
     properties
         TmpDir
@@ -31,22 +31,26 @@ classdef test_clear_pipeline_cache < matlab.unittest.TestCase
     end
 
     methods(Test)
-        function test_deletes_derived_cache_files(testCase)
-            % Derived caches (summary_metrics*, adc_vectors) should be
-            % deleted, but dwi_vectors*.mat must always be preserved.
-            f_dwi = fullfile(testCase.TmpDir, 'dwi_vectors_Standard.mat');
-            f_sum = fullfile(testCase.TmpDir, 'summary_metrics_Standard.mat');
-            f_adc = fullfile(testCase.TmpDir, 'adc_vectors.mat');
-            fclose(fopen(f_dwi, 'w'));
-            fclose(fopen(f_sum, 'w'));
-            fclose(fopen(f_adc, 'w'));
+        function test_deletes_pipeline_cache_files(testCase)
+            % Pipeline-owned caches (pipeline_voxels*, summary_metrics*,
+            % adc_vectors) should be deleted; dwi_vectors*.mat is the
+            % user's nameset and must always be preserved.
+            f_user = fullfile(testCase.TmpDir, 'dwi_vectors_Standard.mat');
+            f_vox  = fullfile(testCase.TmpDir, 'pipeline_voxels_Standard.mat');
+            f_sum  = fullfile(testCase.TmpDir, 'summary_metrics_Standard.mat');
+            f_adc  = fullfile(testCase.TmpDir, 'adc_vectors.mat');
+            fclose(fopen(f_user, 'w'));
+            fclose(fopen(f_vox,  'w'));
+            fclose(fopen(f_sum,  'w'));
+            fclose(fopen(f_adc,  'w'));
 
             cfg = struct('clear_cache', true, 'dataloc', testCase.TmpDir);
             cleared = clear_pipeline_cache(cfg);
 
             testCase.verifyTrue(cleared);
-            testCase.verifyTrue(exist(f_dwi, 'file') == 2, ...
+            testCase.verifyTrue(exist(f_user, 'file') == 2, ...
                 'dwi_vectors*.mat must never be deleted by clear_pipeline_cache');
+            testCase.verifyFalse(exist(f_vox, 'file') == 2);
             testCase.verifyFalse(exist(f_sum, 'file') == 2);
             testCase.verifyFalse(exist(f_adc, 'file') == 2);
         end

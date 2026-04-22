@@ -294,7 +294,7 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
                 'RTStartDate', 'RTStopDate'});
             writetable(T_clin, fullfile(testCase.MockDataDir, 'mock_clinical.xlsx'));
 
-            % Create mock dwi_vectors_IVIMnet.mat and summary_metrics_IVIMnet.mat
+            % Create mock pipeline_voxels_IVIMnet.mat and summary_metrics_IVIMnet.mat
             % in the locations expected by run_dwi_pipeline
 
             % The pipeline uses output_folder for summary_metrics
@@ -303,17 +303,17 @@ classdef test_dwi_pipeline < matlab.unittest.TestCase
                 mkdir(output_folder);
             end
 
-            % Save dummy data vectors to dataloc
-            dwi_vectors_file = fullfile(testCase.MockDataDir, 'dwi_vectors_IVIMnet.mat');
-            save(dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            % Save dummy voxel cache to dataloc
+            voxel_cache_file = fullfile(testCase.MockDataDir, 'pipeline_voxels_IVIMnet.mat');
+            save(voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             % Save summary metrics to output_folder
             summary_metrics_file = fullfile(output_folder, 'summary_metrics_IVIMnet.mat');
             save(summary_metrics_file, 'summary_metrics');
 
-            % Also save the legacy format just in case
-            legacy_dwi_file = fullfile(testCase.MockDataDir, 'dwi_vectors.mat');
-            save(legacy_dwi_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            % Also save the un-typed fallback for Standard
+            legacy_cache_file = fullfile(testCase.MockDataDir, 'pipeline_voxels.mat');
+            save(legacy_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             % Define steps to run, skipping 'load' since we mocked the files directly
             steps_to_run = {'sanity', 'visualize', 'metrics_baseline', 'metrics_longitudinal', 'metrics_dosimetry', 'metrics_stats_comparisons', 'metrics_stats_predictive', 'metrics_survival'};

@@ -103,9 +103,9 @@ Key enumerated fields:
 ### File Deletion Safety
 The pipeline must **never delete a file or directory it did not create**. All deletion sites use provenance verification:
 
-- **`dwi_vectors*.mat` is off-limits.** Never delete, clear, or sweep `dwi_vectors*.mat` (any variant: `dwi_vectors.mat`, `dwi_vectors_Standard.mat`, `dwi_vectors_ea.mat`, date-stamped backups, etc.) under any circumstances. It is the upstream voxel-extraction checkpoint — hours of DICOM conversion + model fitting — and must only be regenerated via a full pipeline run that overwrites it in place via `save()`. `clear_pipeline_cache.m` deliberately omits it from its patterns and has a defensive guard; new code must not add a delete path for these files. Manual deletion by the user is the only sanctioned way to force a full rebuild.
+- **`dwi_vectors*.mat` is the user's nameset — off-limits.** The pipeline must never read, write, or delete any file matching `dwi_vectors*.mat` (including variants like `dwi_vectors.mat`, `dwi_vectors_Standard.mat`, `dwi_vectors_ea.mat`, and date-stamped backups). That nameset belongs to the user's curated files. The pipeline's own upstream voxel-extraction checkpoint lives under `pipeline_voxels*.mat` instead. `clear_pipeline_cache.m` has a defensive `startsWith('dwi_vectors')` guard; new code must not add any I/O path targeting these files.
 - **Sentinel files:** Pipeline-created directories (`saved_files_*`, `processed_patients/`) contain a `.pipeline_created` sentinel. Verify it exists before `rmdir`.
-- **Cache clearing** (`pipeline/utils/clear_pipeline_cache.m`): deletes only derived caches (`summary_metrics_*.mat`, `adc_vectors.mat`). `dwi_vectors*.mat` is excluded by design.
+- **Cache clearing** (`pipeline/utils/clear_pipeline_cache.m`): deletes only pipeline-owned caches (`pipeline_voxels_*.mat`, `summary_metrics_*.mat`, `adc_vectors.mat`). `dwi_vectors*.mat` is excluded by design.
 - **Lock files:** deleted only when orphaned (stale crashed worker) or after successful checkpoint completion.
 - **Diary/log files:** deleted only immediately before recreation by the same module.
 - **Test cleanup:** only remove artifacts the test itself created — use pre/post directory snapshots or sentinel checks.

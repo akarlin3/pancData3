@@ -77,20 +77,20 @@ summary_metrics_file = fullfile(config_struct.dataloc, ['summary_metrics' file_p
 if isfield(config_struct, 'use_checkpoints') && config_struct.use_checkpoints
     checkpoint_loaded = false;
     % Invalidate the summary_metrics checkpoint when its upstream
-    % dependency (dwi_vectors_*.mat) is newer.  Without this guard, a
-    % fresh dwi_vectors run that re-discovers file paths (e.g. newly
+    % dependency (pipeline_voxels_*.mat) is newer.  Without this guard, a
+    % fresh voxel-cache run that re-discovers file paths (e.g. newly
     % contoured Fx1 GTV masks) is silently paired with a stale summary
     % that still reflects the old discovery state, producing all-NaN
     % downstream repeatability fields.
-    dwi_vectors_file = fullfile(config_struct.dataloc, ['dwi_vectors' file_prefix '.mat']);
+    voxel_cache_file = fullfile(config_struct.dataloc, ['pipeline_voxels' file_prefix '.mat']);
     is_stale_vs_vectors = false;
-    if exist(summary_metrics_file, 'file') && exist(dwi_vectors_file, 'file')
+    if exist(summary_metrics_file, 'file') && exist(voxel_cache_file, 'file')
         sm_info = dir(summary_metrics_file);
-        dv_info = dir(dwi_vectors_file);
+        dv_info = dir(voxel_cache_file);
         if ~isempty(sm_info) && ~isempty(dv_info) && sm_info.datenum < dv_info.datenum
             is_stale_vs_vectors = true;
             fprintf('  [CHECKPOINT] %s is older than %s — ignoring stale checkpoint and recomputing.\n', ...
-                ['summary_metrics' file_prefix '.mat'], ['dwi_vectors' file_prefix '.mat']);
+                ['summary_metrics' file_prefix '.mat'], ['pipeline_voxels' file_prefix '.mat']);
         end
     end
     if exist(summary_metrics_file, 'file') && ~is_stale_vs_vectors

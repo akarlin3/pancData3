@@ -31,8 +31,8 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
 %       log_fid                   - File handle for error.log (-1 if failed)
 %       pipeGUI                   - PipelineProgressGUI object (may be [])
 %       prev_fig_vis              - Previous DefaultFigureVisible setting
-%       dwi_vectors_file          - Type-specific dwi_vectors .mat path
-%       fallback_dwi_vectors_file - Legacy dwi_vectors.mat path
+%       voxel_cache_file          - Type-specific voxel-cache .mat path
+%       voxel_cache_fallback_file - Un-typed voxel-cache .mat fallback path
 %       summary_metrics_file      - Type-specific summary_metrics .mat path
 %       results_file              - Calculated results .mat path
 %       baseline_results_file     - Baseline results .mat path
@@ -252,8 +252,8 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
         end
 
         % Build type-specific file paths
-        dwi_vectors_file = fullfile(config_struct.dataloc, sprintf('dwi_vectors_%s.mat', current_name));
-        fallback_dwi_vectors_file = fullfile(config_struct.dataloc, 'dwi_vectors.mat');
+        voxel_cache_file = fullfile(config_struct.dataloc, sprintf('pipeline_voxels_%s.mat', current_name));
+        voxel_cache_fallback_file = fullfile(config_struct.dataloc, 'pipeline_voxels.mat');
         summary_metrics_file = fullfile(config_struct.output_folder, sprintf('summary_metrics_%s.mat', current_name));
         results_file = fullfile(config_struct.output_folder, sprintf('calculated_results_%s.mat', current_name));
         baseline_results_file = fullfile(config_struct.output_folder, sprintf('metrics_baseline_results_%s.mat', current_name));
@@ -283,8 +283,8 @@ function session = prepare_pipeline_session(pipeline_dir, config_path, master_ou
     session.master_diary_file = master_diary_file;
     session.log_fid = log_fid;
     session.pipeGUI = pipeGUI;
-    session.dwi_vectors_file = dwi_vectors_file;
-    session.fallback_dwi_vectors_file = fallback_dwi_vectors_file;
+    session.voxel_cache_file = voxel_cache_file;
+    session.voxel_cache_fallback_file = voxel_cache_fallback_file;
     session.summary_metrics_file = summary_metrics_file;
     session.results_file = results_file;
     session.baseline_results_file = baseline_results_file;

@@ -101,7 +101,7 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 % to re-run the downstream analysis (Section 5).
 % [CHECKPOINTING STRATEGY]:
 % If skip_to_reload is TRUE, the script bypasses raw data discovery and processing,
-% assuming 'dwi_vectors.mat' is present. This allows rapid iteration on
+% assuming 'pipeline_voxels.mat' is present. This allows rapid iteration on
 % statistical metrics (Section 5) without re-running expensive DICOM conversions.
 % This two-phase design (compute-once + reload-many) is essential because
 % DICOM conversion + model fitting for a typical 30-patient cohort with
@@ -156,19 +156,19 @@ end
 if skip_to_reload && isfield(config_struct, 'dwi_type_name') && ~isempty(config_struct.dwi_type_name)
     dataloc_check = config_struct.dataloc;
     file_prefix_check = ['_' config_struct.dwi_type_name];
-    datasave_check = fullfile(dataloc_check, ['dwi_vectors' file_prefix_check '.mat']);
+    datasave_check = fullfile(dataloc_check, ['pipeline_voxels' file_prefix_check '.mat']);
     if ~exist(datasave_check, 'file')
         % Before falling through to full load, check if the default
-        % (un-typed) dwi_vectors.mat exists as a valid fallback.  The
+        % (un-typed) pipeline_voxels.mat exists as a valid fallback.  The
         % Section 4 reload path already handles this fallback, so we only
         % need to set skip_to_reload = false when neither file exists.
-        datasave_fallback_check = fullfile(dataloc_check, 'dwi_vectors.mat');
+        datasave_fallback_check = fullfile(dataloc_check, 'pipeline_voxels.mat');
         if exist(datasave_fallback_check, 'file')
-            fprintf('  💡 %s not found — will fallback to dwi_vectors.mat for %s.\n', ...
-                ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
+            fprintf('  💡 %s not found — will fallback to pipeline_voxels.mat for %s.\n', ...
+                ['pipeline_voxels' file_prefix_check '.mat'], config_struct.dwi_type_name);
         else
             fprintf('  💡 skip_to_reload requested but %s not found. Running full load for %s.\n', ...
-                ['dwi_vectors' file_prefix_check '.mat'], config_struct.dwi_type_name);
+                ['pipeline_voxels' file_prefix_check '.mat'], config_struct.dwi_type_name);
             skip_to_reload = false;
         end
     end
@@ -741,14 +741,14 @@ fprintf('\n--- SECTION 3: Save Results ---\n');
 %  This .mat file serves as the input for Section 4, allowing the pipeline
 %  to resume from here in future runs.
 
-datasave = fullfile(dataloc, 'dwi_vectors.mat');
+datasave = fullfile(dataloc, 'pipeline_voxels.mat');
 % Create a date-stamped backup before overwriting to prevent accidental
 % data loss from re-running the pipeline.  Backups accumulate in dataloc
 % but are small relative to the imaging data (~10-50 MB per cohort).
 if exist(datasave,'file')
     dt = datetime('now');
     dateString = char(dt, 'yyyy_MMM_dd');
-    newfilename = fullfile(dataloc, ['dwi_vectors_', dateString, '.mat']);
+    newfilename = fullfile(dataloc, ['pipeline_voxels_', dateString, '.mat']);
     copyfile(datasave,newfilename);
     fprintf('backed up existing save to %s\n',newfilename);
 end
@@ -759,7 +759,7 @@ if isfield(config_struct, 'dwi_type_name')
 else
     file_prefix = '';
 end
-datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+datasave = fullfile(dataloc, ['pipeline_voxels' file_prefix '.mat']);
 % Persist all cohort-level arrays.  This .mat file is the checkpoint that
 % allows Section 4 (reload) to bypass the expensive Section 1-3 processing.
 save(datasave,'data_vectors_gtvn','data_vectors_gtvp','lf','immuno','mrn_list','id_list','fx_dates','dwi_locations','rtdose_locations','gtv_locations','gtvn_locations','dmean_gtvp','dmean_gtvn','d95_gtvp','d95_gtvn','v50gy_gtvp','v50gy_gtvn','bad_dwi_locations','bad_dwi_count');
@@ -770,7 +770,7 @@ else
     fprintf('\n--- SECTION 4: Reload Saved Data ---\n');
     %  SECTION 4 — RELOAD SAVED DATA
     %  [ENTRY POINT]: If skip_to_reload=true, execution begins here.
-    %  Loads the pre-processed 'dwi_vectors.mat' containing voxel-level data.
+    %  Loads the pre-processed 'pipeline_voxels.mat' containing voxel-level data.
 
     % Set data path from configuration
     dataloc = config_struct.dataloc;
@@ -780,7 +780,7 @@ if isfield(config_struct, 'dwi_type_name')
 else
     file_prefix = '';
 end
-datasave = fullfile(dataloc, ['dwi_vectors' file_prefix '.mat']);
+datasave = fullfile(dataloc, ['pipeline_voxels' file_prefix '.mat']);
 if ~exist(datasave, 'file') && ~isempty(file_prefix)
     % Fallback to the default (un-typed) file when the variant-specific
     % file has not been created yet (e.g. first run before per-type saves).
@@ -788,10 +788,10 @@ if ~exist(datasave, 'file') && ~isempty(file_prefix)
     % fallback to Standard (dtype==1) only, preventing cross-type
     % contamination.  This path is only reached during the initial 'load'
     % step or direct calls outside the orchestrator.
-    datasave_fallback = fullfile(dataloc, 'dwi_vectors.mat');
+    datasave_fallback = fullfile(dataloc, 'pipeline_voxels.mat');
     if exist(datasave_fallback, 'file')
         fprintf('  %s not found — falling back to %s\n', ...
-            ['dwi_vectors' file_prefix '.mat'], 'dwi_vectors.mat');
+            ['pipeline_voxels' file_prefix '.mat'], 'pipeline_voxels.mat');
         datasave = datasave_fallback;
     end
 end

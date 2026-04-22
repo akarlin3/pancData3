@@ -47,7 +47,7 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
             % Create fake DWI vectors file
             data_vectors_gtvp = struct('adc', {1}); %#ok<NASGU>
             data_vectors_gtvn = struct('adc', {1}); %#ok<NASGU>
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             % Create fake summary metrics file
             summary_metrics = struct('id_list', {{'P001'}}); %#ok<NASGU>
@@ -67,7 +67,7 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
 
             data_vectors_gtvp = struct('adc', {2}); %#ok<NASGU>
             data_vectors_gtvn = struct('adc', {2}); %#ok<NASGU>
-            save(session.dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
             summary_metrics = struct('id_list', {{'P002'}}); %#ok<NASGU>
             save(session.summary_metrics_file, 'summary_metrics');
 
@@ -106,7 +106,7 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
             testCase.verifyTrue(isfield(session, 'master_diary_file'));
             testCase.verifyTrue(isfield(session, 'pipeGUI'));
             testCase.verifyTrue(isfield(session, 'type_output_folder'));
-            testCase.verifyTrue(isfield(session, 'dwi_vectors_file'));
+            testCase.verifyTrue(isfield(session, 'voxel_cache_file'));
             testCase.verifyTrue(isfield(session, 'results_file'));
         end
 
@@ -119,7 +119,7 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
             % Create only the legacy file, not the type-specific one
             data_vectors_gtvp = struct('adc', {1}); %#ok<NASGU>
             data_vectors_gtvn = struct('adc', {1}); %#ok<NASGU>
-            save(session.fallback_dwi_vectors_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
+            save(session.voxel_cache_fallback_file, 'data_vectors_gtvp', 'data_vectors_gtvn');
 
             [~, ~, ~, abort] = dispatch_load_and_sanity(session);
             testCase.verifyTrue(abort);
@@ -153,8 +153,8 @@ classdef test_dispatch_pipeline_steps < matlab.unittest.TestCase
             session.master_diary_file = diary_file;
             session.log_fid = -1;
             session.pipeGUI = [];
-            session.dwi_vectors_file = fullfile(testCase.TmpDir, 'dwi_vectors_Standard.mat');
-            session.fallback_dwi_vectors_file = fullfile(testCase.TmpDir, 'dwi_vectors.mat');
+            session.voxel_cache_file = fullfile(testCase.TmpDir, 'pipeline_voxels_Standard.mat');
+            session.voxel_cache_fallback_file = fullfile(testCase.TmpDir, 'pipeline_voxels.mat');
             session.summary_metrics_file = fullfile(type_dir, 'summary_metrics_Standard.mat');
             session.results_file = fullfile(type_dir, 'calculated_results_Standard.mat');
             session.baseline_results_file = fullfile(type_dir, 'metrics_baseline_results_Standard.mat');
