@@ -321,12 +321,10 @@ if ~isfolder(checkpoint_dir)
     % created by the pipeline and is safe to delete.
     sent_fid = fopen(fullfile(checkpoint_dir, '.pipeline_created'), 'w');
     if sent_fid > 0, fprintf(sent_fid, 'Created by load_dwi_data\n'); fclose(sent_fid); end
-else
-    % Backfill the sentinel for directories created by older pipeline
-    % versions that predate the convention.  See backfill_checkpoint_sentinel
-    % for the provenance check that prevents claiming unrelated folders.
-    backfill_checkpoint_sentinel(checkpoint_dir);
 end
+% Sentinel backfill for legacy directories happens inside
+% clear_pipeline_cache (called earlier in prepare_pipeline_session) so
+% the same clear_cache:true run can sweep them.
 
 % Scan for existing checkpoints to identify completed patients.
 % A patient is considered complete ONLY if its checkpoint .mat exists AND

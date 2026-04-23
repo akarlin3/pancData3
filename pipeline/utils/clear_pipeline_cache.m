@@ -69,12 +69,21 @@ function cleared = clear_pipeline_cache(config_struct)
     end
     % Remove per-patient checkpoint directory — only if it was
     % created by the pipeline (contains .pipeline_created sentinel).
+    % Legacy dirs that predate the sentinel convention get healed first
+    % via backfill_checkpoint_sentinel, which writes the sentinel iff
+    % the contents look pipeline-owned (patient_NNN_*.mat with no
+    % foreign files).  This lets a single clear_cache:true run sweep
+    % a legacy processed_patients/ instead of forcing the user to
+    % rm -rf by hand.
     checkpoint_dir = fullfile(dataloc, 'processed_patients');
+    if isfolder(checkpoint_dir)
+        backfill_checkpoint_sentinel(checkpoint_dir);
+    end
     if isfolder(checkpoint_dir) && exist(fullfile(checkpoint_dir, '.pipeline_created'), 'file')
         rmdir(checkpoint_dir, 's');
         fprintf('  🗑️ Removed per-patient checkpoint directory.\n');
     elseif isfolder(checkpoint_dir)
-        fprintf('  🛡️ Skipping checkpoint directory (no pipeline sentinel): %s\n', checkpoint_dir);
+        fprintf('  🛡️ Skipping checkpoint directory (no pipeline sentinel; contents do not match pipeline naming): %s\n', checkpoint_dir);
     end
     if n_deleted > 0
         fprintf('  🗑️ Cleared %d cached .mat file(s) from %s\n', n_deleted, dataloc);
