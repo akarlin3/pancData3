@@ -162,23 +162,26 @@ classdef test_clear_pipeline_cache < matlab.unittest.TestCase
             testCase.verifyTrue(exist(f1, 'file') == 2);
         end
 
-        function test_once_per_session_guard(testCase)
-            % Second call should be a no-op (returns false).  Use a
-            % deletable file (summary_metrics_*) to exercise the guard:
-            % dwi_vectors*.mat is protected regardless of the guard.
+        function test_runs_on_every_call(testCase)
+            % The per-session persistent guard was removed (too fragile
+            % across nested callers — test suites could leave it dirty
+            % and defeat clear_cache:true).  clear_pipeline_cache now
+            % runs fully on every call; subsequent calls are cheap
+            % no-ops when the cache is already gone.
             f1 = fullfile(testCase.TmpDir, 'summary_metrics_Standard.mat');
             fclose(fopen(f1, 'w'));
 
             cfg = struct('clear_cache', true, 'dataloc', testCase.TmpDir);
             cleared1 = clear_pipeline_cache(cfg);
             testCase.verifyTrue(cleared1);
+            testCase.verifyFalse(exist(f1, 'file') == 2);
 
-            % Create another file and call again — should NOT be deleted
+            % Second call should re-run and delete a freshly-added file.
             f2 = fullfile(testCase.TmpDir, 'summary_metrics_dnCNN.mat');
             fclose(fopen(f2, 'w'));
             cleared2 = clear_pipeline_cache(cfg);
-            testCase.verifyFalse(cleared2);
-            testCase.verifyTrue(exist(f2, 'file') == 2);
+            testCase.verifyTrue(cleared2);
+            testCase.verifyFalse(exist(f2, 'file') == 2);
         end
 
         function test_no_files_to_clear(testCase)
