@@ -809,6 +809,8 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                     "mean_dice",
                     "std_dice",
                     "median_vol_frac",
+                    "vol_frac_curvature",     # Tactic 2
+                    "significance_pvalues",   # Tactic 3
                 ):
                     if hasattr(results, field):
                         opt_entry[field] = _array_to_list(getattr(results, field))
@@ -816,12 +818,27 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                     "optimal_thresh",
                     "optimal_dice",
                     "optimal_vol_frac",
+                    "inflection_thresh",      # Tactic 2
+                    "inflection_curvature",   # Tactic 2
+                    "significance_thresh",    # Tactic 3
+                    "significance_pvalue",    # Tactic 3
                 ):
                     if hasattr(results, scalar_field):
                         opt_entry[scalar_field] = _safe_float(getattr(results, scalar_field))
-                if hasattr(results, "n_patients"):
+                for int_field in (
+                    "n_patients",
+                    "inflection_idx",
+                    "significance_n_lc",
+                    "significance_n_lf",
+                ):
+                    if hasattr(results, int_field):
+                        try:
+                            opt_entry[int_field] = int(getattr(results, int_field))
+                        except Exception:
+                            pass
+                if hasattr(results, "significance_metric"):
                     try:
-                        opt_entry["n_patients"] = int(getattr(results, "n_patients"))
+                        opt_entry["significance_metric"] = str(getattr(results, "significance_metric"))
                     except Exception:
                         pass
                 out_data["threshold_optimization"] = opt_entry
