@@ -41,6 +41,9 @@ function cleared = clear_pipeline_cache(config_struct)
 
     persistent cache_cleared_this_session;
     if ~isempty(cache_cleared_this_session) && cache_cleared_this_session
+        fprintf(['  💡 clear_pipeline_cache: already ran this session — ' ...
+                 'skipping (persistent short-circuit). Call ' ...
+                 '`clear clear_pipeline_cache` to force a re-run.\n']);
         return;
     end
 
