@@ -166,6 +166,15 @@ end
 % accidentally append results to a previous run's output directory.
 clear run_dwi_pipeline;
 
+% Also reset clear_pipeline_cache's `cache_cleared_this_session` persistent.
+% Without this, a second invocation of execute_all_workflows in the same
+% MATLAB session would see the flag still true and silently skip the
+% cache-clear — causing clear_cache:true to be ignored and stale
+% per-patient checkpoints (pre-GTV-fix voxel vectors) to survive. The
+% persistent still correctly skips on the dnCNN and IVIMnet runs within
+% this single invocation (we only want to clear once per full sequence).
+clear clear_pipeline_cache;
+
 % Create the timestamped output folder now so the diary can live there.
 % The timestamp ensures each pipeline execution produces an isolated,
 % reproducible output directory — critical for comparing results across
