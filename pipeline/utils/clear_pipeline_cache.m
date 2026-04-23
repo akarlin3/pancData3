@@ -3,15 +3,18 @@ function cleared = clear_pipeline_cache(config_struct)
 %
 %   cleared = clear_pipeline_cache(config_struct)
 %
-%   When config_struct.clear_cache is true and the cache has not already
-%   been cleared in this MATLAB session, deletes derived .mat files from
-%   config_struct.dataloc so the pipeline recomputes downstream metrics
-%   from scratch.  Also removes the per-patient checkpoint directory if
-%   it was created by the pipeline (verified via sentinel).
+%   When config_struct.clear_cache is true, deletes derived .mat files
+%   from config_struct.dataloc so the pipeline recomputes downstream
+%   metrics from scratch.  Also removes the per-patient checkpoint
+%   directory if it was created by the pipeline (verified via sentinel).
 %
-%   A persistent variable ensures this runs at most once per session,
-%   avoiding redundant clearing when execute_all_workflows calls
-%   run_dwi_pipeline multiple times (once per DWI type).
+%   Runs on every call — no persistent session guard.  An earlier
+%   session-scoped guard was removed because it was fragile across
+%   nested callers (pre-flight tests, test suite cached-skip, multiple
+%   execute_all_workflows invocations in one MATLAB session) and the
+%   no-op cost is negligible: once the first call has deleted the cache
+%   files, subsequent calls inside the same execute_all_workflows
+%   invocation find nothing to delete and return cheaply.
 %
 %   The pipeline's own voxel cache lives in pipeline_voxels*.mat.  That
 %   is the expensive voxel-extraction checkpoint (hours of DICOM
@@ -31,19 +34,11 @@ function cleared = clear_pipeline_cache(config_struct)
 %
 %   Outputs:
 %     cleared - true if cache files were actually deleted in this call,
-%               false if skipped (already cleared or clear_cache is false)
+%               false if skipped (clear_cache is false)
 
     cleared = false;
 
     if ~isfield(config_struct, 'clear_cache') || ~config_struct.clear_cache
-        return;
-    end
-
-    persistent cache_cleared_this_session;
-    if ~isempty(cache_cleared_this_session) && cache_cleared_this_session
-        fprintf(['  💡 clear_pipeline_cache: already ran this session — ' ...
-                 'skipping (persistent short-circuit). Call ' ...
-                 '`clear clear_pipeline_cache` to force a re-run.\n']);
         return;
     end
 
@@ -93,6 +88,5 @@ function cleared = clear_pipeline_cache(config_struct)
     else
         fprintf('  💡 No cached files found to clear.\n');
     end
-    cache_cleared_this_session = true;
     cleared = true;
 end
