@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **`pipeline/utils/backfill_checkpoint_sentinel.m`**: New helper invoked at the start of each `load_dwi_data` run. When `processed_patients/` exists without the `.pipeline_created` sentinel (i.e., predates the sentinel convention), backfills it iff the directory contains at least one `patient_NNN_*.mat` checkpoint and no foreign entries. Lets `clear_cache: true` sweep legacy checkpoint directories on the next call without prompting the user to delete manually.
+- **`pipeline/utils/backfill_checkpoint_sentinel.m`**: New helper invoked inside `clear_pipeline_cache.m` immediately before the rmdir-with-sentinel-check. When `processed_patients/` exists without the `.pipeline_created` sentinel (i.e., predates the sentinel convention), backfills it iff the directory contains at least one `patient_NNN_*.mat` checkpoint and no foreign entries, then proceeds to clear it in the same call. Single `clear_cache: true` run now sweeps legacy checkpoint directories without forcing a manual `rm -rf`.
 - **`analysis/report/sections/repeatability_dice.py`**: New report section — Fx1 spatial repeatability Dice table per parameter (ADC, D, f, D*) × DWI type with color coding (green ≥0.70, yellow 0.50–0.70, red <0.50).
 - **`pipeline/utils/plot_dose_vs_delta.m`**: New MATLAB module — scatter plots of whole-GTV and sub-volume D95 vs percent change in D at Fx2/Fx3, with LC/LF/CR colour coding and per-group Spearman annotations.
 - **`pipeline/utils/optimize_adc_threshold.m`**: New MATLAB module — sweeps ADC threshold 0.8e-3 to 2.0e-3 in 13 steps and reports the threshold that maximises median Fx1 repeat Dice. Gated on `run_optimize_threshold` config flag.

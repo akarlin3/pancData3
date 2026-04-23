@@ -88,8 +88,9 @@ classdef test_clear_pipeline_cache < matlab.unittest.TestCase
             testCase.verifyFalse(isfolder(cp_dir));
         end
 
-        function test_skips_checkpoint_without_sentinel(testCase)
-            % Checkpoint dir without sentinel should be preserved.
+        function test_skips_empty_checkpoint_without_sentinel(testCase)
+            % Empty checkpoint dir without sentinel: backfill refuses
+            % (no patient_*.mat files), so the dir is preserved.
             cp_dir = fullfile(testCase.TmpDir, 'processed_patients');
             mkdir(cp_dir);
 
@@ -97,6 +98,42 @@ classdef test_clear_pipeline_cache < matlab.unittest.TestCase
             clear_pipeline_cache(cfg);
 
             testCase.verifyTrue(isfolder(cp_dir));
+        end
+
+        function test_backfills_and_clears_legacy_checkpoint(testCase)
+            % Legacy checkpoint dir without sentinel but with pipeline-
+            % style files: backfill writes the sentinel, then the same
+            % clear_pipeline_cache call sweeps the directory.  This
+            % closes the single-run gap where users previously had to
+            % rm -rf processed_patients/ by hand on first contact.
+            cp_dir = fullfile(testCase.TmpDir, 'processed_patients');
+            mkdir(cp_dir);
+            fclose(fopen(fullfile(cp_dir, 'patient_001_P01.mat'), 'w'));
+            fclose(fopen(fullfile(cp_dir, 'patient_002_P02.mat'), 'w'));
+
+            cfg = struct('clear_cache', true, 'dataloc', testCase.TmpDir);
+            clear_pipeline_cache(cfg);
+
+            testCase.verifyFalse(isfolder(cp_dir), ...
+                'Legacy pipeline-owned checkpoint dir should be cleared in a single call');
+        end
+
+        function test_preserves_foreign_checkpoint_dir(testCase)
+            % Directory named processed_patients/ but containing foreign
+            % files (no patient_*.mat, or mixed-in non-pipeline file):
+            % backfill refuses, so the dir is preserved even with
+            % clear_cache:true.  Protects unrelated user data.
+            cp_dir = fullfile(testCase.TmpDir, 'processed_patients');
+            mkdir(cp_dir);
+            fclose(fopen(fullfile(cp_dir, 'patient_001_P01.mat'), 'w'));
+            fclose(fopen(fullfile(cp_dir, 'my_notes.txt'), 'w'));
+
+            cfg = struct('clear_cache', true, 'dataloc', testCase.TmpDir);
+            clear_pipeline_cache(cfg);
+
+            testCase.verifyTrue(isfolder(cp_dir), ...
+                'Foreign-content checkpoint dir must not be claimed/cleared');
+            testCase.verifyTrue(exist(fullfile(cp_dir, 'my_notes.txt'), 'file') == 2);
         end
 
         function test_noop_when_clear_cache_false(testCase)
