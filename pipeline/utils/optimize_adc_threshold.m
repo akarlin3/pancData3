@@ -291,13 +291,10 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
     optimal_vol_frac = median_vol_frac(optimal_idx);
 
     % --- Tactic 2: Volume-fraction inflection ---
-    % The volume curve V(t) grows monotonically with threshold.  Its knee
-    % (most concave point) marks the saturation transition between dense
-    % tumour core and surrounding tissue.  We approximate the second
-    % derivative on a 3-point smoothed copy of median_vol_frac and pick
-    % the index that maximises -d^2V/dt^2 (most negative curvature).
+    % See find_volume_inflection.m for the algorithm: 3-point smoothing
+    % followed by a discrete second derivative; knee = argmin(curvature).
     [inflection_thresh, inflection_idx, inflection_curvature, vol_frac_curvature] = ...
-        local_inflection(thresholds, median_vol_frac);
+        find_volume_inflection(thresholds, median_vol_frac);
 
     % --- Tactic 3: Outcome-significance ---
     % Per-threshold Wilcoxon rank-sum on per-patient sub-volume fraction
@@ -426,65 +423,17 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
 end
 
 
-function [knee_thresh, knee_idx, knee_curvature, curvature] = local_inflection(thresholds, vol_frac)
-% LOCAL_INFLECTION  Find the knee of vol_frac(threshold) via discrete d^2/dt^2.
-%
-% Returns NaNs everywhere when the curve has fewer than 3 finite samples
-% (no second-derivative defined).  Curvature is computed on a 3-point
-% moving-average smoothed copy to suppress noise from the small (13-pt)
-% sweep.  The knee is the index that maximises -d^2V/dt^2 (most concave
-% saturation point).  Endpoints of `curvature` are NaN.
-
-    n = numel(vol_frac);
-    curvature = nan(1, n);
-    knee_thresh    = NaN;
-    knee_idx       = NaN;
-    knee_curvature = NaN;
-
-    finite_mask = ~isnan(vol_frac);
-    if sum(finite_mask) < 3
-        return;
-    end
-
-    % 3-point moving-average smoothing (NaN-aware).  Boundary points
-    % use a 2-point average so we don't lose them.
-    v = vol_frac;
-    sm = nan(1, n);
-    for i = 1:n
-        lo = max(1, i - 1);
-        hi = min(n, i + 1);
-        win = v(lo:hi);
-        win = win(~isnan(win));
-        if ~isempty(win)
-            sm(i) = mean(win);
-        end
-    end
-
-    % Discrete second derivative.  Uniform spacing is assumed (the sweep
-    % is fixed step), so the divisor is constant and the argmax of the
-    % unscaled finite difference is the same as that of the true d^2V/dt^2.
-    for i = 2:n-1
-        if ~isnan(sm(i-1)) && ~isnan(sm(i)) && ~isnan(sm(i+1))
-            curvature(i) = sm(i+1) - 2*sm(i) + sm(i-1);
-        end
-    end
-
-    if all(isnan(curvature))
-        return;
-    end
-    % Pick the most concave (most negative curvature) interior point.
-    [~, knee_idx] = min(curvature);
-    knee_thresh    = thresholds(knee_idx);
-    knee_curvature = curvature(knee_idx);
-end
-
-
 function [best_thresh, best_idx, best_p, pvalues, n_lc_at_best, n_lf_at_best] = ...
     local_significance(thresholds, per_patient_vol_frac, per_patient_lf)
 % LOCAL_SIGNIFICANCE  Per-threshold Wilcoxon p-value of vol_frac LC vs LF.
 %
 % Returns NaNs when no threshold has both LC>=3 and LF>=3 finite values
-% (Wilcoxon undefined / underpowered below this floor).
+% (Wilcoxon undefined / underpowered below this floor).  Calls the
+% Statistics-Toolbox `ranksum` directly rather than routing through
+% `perform_statistical_test`, because the latter enforces the
+% project's primary-inference sample floor of n>=5 per group — too
+% strict for an exploratory 13-threshold sweep where the goal is
+% ranking, not confirmatory inference.
 
     n_thresh = numel(thresholds);
     pvalues  = nan(1, n_thresh);
@@ -510,12 +459,13 @@ function [best_thresh, best_idx, best_p, pvalues, n_lc_at_best, n_lf_at_best] = 
         if n_lc < 3 || n_lf < 3
             continue;
         end
-        data = col(finite_mask);
-        groups = per_patient_lf(finite_mask);
+        lc_data = col(lc_mask);
+        lf_data = col(lf_mask);
         try
-            pvalues(ti) = perform_statistical_test(data, groups, 'ranksum');
+            pvalues(ti) = ranksum(lc_data, lf_data);
         catch
-            % Test failed — leave NaN at this threshold.
+            % Test failed (e.g. all-equal data, ranksum package missing
+            % in a stripped Octave setup).  Leave NaN at this threshold.
         end
     end
 
