@@ -45,13 +45,111 @@ classdef test_optimize_adc_threshold < matlab.unittest.TestCase
             result = optimize_adc_threshold(testCase.DataVectors, testCase.ConfigStruct, ...
                 testCase.IdList, testCase.GtvLocations);
 
-            expected = {'thresholds', 'median_dice', 'mean_dice', 'std_dice', ...
+            expected = { ...
+                'thresholds', 'median_dice', 'mean_dice', 'std_dice', ...
                 'median_vol_frac', 'mean_vol_frac', 'n_patients', ...
-                'optimal_thresh', 'optimal_dice', 'optimal_vol_frac', 'per_patient_dice'};
+                'optimal_thresh', 'optimal_dice', 'optimal_vol_frac', 'per_patient_dice', ...
+                'inflection_thresh', 'inflection_idx', 'inflection_curvature', ...
+                'vol_frac_curvature', ...
+                'significance_pvalues', 'significance_thresh', 'significance_pvalue', ...
+                'significance_n_lc', 'significance_n_lf', 'significance_metric'};
             for i = 1:numel(expected)
                 testCase.verifyTrue(isfield(result, expected{i}), ...
                     sprintf('Output should contain field %s.', expected{i}));
             end
+        end
+
+        function testInflectionTactic(testCase)
+            % Tactic 2: with the synthetic two-cluster ADC distribution,
+            % the volume curve should saturate around the cluster gap
+            % (~1.5e-3).  vol_frac_curvature should be a 13-vector with
+            % NaN endpoints, and inflection_thresh should be finite and
+            % land somewhere in the interior of the sweep.
+            result = optimize_adc_threshold(testCase.DataVectors, testCase.ConfigStruct, ...
+                testCase.IdList, testCase.GtvLocations);
+
+            testCase.verifyEqual(numel(result.vol_frac_curvature), 13);
+            testCase.verifyTrue(isnan(result.vol_frac_curvature(1)), ...
+                'Curvature endpoint must be NaN');
+            testCase.verifyTrue(isnan(result.vol_frac_curvature(end)), ...
+                'Curvature endpoint must be NaN');
+
+            testCase.verifyFalse(isnan(result.inflection_thresh), ...
+                'Inflection threshold should be finite for this fixture');
+            testCase.verifyGreaterThan(result.inflection_thresh, result.thresholds(1));
+            testCase.verifyLessThan(result.inflection_thresh, result.thresholds(end));
+            testCase.verifyGreaterThanOrEqual(result.inflection_idx, 2);
+            testCase.verifyLessThanOrEqual(result.inflection_idx, 12);
+            testCase.verifyTrue(result.inflection_curvature <= 0, ...
+                'Knee curvature should be non-positive (concave down)');
+        end
+
+        function testSignificanceMissingLF(testCase)
+            % Tactic 3: the default fixture has no .LF field, so the
+            % significance scan must gracefully report NaN/empty rather
+            % than crashing on the missing field.
+            result = optimize_adc_threshold(testCase.DataVectors, testCase.ConfigStruct, ...
+                testCase.IdList, testCase.GtvLocations);
+
+            testCase.verifyTrue(isnan(result.significance_thresh));
+            testCase.verifyTrue(isnan(result.significance_pvalue));
+            testCase.verifyEqual(result.significance_n_lc, 0);
+            testCase.verifyEqual(result.significance_n_lf, 0);
+            testCase.verifyEqual(numel(result.significance_pvalues), 13);
+            testCase.verifyTrue(all(isnan(result.significance_pvalues)));
+        end
+
+        function testSignificanceWithLF(testCase)
+            % Tactic 3: inject distinct ADC distributions for LC vs LF
+            % (LC patients keep the cellular cluster; LF patients shift
+            % the cellular cluster slightly higher) so the per-threshold
+            % Wilcoxon p-value is meaningful and a best threshold exists.
+            dv = testCase.DataVectors;
+            n_patients = size(dv, 1);
+            % First half = LC (LF=0), second half = LF (LF=1).  Need >=3
+            % per group; the fixture has 5 patients so split 3/2 won't
+            % satisfy LF>=3.  Re-shape the fixture inline.
+            n_each = 3;
+            n_total = 2 * n_each;
+            base_template = dv(1, 1, 1);
+            n_vox = numel(base_template.adc_vector);
+            template = base_template;
+            template.LF = 0;
+            dv2 = repmat(template, n_total, 1, size(dv, 3));
+            for j = 1:n_total
+                lf = double(j > n_each);
+                shift = lf * 1.0e-4;  % LF patients have slightly higher ADC
+                base_adc = [(1.1e-3 + shift) * ones(round(n_vox/2), 1); ...
+                            2.5e-3 * ones(n_vox - round(n_vox/2), 1)];
+                for rpi = 1:size(dv, 3)
+                    noise = 1e-4 * randn(n_vox, 1);
+                    dv2(j, 1, rpi).adc_vector = base_adc + noise;
+                    dv2(j, 1, rpi).d_vector = base_adc + noise;
+                    dv2(j, 1, rpi).f_vector = 0.1 * ones(n_vox, 1);
+                    dv2(j, 1, rpi).dstar_vector = 0.02 * ones(n_vox, 1);
+                    dv2(j, 1, rpi).LF = lf;
+                end
+            end
+            id2 = arrayfun(@(x) sprintf('P%02d', x), 1:n_total, 'UniformOutput', false);
+            gtv2 = cell(n_total, 1, size(dv, 3));
+            for j = 1:n_total
+                for rpi = 1:size(dv, 3)
+                    gtv2{j, 1, rpi} = testCase.GtvLocations{1, 1, 1};
+                end
+            end
+
+            result = optimize_adc_threshold(dv2, testCase.ConfigStruct, id2, gtv2);
+
+            testCase.verifyEqual(numel(result.significance_pvalues), 13);
+            % At least one threshold must reach the 3-per-group floor.
+            testCase.verifyTrue(any(~isnan(result.significance_pvalues)), ...
+                'At least one threshold should produce a valid p-value with 3+3 cohort');
+            testCase.verifyFalse(isnan(result.significance_thresh));
+            testCase.verifyGreaterThanOrEqual(result.significance_pvalue, 0);
+            testCase.verifyLessThanOrEqual(result.significance_pvalue, 1);
+            testCase.verifyEqual(result.significance_n_lc, n_each);
+            testCase.verifyEqual(result.significance_n_lf, n_each);
+            testCase.verifyEqual(result.significance_metric, 'wilcoxon ranksum on vol_frac');
         end
 
         function testThresholdsLength(testCase)
