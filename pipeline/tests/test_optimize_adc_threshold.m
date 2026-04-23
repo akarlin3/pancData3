@@ -204,13 +204,17 @@ end
 function [cfg, dv, id_list, gtv_locations] = buildOptThreshData(tempDir)
 % Build 5-patient dataset with 2 Fx1 repeats each. Synthetic ADC data
 % centered near 1.2e-3 with small repeat-to-repeat noise near the edges.
+%
+% Mask size: 8x8x8 (512 voxels) — `safe_load_mask.validate_mask_dimensions`
+% requires every non-singleton dimension to be >= 8, so smaller masks
+% load as [] and silently skip every patient.
 
     rng(42);
     n_patients = 5;
     n_repeats = 2;
 
-    % 5x5x5 GTV volume (125 voxels)
-    grid_sz = 5;
+    % 8x8x8 GTV volume (512 voxels)
+    grid_sz = 8;
     n_vox = grid_sz^3;
     mask_3d = true(grid_sz, grid_sz, grid_sz);
 
