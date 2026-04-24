@@ -519,10 +519,12 @@ parfor j = 1:length(mrn_list)
         dvh_d95_gtvn_rp    = nan(1, n_rp_dim);
         dvh_v50gy_gtvp_rp  = nan(1, n_rp_dim);
         dvh_v50gy_gtvn_rp  = nan(1, n_rp_dim);
-        % Pre-filter fraction folder for this fraction to avoid redundant dir() calls
-        % Use regexp with word-boundary to prevent 'Fx1' matching 'Fx10'
-        % Case-insensitive to handle 'fx1', 'FX1', 'Fx1', etc.
-        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
+        % Pre-filter fraction folder for this fraction to avoid redundant dir() calls.
+        % Matches 'Fx1', 'Fx1 - repeatability', 'fx1_old', etc. while
+        % rejecting 'Fx10'/'Fx11' via an explicit non-alphanumeric-or-end
+        % guard. See discover_patient_files.m for the rationale on why this
+        % pattern replaced the earlier '\b'-based one.
+        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, ['^' fx_search{fi} '([^A-Za-z0-9]|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)

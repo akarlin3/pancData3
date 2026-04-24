@@ -100,10 +100,17 @@ for j=1:n_pat_discover
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
 
-        % Use regexp with a word-boundary anchor to prevent substring
-        % false positives (e.g., 'Fx1' matching 'Fx10' or 'Fx11').
-        % Case-insensitive to handle 'fx1', 'FX1', 'Fx1', etc.
-        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, [fx_search{fi} '(\b|$)'], 'once'));
+        % Anchor the fraction-folder name at the start and require a
+        % non-alphanumeric separator (space, hyphen, underscore, …) or end
+        % of string after it. This prevents 'Fx1' matching 'Fx10'/'Fx11'
+        % while still matching real-world variants like
+        % 'Fx1 - repeatability' that some sites use for the repeat-scan
+        % session. An earlier version used '\b' here, but some MATLAB
+        % runtimes did not treat a following space as a word boundary for
+        % this pattern in practice, causing every 'Fx1 - repeatability'
+        % folder to be silently skipped and cascading into all-NaN
+        % dice_rpt_* across the cohort. Case-insensitive via regexpi.
+        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, ['^' fx_search{fi} '([^A-Za-z0-9]|$)'], 'once'));
         fxtmp = basefolder_contents(fxtmp_idx);
 
         if isempty(fxtmp)

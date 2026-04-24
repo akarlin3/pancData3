@@ -101,6 +101,27 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
             fclose(fopen(fullfile(p3_dir, 'Fx1', 'GTVp1.mat'), 'w'));
             fclose(fopen(fullfile(p3_dir, 'Fx1', 'GTV_LN1.mat'), 'w'));
 
+            % --- Patient 4: Repeatability-session patient (P04-REP) ---
+            % At MSK, some sites name the Fx1 baseline session as
+            % "Fx1 - repeatability" (with indexed per-repeat masks
+            % ROI_GTV1_<date>.mat .. ROI_GTV3_<date>.mat). The fraction
+            % matcher must recognize this folder as Fx1 so the indexed
+            % masks feed into compute_spatial_repeatability; otherwise
+            % dice_rpt_* comes back all-NaN for the entire cohort.
+            p4_dir = fullfile(testCase.MockDataDir, 'P04-REP');
+            mkdir(p4_dir);
+            p4_fx1 = fullfile(p4_dir, 'Fx1 - repeatability');
+            mkdir(p4_fx1);
+
+            for rpi = 1:3
+                dwi_sub = fullfile(p4_fx1, sprintf('DWI%d', rpi));
+                mkdir(dwi_sub);
+                for i = 1:5
+                    fclose(fopen(fullfile(dwi_sub, sprintf('im%d.dcm', i)), 'w'));
+                end
+                fclose(fopen(fullfile(p4_fx1, sprintf('ROI_GTV%d_20210212.mat', rpi)), 'w'));
+            end
+
             % Non-patient folder (should be ignored by discovery logic)
             mkdir(fullfile(testCase.MockDataDir, 'template'));
         end
@@ -122,17 +143,43 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
 
     methods(Test)
         function testBasicDiscovery(testCase)
-            % Verify that discover_patient_files finds exactly the 3 patient
-            % folders (P01, P02, P03) and ignores the 'template' folder.
+            % Verify that discover_patient_files finds exactly the 4 patient
+            % folders (P01-P04) and ignores the 'template' folder.
             % Results should be sorted alphabetically by folder name.
             [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(testCase.MockDataDir);
 
-            testCase.verifyEqual(length(id_list), 3, 'Should discover exactly 3 valid patients.');
+            testCase.verifyEqual(length(id_list), 4, 'Should discover exactly 4 valid patients.');
 
             % Verify alphabetical sort order
             testCase.verifyEqual(id_list{1}, 'P01-ABC');
             testCase.verifyEqual(id_list{2}, 'P02_DEF');
             testCase.verifyEqual(id_list{3}, 'P03_twoGTV');
+            testCase.verifyEqual(id_list{4}, 'P04-REP');
+        end
+
+        function testFx1RepeatabilityFolderNamingIsRecognizedAsFx1(testCase)
+            % Regression test for MSK 'Fx1 - repeatability' layout.
+            % The fraction matcher must treat this as Fx1 and find all
+            % three indexed ROI_GTV*.mat masks so dice_rpt_* can be
+            % computed downstream. The previous '\b'-based regex silently
+            % skipped this folder on the live MSK machine, which made
+            % gtv_locations{:, 1, :} empty for ~95% of the cohort and
+            % cascaded into all-NaN repeat Dice metrics.
+            [~, ~, ~, dwi_locations, ~, gtv_locations, ~] = discover_patient_files(testCase.MockDataDir);
+
+            % Each of the three repeats must resolve to a DWI path and an
+            % indexed GTV mask at Fx1 (fraction index 1).
+            for rpi = 1:3
+                testCase.verifyTrue(~isempty(dwi_locations{4, 1, rpi}), ...
+                    sprintf('DWI path should be found for P04-REP Fx1 repeat %d.', rpi));
+                testCase.verifyTrue(~isempty(gtv_locations{4, 1, rpi}), ...
+                    sprintf('Indexed GTV mask should be found for P04-REP Fx1 repeat %d.', rpi));
+                testCase.verifyTrue(contains(gtv_locations{4, 1, rpi}, ...
+                    sprintf('ROI_GTV%d_', rpi)), ...
+                    sprintf('Fx1 repeat %d should resolve to ROI_GTV%d_*.mat.', rpi, rpi));
+                testCase.verifyTrue(contains(gtv_locations{4, 1, rpi}, 'Fx1 - repeatability'), ...
+                    'Resolved GTV path must live under the "Fx1 - repeatability" folder.');
+            end
         end
 
         function testStandardPatient(testCase)
