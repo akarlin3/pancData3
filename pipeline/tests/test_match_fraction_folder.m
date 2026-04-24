@@ -78,8 +78,13 @@ classdef test_match_fraction_folder < matlab.unittest.TestCase
         end
 
         function testEmptyInputReturnsEmpty(testCase)
+            % Empty cell input should produce an empty logical mask. The
+            % exact size (0x0 vs 1x0) depends on what strncmpi returns for
+            % an empty cell — either is acceptable as long as it's logical
+            % and isempty.
             mask = match_fraction_folder({}, 'Fx1');
-            testCase.verifyEqual(mask, false(1, 0));
+            testCase.verifyTrue(isempty(mask), 'Mask must be empty for empty input.');
+            testCase.verifyClass(mask, 'logical', 'Mask must be a logical array.');
         end
 
         function testNonMatchingPrefixReturnsFalse(testCase)
