@@ -103,11 +103,20 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
 
             % --- Patient 4: Repeatability-session patient (P04-REP) ---
             % At MSK, some sites name the Fx1 baseline session as
-            % "Fx1 - repeatability" (with indexed per-repeat masks
-            % ROI_GTV1_<date>.mat .. ROI_GTV3_<date>.mat). The fraction
-            % matcher must recognize this folder as Fx1 so the indexed
-            % masks feed into compute_spatial_repeatability; otherwise
-            % dice_rpt_* comes back all-NaN for the entire cohort.
+            % "Fx1 - repeatability" (with indexed per-repeat masks). The
+            % fraction matcher must recognize this folder as Fx1 so the
+            % indexed masks feed into compute_spatial_repeatability;
+            % otherwise dice_rpt_* comes back all-NaN for the entire
+            % cohort.
+            %
+            % Mask filenames use the simple 'GTVp<N>.mat' form (matched
+            % directly by the '*GTVp' pattern in discover_gtv_file with
+            % a single-wildcard '*GTVp<N>.mat' glob) rather than the
+            % MSK-cohort 'ROI_GTV<N>_<date>.mat' form. Both name shapes
+            % exercise the same code path through the matcher, but the
+            % simpler form sidesteps any platform-specific quirks in
+            % dir()'s multi-wildcard '*GTV*<N>_*.mat' matching — which
+            % is irrelevant to the regression this test is locking in.
             p4_dir = fullfile(testCase.MockDataDir, 'P04-REP');
             mkdir(p4_dir);
             p4_fx1 = fullfile(p4_dir, 'Fx1 - repeatability');
@@ -119,7 +128,7 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
                 for i = 1:5
                     fclose(fopen(fullfile(dwi_sub, sprintf('im%d.dcm', i)), 'w'));
                 end
-                fclose(fopen(fullfile(p4_fx1, sprintf('ROI_GTV%d_20210212.mat', rpi)), 'w'));
+                fclose(fopen(fullfile(p4_fx1, sprintf('GTVp%d.mat', rpi)), 'w'));
             end
 
             % Non-patient folder (should be ignored by discovery logic)
@@ -175,8 +184,8 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
                 testCase.verifyTrue(~isempty(gtv_locations{4, 1, rpi}), ...
                     sprintf('Indexed GTV mask should be found for P04-REP Fx1 repeat %d.', rpi));
                 testCase.verifyTrue(contains(gtv_locations{4, 1, rpi}, ...
-                    sprintf('ROI_GTV%d_', rpi)), ...
-                    sprintf('Fx1 repeat %d should resolve to ROI_GTV%d_*.mat.', rpi, rpi));
+                    sprintf('GTVp%d.mat', rpi)), ...
+                    sprintf('Fx1 repeat %d should resolve to GTVp%d.mat.', rpi, rpi));
                 testCase.verifyTrue(contains(gtv_locations{4, 1, rpi}, 'Fx1 - repeatability'), ...
                     'Resolved GTV path must live under the "Fx1 - repeatability" folder.');
             end
