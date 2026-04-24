@@ -520,11 +520,11 @@ parfor j = 1:length(mrn_list)
         dvh_v50gy_gtvp_rp  = nan(1, n_rp_dim);
         dvh_v50gy_gtvn_rp  = nan(1, n_rp_dim);
         % Pre-filter fraction folder for this fraction to avoid redundant dir() calls.
-        % Matches 'Fx1', 'Fx1 - repeatability', 'fx1_old', etc. while
-        % rejecting 'Fx10'/'Fx11' via an explicit non-alphanumeric-or-end
-        % guard. See discover_patient_files.m for the rationale on why this
-        % pattern replaced the earlier '\b'-based one.
-        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, ['^' fx_search{fi} '([^A-Za-z0-9]|$)'], 'once'));
+        % See discover_patient_files.m / match_fraction_folder.m for the
+        % rationale: regex-based matching silently failed against
+        % 'Fx1 - repeatability' in some MATLAB runtimes, so the matcher
+        % now uses strncmpi + an explicit next-character check.
+        fxtmp_idx = match_fraction_folder({basefolder_contents.name}, fx_search{fi});
         fxtmp = basefolder_contents(fxtmp_idx);
 
         for rpi = 1:size(dwi_locations,3)

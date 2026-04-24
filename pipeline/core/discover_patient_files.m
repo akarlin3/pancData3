@@ -100,17 +100,21 @@ for j=1:n_pat_discover
     for fi=1:length(fx_search)
         have_fx_date = 0;   % flag: study date already extracted for this fraction
 
-        % Anchor the fraction-folder name at the start and require a
-        % non-alphanumeric separator (space, hyphen, underscore, …) or end
-        % of string after it. This prevents 'Fx1' matching 'Fx10'/'Fx11'
-        % while still matching real-world variants like
-        % 'Fx1 - repeatability' that some sites use for the repeat-scan
-        % session. An earlier version used '\b' here, but some MATLAB
-        % runtimes did not treat a following space as a word boundary for
-        % this pattern in practice, causing every 'Fx1 - repeatability'
-        % folder to be silently skipped and cascading into all-NaN
-        % dice_rpt_* across the cohort. Case-insensitive via regexpi.
-        fxtmp_idx = ~cellfun(@isempty, regexpi({basefolder_contents.name}, ['^' fx_search{fi} '([^A-Za-z0-9]|$)'], 'once'));
+        % Match folder names that start with the fraction tag (e.g. 'Fx1')
+        % either exactly, or followed by a non-alphanumeric separator
+        % (space, hyphen, underscore, …). This accepts real-world variants
+        % such as 'Fx1 - repeatability' (which the MSK cohort uses for
+        % the repeat-scan baseline session) while still rejecting
+        % 'Fx10'/'Fx11' and 'postprocessing'.
+        %
+        % Implementation note: earlier versions used regex (first 'Fx1(\b|$)',
+        % then '^Fx1([^A-Za-z0-9]|$)'), but regex-based matching silently
+        % failed against 'Fx1 - repeatability' in some MATLAB runtimes,
+        % leaving gtv_locations{:, 1, :} empty for ~95% of the cohort and
+        % cascading into all-NaN dice_rpt_*. Using strncmpi + an explicit
+        % next-character check removes any dependency on regex-engine
+        % semantics for word boundaries.
+        fxtmp_idx = match_fraction_folder({basefolder_contents.name}, fx_search{fi});
         fxtmp = basefolder_contents(fxtmp_idx);
 
         if isempty(fxtmp)
