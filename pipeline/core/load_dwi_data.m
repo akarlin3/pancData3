@@ -404,6 +404,32 @@ fprintf('--- DEBUG: Clinical spreadsheet Pat column (first 5) ---\n');
 for dbg_i = 1:min(5, numel(T_Pat_normalized))
     fprintf('  Spreadsheet[%d]: "%s"\n', dbg_i, T_Pat_normalized{dbg_i});
 end
+% Surface the runtime type readtable inferred for the binary-outcome
+% columns. When values look numeric in Excel but the cell format is
+% "Text", readtable returns a cell-of-char and naive index access
+% silently produces 0 for every row. This print makes the failure mode
+% visible the first time the pipeline starts up.
+for dbg_col = {'LF', 'LocalFailure', 'Immuno', 'IO'}
+    cn = dbg_col{1};
+    if isfield(T, cn)
+        col = T.(cn);
+        fprintf('--- DEBUG: T.%s class=%s, first 10 raw values ---\n', cn, class(col));
+        for dbg_k = 1:min(10, numel(col))
+            try
+                v = col(dbg_k);
+                if iscell(v); v = v{1}; end
+                if isnumeric(v) || islogical(v)
+                    fprintf('  T.%s(%d) = %g\n', cn, dbg_k, double(v));
+                else
+                    fprintf('  T.%s(%d) = "%s"\n', cn, dbg_k, char(string(v)));
+                end
+            catch dbg_err  %#ok<NASGU>
+                fprintf('  T.%s(%d) = <unreadable>\n', cn, dbg_k);
+            end
+        end
+    end
+end
+
 fprintf('--- DEBUG: Folder id_list (first 5) ---\n');
 for dbg_i = 1:min(5, numel(id_list_normalized))
     fprintf('  Folder[%d]: "%s"\n', dbg_i, id_list_normalized{dbg_i});
@@ -491,20 +517,29 @@ parfor j = 1:length(mrn_list)
     if numel(i_pat) > 1
         warning('load_dwi_data:duplicatePatient', 'Patient ID ''%s'' has %d matches in clinical spreadsheet. Using first.', id_list{j}, numel(i_pat));
     end
+    % Route binary-outcome cells through parse_clinical_value to handle the
+    % type variants readtable can return (double / cell-of-char / string /
+    % categorical) when Excel cell formatting differs from "General/Number".
+    % The earlier direct assignment silently produced 0 for every patient
+    % when the column came back as a cell-of-char, masking real LF / Immuno
+    % events in the cohort.
     if isfield(T, 'Immuno')
-        pat_immuno = T.Immuno(i_pat(1));
+        pat_immuno = parse_clinical_value(T.Immuno(i_pat(1)));
     elseif isfield(T, 'IO')
-        pat_immuno = T.IO(i_pat(1));
+        pat_immuno = parse_clinical_value(T.IO(i_pat(1)));
     else
         pat_immuno = 0;
     end
+    if isnan(pat_immuno); pat_immuno = 0; end
+
     if isfield(T, 'LF')
-        pat_lf = T.LF(i_pat(1));
+        pat_lf = parse_clinical_value(T.LF(i_pat(1)));
     elseif isfield(T, 'LocalFailure')
-        pat_lf = T.LocalFailure(i_pat(1));
+        pat_lf = parse_clinical_value(T.LocalFailure(i_pat(1)));
     else
         pat_lf = 0;
     end
+    if isnan(pat_lf); pat_lf = 0; end
 
     basefolder = fullfile(dataloc, id_list{j});
     basefolder_contents = clean_dir_command(basefolder);
