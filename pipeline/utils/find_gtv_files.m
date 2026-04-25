@@ -1,7 +1,8 @@
-function [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name)
+function [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name, opts)
 % FIND_GTV_FILES Locate GTVp and (optionally) GTVn mask files for a scan.
 %
 %   [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name)
+%   [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name, opts)
 %
 %   Inputs:
 %       fxfolder - Absolute path to the fraction folder containing mask files
@@ -9,6 +10,12 @@ function [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name)
 %       pat_name - Patient identifier string; the token 'two' in the name
 %                  signals that this patient has both a primary pancreatic
 %                  tumor (GTVp) and lymph node metastases (GTVn)
+%       opts     - (Optional) struct with discovery flags:
+%                  .process_gtvn (logical, default true) — when false, the
+%                     dual-GTV branch is bypassed even for "twoGTVs"
+%                     patients: the function takes the single-GTV path,
+%                     gtvn_path is always '', and the broad '*GTV*'
+%                     fallback is allowed for primary discovery.
 %
 %   Outputs:
 %       gtvp_path - Full path to the primary GTV mask file ('' if not found)
@@ -44,9 +51,17 @@ function [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, pat_name)
     gtvp_path = '';
     gtvn_path = '';
 
+    if nargin < 4 || isempty(opts) || ~isstruct(opts)
+        opts = struct();
+    end
+    if ~isfield(opts, 'process_gtvn')
+        opts.process_gtvn = true;
+    end
+    process_gtvn = logical(opts.process_gtvn);
+
     candidate_folders = local_candidate_gtv_folders(fxfolder, dwii);
 
-    if ~contains(pat_name, 'two')
+    if ~contains(pat_name, 'two') || ~process_gtvn
         % --- Single-GTV Patient (Primary Tumor Only) ---
         % Search patterns are ordered from most specific to least specific:
         %   1. *GTV_MR   - Standard MSK MR-contoured GTV naming
