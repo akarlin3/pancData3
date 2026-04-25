@@ -184,7 +184,16 @@ if ~skip_to_reload
 % RT dose files, and nodal GTV masks for every patient x fraction x repeat
 % combination. The structured naming convention (P##/Fx#/DWI#/) allows
 % automated discovery without a manual lookup table.
-discover_opts = struct('process_gtvn', logical(config_struct.process_gtvn));
+% Default to legacy behaviour (process_gtvn=true) when the field is
+% absent — handles direct callers (e.g. unit tests) that build a
+% ConfigStruct without going through parse_config. Production runs go
+% through parse_config which sets the project default to false.
+if isfield(config_struct, 'process_gtvn')
+    process_gtvn_flag = logical(config_struct.process_gtvn);
+else
+    process_gtvn_flag = true;
+end
+discover_opts = struct('process_gtvn', process_gtvn_flag);
 [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(config_struct.dataloc, discover_opts);
 
 % Optional patient subset filtering: when config specifies patient_ids,
