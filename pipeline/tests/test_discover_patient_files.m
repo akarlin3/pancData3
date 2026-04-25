@@ -247,5 +247,50 @@ classdef test_discover_patient_files < matlab.unittest.TestCase
             testCase.verifyTrue(~isempty(gtvn_locations{3, 1, 1}), 'Nodal GTV should be found for P03.');
             testCase.verifyTrue(contains(gtvn_locations{3, 1, 1}, 'GTV_LN1.mat'));
         end
+
+        function testIgnoreNodalGTVOption(testCase)
+            % opts.process_gtvn = false must keep gtvn_locations fully
+            % empty even for the dual-GTV (P03_twoGTV) patient, while
+            % still resolving the primary GTV. This is the regression
+            % that drives the "ignore nodal GTVs" cohort-level switch.
+            opts = struct('process_gtvn', false);
+            [~, ~, ~, ~, ~, gtv_locations, gtvn_locations] = ...
+                discover_patient_files(testCase.MockDataDir, opts);
+
+            % Primary GTV is still resolved for P03
+            testCase.verifyTrue(~isempty(gtv_locations{3, 1, 1}), ...
+                'Primary GTV should still be found when process_gtvn=false.');
+
+            % Nodal GTV is suppressed for the dual-GTV patient
+            testCase.verifyTrue(isempty(gtvn_locations{3, 1, 1}), ...
+                'GTVn must be empty when process_gtvn=false, even for twoGTV patients.');
+
+            % And no other patient should have GTVn either
+            for j = 1:size(gtvn_locations, 1)
+                for fi = 1:size(gtvn_locations, 2)
+                    for rpi = 1:size(gtvn_locations, 3)
+                        testCase.verifyTrue(isempty(gtvn_locations{j, fi, rpi}), ...
+                            sprintf('gtvn_locations{%d,%d,%d} must be empty when process_gtvn=false.', j, fi, rpi));
+                    end
+                end
+            end
+        end
+
+        function testProcessGTVNDefaultIsTrue(testCase)
+            % Backward-compat: omitting opts (single-arg call) must
+            % behave exactly like process_gtvn=true. Locks in the
+            % invariant that adding the flag did not change historical
+            % default behaviour.
+            [~, ~, ~, ~, ~, ~, gtvn_default] = ...
+                discover_patient_files(testCase.MockDataDir);
+            [~, ~, ~, ~, ~, ~, gtvn_explicit_true] = ...
+                discover_patient_files(testCase.MockDataDir, ...
+                    struct('process_gtvn', true));
+
+            testCase.verifyEqual(gtvn_default, gtvn_explicit_true, ...
+                'Default behaviour must match explicit process_gtvn=true.');
+            testCase.verifyTrue(~isempty(gtvn_default{3, 1, 1}), ...
+                'Default behaviour must still find GTVn for twoGTV patient.');
+        end
     end
 end

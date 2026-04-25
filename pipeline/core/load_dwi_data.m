@@ -184,7 +184,8 @@ if ~skip_to_reload
 % RT dose files, and nodal GTV masks for every patient x fraction x repeat
 % combination. The structured naming convention (P##/Fx#/DWI#/) allows
 % automated discovery without a manual lookup table.
-[id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(config_struct.dataloc);
+discover_opts = struct('process_gtvn', logical(config_struct.process_gtvn));
+[id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(config_struct.dataloc, discover_opts);
 
 % Optional patient subset filtering: when config specifies patient_ids,
 % restrict processing to only those patients. This is useful for debugging

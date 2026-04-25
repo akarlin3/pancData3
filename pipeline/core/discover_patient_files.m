@@ -1,9 +1,14 @@
-function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(dataloc)
+function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_locations, gtvn_locations] = discover_patient_files(dataloc, opts)
 % DISCOVER_PATIENT_FILES — Locates DWI, GTV, and RT dose files on the network
 % Part of the load_dwi_data.m refactoring.
 %
 % Inputs:
 %   dataloc           - Base directory path where patient data is stored
+%   opts              - (Optional) struct with discovery flags:
+%                       .process_gtvn (logical, default true) — if false,
+%                          nodal GTV (GTVn) masks are not searched for and
+%                          gtvn_locations is left fully empty even for
+%                          dual-GTV ("twoGTVs") patients.
 %
 % Outputs:
 %   id_list           - Cell array of patient folder names
@@ -31,6 +36,16 @@ function [id_list, mrn_list, fx_dates, dwi_locations, rtdose_locations, gtv_loca
 %   from DICOM headers, linking the imaging data to clinical outcome data
 %   in the spreadsheet. This avoids manual data entry errors that could
 %   corrupt patient-level correlations.
+
+% Resolve discovery options. Backward-compatible: callers that omit the
+% second argument keep the historical behaviour (process_gtvn = true).
+if nargin < 2 || isempty(opts) || ~isstruct(opts)
+    opts = struct();
+end
+if ~isfield(opts, 'process_gtvn')
+    opts.process_gtvn = true;
+end
+process_gtvn = logical(opts.process_gtvn);
 
 % List all patient folders, excluding any 'template' directories
 % (template folders contain example data structures, not patient data)
@@ -194,14 +209,17 @@ for j=1:n_pat_discover
 
                     % --- Locate GTV mask .mat files for this DWI repeat ---
                     % find_gtv_files searches for GTVp (primary tumor) and
-                    % GTVn (nodal disease) mask files with flexible naming
-                    % patterns (e.g., "gtv_1.mat", "GTV_p.mat", etc.)
-                    [gtvp_path, gtvn_path] = find_gtv_files(fxfolder, dwii, patlist(j).name);
+                    % (when nodal processing is enabled) GTVn (nodal disease)
+                    % mask files with flexible naming patterns
+                    % (e.g., "gtv_1.mat", "GTV_p.mat", etc.)
+                    [gtvp_path, gtvn_path] = find_gtv_files( ...
+                        fxfolder, dwii, patlist(j).name, ...
+                        struct('process_gtvn', process_gtvn));
 
                     if ~isempty(gtvp_path)
                         gtv_locations{j,fi,dwii} = gtvp_path;
                     end
-                    if ~isempty(gtvn_path)
+                    if process_gtvn && ~isempty(gtvn_path)
                         gtvn_locations{j,fi,dwii} = gtvn_path;
                     end
                 end

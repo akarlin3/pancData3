@@ -152,6 +152,13 @@ function config_struct = parse_config(json_path)
         defaults.run_gtv_confounding         = false;
         defaults.run_optimize_threshold      = false;
         defaults.run_baseline_vs_delta       = false;
+        % When false, the pipeline ignores nodal GTVs (GTVn) entirely:
+        % discovery skips GTVn mask paths, voxel extraction skips nodal
+        % data, and downstream metrics treat every patient as primary-
+        % only. Default is false because the MSK cohort's nodal contours
+        % are largely incidental data and not part of the analysis. Set
+        % to true to opt back in for sites that want nodal metrics.
+        defaults.process_gtvn                = false;
 
         % --- Numeric scalar thresholds and counts ---
         defaults.adc_thresh                  = 0.001;
