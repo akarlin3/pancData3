@@ -381,32 +381,48 @@ T_Pat_normalized = {};
 pat_col_candidates = {'Pat', 'Patient', 'PatientID', 'Patient_ID'};
 pat_col_found = '';
 for pci = 1:numel(pat_col_candidates)
-    if isfield(T, pat_col_candidates{pci})
+    if has_table_var(T, pat_col_candidates{pci})
         pat_col_found = pat_col_candidates{pci};
         break;
     end
 end
+% Use the canonical T.Properties.VariableNames accessor instead of
+% fieldnames(T). On some MATLAB configurations fieldnames(T) leaks the
+% built-in table-metadata names ("Properties", "Row", "Variables") into
+% the result, which both clutters the diagnostic dump and (more
+% critically) breaks the "first column" fallback when one of those
+% metadata names happens to come first. VariableNames is the only
+% accessor that's guaranteed to return only the actual column names.
+if istable(T)
+    try
+        actual_var_names = T.Properties.VariableNames;
+    catch
+        actual_var_names = fieldnames(T);
+    end
+else
+    actual_var_names = fieldnames(T);
+end
+
 if ~isempty(pat_col_found)
     [T_Pat_normalized, ~] = normalize_patient_ids(T.(pat_col_found), id_list);
 else
     % Last resort: try the first column of the table
-    col_names = fieldnames(T);
-    if ~isempty(col_names)
-        first_col = T.(col_names{1});
+    if ~isempty(actual_var_names)
+        first_col = T.(actual_var_names{1});
         if iscell(first_col) || iscategorical(first_col) || ischar(first_col)
             [T_Pat_normalized, ~] = normalize_patient_ids(first_col, id_list);
-            fprintf('  ⚠️ No ''Pat'' column found; using first column ''%s'' for patient matching.\n', col_names{1});
+            fprintf('  ⚠️ No ''Pat'' column found; using first column ''%s'' for patient matching.\n', actual_var_names{1});
         end
     end
     if isempty(T_Pat_normalized)
         error('load_dwi_data:noPatColumn', ...
             'Clinical spreadsheet has no recognizable patient ID column. Cannot match patients to clinical data. Available columns: %s', ...
-            strjoin(fieldnames(T), ', '));
+            strjoin(actual_var_names, ', '));
     end
 end
 
 % --- DEBUG: print spreadsheet vs folder patient IDs for matching diagnosis ---
-fprintf('\n--- DEBUG: Spreadsheet columns: %s ---\n', strjoin(fieldnames(T), ', '));
+fprintf('\n--- DEBUG: Spreadsheet columns: %s ---\n', strjoin(actual_var_names, ', '));
 if ~isempty(pat_col_found)
     fprintf('--- DEBUG: Using column ''%s'' for patient matching ---\n', pat_col_found);
 end
@@ -421,7 +437,7 @@ end
 % visible the first time the pipeline starts up.
 for dbg_col = {'LF', 'LocalFailure', 'Immuno', 'IO'}
     cn = dbg_col{1};
-    if isfield(T, cn)
+    if has_table_var(T, cn)
         col = T.(cn);
         fprintf('--- DEBUG: T.%s class=%s, first 10 raw values ---\n', cn, class(col));
         for dbg_k = 1:min(10, numel(col))
@@ -533,18 +549,18 @@ parfor j = 1:length(mrn_list)
     % The earlier direct assignment silently produced 0 for every patient
     % when the column came back as a cell-of-char, masking real LF / Immuno
     % events in the cohort.
-    if isfield(T, 'Immuno')
+    if has_table_var(T, 'Immuno')
         pat_immuno = parse_clinical_value(T.Immuno(i_pat(1)));
-    elseif isfield(T, 'IO')
+    elseif has_table_var(T, 'IO')
         pat_immuno = parse_clinical_value(T.IO(i_pat(1)));
     else
         pat_immuno = 0;
     end
     if isnan(pat_immuno); pat_immuno = 0; end
 
-    if isfield(T, 'LF')
+    if has_table_var(T, 'LF')
         pat_lf = parse_clinical_value(T.LF(i_pat(1)));
-    elseif isfield(T, 'LocalFailure')
+    elseif has_table_var(T, 'LocalFailure')
         pat_lf = parse_clinical_value(T.LocalFailure(i_pat(1)));
     else
         pat_lf = 0;
