@@ -63,7 +63,9 @@ def _section_gtv_confounding(mat_data: dict, dwi_types: list[str]) -> list[str]:
 
         h.append(f"<h3>{_dwi_badge(dwi)} — Confounding Analysis</h3>")
         h.append("<table><thead><tr>")
-        h.append("<th>Core Method</th><th>D95-GTV &rho;</th>"
+        h.append("<th>Core Method</th>"
+                 "<th>D95-GTV &rho; (LC+LF)</th>"
+                 "<th>D95-GTV &rho; (Full cohort)</th>"
                  "<th>Unadjusted HR</th><th>Adjusted HR</th>"
                  "<th>% Change</th><th>Confounded?</th>")
         h.append("</tr></thead><tbody>")
@@ -71,6 +73,9 @@ def _section_gtv_confounding(mat_data: dict, dwi_types: list[str]) -> list[str]:
         for mr in method_results:
             name = mr.get("method_name", "")
             rho = mr.get("d95_gtv_correlation")
+            rho_p = mr.get("d95_gtv_pvalue")
+            rho_full = mr.get("d95_gtv_correlation_full")
+            rho_full_p = mr.get("d95_gtv_pvalue_full")
             unadj_hr = mr.get("unadjusted_hr")
             adj_hr = mr.get("adjusted_hr")
             flag = mr.get("confounding_flag", False)
@@ -87,7 +92,18 @@ def _section_gtv_confounding(mat_data: dict, dwi_types: list[str]) -> list[str]:
             h.append(f"<tr><td><strong>{_esc(name)}</strong></td>")
 
             if rho is not None:
-                h.append(f"<td>{rho:.3f}</td>")
+                if rho_p is not None:
+                    h.append(f"<td>{rho:.3f} (p={rho_p:.3f})</td>")
+                else:
+                    h.append(f"<td>{rho:.3f}</td>")
+            else:
+                h.append("<td>&mdash;</td>")
+
+            if rho_full is not None:
+                if rho_full_p is not None:
+                    h.append(f"<td>{rho_full:.3f} (p={rho_full_p:.3f})</td>")
+                else:
+                    h.append(f"<td>{rho_full:.3f}</td>")
             else:
                 h.append("<td>&mdash;</td>")
 

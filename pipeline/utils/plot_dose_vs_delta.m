@@ -14,9 +14,13 @@ function plot_dose_vs_delta(baseline_results, dosimetry_results, config_struct)
 %       CR = grey squares    [0.5 0.5 0.5]
 %   All markers are filled, black-edged, size 50.
 %
-%   Linear trend lines are fitted for LC and LF groups when n >= 3 per group
-%   (solid for LC, dashed for LF). Spearman rho + p-value annotations are
-%   computed per group; groups with n<3 are reported as "n<3".
+%   Three trend lines and Spearman rho + p-value annotations are
+%   reported per panel:
+%       - Full cohort (LC + LF + CR pooled) — solid black, headline trend
+%       - LC subset                          — solid blue
+%       - LF subset                          — dashed orange
+%   Each estimate requires n >= 3 in its respective set; otherwise the
+%   value is reported as "n<3".
 %
 %   PNG files are saved as
 %       dose_vs_deltaD_Fx{fx}_{dtype_label}.png
@@ -185,8 +189,14 @@ function plot_single_panel(x_vals, y_vals, lf_group, x_label, y_label, panel_tit
             'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
     end
 
-    % --- Trend lines (require n>=3 per group) ---
+    % --- Trend lines: full cohort (solid black) + per-group LC/LF ---
     warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
+    if sum(clean_all) >= 3
+        xl = linspace(min(x_vals(clean_all)), max(x_vals(clean_all)), 50);
+        p_fit = polyfit(x_vals(clean_all), y_vals(clean_all), 1);
+        plot(xl, polyval(p_fit, xl), '-', 'Color', [0.2 0.2 0.2], ...
+            'LineWidth', 2, 'DisplayName', 'Cohort trend');
+    end
     if sum(lc_mask) >= 3
         xl = linspace(min(x_vals(lc_mask)), max(x_vals(lc_mask)), 50);
         p_fit = polyfit(x_vals(lc_mask), y_vals(lc_mask), 1);
@@ -202,8 +212,11 @@ function plot_single_panel(x_vals, y_vals, lf_group, x_label, y_label, panel_tit
     warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
     hold off;
 
-    % --- Spearman per group ---
-    r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
+    % --- Spearman: full cohort + per-group LC and LF ---
+    r_all = NaN; p_all = NaN; r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
+    if sum(clean_all) >= 3
+        [r_all, p_all] = safe_spearman(x_vals(clean_all), y_vals(clean_all));
+    end
     if sum(lc_mask) >= 3
         [r_lc, p_lc] = safe_spearman(x_vals(lc_mask), y_vals(lc_mask));
     end
@@ -213,8 +226,14 @@ function plot_single_panel(x_vals, y_vals, lf_group, x_label, y_label, panel_tit
 
     n_lc = sum(lc_mask);
     n_lf = sum(lf_mask);
-    n_cr = sum(clean_all & lf_group_col == 2);
+    n_cr = sum(cr_mask);
+    n_total = sum(clean_all);
 
+    if isnan(r_all)
+        cohort_str = sprintf('Cohort (n=%d): n<3', n_total);
+    else
+        cohort_str = sprintf('Cohort (n=%d) r_s=%.2f %s', n_total, r_all, format_p_value(p_all));
+    end
     if isnan(r_lc)
         lc_str = sprintf('LC (n=%d): n<3', n_lc);
     else
@@ -229,9 +248,9 @@ function plot_single_panel(x_vals, y_vals, lf_group, x_label, y_label, panel_tit
     xlabel(x_label);
     ylabel(y_label);
     if n_cr > 0
-        cap = sprintf('%s | %s | CR: n=%d', lc_str, lf_str, n_cr);
+        cap = sprintf('%s\n%s | %s | CR: n=%d', cohort_str, lc_str, lf_str, n_cr);
     else
-        cap = sprintf('%s | %s', lc_str, lf_str);
+        cap = sprintf('%s\n%s | %s', cohort_str, lc_str, lf_str);
     end
     if nargin < 6 || isempty(panel_title)
         title(cap, 'FontSize', 9);
