@@ -23,14 +23,11 @@ function plot_scatter_correlations(dtype_label, dmean_gtvp, d95_gtvp, adc_mean, 
 %     3. Rank correlation captures monotonic trends without assuming
 %        a specific functional form
 %
-%   Per-group (LC/LF) trend lines and correlations avoid Simpson's paradox:
-%   the pooled correlation across all patients could be misleading if LC
-%   and LF groups have different dose distributions (e.g., LF patients
-%   received lower doses AND had lower ADC, creating a spurious positive
-%   correlation in the pooled data).
-%
-%  Each scatter panel is coloured by clinical outcome (blue = LC, red = LF),
-%  with per-group linear trend-lines and Spearman correlation coefficients.
+%   Correlations and the trend line are computed on the full cohort
+%   (LC + LF + CR pooled) so the reported r_s reflects the dose-diffusion
+%   relationship across every patient with valid data, not within an
+%   outcome subset. Markers remain colour-coded by outcome for visual
+%   stratification (blue = LC, red = LF, gray = CR).
 
 % Extract Fx1 (baseline) dose metrics for the valid patient subset.
 % Baseline dose metrics reflect the planned dose distribution before any
@@ -78,14 +75,12 @@ for di = 1:n_diff_metrics
         % 2=competing risk (non-cancer death without prior LF).
         lf_group_col = lf_group(:);
 
-        % Include all outcome groups; competing risks shown separately
-        % (lf==2) are displayed as gray squares but excluded from per-group
-        % LC/LF correlation statistics to prevent Simpson's paradox.
-        eligible_lc_lf = (lf_group_col <= 1);
+        % Full cohort = every patient with a known outcome and valid x/y.
+        % CR patients are full cohort members; they are kept in both the
+        % pooled correlation and the trend line.
         eligible_all = ~isnan(lf_group_col);
         clean_all = eligible_all & ~isnan(x_vals) & ~isnan(y_vals);
-        clean = eligible_lc_lf & ~isnan(x_vals) & ~isnan(y_vals);
-        if sum(clean) < 3
+        if sum(clean_all) < 3
             title([diff_names{di} ' — insufficient data']);
             plot_idx = plot_idx + 1;
             continue;
@@ -104,60 +99,39 @@ for di = 1:n_diff_metrics
         % Plot LC (blue, MATLAB default blue) and LF (red/orange, MATLAB default orange)
         % with black edge for visibility. Marker size 50 provides good contrast
         % for cohorts of ~20-40 patients without excessive overlap.
-        scatter(x_vals(clean & lf_group_col==0), y_vals(clean & lf_group_col==0), ...
+        lc_mask = clean_all & lf_group_col==0;
+        lf_mask = clean_all & lf_group_col==1;
+        scatter(x_vals(lc_mask), y_vals(lc_mask), ...
             50, [0 0.4470 0.7410], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LC'); hold on;
-        scatter(x_vals(clean & lf_group_col==1), y_vals(clean & lf_group_col==1), ...
+        scatter(x_vals(lf_mask), y_vals(lf_mask), ...
             50, [0.8500 0.3250 0.0980], 'filled', 'MarkerEdgeColor', 'k', 'DisplayName', 'LF');
 
-        % Overlay per-group linear trend lines to avoid pooled Simpson's paradox.
-        % If LC and LF groups show opposite trends (e.g., LC: higher dose →
-        % higher ADC; LF: higher dose → lower ADC), the pooled trend would
-        % be meaningless and could mask the group-specific biology.
+        % Pooled (full-cohort) linear trend line over LC + LF + CR.
         warning('off', 'MATLAB:polyfit:RepeatedPointsOrRescale');
-        lc_mask = clean & lf_group_col==0;
-        lf_mask = clean & lf_group_col==1;
-        if sum(lc_mask) >= 2
-            x_line_lc = linspace(min(x_vals(lc_mask)), max(x_vals(lc_mask)), 50);
-            p_fit_lc = polyfit(x_vals(lc_mask), y_vals(lc_mask), 1);
-            plot(x_line_lc, polyval(p_fit_lc, x_line_lc), '-', 'Color', [0 0.4470 0.7410], ...
-                'LineWidth', 2, 'DisplayName', 'LC trend');
-        end
-        if sum(lf_mask) >= 2
-            x_line_lf = linspace(min(x_vals(lf_mask)), max(x_vals(lf_mask)), 50);
-            p_fit_lf = polyfit(x_vals(lf_mask), y_vals(lf_mask), 1);
-            plot(x_line_lf, polyval(p_fit_lf, x_line_lf), '--', 'Color', [0.8500 0.3250 0.0980], ...
-                'LineWidth', 2, 'DisplayName', 'LF trend');
+        if sum(clean_all) >= 2
+            x_line = linspace(min(x_vals(clean_all)), max(x_vals(clean_all)), 50);
+            p_fit = polyfit(x_vals(clean_all), y_vals(clean_all), 1);
+            plot(x_line, polyval(p_fit, x_line), '-', 'Color', [0.2 0.2 0.2], ...
+                'LineWidth', 2, 'DisplayName', 'Cohort trend');
         end
         warning('on', 'MATLAB:polyfit:RepeatedPointsOrRescale');
         hold off;
 
-        % Compute per-group Spearman correlations to match the per-group
-        % trend lines and avoid Simpson's paradox inflating pooled r_s.
-        % A minimum of 3 points per group is required for a meaningful
-        % correlation estimate (fewer points produce unreliable p-values).
-        % Initialize Spearman rho and p-values to NaN (shown when too few data points)
-        r_lc = NaN; p_lc = NaN; r_lf = NaN; p_lf = NaN;
-        if sum(lc_mask) >= 3
+        % Full-cohort Spearman correlation across LC + LF + CR. A minimum of
+        % 3 points is required for a meaningful estimate (fewer points
+        % produce unreliable p-values).
+        r_all = NaN; p_all = NaN;
+        if sum(clean_all) >= 3
             if exist('OCTAVE_VERSION', 'builtin')
                 % Octave uses spearman() and requires manual t-test for p-value.
                 % t = r * sqrt((n-2) / (1-r^2)) follows t-distribution with n-2 df.
                 % eps prevents division by zero when |r| = 1 (perfect correlation).
-                r_lc = spearman(x_vals(lc_mask), y_vals(lc_mask));
-                n_lc = sum(lc_mask);
-                t_lc = r_lc * sqrt((n_lc - 2) / (1 - r_lc^2 + eps));
-                p_lc = 2 * (1 - tcdf(abs(t_lc), n_lc - 2));
+                r_all = spearman(x_vals(clean_all), y_vals(clean_all));
+                n_all = sum(clean_all);
+                t_all = r_all * sqrt((n_all - 2) / (1 - r_all^2 + eps));
+                p_all = 2 * (1 - tcdf(abs(t_all), n_all - 2));
             else
-                [r_lc, p_lc] = corr(x_vals(lc_mask), y_vals(lc_mask), 'Type', 'Spearman');
-            end
-        end
-        if sum(lf_mask) >= 3
-            if exist('OCTAVE_VERSION', 'builtin')
-                r_lf = spearman(x_vals(lf_mask), y_vals(lf_mask));
-                n_lf = sum(lf_mask);
-                t_lf = r_lf * sqrt((n_lf - 2) / (1 - r_lf^2 + eps));
-                p_lf = 2 * (1 - tcdf(abs(t_lf), n_lf - 2));
-            else
-                [r_lf, p_lf] = corr(x_vals(lf_mask), y_vals(lf_mask), 'Type', 'Spearman');
+                [r_all, p_all] = corr(x_vals(clean_all), y_vals(clean_all), 'Type', 'Spearman');
             end
         end
 
@@ -167,35 +141,29 @@ for di = 1:n_diff_metrics
         else
             ylabel([diff_names{di} ' (' diff_units{di} ')']);
         end
-        % Compute actual N per outcome group for display (always shown,
-        % even when the correlation cannot be computed due to n<3).
-        n_lc = sum(clean & lf_group_col==0);
-        n_lf = sum(clean & lf_group_col==1);
-        n_cr = sum(clean_all & lf_group_col==2);
+        % Per-outcome counts shown alongside the pooled correlation.
+        n_lc = sum(lc_mask);
+        n_lf = sum(lf_mask);
+        n_cr = sum(cr_mask);
+        n_total = sum(clean_all);
 
-        % Format correlation strings; show "n<3" when a group has insufficient data.
-        if isnan(r_lc)
-            lc_corr_str = sprintf('LC (n=%d): n<3', n_lc);
+        if isnan(r_all)
+            cohort_corr_str = sprintf('Cohort (n=%d): n<3', n_total);
         else
-            lc_corr_str = sprintf('LC (n=%d) r_s=%.2f %s', n_lc, r_lc, format_p_value(p_lc));
-        end
-        if isnan(r_lf)
-            lf_corr_str = sprintf('LF (n=%d): n<3', n_lf);
-        else
-            lf_corr_str = sprintf('LF (n=%d) r_s=%.2f %s', n_lf, r_lf, format_p_value(p_lf));
+            cohort_corr_str = sprintf('Cohort (n=%d) r_s=%.2f %s', n_total, r_all, format_p_value(p_all));
         end
         if n_cr > 0
-            title(sprintf('%s vs Dose\n%s | %s | CR: n=%d', diff_names{di}, lc_corr_str, lf_corr_str, n_cr), ...
-                'FontSize', 9);
+            breakdown_str = sprintf('LC: n=%d | LF: n=%d | CR: n=%d', n_lc, n_lf, n_cr);
         else
-            title(sprintf('%s vs Dose\n%s | %s', diff_names{di}, lc_corr_str, lf_corr_str), ...
-                'FontSize', 10);
+            breakdown_str = sprintf('LC: n=%d | LF: n=%d', n_lc, n_lf);
         end
+        title(sprintf('%s vs Dose\n%s | %s', diff_names{di}, cohort_corr_str, breakdown_str), ...
+            'FontSize', 9);
         if exist('OCTAVE_VERSION', 'builtin')
             if n_cr > 0
-                legend('CR', 'LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
+                legend('CR', 'LC', 'LF', 'Cohort trend', 'location', 'best');
             else
-                legend('LC', 'LF', 'LC trend', 'LF trend', 'location', 'best');
+                legend('LC', 'LF', 'Cohort trend', 'location', 'best');
             end
         else
             if n_cr > 0

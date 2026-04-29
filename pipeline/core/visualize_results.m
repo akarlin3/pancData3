@@ -216,8 +216,8 @@ end
 
 % plot_scatter_correlations_streaming removed — was a simplified
 % reimplementation that produced blank scatter plots. Now calls the full
-% plot_scatter_correlations.m which handles per-group trend lines,
-% competing risk exclusion, and Octave compatibility.
+% plot_scatter_correlations.m which handles full-cohort Spearman/trend
+% lines with outcome-coloured markers and Octave compatibility.
 
 % plot_cross_dwi_subvolume_comparison_streaming removed — was a placeholder
 % that produced blank graphs. Now calls the real utility directly (line 175).

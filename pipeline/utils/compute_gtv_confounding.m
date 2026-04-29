@@ -108,13 +108,17 @@ function confound = compute_gtv_confounding(per_method_dosimetry, baseline_resul
 
         gtv_fx1 = gtv_vol(:, 1);
 
-        % (a) Spearman correlation between D95 and GTV volume at Fx1
-        valid_corr = valid_idx & ~isnan(d95) & ~isnan(gtv_fx1);
+        % (a) Spearman correlation between D95 and GTV volume at Fx1.
+        % Computed across the full cohort (LC + LF + CR) since this is a
+        % descriptive dose-volume relationship that does not depend on the
+        % outcome stratification used by the Cox model below.
+        valid_corr = ~isnan(m_lf(:)) & ~isnan(d95) & ~isnan(gtv_fx1);
         if sum(valid_corr) >= 5
             [rho, p_rho] = corr(d95(valid_corr), gtv_fx1(valid_corr), 'Type', 'Spearman');
             result.d95_gtv_correlation = rho;
             result.d95_gtv_pvalue = p_rho;
-            fprintf('      D95-GTV correlation: rho=%.3f, p=%.4f\n', rho, p_rho);
+            fprintf('      D95-GTV correlation (full cohort, n=%d): rho=%.3f, p=%.4f\n', ...
+                sum(valid_corr), rho, p_rho);
         end
 
         % (b) Wilcoxon rank-sum: GTV volume change between LC and LF
@@ -172,13 +176,19 @@ function confound = compute_gtv_confounding(per_method_dosimetry, baseline_resul
             end
         end
 
-        % Generate scatter plot
+        % Generate scatter plot (full cohort: LC + LF + CR)
         try
-            valid_plot = valid_idx & ~isnan(d95) & ~isnan(gtv_fx1);
+            valid_plot = ~isnan(m_lf(:)) & ~isnan(d95) & ~isnan(gtv_fx1);
             if sum(valid_plot) >= 5
                 fig = figure('Visible', 'off', 'Position', [100 100 600 450]);
-                lf_mask = valid_plot & (m_lf == 1);
                 lc_mask = valid_plot & (m_lf == 0);
+                lf_mask = valid_plot & (m_lf == 1);
+                cr_mask = valid_plot & (m_lf == 2);
+                if any(cr_mask)
+                    scatter(d95(cr_mask), gtv_fx1(cr_mask), 40, [0.5 0.5 0.5], 's', 'filled', ...
+                        'MarkerEdgeColor', [0.3 0.3 0.3], 'DisplayName', 'CR');
+                    hold on;
+                end
                 scatter(d95(lc_mask), gtv_fx1(lc_mask), 50, 'b', 'filled', 'DisplayName', 'LC');
                 hold on;
                 scatter(d95(lf_mask), gtv_fx1(lf_mask), 50, 'r', 'filled', 'DisplayName', 'LF');
