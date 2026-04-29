@@ -994,6 +994,8 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                             "method_name": str(mr.method_name) if hasattr(mr, "method_name") else "",
                             "d95_gtv_correlation": _safe_float(mr.d95_gtv_correlation) if hasattr(mr, "d95_gtv_correlation") else None,
                             "d95_gtv_pvalue": _safe_float(mr.d95_gtv_pvalue) if hasattr(mr, "d95_gtv_pvalue") else None,
+                            "d95_gtv_correlation_full": _safe_float(mr.d95_gtv_correlation_full) if hasattr(mr, "d95_gtv_correlation_full") else None,
+                            "d95_gtv_pvalue_full": _safe_float(mr.d95_gtv_pvalue_full) if hasattr(mr, "d95_gtv_pvalue_full") else None,
                             "unadjusted_hr": _safe_float(mr.unadjusted_hr) if hasattr(mr, "unadjusted_hr") else None,
                             "adjusted_hr": _safe_float(mr.adjusted_hr) if hasattr(mr, "adjusted_hr") else None,
                             "confounding_flag": bool(mr.confounding_flag) if hasattr(mr, "confounding_flag") else False,
