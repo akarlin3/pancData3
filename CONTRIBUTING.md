@@ -27,7 +27,7 @@ Thank you for your interest in contributing to pancData3! This document provides
 
 ### Prerequisites
 
-- MATLAB R2021a or later
+- MATLAB R2024a (pinned in `.matlab_version`; older versions untested under v2.4)
 - Statistics and Machine Learning Toolbox
 - Image Processing Toolbox
 - [dcm2niix](https://github.com/rordenlab/dcm2niix) for DICOM conversion
