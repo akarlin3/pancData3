@@ -1,12 +1,10 @@
 # pancData3 — Onboarding
 
-A practical guide to getting the pipeline running and understanding what it produces. For the project's decision rationale, open issues, and successor pickup checklist, see the separate `HANDOFF_NOTES.md` (kept outside the public repo).
+A practical guide to getting the pipeline running and understanding what it produces. Decision rationale lives in CHANGELOG.md and inline in module docstrings.
 
 **Repository:** https://github.com/akarlin3/pancData3 (AGPL-3.0)
 **License:** AGPL-3.0
-**Working branch:** `v2.1-dev`
-
-> **Version note:** README and CHANGELOG advertise `v2.1.0`. The actual implemented state is `v2.4` (with v2.3 cross-pipeline / pruning / dose-coverage workstreams + v2.4 audit-driven improvements applied). Treat the working tree as authoritative until the version string is bumped.
+**Working branch:** `main` (development happens on `main`; `v*-legacy` branches are archived snapshots).
 
 ---
 
@@ -16,7 +14,7 @@ A practical guide to getting the pipeline running and understanding what it prod
 
 | Layer | Requirement | Notes |
 |---|---|---|
-| MATLAB | R2021a+ | Statistics and Machine Learning Toolbox + Image Processing Toolbox required. Pre-flight check is in `pipeline/utils/initialize_pipeline.m`. |
+| MATLAB | R2024a (pinned in .matlab_version; older versions untested under v2.4) | Statistics and Machine Learning Toolbox + Image Processing Toolbox required. Pre-flight check is in `pipeline/utils/initialize_pipeline.m`. |
 | Python | 3.12 | Use the `py -3.12` launcher on Windows to avoid hitting an older interpreter. |
 | dcm2niix | latest | Path goes in `config.json` under `dcm2nii_call`. |
 | MATLAB Runtime | r2024a (default) | Only needed for Docker-based runs. |
@@ -30,7 +28,6 @@ MATLAB itself is accessed via remote desktop into MSK servers — you do not nee
 # 1. Clone
 git clone https://github.com/akarlin3/pancData3.git
 cd pancData3
-git checkout v2.1-dev
 
 # 2. Configure
 cp config.example.json config.json

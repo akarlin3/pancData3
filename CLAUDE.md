@@ -8,7 +8,7 @@ Essential context for AI assistants working in this repo. Detailed tables (modul
 
 **pancData3** is a MATLAB pipeline for pancreatic DWI (Diffusion-Weighted Imaging) research at Memorial Sloan Kettering. It fits IVIM/ADC models, applies DL denoising (DnCNN, IVIMnet), correlates with RT dose maps, and runs survival / competing-risks / treatment-response analysis.
 
-- **Language:** MATLAB (R2021a+), with Python 3.12+ for post-hoc analysis
+- **Language:** MATLAB (R2024a, pinned in `.matlab_version`; older versions untested under v2.4), with Python 3.12+ for post-hoc analysis
 - **Version:** 2.4.0 · **License:** AGPL-3.0 (Copyright 2026 Avery Karlin)
 - **Platforms:** Windows 10/11, macOS 13+, Linux (Ubuntu 22.04+) — CI-tested on all three
 

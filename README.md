@@ -1,6 +1,6 @@
 # pancData3
 
-[![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
+[![MATLAB](https://img.shields.io/badge/MATLAB-R2024a-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)](https://www.python.org/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/akarlin3/pancData3/blob/main/LICENSE)
 [![Version](https://img.shields.io/badge/version-2.4.0-blue)](#citation)
@@ -148,7 +148,7 @@ The codebase uses platform-aware code paths throughout:
 
 | Toolbox | Required |
 |---------|:-:|
-| MATLAB R2021a+ | Yes |
+| MATLAB R2024a (pinned in `.matlab_version`; older versions untested under v2.4) | Yes |
 | Statistics and Machine Learning Toolbox | Yes |
 | Image Processing Toolbox | Yes |
 
