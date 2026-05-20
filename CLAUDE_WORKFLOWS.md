@@ -1,3 +1,6 @@
+> **Internal scaffolding.** This file is for AI coding assistants working in this repo.
+> Human reviewers should start with [FOR_REVIEWERS.md](FOR_REVIEWERS.md), then [ONBOARDING.md](ONBOARDING.md).
+
 # CLAUDE_WORKFLOWS.md — Workflow & Process Instructions
 
 This file contains all actionable workflow instructions, rules, and processes for AI assistants working in this repository.

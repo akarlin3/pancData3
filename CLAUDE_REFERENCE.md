@@ -1,3 +1,6 @@
+> **Internal scaffolding.** This file is for AI coding assistants working in this repo.
+> Human reviewers should start with [FOR_REVIEWERS.md](FOR_REVIEWERS.md), then [ONBOARDING.md](ONBOARDING.md).
+
 # CLAUDE_REFERENCE.md — Detailed Module & Test Reference
 
 This file contains detailed reference tables for modules, utilities, tests, and analysis scripts. It is split from `CLAUDE.md` to reduce context window usage — read this file on demand when you need to look up a specific module, test, or utility.

@@ -6,6 +6,8 @@
 [![Version](https://img.shields.io/badge/version-2.4.0-blue)](#citation)
 [![Tests](https://img.shields.io/badge/tests-133%20MATLAB%20%2B%2047%20Python%20files-brightgreen)](#running-tests)
 
+> **Reviewing this repo?** Start with [FOR_REVIEWERS.md](FOR_REVIEWERS.md) for the 5-minute version.
+
 **An open-source MATLAB and Python pipeline for MRI-guided pancreatic cancer radiotherapy research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes diffusion-weighted MRI data to fit biophysical models, apply deep learning denoising, quantify tumor–dose relationships, and predict treatment outcomes using survival analysis — all from a single configuration file.
@@ -17,6 +19,20 @@ Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), t
 ## Why This Exists
 
 Pancreatic cancer has some of the lowest survival rates of any solid tumor. MRI-guided adaptive radiotherapy is emerging as a promising treatment approach, but analyzing diffusion-weighted imaging (DWI) data to predict which patients will respond is a complex, multi-step computational problem. This pipeline automates the entire workflow: from raw DICOM images through diffusion model fitting, deep learning denoising, dose–response quantification, and survival modeling — enabling researchers to go from scan to clinical prediction in a single reproducible run.
+
+---
+
+## Headline Result (v2.4)
+
+| Metric | Value | Interpretation |
+|---|---|---|
+| D95 (ADC sub-volume) | ≈ 36.9 Gy | 26% below the 50 Gy SIB prescription |
+| V50 (ADC sub-volume) | ≈ 69% | Below the 90% radical-intent target |
+| Spearman ρ (D95 vs LF proxy) | −0.37 (p ≈ 0.016) | Lower dose coverage → higher local-failure signal |
+| GTV-volume confounding | <5% HR change | Signal is not driven by tumor size |
+| Cohort | 42 patients (12 LF, 30 LC) | Underpowered; nominally significant |
+
+See [FOR_REVIEWERS.md](FOR_REVIEWERS.md) for interpretation and caveats.
 
 ---
 
@@ -572,3 +588,19 @@ See also [CITATION.cff](CITATION.cff) for machine-readable citation metadata.
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+
+---
+
+## Document Map
+
+| File | Purpose |
+|---|---|
+| [FOR_REVIEWERS.md](FOR_REVIEWERS.md) | 5-minute tour for PIs and committee reviewers — start here if you are evaluating the project. |
+| [ONBOARDING.md](ONBOARDING.md) | 30-minute hands-on guide for someone who will rerun the pipeline. |
+| README.md | Full feature list, install, Docker, CI — you are here. |
+| [GRAPH_FAQ.md](GRAPH_FAQ.md) | Every figure in the report, with caveats. |
+| [CHANGELOG.md](CHANGELOG.md) | Per-release change history. |
+| [CHANGELOG_ARCHIVE.md](CHANGELOG_ARCHIVE.md) | Historical changelog entries (pre-v2.3). |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Review criteria, do-not-modify list, dependency lock-file regeneration. |
+| [SECURITY.md](SECURITY.md) | Security policy and supported versions. |
+| CLAUDE.md / CLAUDE_REFERENCE.md / CLAUDE_WORKFLOWS.md | *Internal AI-assistant scaffolding — not required reading for users or reviewers.* |

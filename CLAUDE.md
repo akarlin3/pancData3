@@ -1,3 +1,6 @@
+> **Internal scaffolding.** This file is for AI coding assistants working in this repo.
+> Human reviewers should start with [FOR_REVIEWERS.md](FOR_REVIEWERS.md), then [ONBOARDING.md](ONBOARDING.md).
+
 # CLAUDE.md — AI Assistant Guide for pancData3
 
 Essential context for AI assistants working in this repo. Detailed tables (modules, utilities, tests, analysis scripts, dependencies, diary folder structure) live in [CLAUDE_REFERENCE.md](CLAUDE_REFERENCE.md). Pipeline runs, tests, git workflow, and AveryLoop in [CLAUDE_WORKFLOWS.md](CLAUDE_WORKFLOWS.md).
