@@ -94,6 +94,21 @@ function [data_vectors_gtvp, data_vectors_gtvn, summary_metrics] = load_dwi_data
 %       dwi_type 3 = IVIMnet (deep-learning IVIM fit on raw DWI)
 % =========================================================================
 
+% ============================================================
+% SECTION INDEX (line numbers as of v2.4.0)
+% ------------------------------------------------------------
+%  Main function:
+%    L 112 — User options (skip_to_reload, ivim_bthr, GPU)
+%    L 192 — Section 1 — File discovery
+%    L 233 — Section 2 — DICOM→NIfTI conversion, model fitting, extraction
+%    L 819 — Section 3 — Save results
+%    L 851 — Section 4 — Reload saved data
+%    L 903 — Section 5 — Longitudinal summary metrics
+%  Local functions:
+%    L 916 — parsave_checkpoint (parfor-safe checkpoint writer)
+%    L 935 — align_and_assign_struct
+% ============================================================
+
 %% USER OPTIONS
 % Set skip_to_reload = true to skip Sections 1-3 (file discovery, conversion,
 % and saving) and jump directly to Section 4 (reload saved data).

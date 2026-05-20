@@ -34,6 +34,37 @@ function metrics_survival(varargin)
 %       m_lf, m_total_time, m_total_follow_up_time, nTp, fx_label, ...
 %       dtype_label, m_gtv_vol, output_folder, actual_scan_days, config_struct_in)
 
+% ============================================================
+% SECTION INDEX (line numbers as of v2.4.0)
+% ------------------------------------------------------------
+%  Main function:
+%    L  68 — Argument parsing (new struct vs legacy positional interface)
+%    L 146 — Diary setup (two-phase: filesystem ops, then activation)
+%    L 182 — Prepare survival data (dispatch to subfunctions)
+%    L 214 — Fit Cox PH model (with IPCW and robust sandwich SE)
+%    L 226 — Validate Cox model (Schoenfeld residual diagnostics)
+%    L 241 — Time-varying effects analysis
+%    L 259 — Fit Fine-Gray competing risks model
+%    L 276 — Output summary results
+%  Local functions:
+%    L  288 — prepare_survival_data_dispatch
+%    L  394 — fit_cox_ph
+%    L  519 — compute_sandwich_se_cox
+%    L  658 — compute_bootstrap_se_cox
+%    L  715 — build_survival_features
+%    L  732 — prepare_outcome_data
+%    L  743 — select_landmark_day
+%    L  757 — fit_fine_gray
+%    L  937 — compute_time_varying_effects
+%    L  974 — validate_survival_model
+%    L 1020 — print_survival_summary
+%    L 1047 — print_cox_results
+%    L 1067 — create_failed_cox_results
+%    L 1078 — print_fine_gray_comparison
+%    L 1112 — plot_cumulative_incidence
+%    L 1173 — interp_G
+%    L 1183 — get_cox_failure_reason
+% ============================================================
 % --- Argument parsing: detect new vs legacy interface ---
 if nargin >= 1 && isstruct(varargin{1}) && isfield(varargin{1}, 'valid_pts')
     % ---- New struct-based interface ----

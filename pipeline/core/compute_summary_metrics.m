@@ -62,6 +62,23 @@ function summary_metrics = compute_summary_metrics(config_struct, data_vectors_g
 %     exceeding wCV can be confidently attributed to treatment effects.
 %
 
+% ============================================================
+% SECTION INDEX (line numbers as of v2.4.0)
+% ------------------------------------------------------------
+%  No inline local functions — helpers in pipeline/utils/.
+%    L  84 — DWI-type file prefix + checkpoint load (with staleness check)
+%    L 189 — ADC / IVIM sub-volume thresholds
+%    L 224 — Pre-allocate metric arrays (patient × timepoint × pipeline)
+%    L 285 — Whole-GTV summary stats (ADC, D, f, D*)
+%    L 312 — Histogram + KS-test arrays (longitudinal distribution shifts)
+%    L 334 — Motion corruption flag
+%    L 344 — Texture-feature setup (optional)
+%    L 354 — Repeatability arrays (Fx1 repeats, wCV)
+%    L 374 — Spatial repeatability (Dice/Hausdorff between repeat sub-volumes)
+%    L 429 — Main analysis loop (patient × timepoint × DWI pipeline)
+%    L 726 — Package output struct
+% ============================================================
+
 if nargin < 12, fx_dates = {}; end
 
 % Build a DWI-type-specific filename suffix so that Standard, dnCNN, and
