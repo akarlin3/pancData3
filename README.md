@@ -3,14 +3,14 @@
 [![MATLAB](https://img.shields.io/badge/MATLAB-R2021a%2B-blue?logo=mathworks)](https://www.mathworks.com/products/matlab.html)
 [![Python](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)](https://www.python.org/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/akarlin3/pancData3/blob/main/LICENSE)
-[![Version](https://img.shields.io/badge/version-2.3.2-blue)](#citation)
+[![Version](https://img.shields.io/badge/version-2.4.0-blue)](#citation)
 [![Tests](https://img.shields.io/badge/tests-133%20MATLAB%20%2B%2047%20Python%20files-brightgreen)](#running-tests)
 
 **An open-source MATLAB and Python pipeline for MRI-guided pancreatic cancer radiotherapy research.**
 
 Developed at [Memorial Sloan Kettering Cancer Center](https://www.mskcc.org/), this pipeline processes diffusion-weighted MRI data to fit biophysical models, apply deep learning denoising, quantify tumor–dose relationships, and predict treatment outcomes using survival analysis — all from a single configuration file.
 
-**Current version:** 2.3.2 — see [CHANGELOG.md](CHANGELOG.md) for details.
+**Current version:** 2.4.0 — see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ---
 
@@ -560,7 +560,7 @@ If you use this pipeline in your research, please cite:
   author = {Karlin, Avery and Aliotta, Eric},
   title = {pancData3: A Pipeline for Pancreatic DWI Analysis},
   url = {https://github.com/akarlin3/pancData3},
-  version = {2.3.2},
+  version = {2.4.0},
   year = {2026}
 }
 ```
