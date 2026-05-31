@@ -312,6 +312,34 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
         select_significance_threshold(thresholds, per_patient_vol_frac, per_patient_lf);
     significance_metric = 'wilcoxon ranksum on vol_frac';
 
+    % --- Tactic 3 bias measurement + correction (honest numbers) ---
+    % The naive significance_pvalue above is optimistically biased (a minimum
+    % over correlated tests).  Quantify the bias with a label-permutation test
+    % and correct it with cross-validation.  Both are non-fatal: a failure
+    % leaves empty structs so the optimizer still returns its core tactics.
+    permutation = struct();
+    nested_cv = struct();
+    nested_cv_repeated = struct();
+    try
+        permutation = optimize_adc_threshold_permutation_test( ...
+            thresholds, per_patient_vol_frac, per_patient_lf);
+    catch ME_perm
+        fprintf('  \xe2\x9a\xa0\xef\xb8\x8f Permutation bias test failed: %s\n', ME_perm.message);
+    end
+    try
+        % Leave-one-patient-out (deterministic; weak corrector at small N).
+        nested_cv = optimize_adc_threshold_nested_cv( ...
+            thresholds, per_patient_vol_frac, per_patient_lf);
+        % Repeated grouped 5-fold (stronger corrector) when the cohort is
+        % large enough to leave out ~N/5 and still meet the per-group floor.
+        if sum(per_patient_lf == 0) >= 10 && sum(per_patient_lf == 1) >= 10
+            nested_cv_repeated = optimize_adc_threshold_nested_cv( ...
+                thresholds, per_patient_vol_frac, per_patient_lf, 3, 5, 20);
+        end
+    catch ME_cv
+        fprintf('  \xe2\x9a\xa0\xef\xb8\x8f Nested-CV correction failed: %s\n', ME_cv.message);
+    end
+
     % --- Console output ---
     fprintf('\n  [Tactic 1] Reproducibility: %.4f mm\xc2\xb2/s (Dice=%.2f, vol_frac=%.1f%%)\n', ...
         optimal_thresh, optimal_dice, 100 * optimal_vol_frac);
@@ -427,6 +455,14 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
     opt_results.significance_n_lc    = significance_n_lc;
     opt_results.significance_n_lf    = significance_n_lf;
     opt_results.significance_metric  = significance_metric;
+    % Per-patient matrices (needed to re-derive/CV the Tactic-3 threshold
+    % downstream, e.g. resolve_adc_thresh for the sub-volume selector).
+    opt_results.per_patient_vol_frac = per_patient_vol_frac;
+    opt_results.per_patient_lf       = per_patient_lf;
+    % Tactic 3 — honest numbers (bias measurement + correction)
+    opt_results.permutation          = permutation;
+    opt_results.nested_cv            = nested_cv;
+    opt_results.nested_cv_repeated   = nested_cv_repeated;
 end
 
 
