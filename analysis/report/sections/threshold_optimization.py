@@ -303,9 +303,12 @@ def _section_threshold_significance(mat_data: dict) -> list[str]:
         "fraction between LC and LF is most statistically significant.</p>",
         "<p>P-values shown for each threshold; thresholds with fewer than "
         "3 patients in either group are skipped (insufficient power for "
-        "Wilcoxon). Significance is uncorrected for multiple comparisons "
-        "across the 13 thresholds &mdash; treat as exploratory ranking, "
-        "not confirmatory inference.</p>",
+        "Wilcoxon). <strong>The smallest p is selected on the same data it "
+        "is then reported at</strong> (selection-on-outcome), so the naive "
+        "value is optimistically biased. The honest numbers below correct "
+        "for this: a label-permutation selection-adjusted p, and a "
+        "nested cross-validated out-of-fold association. See "
+        "<code>docs/THRESHOLD_VALIDATION.md</code>.</p>",
     ]
 
     for dwi in dwi_types:
@@ -317,6 +320,18 @@ def _section_threshold_significance(mat_data: dict) -> list[str]:
         n_lc = opt.get("significance_n_lc")
         n_lf = opt.get("significance_n_lf")
         metric = opt.get("significance_metric") or "wilcoxon ranksum on vol_frac"
+
+        # Honest numbers (CP0/CP1): permutation-adjusted p (primary) and
+        # nested cross-validated out-of-fold associations.
+        perm = opt.get("permutation") or {}
+        ncv = opt.get("nested_cv") or {}
+        ncv_rep = opt.get("nested_cv_repeated") or {}
+        adj_p = _scalar(perm.get("perm_adjusted_min_p"))
+        loo_p = _scalar(ncv.get("oof_pvalue"))
+        rep_p = _scalar(ncv_rep.get("oof_pvalue"))
+        rep_thresh = _scalar(ncv_rep.get("recommended_thresh"))
+        rep_modal = _scalar(ncv_rep.get("modal_fraction"))
+        rep_nuniq = _scalar(ncv_rep.get("n_unique_selected"))
 
         header_suffix = f" (test: {metric})"
         h.append(f"<h3>{_dwi_badge(dwi)}{_esc(header_suffix)}</h3>")
@@ -355,15 +370,42 @@ def _section_threshold_significance(mat_data: dict) -> list[str]:
                 n_str = f" (n_LC = {n_lc}, n_LF = {n_lf})"
             h.append('<div class="summary-box"><ul>')
             h.append(
-                f"<li>Most significant threshold: <strong>{sig_thresh:.4f}</strong>"
-                f" with p = {_format_p(sig_p)}{n_str}</li>"
+                f"<li><em>Naive (optimistic, in-sample selection):</em> threshold "
+                f"<strong>{sig_thresh:.4f}</strong> with min p = {_format_p(sig_p)}"
+                f"{n_str} &mdash; biased; do not report as a headline.</li>"
             )
-            note = ("<li>Below the conventional 0.05 cutoff &mdash; "
-                    "exploratory evidence of outcome separation at this cut.</li>"
-                    if sig_p < 0.05
-                    else "<li>Above the conventional 0.05 cutoff &mdash; no single "
-                         "threshold in the swept range produced a significant "
-                         "split of LC vs LF in this cohort.</li>")
+            if adj_p is not None:
+                h.append(
+                    f"<li><strong>Selection-bias adjusted (permutation):</strong> "
+                    f"p = {_format_p(adj_p)} &mdash; the honest primary number, "
+                    f"correcting for selecting the best of the swept thresholds.</li>"
+                )
+            if rep_p is not None:
+                stab = ""
+                if rep_thresh is not None:
+                    stab = f", recommended cut {rep_thresh:.4f}"
+                    if rep_modal is not None:
+                        stab += f" (chosen in {rep_modal*100:.0f}% of folds"
+                        if rep_nuniq is not None:
+                            stab += f"; {int(rep_nuniq)} distinct cuts seen"
+                        stab += ")"
+                h.append(
+                    f"<li><strong>Nested CV out-of-fold (repeated K-fold):</strong> "
+                    f"p = {_format_p(rep_p)}{stab}.</li>"
+                )
+            if loo_p is not None:
+                h.append(
+                    f"<li>Nested CV out-of-fold (leave-one-out, weak corrector at "
+                    f"small N): p = {_format_p(loo_p)}.</li>"
+                )
+            honest_p = adj_p if adj_p is not None else (rep_p if rep_p is not None else sig_p)
+            note = ("<li>After correction the separation remains below 0.05 "
+                    "&mdash; evidence of genuine outcome discrimination beyond the "
+                    "selection artifact.</li>"
+                    if honest_p is not None and honest_p < 0.05
+                    else "<li>After correction the separation is not significant "
+                         "&mdash; the naive min-p was inflated by selecting over the "
+                         "swept thresholds; treat as a cautionary/null result.</li>")
             h.append(note)
             h.append("</ul></div>")
 
