@@ -909,6 +909,29 @@ fprintf('\n--- SECTION 5: Longitudinal Summary Metrics ---\n');
 %  sub-volume fractions, and KS-test statistics — the feature set used by
 %  downstream modules (metrics_baseline, metrics_longitudinal, survival).
 
+% --- Sub-volume ADC threshold source selector --------------------------
+% When adc_thresh_source selects an optimizer tactic (not 'preset'), derive
+% the ADC threshold HERE -- before compute_summary_metrics builds the
+% sub-volumes -- so it actually defines them. Tactic 3 uses the
+% bias-corrected nested-CV value (resolve_adc_thresh), never the raw
+% in-sample significance threshold. Default 'preset' is a no-op, so existing
+% configs are unaffected. Non-fatal: any failure keeps the pre-specified
+% adc_thresh. See docs/THRESHOLD_VALIDATION.md.
+if isfield(config_struct, 'adc_thresh_source') && ...
+        ~strcmpi(config_struct.adc_thresh_source, 'preset')
+    try
+        ats_opt = optimize_adc_threshold(data_vectors_gtvp, config_struct, id_list, gtv_locations);
+        [ats_resolved, ats_info] = resolve_adc_thresh( ...
+            config_struct.adc_thresh_source, config_struct.adc_thresh, ats_opt);
+        fprintf('💡 Sub-volume ADC threshold source "%s": %s\n', ...
+            config_struct.adc_thresh_source, ats_info.note);
+        config_struct.adc_thresh = ats_resolved;
+    catch ME_ats
+        fprintf('⚠️ Could not resolve adc_thresh_source "%s" (%s); keeping adc_thresh=%.4g.\n', ...
+            config_struct.adc_thresh_source, ME_ats.message, config_struct.adc_thresh);
+    end
+end
+
 summary_metrics = compute_summary_metrics(config_struct, data_vectors_gtvp, id_list, mrn_list, lf, immuno, gtv_locations, dwi_locations, dmean_gtvp, d95_gtvp, v50gy_gtvp, fx_dates);
 
 end
