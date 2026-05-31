@@ -841,6 +841,25 @@ def parse_mat_files_for_dwi(folder: Path, dwi: str):
                         opt_entry["significance_metric"] = str(getattr(results, "significance_metric"))
                     except Exception:
                         pass
+                # Honest Tactic-3 numbers (nested structs from CP0/CP1):
+                # permutation selection-adjusted p and nested-CV out-of-fold.
+                for sub_name, sub_fields in (
+                    ("permutation", ("perm_adjusted_min_p", "observed_min_p",
+                                     "n_notable_naive", "n_notable_adjusted")),
+                    ("nested_cv", ("oof_pvalue", "oof_auc", "recommended_thresh",
+                                   "modal_fraction", "n_unique_selected")),
+                    ("nested_cv_repeated", ("oof_pvalue", "oof_auc",
+                                            "recommended_thresh", "modal_fraction",
+                                            "n_unique_selected")),
+                ):
+                    if hasattr(results, sub_name):
+                        sub_obj = getattr(results, sub_name)
+                        sub_d: dict = {}
+                        for sf in sub_fields:
+                            if hasattr(sub_obj, sf):
+                                sub_d[sf] = _safe_float(getattr(sub_obj, sf))
+                        if sub_d:
+                            opt_entry[sub_name] = sub_d
                 out_data["threshold_optimization"] = opt_entry
         except Exception as e:
             print(f"Error parsing {opt_mat.name}: {e}")

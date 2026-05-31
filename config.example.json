@@ -22,6 +22,7 @@
     "cause_of_death_column": "",
     "clear_cache": true,
     "core_method": "adc_threshold",
+    "adc_thresh_source": "preset",
     "core_percentile": 25,
     "core_n_clusters": 2,
     "fdm_parameter": "adc",

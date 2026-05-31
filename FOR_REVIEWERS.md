@@ -41,6 +41,13 @@ replanning targeted at the diffusion-defined sub-volume.
   safety guard in `pipeline/utils/filter_core_methods.m`).
 - One of the 11 methods (`fdm`, functional diffusion map) requires
   longitudinal data and is excluded from Fx1-only analyses.
+- **The ADC-threshold optimizer's "outcome significance" tactic (Tactic 3)
+  is selection-on-outcome and its raw min-p is inflated.** Do not cite it as
+  a headline. The honest numbers are the permutation selection-adjusted p
+  and the nested cross-validated out-of-fold association; the operating cut
+  is pre-specified (0.001 / 0.0016). At N≈42 the cut is not robustly
+  identifiable. Full account:
+  [docs/THRESHOLD_VALIDATION.md](docs/THRESHOLD_VALIDATION.md).
 
 ## Where the science lives in the code
 

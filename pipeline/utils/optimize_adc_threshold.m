@@ -300,10 +300,45 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
     % Per-threshold Wilcoxon rank-sum on per-patient sub-volume fraction
     % between LC (LF==0) and LF (LF==1) groups.  The optimal threshold
     % is the one with the smallest valid p-value (both group sizes >=3).
+    % Selection is factored into select_significance_threshold (a pure
+    % function) so the bias-measurement instrument
+    % (optimize_adc_threshold_permutation_test) and the nested-CV correction
+    % reuse the IDENTICAL min-p selection rather than a divergent copy.
+    % NOTE: significance_pvalue is the minimum over up-to-13 correlated tests
+    % chosen on the same data it is then reported at -- selection-on-outcome.
+    % It is optimistically biased; see docs/THRESHOLD_VALIDATION.md.
     [significance_thresh, significance_idx, significance_pvalue, ...
      significance_pvalues, significance_n_lc, significance_n_lf] = ...
-        local_significance(thresholds, per_patient_vol_frac, per_patient_lf);
+        select_significance_threshold(thresholds, per_patient_vol_frac, per_patient_lf);
     significance_metric = 'wilcoxon ranksum on vol_frac';
+
+    % --- Tactic 3 bias measurement + correction (honest numbers) ---
+    % The naive significance_pvalue above is optimistically biased (a minimum
+    % over correlated tests).  Quantify the bias with a label-permutation test
+    % and correct it with cross-validation.  Both are non-fatal: a failure
+    % leaves empty structs so the optimizer still returns its core tactics.
+    permutation = struct();
+    nested_cv = struct();
+    nested_cv_repeated = struct();
+    try
+        permutation = optimize_adc_threshold_permutation_test( ...
+            thresholds, per_patient_vol_frac, per_patient_lf);
+    catch ME_perm
+        fprintf('  \xe2\x9a\xa0\xef\xb8\x8f Permutation bias test failed: %s\n', ME_perm.message);
+    end
+    try
+        % Leave-one-patient-out (deterministic; weak corrector at small N).
+        nested_cv = optimize_adc_threshold_nested_cv( ...
+            thresholds, per_patient_vol_frac, per_patient_lf);
+        % Repeated grouped 5-fold (stronger corrector) when the cohort is
+        % large enough to leave out ~N/5 and still meet the per-group floor.
+        if sum(per_patient_lf == 0) >= 10 && sum(per_patient_lf == 1) >= 10
+            nested_cv_repeated = optimize_adc_threshold_nested_cv( ...
+                thresholds, per_patient_vol_frac, per_patient_lf, 3, 5, 20);
+        end
+    catch ME_cv
+        fprintf('  \xe2\x9a\xa0\xef\xb8\x8f Nested-CV correction failed: %s\n', ME_cv.message);
+    end
 
     % --- Console output ---
     fprintf('\n  [Tactic 1] Reproducibility: %.4f mm\xc2\xb2/s (Dice=%.2f, vol_frac=%.1f%%)\n', ...
@@ -420,63 +455,14 @@ function opt_results = optimize_adc_threshold(data_vectors_gtvp, config_struct, 
     opt_results.significance_n_lc    = significance_n_lc;
     opt_results.significance_n_lf    = significance_n_lf;
     opt_results.significance_metric  = significance_metric;
-end
-
-
-function [best_thresh, best_idx, best_p, pvalues, n_lc_at_best, n_lf_at_best] = ...
-    local_significance(thresholds, per_patient_vol_frac, per_patient_lf)
-% LOCAL_SIGNIFICANCE  Per-threshold Wilcoxon p-value of vol_frac LC vs LF.
-%
-% Returns NaNs when no threshold has both LC>=3 and LF>=3 finite values
-% (Wilcoxon undefined / underpowered below this floor).  Calls the
-% Statistics-Toolbox `ranksum` directly rather than routing through
-% `perform_statistical_test`, because the latter enforces the
-% project's primary-inference sample floor of n>=5 per group — too
-% strict for an exploratory 13-threshold sweep where the goal is
-% ranking, not confirmatory inference.
-
-    n_thresh = numel(thresholds);
-    pvalues  = nan(1, n_thresh);
-
-    best_thresh   = NaN;
-    best_idx      = NaN;
-    best_p        = NaN;
-    n_lc_at_best  = 0;
-    n_lf_at_best  = 0;
-
-    n_lc_arr = zeros(1, n_thresh);
-    n_lf_arr = zeros(1, n_thresh);
-
-    for ti = 1:n_thresh
-        col = per_patient_vol_frac(:, ti);
-        finite_mask = ~isnan(col) & ~isnan(per_patient_lf);
-        lc_mask = finite_mask & per_patient_lf == 0;
-        lf_mask = finite_mask & per_patient_lf == 1;
-        n_lc = sum(lc_mask);
-        n_lf = sum(lf_mask);
-        n_lc_arr(ti) = n_lc;
-        n_lf_arr(ti) = n_lf;
-        if n_lc < 3 || n_lf < 3
-            continue;
-        end
-        lc_data = col(lc_mask);
-        lf_data = col(lf_mask);
-        try
-            pvalues(ti) = ranksum(lc_data, lf_data);
-        catch
-            % Test failed (e.g. all-equal data, ranksum package missing
-            % in a stripped Octave setup).  Leave NaN at this threshold.
-        end
-    end
-
-    valid = ~isnan(pvalues);
-    if ~any(valid)
-        return;
-    end
-    [best_p, best_idx] = min(pvalues);
-    best_thresh   = thresholds(best_idx);
-    n_lc_at_best  = n_lc_arr(best_idx);
-    n_lf_at_best  = n_lf_arr(best_idx);
+    % Per-patient matrices (needed to re-derive/CV the Tactic-3 threshold
+    % downstream, e.g. resolve_adc_thresh for the sub-volume selector).
+    opt_results.per_patient_vol_frac = per_patient_vol_frac;
+    opt_results.per_patient_lf       = per_patient_lf;
+    % Tactic 3 — honest numbers (bias measurement + correction)
+    opt_results.permutation          = permutation;
+    opt_results.nested_cv            = nested_cv;
+    opt_results.nested_cv_repeated   = nested_cv_repeated;
 end
 
 

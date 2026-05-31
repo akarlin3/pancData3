@@ -180,6 +180,13 @@ function config_struct = parse_config(json_path)
         % --- String fields ---
         defaults.cause_of_death_column       = 'CauseOfDeath';
         defaults.core_method                 = 'adc_threshold';
+        % Source of the ADC threshold that defines the sub-volume when
+        % core_method = 'adc_threshold'.  'preset' uses the pre-specified
+        % adc_thresh (default, and the clean escape from selection bias);
+        % 'tactic1'/'tactic2'/'tactic3' derive it from the threshold
+        % optimizer (tactic3 uses the bias-corrected nested-CV value, never
+        % the raw in-sample one).  See resolve_adc_thresh.m.
+        defaults.adc_thresh_source           = 'preset';
         defaults.fdm_parameter               = 'adc';
         defaults.texture_quantization_method = 'fixed_bin_number';
         defaults.external_validation_data    = '';
@@ -297,6 +304,7 @@ function config_struct = parse_config(json_path)
         % These fields must be character vectors (or string scalars, which
         % we coerce to char for consistency with the rest of the pipeline).
         string_fields = {'cause_of_death_column', 'core_method', ...
+            'adc_thresh_source', ...
             'fdm_parameter', 'texture_quantization_method', ...
             'external_validation_data', 'auxiliary_biomarker_csv'};
         for i = 1:numel(string_fields)
@@ -402,6 +410,16 @@ function config_struct = parse_config(json_path)
         error('parse_config:invalidCoreMethod', ...
             'Unrecognized core_method "%s". Must be one of: %s', ...
             config_struct.core_method, strjoin(valid_core_methods, ', '));
+    end
+
+    % ================================================================
+    % Validate adc_thresh_source (sub-volume ADC threshold selector).
+    % ================================================================
+    valid_thresh_sources = {'preset', 'proposed', 'tactic1', 'tactic2', 'tactic3'};
+    if ~any(strcmpi(config_struct.adc_thresh_source, valid_thresh_sources))
+        error('parse_config:invalidAdcThreshSource', ...
+            'Unrecognized adc_thresh_source "%s". Must be one of: %s', ...
+            config_struct.adc_thresh_source, strjoin(valid_thresh_sources, ', '));
     end
 
     % ================================================================
