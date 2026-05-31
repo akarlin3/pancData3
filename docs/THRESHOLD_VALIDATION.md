@@ -1,7 +1,10 @@
 # ADC Threshold Selection — Validation & Selection-Bias Correction
 
-> **Status:** Checkpoint 0 (diagnosis + bias measurement) complete. Nested-LOOCV
-> correction (CP1+) pending review of the measured bias.
+> **Status:** Bias measured (permutation test), corrected (nested CV: LOO +
+> repeated K-fold), and surfaced in the report; a config selector lets the
+> sub-volume cut be pre-specified or tactic-derived (bias-corrected). The
+> headline real-cohort numbers must be produced by running the instruments on
+> the secure PHI-holding machine — see §4.
 
 This document explains why **Tactic 3** of the ADC-threshold optimizer
 (`pipeline/utils/optimize_adc_threshold.m`) reports an optimistically biased
@@ -151,14 +154,66 @@ in CP1, corrected by nested LOOCV.
 
 ---
 
-## 6. Pending (post-review)
+## 6. The cross-validated correction (implemented)
 
-- **CP1** — `optimize_adc_threshold_nested_cv.m`: leave-one-patient-out outer
-  loop with Tactic-3 selection performed *inside each training split*; report
-  the out-of-fold LC-vs-LF association and the fold-to-fold **threshold
-  stability**.
-- **CP2** — surface naive / permutation-adjusted / nested-CV numbers in the
-  report with honest labels; document the pre-specified-threshold decision for
-  sub-volume creation.
-- **CP3** — tests: nested CV removes optimism on null data, recovers true
-  signal, and leaks no held-out patient.
+`pipeline/utils/optimize_adc_threshold_nested_cv.m` selects the threshold
+**inside each training split** (reusing `select_significance_threshold`, so the
+inner selection is identical to production) and evaluates the LC-vs-LF
+association on **out-of-fold** patients whose threshold was never chosen using
+their own data. One entry point, two schemes:
+
+- **Leave-one-patient-out (LOO).** Deterministic, but a **weak corrector at
+  N≈42**: removing one patient rarely changes the argmin threshold, so the
+  out-of-fold p only *partially* relaxes toward the in-sample min-p. In null
+  simulation it moves the mean p from ≈0.28 (in-sample) to ≈0.40 and roughly
+  halves the false-positive rate — better, but not calibrated. **This is itself
+  a finding:** the cut is not robustly identifiable by leave-one-out at this N.
+- **Repeated stratified grouped K-fold** (`make_grouped_folds`, e.g. 5-fold ×20).
+  Leaving out ~N/5 patients perturbs the selection enough to be genuinely
+  out-of-fold. In simulation it is well-calibrated on null data
+  (false-positive rate ≈ nominal, mean p ≈ 0.5–0.6) and recovers a true effect
+  (out-of-fold significant; recommended cut within ±0.0004 of truth in 12/12
+  trials). This is the **stronger** corrector.
+
+**Hierarchy of honesty for the reported claim:** the **permutation
+selection-adjusted p (§3–4) is the primary bias-corrected number**; the
+repeated-K-fold out-of-fold association is the cross-validated confirmation; the
+LOO estimate is reported with its weakness stated; the naive in-sample min-p is
+shown only labeled "optimistic / not for headline." All four, plus the
+fold-to-fold **threshold stability** (modal cut, fraction of folds choosing it,
+number of distinct cuts), render in
+`analysis/report/sections/threshold_optimization.py`.
+
+## 7. Sub-volume threshold selector (config)
+
+`config.adc_thresh_source` chooses how the sub-volume's ADC cut is set:
+
+| value | meaning |
+|---|---|
+| `preset` (default) | the pre-specified `config.adc_thresh` — current behaviour, unchanged |
+| `tactic1` | reproducibility optimum (max Fx1-repeat Dice) |
+| `tactic2` | volume-inflection knee |
+| `tactic3` | outcome-significance cut, **bias-corrected** |
+
+`resolve_adc_thresh.m` enforces the safety rule that **Tactic 3 uses only the
+nested-CV out-of-fold recommendation (repeated K-fold, else LOO), never the
+biased in-sample `significance_thresh`**; any unavailable tactic falls back to
+the preset. When a non-`preset` source is set, `dispatch_pipeline_steps.m`
+resolves the threshold *before* sub-volumes are built. Default `preset` is a
+complete no-op, so existing configs and every downstream dose/ROC metric are
+unaffected unless a tactic is explicitly opted into.
+
+## 8. What N≈42 can and cannot support
+
+- **Can:** detect whether a *pre-specified* ADC cut separates LC/LF, and
+  quantify/correct the inflation from selecting among candidate cuts.
+- **Cannot:** robustly *identify* the single best cut by in-sample selection —
+  the threshold is unstable fold-to-fold (LOO barely moves it; repeated K-fold
+  shows multiple distinct cuts). The defensible operating threshold is therefore
+  **pre-specified** (0.001 default / 0.0016 proposed), with Tactic 3 reported as
+  an *exploratory, bias-corrected* association rather than a fitted cutoff.
+
+This is publishable either way: a validated bias-corrected association if it
+survives, or a rigorous cautionary result ("in-sample threshold selection on
+small radiomic cohorts inflates significance; here is the corrected estimate")
+if it does not.
