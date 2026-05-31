@@ -28,6 +28,15 @@ classdef test_resolve_adc_thresh < matlab.unittest.TestCase
             testCase.verifyEqual(t, 0.001);
         end
 
+        function testProposedFixedCut(testCase)
+            % 'proposed' returns the fixed 0.0016 pre-specified cut,
+            % independent of preset and opt_results (no selection bias).
+            [t, info] = resolve_adc_thresh('proposed', 0.001, struct());
+            testCase.verifyEqual(t, 0.0016);
+            testCase.verifyEqual(info.source_used, 'proposed');
+            testCase.verifyFalse(info.fell_back);
+        end
+
         function testTactic1And2(testCase)
             opt = struct('optimal_thresh', 0.0013, 'inflection_thresh', 0.0017);
             t1 = resolve_adc_thresh('tactic1', 0.001, opt);

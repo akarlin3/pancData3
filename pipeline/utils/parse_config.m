@@ -415,7 +415,7 @@ function config_struct = parse_config(json_path)
     % ================================================================
     % Validate adc_thresh_source (sub-volume ADC threshold selector).
     % ================================================================
-    valid_thresh_sources = {'preset', 'tactic1', 'tactic2', 'tactic3'};
+    valid_thresh_sources = {'preset', 'proposed', 'tactic1', 'tactic2', 'tactic3'};
     if ~any(strcmpi(config_struct.adc_thresh_source, valid_thresh_sources))
         error('parse_config:invalidAdcThreshSource', ...
             'Unrecognized adc_thresh_source "%s". Must be one of: %s', ...

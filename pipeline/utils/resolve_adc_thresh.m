@@ -9,6 +9,7 @@ function [adc_thresh, info] = resolve_adc_thresh(source, preset_thresh, opt_resu
 %
 %     'preset'  -> the pre-specified config.adc_thresh (default; current
 %                  behaviour, and the clean escape from selection bias).
+%     'proposed'-> the pre-specified "proposed" cut (0.0016 mm^2/s).
 %     'tactic1' -> reproducibility optimum (max Fx1-repeat Dice).
 %     'tactic2' -> volume-inflection knee.
 %     'tactic3' -> outcome-significance cut, BIAS-CORRECTED.  Tactic 3's raw
@@ -25,7 +26,7 @@ function [adc_thresh, info] = resolve_adc_thresh(source, preset_thresh, opt_resu
 %   substitutes the biased in-sample Tactic-3 value.
 %
 %   Inputs:
-%       source       - char/string: 'preset'|'tactic1'|'tactic2'|'tactic3'
+%       source       - char/string: 'preset'|'proposed'|'tactic1'|'tactic2'|'tactic3'
 %       preset_thresh- scalar pre-specified threshold (config.adc_thresh)
 %       opt_results  - struct from optimize_adc_threshold (optional; required
 %                      only for tactic sources)
@@ -50,6 +51,16 @@ function [adc_thresh, info] = resolve_adc_thresh(source, preset_thresh, opt_resu
         case 'preset'
             adc_thresh = preset_thresh;
             info.note = sprintf('pre-specified threshold %.4g mm^2/s', preset_thresh);
+            return;
+
+        case 'proposed'
+            % The pre-specified "proposed" cut (0.0016 mm^2/s) overlaid on the
+            % optimizer plot. Like 'preset', it is a fixed pre-specification,
+            % so it carries no selection bias.
+            adc_thresh = 0.0016;
+            info.source_used = 'proposed';
+            info.value = adc_thresh;
+            info.note = 'proposed pre-specified threshold 0.0016 mm^2/s';
             return;
 
         case 'tactic1'
