@@ -22,6 +22,91 @@ Pancreatic cancer has some of the lowest survival rates of any solid tumor. MRI-
 
 ---
 
+## What You Need To Know First (Plain-Language Primer)
+
+New to the project? Read this once and the rest of the README will make sense. None of these definitions are exhaustive — they are the minimum needed to follow what the code is doing.
+
+**The clinical setting.** 42 pancreatic cancer patients were treated on an **Elekta Unity MR-Linac** — a radiation-therapy machine with a built-in 1.5-tesla MRI scanner, so the tumor can be imaged on the same day it is irradiated. Treatment was delivered in 5 daily sessions ("fractions", Fx1–Fx5). Each session prescribed two dose levels at once (a "**SIB**" — simultaneous integrated boost): about **33 Gy** to the whole tumor and **50 Gy** to a smaller, more aggressive sub-region. Dose is measured in **gray (Gy)**, energy absorbed per kg of tissue.
+
+**What we image.** At every fraction we acquire a **DWI** scan — **diffusion-weighted imaging**, an MRI sequence whose signal depends on how freely water molecules move inside tissue. Water diffuses freely in fluid and slowly inside dense, cellular tumor. Diffusion is quantified two ways:
+
+- **ADC** — *apparent diffusion coefficient*, units mm²/s (~10⁻³). One number per voxel from a simple mono-exponential fit. Low ADC ≈ dense cellular tissue (likely viable tumor); high ADC ≈ necrosis or fluid.
+- **IVIM** — *intravoxel incoherent motion*, a richer bi-exponential model that separates three numbers per voxel: **D** (true tissue diffusion, mm²/s), **D\*** (fast "pseudo-diffusion" from blood flowing through capillaries, ~10× D), and **f** (the perfusion fraction, 0–1, how much of the signal comes from blood vs. tissue water).
+
+**Tumor regions.** The radiation oncologist hand-draws a **GTV** (*gross tumor volume*) mask on each scan — the visible tumor. The pipeline then tries to find a *sub-region* of the GTV that is the most treatment-resistant (typically the densest, lowest-ADC part). That sub-region is called the "**core**" throughout the code, and there are 11 candidate methods for defining it (threshold-based, clustering-based, spatial, etc.).
+
+**Dose-coverage metrics.** Once we know which voxels belong to the resistant core, we ask: did those voxels actually receive the boost dose?
+
+- **D95** — the dose that 95 % of the core volume received (Gy). If D95 = 36.9 Gy, then 95 % of the resistant tissue got at least 36.9 Gy.
+- **V50** — the fraction of the core volume that received at least 50 Gy. If V50 = 69 %, then only 69 % of the resistant tissue hit the boost prescription.
+
+**Outcomes.** Each patient is followed up after treatment and labeled **LC** (*local control* — tumor stayed controlled at the treated site) or **LF** (*local failure* — tumor regrew at the treated site). Some patients die of unrelated causes before either is observed; survival models handle this as a **competing risk**.
+
+**The three workstreams.** The codebase organizes its analyses into three threads, referred to throughout as WS1 / WS2 / WS3:
+
+- **WS1 — Cross-pipeline agreement.** Run the same patient through all 3 DWI processing strategies (Standard / dnCNN / IVIMnet) and all 11 core-extraction methods, then measure how much the resulting masks agree (Dice overlap, HD95 boundary distance). Tells you which method choices are interchangeable and which materially change the answer.
+- **WS2 — Method pruning.** Drop core-extraction methods that fail too often (no voxels survive the threshold, or fewer than 10 voxels remain). The default cutoff is `max_core_failure_rate = 0.25`; about 6 of 11 methods survive. `adc_threshold` is always kept as a safety fallback.
+- **WS3 — Dose coverage vs. outcome (the headline result).** For each surviving core method, compute D95 / V50 on the resistant sub-volume and test whether under-dosing it predicts local failure. The current finding: the ADC-defined resistant region receives ≈ 26 % less dose than the radical-intent threshold, and lower D95 correlates with higher local-failure signal (Spearman ρ ≈ −0.37).
+
+---
+
+## Architecture Map
+
+End-to-end view of the pipeline, including the MATLAB ↔ Python handoff. The ASCII version in [Pipeline Architecture](#pipeline-architecture) below shows the same flow in more detail.
+
+```mermaid
+flowchart TD
+    subgraph IN["Inputs (per patient)"]
+        DICOM["DWI DICOM series<br/>(b-values, Fx1–Fx5)"]
+        GTV["GTV mask<br/>(oncologist contour)"]
+        DOSE["RT dose map<br/>(Gy per voxel)"]
+        CLIN["Clinical spreadsheet<br/>(outcomes, dates)"]
+    end
+
+    subgraph MATLAB["MATLAB pipeline — run_dwi_pipeline.m / execute_all_workflows.m"]
+        LOAD["1. LOAD<br/>dcm2niix · IVIM/ADC fitting<br/>(optionally DnCNN or IVIMnet)"]
+        SANITY["2. SANITY<br/>fit convergence · units · alignment"]
+        BASE["3. metrics_baseline<br/>core extraction (11 methods)"]
+        LONG["4. metrics_longitudinal<br/>Fx-to-Fx parameter change"]
+        DOSI["5. metrics_dosimetry<br/>D95 / V50 / DVH on core"]
+        STATS["6. metrics_stats_*<br/>group comparisons · elastic net"]
+        SURV["7. metrics_survival<br/>Cox · CSH · IPCW · KM"]
+        VIS["8. visualize_results<br/>parameter maps · figures"]
+        CMP["9. compare_core_methods (opt.)<br/>Dice · HD95"]
+    end
+
+    OUT["saved_files_YYYYMMDD_HHMMSS/<br/>.mat results · figures · diary logs"]
+
+    subgraph PY["Python analysis — analysis/run_analysis.py"]
+        PARSE["log + CSV + .mat parsers"]
+        VISION["vision graph analysis<br/>(Gemini / Claude)"]
+        XREF["cross_reference/<br/>WS1 agreement · WS2 pruning"]
+        REPORT["report/sections/<br/>HTML + PDF"]
+    end
+
+    FINAL["analysis_report.pdf<br/>(WS1 · WS2 · WS3 figures)"]
+
+    DICOM --> LOAD
+    GTV --> LOAD
+    LOAD --> SANITY --> BASE --> LONG --> DOSI --> STATS --> SURV --> VIS
+    BASE -.opt..-> CMP
+    DOSE --> DOSI
+    CLIN --> STATS
+    CLIN --> SURV
+    VIS --> OUT
+    SURV --> OUT
+    DOSI --> OUT
+    CMP --> OUT
+    OUT --> PARSE
+    OUT --> VISION
+    PARSE --> XREF --> REPORT --> FINAL
+    VISION --> REPORT
+```
+
+**Legend.** Rectangles = code modules. Solid arrows = required data flow. Dotted arrow = optional step (`compare_cores`, opt-in via `steps_to_run`). Everything in the `MATLAB` cluster runs in MATLAB R2024a; everything in `PY` runs under Python 3.12+. The handoff is filesystem-based: MATLAB writes a timestamped `saved_files_*/` folder, and Python reads it back. The Python layer is also where the **WS1 / WS2 / WS3** rollups live — `analysis/cross_reference/` for WS1 + WS2, `analysis/report/sections/` for the WS3 dose-coverage figures.
+
+---
+
 ## Headline Result (v2.4)
 
 | Metric | Value | Interpretation |
@@ -111,6 +196,8 @@ See [FOR_REVIEWERS.md](FOR_REVIEWERS.md) for interpretation and caveats.
 
 ## Table of Contents
 
+- [What You Need To Know First (Plain-Language Primer)](#what-you-need-to-know-first-plain-language-primer)
+- [Architecture Map](#architecture-map)
 - [Supported Platforms](#supported-platforms)
 - [Features](#features)
 - [Requirements](#requirements)
