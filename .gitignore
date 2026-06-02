@@ -31,6 +31,11 @@ saved_files*/
 /results/figures/
 *.bak
 
+# Synthetic demo: regenerable artifacts (figures + answer-key CSVs).
+# Reproduce with `octave demo/run_demo.m` (or in MATLAB). Representative
+# PNGs are committed under docs/media/ for the README.
+demo/output/
+
 # OS Specific
 .DS_Store
 .DS_Store?

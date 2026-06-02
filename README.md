@@ -121,6 +121,38 @@ See [FOR_REVIEWERS.md](FOR_REVIEWERS.md) for interpretation and caveats.
 
 ---
 
+## Try it (synthetic demo)
+
+The clinical pipeline runs on PHI (real patient DICOMs under IRB consent), so it can't ship a runnable example. Instead there is a **fully synthetic, PHI-free demo**: it generates phantom DWI volumes from a *known* IVIM ground truth, runs the **real pipeline fitter** (`pipeline/core/fit_models.m`, unmodified) on them, and reproduces the headline figures. Every "patient" is simulated — there is no patient data anywhere in the demo.
+
+```bash
+# MATLAB:        run('demo/run_demo.m')
+# Octave (CLI):  octave demo/run_demo.m
+```
+
+One command does: phantom generation → real IVIM/ADC fit → recover-known-truth validation → figures (written to `demo/output/`). The generator uses a fixed random seed, so results are reproducible and obviously phantom; the ground-truth parameter ranges (and the physics behind them) are documented in [`demo/synthetic_ivim.m`](demo/synthetic_ivim.m), which is written as a heavily-commented **teaching reference** for the IVIM forward model and Rician noise.
+
+**Headline figure — longitudinal D trajectory, recovered by the real fitter** (responders' true-diffusion D rises as cellularity falls during RT; non-responders stay flat):
+
+![Synthetic longitudinal D by outcome](docs/media/synthetic_longitudinal_D.png)
+
+*Synthetic phantom data — not clinical.*
+
+**Recover-known-truth validation** — because the ground truth is known, the demo doubles as a correctness check on the fitter. As SNR falls, true diffusion **D** (and **ADC**) recover well while perfusion fraction **f** and especially pseudo-diffusion **D\*** degrade — the documented IVIM ill-conditioning, demonstrated on data where the answer is known:
+
+![Synthetic IVIM recovery error vs SNR](docs/media/synthetic_recovery_vs_snr.png)
+
+| SNR | D median err | ADC median err | f median err | D\* median err |
+|----:|----:|----:|----:|----:|
+| 10 | 38.0% | 21.5% | 100% | 100% |
+| 20 | 20.6% | 11.1% | 78.0% | 67.6% |
+| 40 | 10.4% | 5.6% | 32.2% | 43.8% |
+| 80 | 5.6% | 2.8% | 16.8% | 28.4% |
+
+See [`demo/`](demo/) for the generator, the validation script, and the entry point.
+
+---
+
 ## Key Technical Highlights
 
 | Area | What It Does |
