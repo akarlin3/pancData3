@@ -1,6 +1,6 @@
 function run_synthetic_demo(varargin)
 % RUN_SYNTHETIC_DEMO  End-to-end synthetic IVIM demo for pancData3 (PHI-free).
-% TEACHING REFERENCE — synthetic phantom data, not clinical.
+% SYNTHETIC PHANTOM DATA — not clinical.
 % =========================================================================
 %
 % One command, no patient data (via the run_demo.m script entry point):

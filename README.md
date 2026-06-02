@@ -130,7 +130,7 @@ The clinical pipeline runs on PHI (real patient DICOMs under IRB consent), so it
 # Octave (CLI):  octave demo/run_demo.m
 ```
 
-One command does: phantom generation → real IVIM/ADC fit → recover-known-truth validation → figures (written to `demo/output/`). The generator uses a fixed random seed, so results are reproducible and obviously phantom; the ground-truth parameter ranges (and the physics behind them) are documented in [`demo/synthetic_ivim.m`](demo/synthetic_ivim.m), which is written as a heavily-commented **teaching reference** for the IVIM forward model and Rician noise.
+One command does: phantom generation → real IVIM/ADC fit → recover-known-truth validation → figures (written to `demo/output/`). The generator uses a fixed random seed, so results are reproducible and obviously phantom. The physics is implemented as small, documented, unit-tested functions — [`ivim_signal.m`](demo/ivim_signal.m) (forward model), [`add_rician_noise.m`](demo/add_rician_noise.m) (magnitude-MR noise), [`adc_from_signal.m`](demo/adc_from_signal.m) (ADC estimator) — and the ground-truth parameter ranges are documented in [`demo/synthetic_ivim.m`](demo/synthetic_ivim.m). Run the demo's own tests with `octave demo/tests/run_demo_tests.m`.
 
 **Headline figure — longitudinal D trajectory, recovered by the real fitter** (responders' true-diffusion D rises as cellularity falls during RT; non-responders stay flat):
 

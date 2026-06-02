@@ -1,6 +1,6 @@
 function results = validate_fitting(snr_list, outdir)
 % VALIDATE_FITTING  Recover-known-truth check for the IVIM pipeline fitter.
-% TEACHING REFERENCE — synthetic phantom data, not clinical.
+% SYNTHETIC PHANTOM DATA — not clinical.
 %
 % Generates phantom scans with a KNOWN (D, f, D*) ground truth across a range
 % of SNRs, runs the REAL pipeline fitter (fit_models.m) on them, and scores

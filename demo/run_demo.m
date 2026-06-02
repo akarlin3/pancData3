@@ -1,5 +1,5 @@
 % run_demo.m  —  one-command entry point for the PHI-free synthetic demo.
-% TEACHING REFERENCE — synthetic phantom data, not clinical.
+% SYNTHETIC PHANTOM DATA — not clinical.
 %
 % Run from the repo root (or anywhere):
 %     MATLAB:        run('demo/run_demo.m')
