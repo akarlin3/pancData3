@@ -200,7 +200,7 @@ class TestHandleWindowsPath:
         # tmp_path is already resolved; create a subdirectory for a clean test.
         sub = tmp_path / "test_dir"
         sub.mkdir()
-        with patch("run_analysis.os.name", "posix"):
+        with patch("run_analysis_helpers.os.name", "posix"):
             result = _handle_windows_path(sub)
         assert result == sub.resolve()
         assert isinstance(result, Path)
@@ -219,7 +219,7 @@ class TestCheckRequirements:
         fake_dir.mkdir()
         fake_req = fake_dir / "requirements.txt"
         # Temporarily point ANALYSIS_DIR at the fake location.
-        with patch("run_analysis.ANALYSIS_DIR", fake_dir):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", fake_dir):
             result = _check_requirements()
         assert result is True
 
@@ -227,7 +227,7 @@ class TestCheckRequirements:
         """When all packages are installed, return True."""
         req_file = tmp_path / "requirements.txt"
         req_file.write_text("pytest\ntqdm\n")
-        with patch("run_analysis.ANALYSIS_DIR", tmp_path):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", tmp_path):
             result = _check_requirements()
         assert result is True
 
@@ -235,7 +235,7 @@ class TestCheckRequirements:
         """When a package is missing, return False."""
         req_file = tmp_path / "requirements.txt"
         req_file.write_text("nonexistent_package_xyz_999\n")
-        with patch("run_analysis.ANALYSIS_DIR", tmp_path):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", tmp_path):
             result = _check_requirements()
         assert result is False
 
@@ -243,7 +243,7 @@ class TestCheckRequirements:
         """Comment lines and blank lines should be ignored."""
         req_file = tmp_path / "requirements.txt"
         req_file.write_text("# This is a comment\n\npytest\n")
-        with patch("run_analysis.ANALYSIS_DIR", tmp_path):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", tmp_path):
             result = _check_requirements()
         assert result is True
 
@@ -273,8 +273,8 @@ class TestRunScript:
         script = tmp_path / "slow_script.py"
         script.write_text("import time; time.sleep(999)")
 
-        with patch("run_analysis.ANALYSIS_DIR", tmp_path), \
-             patch("run_analysis.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="test", timeout=1)):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", tmp_path), \
+             patch("run_analysis_helpers.subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="test", timeout=1)):
             result = _run_script(
                 "slow_script.py",
                 tmp_path,
@@ -293,8 +293,8 @@ class TestRunScript:
         mock_result.stdout = "ok\n"
         mock_result.stderr = ""
 
-        with patch("run_analysis.ANALYSIS_DIR", tmp_path), \
-             patch("run_analysis.subprocess.run", return_value=mock_result):
+        with patch("run_analysis_helpers.ANALYSIS_DIR", tmp_path), \
+             patch("run_analysis_helpers.subprocess.run", return_value=mock_result):
             result = _run_script(
                 "good_script.py",
                 tmp_path,

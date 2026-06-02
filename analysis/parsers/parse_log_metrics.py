@@ -25,7 +25,6 @@ Usage:
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -36,304 +35,63 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import DWI_TYPES, resolve_folder, setup_utf8_stdout  # type: ignore
 
+# Compiled regexes and float/log helpers live in a sibling module so this
+# file stays focused on the per-module parsing logic.  They are re-imported
+# here (and re-exported) so the public API of ``parsers.parse_log_metrics``
+# is unchanged: callers and tests can still ``from parsers.parse_log_metrics
+# import _read_log`` (and any RE_* pattern) exactly as before.
+from parsers.parse_log_patterns import (  # type: ignore  # noqa: F401
+    RE_ALL_CONVERGED,
+    RE_AUC,
+    RE_BASELINE_EXCLUDED,
+    RE_CONVERGENCE_ISSUE,
+    RE_DIM_MISMATCH,
+    RE_DIM_MISMATCH_TOTAL,
+    RE_ELASTIC_NET,
+    RE_EXCESSIVE_NAN,
+    RE_FDR_TIMEPOINT,
+    RE_FG_COMPARISON_ROW,
+    RE_FG_COMPLETED,
+    RE_FIRTH,
+    RE_GLME_DETAIL,
+    RE_GLME_EXCLUDED,
+    RE_GLME_INTERACTION,
+    RE_GLOBAL_LRT,
+    RE_HR_ROW,
+    RE_HR_ROW_BRACKET,
+    RE_IMPUTATION_AUC,
+    RE_IMPUTATION_CONCORDANCE,
+    RE_IPCW_WEIGHTS,
+    RE_LF_RATE,
+    RE_NAN_DOSE_WARNINGS,
+    RE_OUTLIER_FLAG,
+    RE_ROC_HEADER,
+    RE_SANITY_OUTLIER,
+    RE_SANITY_OUTLIER_TOTAL,
+    RE_SCHOENFELD_HEADER,
+    RE_SCHOENFELD_ROW,
+    RE_SENS_SPEC,
+    RE_TD_PANEL,
+    RE_TOTAL_CONVERGENCE,
+    RE_TOTAL_OUTLIERS,
+    RE_TV_BASE_COEF,
+    RE_TV_INTERACTION_COEF,
+    RE_TV_STRATIFIED,
+    RE_TV_VIOLATED,
+    RE_YOUDEN,
+    _parse_float,
+    _read_log,
+)
+
+# ``parse_survival`` and ``parse_sanity_checks`` live in a sibling module to
+# keep this file under the project length limit.  Re-imported here so they
+# remain part of the public ``parsers.parse_log_metrics`` API.
+from parsers.parse_log_survival_sanity import (  # type: ignore  # noqa: F401
+    parse_sanity_checks,
+    parse_survival,
+)
+
 setup_utf8_stdout()
-
-
-# ── Regex patterns ────────────────────────────────────────────────────────────
-# Each compiled regex targets a specific line format produced by the
-# corresponding MATLAB core module.  Capture groups extract the numeric
-# values (and labels) that are assembled into structured dicts.
-
-# ----- metrics_stats_comparisons -----
-
-# Matches: "Interaction P-Value (LF vs LC): 0.0234" or "... Inf" / "... NaN"
-# Captures the numeric p-value or special float word (group 1).
-RE_GLME_INTERACTION = re.compile(
-    r"Interaction P-Value.*?:\s*([0-9.]+(?:e[+-]?\d+)?|Inf|NaN|inf|nan)",
-    re.IGNORECASE,
-)
-
-# Matches: "Mean_ADC: p=0.0012, adj_alpha=0.0250"
-# Captures metric name (group 1), raw p-value (group 2), and BH-adjusted
-# significance threshold (group 3).
-RE_GLME_DETAIL = re.compile(
-    r"(\w[\w* ]*?):\s*p=([0-9.]+(?:e[+-]?\d+)?),\s*adj_alpha=([0-9.]+)"
-)
-
-# Matches: "Timepoint: Fx5 — 3 significant"
-# Captures timepoint label (group 1) and count of significant metrics (group 2).
-RE_FDR_TIMEPOINT = re.compile(
-    r"Timepoint:\s*(\S+)\s*\u2014\s*(\d+)\s+significant"
-)
-
-# Matches: "Excluded 4/25 (16.0%) competing-risk"
-# Captures counts and percentage of patients excluded from GLME analysis.
-RE_GLME_EXCLUDED = re.compile(
-    r"Excluded\s+(\d+)/(\d+)\s+\(([0-9.]+)%\)\s+competing-risk"
-)
-
-# ----- metrics_stats_predictive -----
-
-# Matches: "Elastic Net Selected Features for Fx10 (Opt Lambda=0.0523): feat1, feat2"
-# Lambda also accepts Inf/NaN for degenerate cases.
-# Captures timepoint (group 1), optimal lambda (group 2), and comma-separated
-# feature names (group 3).
-RE_ELASTIC_NET = re.compile(
-    r"Elastic Net Selected Features for (\S+)\s+\(Opt Lambda=([0-9.]+(?:e[+-]?\d+)?|Inf|NaN)\):\s+(.*)",
-    re.IGNORECASE,
-)
-
-# Matches: "Firth refit successful for Fx5 (3 features)"
-# Captures timepoint (group 1) and number of features (group 2).
-RE_FIRTH = re.compile(r"Firth refit successful for (\S+)\s+\((\d+) features\)")
-
-# Matches: "PRIMARY ROC ANALYSIS ... for Fx10"
-# Captures the timepoint label (group 1); used to delimit ROC blocks.
-RE_ROC_HEADER = re.compile(r"PRIMARY ROC ANALYSIS.*for (\S+)")
-
-# Matches: "AUC = 0.843" (also Inf/NaN for edge cases)
-RE_AUC = re.compile(r"AUC\s*=\s*([0-9.]+(?:e[+-]?\d+)?|Inf|NaN)", re.IGNORECASE)
-
-# Matches: "Youden Optimal Score Cutoff = 0.512"
-RE_YOUDEN = re.compile(r"Youden Optimal Score Cutoff\s*=\s*([0-9.]+)")
-
-# Matches: "Sensitivity = 85.7% | Specificity = 72.3%"
-RE_SENS_SPEC = re.compile(
-    r"Sensitivity\s*=\s*([0-9.]+)%\s*\|\s*Specificity\s*=\s*([0-9.]+)%"
-)
-
-# ----- metrics_survival -----
-
-# Matches tabular Cox PH rows, e.g.:
-#   "Mean_D*    2.340   1.120   4.890   0.0231"
-# Captures covariate name (group 1), HR (2), CI lower (3), CI upper (4), p (5).
-RE_HR_ROW = re.compile(
-    r"^\s*([\w*]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$",
-    re.MULTILINE,
-)
-
-# Matches bracket-format Cox PH rows produced by metrics_survival.m, e.g.:
-#   "  ADC           0.768    2.156 [ 0.28-16.70]   0.4621"
-# Format: %-10s %8.3f %8.3f [%5.2f-%5.2f] %8.4f
-# Captures: feature (1), coeff (2), HR (3), CI_lo (4), CI_hi (5), p (6).
-RE_HR_ROW_BRACKET = re.compile(
-    r"^\s{2,}(\S+)\s+([-\d.]+)\s+([\d.]+)\s+\[\s*([\d.]+)-\s*([\d.]+)\]\s+([\d.]+)",
-    re.MULTILINE,
-)
-
-# Matches Schoenfeld residuals PH test table rows, e.g.:
-#   "  ADC         0.0909    0.0826    0.7737             "
-#   "  D           0.7091    5.0281    0.0249          ***"
-# Captures: covariate (1), rho (2), chi2 (3), p-value (4), violation marker (5).
-RE_SCHOENFELD_ROW = re.compile(
-    r"^\s{2,}(\S+)\s+([-\d.]+)\s+([\d.]+)\s+([\d.]+)\s*(\*{3})?\s*$",
-    re.MULTILINE,
-)
-
-# Matches the Schoenfeld section header to confirm its presence.
-RE_SCHOENFELD_HEADER = re.compile(
-    r"Schoenfeld Residuals.*PH Assumption Test",
-)
-
-# Matches TD Panel summary line from build_td_panel.m, e.g.:
-#   "  [TD Panel] 35 patients → 210 intervals (10 events of interest, 0 competing)"
-RE_TD_PANEL = re.compile(
-    r"\[TD Panel\]\s*(\d+)\s*patients?\s*\u2192\s*(\d+)\s*intervals?\s*"
-    r"\((\d+)\s*events?\s*of interest,\s*(\d+)\s*competing\)"
-)
-
-# Matches: "Global LRT: chi2(3) = 12.45, p = 0.0061"
-# Captures degrees of freedom (1), chi-squared statistic (2), p-value (3).
-RE_GLOBAL_LRT = re.compile(
-    r"Global LRT:\s*chi2\((\d+)\)\s*=\s*([0-9.]+),\s*p\s*=\s*([0-9.]+)"
-)
-
-# Matches: "IPCW weights applied ... [0.850, 1.230]"
-# Captures the minimum (1) and maximum (2) IPCW weight values.
-RE_IPCW_WEIGHTS = re.compile(
-    r"IPCW weights applied.*\[([0-9.]+),\s*([0-9.]+)\]"
-)
-
-# ----- metrics_baseline -----
-
-# Matches: "Outlier flag (ADC): 3 flagged (LF=1, LC=2, CR=0)"
-# Captures metric name (1), total flagged (2), and per-outcome counts (3-5).
-RE_OUTLIER_FLAG = re.compile(
-    r"Outlier flag \((\w+)\):\s*(\d+) flagged \(LF=(\d+),\s*LC=(\d+),\s*CR=(\d+)\)"
-)
-
-# Matches: "Total outliers removed: 5 / 200 (2.50%)"
-RE_TOTAL_OUTLIERS = re.compile(
-    r"Total outliers removed:\s*(\d+)\s*/\s*(\d+)\s+\(([0-9.]+)%\)"
-)
-
-# Matches: "Excluded 3/25 patients due to missing baseline"
-RE_BASELINE_EXCLUDED = re.compile(
-    r"Excluded\s+(\d+)/(\d+) patients due to missing baseline"
-)
-
-# Matches: "LF rate: included=40.0%, excluded=20.0%"
-# Used to compare local-failure rates between included and excluded patients.
-RE_LF_RATE = re.compile(
-    r"LF rate:\s*included=([0-9.]+)%,\s*excluded=([0-9.]+)%"
-)
-
-# ----- sanity_checks -----
-
-# Matches convergence issue lines, e.g.:
-#   "Patient Pat001  Fx1  ADC : Inf=5/100 (5.0%)  NaN=10/100 (10.0%)"
-# Captures patient ID (1), timepoint (2), parameter (3).
-RE_CONVERGENCE_ISSUE = re.compile(
-    r"Patient\s+(\S+)\s+(\S+)\s+(.+?)\s*:"
-    r"(?:\s+Inf=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
-    r"(?:\s+NaN=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
-    r"(?:\s+Neg=(\d+)/(\d+)(?:\s+\([0-9.]+%\))?)?"
-)
-
-# Matches: "Total convergence flags raised: 15"
-RE_TOTAL_CONVERGENCE = re.compile(
-    r"Total convergence flags raised:\s*(\d+)"
-)
-
-# Matches: "All voxel-level fit values are finite, non-NaN, and non-negative."
-RE_ALL_CONVERGED = re.compile(
-    r"All voxel-level fit values are finite"
-)
-
-# Matches outlier lines: "OUTLIER: Patient Pat015  Fx3  ADC_mean = 2.5e-3 ..."
-RE_SANITY_OUTLIER = re.compile(
-    r"OUTLIER:\s+Patient\s+(\S+)\s+(\S+)\s+(\w+)\s*=\s*([0-9.eE+-]+)"
-)
-
-# Matches: "Total outlier flags: 5"
-RE_SANITY_OUTLIER_TOTAL = re.compile(
-    r"Total outlier flags:\s*(\d+)"
-)
-
-# Matches dimensional mismatch lines
-RE_DIM_MISMATCH = re.compile(
-    r"MISMATCH:\s+Patient\s+(\S+)\s+(\S+)"
-)
-
-# Matches: "Dimensional mismatches: 3"
-RE_DIM_MISMATCH_TOTAL = re.compile(
-    r"Dimensional mismatches:\s*(\d+)"
-)
-
-# Matches: "NaN dose warnings: 2"
-RE_NAN_DOSE_WARNINGS = re.compile(
-    r"NaN dose warnings:\s*(\d+)"
-)
-
-# Matches excessive NaN lines:
-#   "Excessive NaN fraction in D: 65.0% (threshold: 50%)"
-RE_EXCESSIVE_NAN = re.compile(
-    r"Excessive NaN fraction in (\w[\w*]*?):\s*([0-9.]+)%"
-)
-
-# ----- imputation sensitivity -----
-
-# Matches imputation sensitivity table rows, e.g.:
-#   "KNN                     0.843            42"
-# The table is printed by imputation_sensitivity.m inside the
-# metrics_stats_predictive log file.  Captures method name (1), AUC (2),
-# and number of imputed values (3).
-RE_IMPUTATION_AUC = re.compile(
-    r"^\s{2}(KNN|LOCF|Mean|Linear_Interp)\s+([0-9.]+(?:e[+-]?\d+)?|NaN|Inf)\s+(\d+)\s*$",
-    re.MULTILINE | re.IGNORECASE,
-)
-
-# Matches the concordance matrix header/rows printed after the AUC table:
-#   "KNN              1.000     0.923     0.890     0.912"
-# Captures method name (1) and the rest of the row as a single string (2).
-RE_IMPUTATION_CONCORDANCE = re.compile(
-    r"^\s{2}(KNN|LOCF|Mean|Linear_Interp)\s+((?:[0-9.]+\s*)+)$",
-    re.MULTILINE | re.IGNORECASE,
-)
-
-# ----- time-varying Cox -----
-
-# Matches PH violation covariate list:
-#   "PH violations detected for: mean_adc, delta_d"
-RE_TV_VIOLATED = re.compile(
-    r"PH violations detected for:\s*(.+)",
-)
-
-# Matches extended Cox base coefficient lines:
-#   "    Base mean_adc: coef=0.1234, p=0.0456"
-RE_TV_BASE_COEF = re.compile(
-    r"Base\s+(\S+):\s*coef=([0-9.eE+-]+),\s*p=([0-9.eE+-]+)"
-)
-
-# Matches extended Cox interaction coefficient lines:
-#   "    mean_adc × log(t): coef=-0.0567, p=0.0123"
-RE_TV_INTERACTION_COEF = re.compile(
-    r"(\S+)\s*\u00d7\s*log\(t\):\s*coef=([0-9.eE+-]+),\s*p=([0-9.eE+-]+)"
-)
-
-# Matches stratified Cox model header:
-#   "Stratified Cox Model (stratified by mean_adc, median=0.0012):"
-RE_TV_STRATIFIED = re.compile(
-    r"Stratified Cox Model \(stratified by (\S+),\s*median=([0-9.eE+-]+)\)"
-)
-
-# ----- Fine-Gray competing risks -----
-
-# Matches Fine-Gray comparison table rows (CSH HR | sHR format):
-#   "  ADC         1.234    0.890    1.456    0.0231  |     1.198    0.856    1.423    0.0345"
-RE_FG_COMPARISON_ROW = re.compile(
-    r"^\s*([\w*]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\|\s*"
-    r"([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*$",
-    re.MULTILINE,
-)
-
-# Matches: "Fine-Gray model completed: 5 competing events, 8 primary events."
-RE_FG_COMPLETED = re.compile(
-    r"Fine-Gray model completed:\s*(\d+)\s*competing events?,\s*(\d+)\s*primary events?"
-)
-
-
-def _read_log(path: Path) -> str:
-    """Read a log file and return its contents as a string.
-
-    Parameters
-    ----------
-    path : Path
-        Path to the log file.
-
-    Returns
-    -------
-    str
-        File contents, or an empty string if the file does not exist.
-        Encoding errors are replaced to avoid crashes on malformed logs.
-    """
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")
-
-
-def _parse_float(s: str) -> float:
-    """Convert a string to float, handling ``Inf`` and ``NaN`` spellings.
-
-    Parameters
-    ----------
-    s : str
-        Numeric string, optionally ``"Inf"``, ``"inf"``, ``"NaN"``, or
-        ``"nan"`` (case-insensitive).
-
-    Returns
-    -------
-    float
-        Parsed value including ``float('inf')`` or ``float('nan')``.
-    """
-    lower = s.lower()
-    if lower in ("inf", "+inf"):
-        return float("inf")
-    if lower in ("-inf",):
-        return float("-inf")
-    if lower == "nan":
-        return float("nan")
-    return float(s)
 
 
 # ── Per-module parsers ───────────────────────────────────────────────────────
@@ -497,191 +255,6 @@ def parse_stats_predictive(text: str) -> dict:
     return result
 
 
-def parse_survival(text: str, log_path: str = "") -> dict:
-    """Parse ``metrics_survival`` log output.
-
-    Extracts Cox proportional-hazards table rows (covariate, HR, 95% CI,
-    p-value), the global likelihood-ratio test, IPCW weight ranges, and
-    time-varying Cox model results.
-
-    Parameters
-    ----------
-    text : str
-        Full text of the ``metrics_survival_output_*.txt`` log.
-    log_path : str, optional
-        Path of the log file, used in parse-failure warning messages.
-
-    Returns
-    -------
-    dict
-        Keys: ``hazard_ratios``, ``cox_covariates``, ``global_lrt``,
-        ``ipcw``, ``fine_gray``, ``time_varying_cox``, ``ph_tests``,
-        ``schoenfeld_tested``, ``schoenfeld_violated``,
-        ``time_varying_cox_fitted``, ``n_intervals``, ``n_events``,
-        ``n_patients``, ``n_competing``, ``parse_warnings``.
-    """
-    result: dict = {
-        "hazard_ratios": [],
-        "cox_covariates": [],
-        "global_lrt": None,
-        "ipcw": None,
-        "fine_gray": None,
-        "time_varying_cox": None,
-        "ph_tests": [],
-        "schoenfeld_tested": False,
-        "schoenfeld_violated": [],
-        "time_varying_cox_fitted": False,
-        "n_intervals": None,
-        "n_events": None,
-        "n_patients": None,
-        "n_competing": None,
-        "parse_warnings": [],
-    }
-
-    # Parse whitespace-delimited Cox PH table rows (legacy format).
-    for m in RE_HR_ROW.finditer(text):
-        result["hazard_ratios"].append({  # type: ignore
-            "covariate": m.group(1),
-            "hr": float(m.group(2)),
-            "ci_lo": float(m.group(3)),
-            "ci_hi": float(m.group(4)),
-            "p": float(m.group(5)),
-        })
-
-    # Parse bracket-format Cox PH table rows (current MATLAB output).
-    for m in RE_HR_ROW_BRACKET.finditer(text):
-        entry = {
-            "name": m.group(1),
-            "coeff": float(m.group(2)),
-            "hr": float(m.group(3)),
-            "ci_lo": float(m.group(4)),
-            "ci_hi": float(m.group(5)),
-            "p": float(m.group(6)),
-        }
-        result["cox_covariates"].append(entry)  # type: ignore
-        # Also populate hazard_ratios for backward compatibility.
-        result["hazard_ratios"].append({  # type: ignore
-            "covariate": entry["name"],
-            "hr": entry["hr"],
-            "ci_lo": entry["ci_lo"],
-            "ci_hi": entry["ci_hi"],
-            "p": entry["p"],
-        })
-
-    # Parse Schoenfeld residuals PH test table.
-    if RE_SCHOENFELD_HEADER.search(text):
-        result["schoenfeld_tested"] = True
-        for m in RE_SCHOENFELD_ROW.finditer(text):
-            violated = m.group(5) is not None
-            entry = {
-                "name": m.group(1),
-                "rho": float(m.group(2)),
-                "chi2": float(m.group(3)),
-                "p": float(m.group(4)),
-                "violated": violated,
-            }
-            result["ph_tests"].append(entry)  # type: ignore
-            if violated:
-                result["schoenfeld_violated"].append(entry["name"])  # type: ignore
-
-    # Parse TD Panel summary line.
-    m_td = RE_TD_PANEL.search(text)
-    if m_td:
-        result["n_patients"] = int(m_td.group(1))
-        result["n_intervals"] = int(m_td.group(2))
-        result["n_events"] = int(m_td.group(3))
-        result["n_competing"] = int(m_td.group(4))
-
-    # Global likelihood-ratio test (single occurrence).
-    m = RE_GLOBAL_LRT.search(text)
-    if m:
-        result["global_lrt"] = {  # type: ignore
-            "df": int(m.group(1)),
-            "chi2": float(m.group(2)),
-            "p": float(m.group(3)),
-        }
-
-    # IPCW (Inverse Probability of Censoring Weighting) range.
-    m = RE_IPCW_WEIGHTS.search(text)
-    if m:
-        w_min = float(m.group(1))
-        w_max = float(m.group(2))
-        # Compute range ratio: how much weights vary.  A ratio > 5 suggests
-        # extreme censoring imbalance and warrants a warning.
-        range_ratio: float | None = None
-        if w_min > 0:
-            range_ratio = float(f"{w_max / w_min:.4f}")  # type: ignore
-            if range_ratio > 5:
-                label = log_path or "metrics_survival log"
-                result["parse_warnings"].append(
-                    f"IPCW weight range ratio {range_ratio:.2f} > 5 in {label}; "
-                    "extreme censoring imbalance suspected"
-                )
-        result["ipcw"] = {  # type: ignore
-            "min_weight": w_min,
-            "max_weight": w_max,
-            "weight_range_ratio": range_ratio,
-        }
-
-    # ── Fine-Gray Competing Risks (v2.2) ──
-    m_fg = RE_FG_COMPLETED.search(text)
-    if m_fg:
-        fg_data: dict = {
-            "n_competing": int(m_fg.group(1)),
-            "n_primary": int(m_fg.group(2)),
-            "comparison_table": [],
-        }
-        for m_row in RE_FG_COMPARISON_ROW.finditer(text):
-            fg_data["comparison_table"].append({
-                "covariate": m_row.group(1),
-                "csh_hr": float(m_row.group(2)),
-                "csh_ci_lo": float(m_row.group(3)),
-                "csh_ci_hi": float(m_row.group(4)),
-                "csh_p": float(m_row.group(5)),
-                "shr": float(m_row.group(6)),
-                "shr_ci_lo": float(m_row.group(7)),
-                "shr_ci_hi": float(m_row.group(8)),
-                "shr_p": float(m_row.group(9)),
-            })
-        result["fine_gray"] = fg_data  # type: ignore
-
-    # ── Time-Varying Cox ──
-    # Parses output from fit_time_varying_cox.m in the metrics_survival log.
-    m = RE_TV_VIOLATED.search(text)
-    if m:
-        violated_names = [n.strip() for n in m.group(1).split(",") if n.strip()]
-        tv_data: dict = {
-            "violated_covariates": violated_names,
-            "interaction_models": [],
-            "stratified_by": None,
-        }
-
-        # Stratified model info
-        m_strat = RE_TV_STRATIFIED.search(text)
-        if m_strat:
-            tv_data["stratified_by"] = m_strat.group(1)
-
-        # Extended Cox interaction models: pair base + interaction lines
-        base_matches = {m.group(1): m for m in RE_TV_BASE_COEF.finditer(text)}
-        for m_int in RE_TV_INTERACTION_COEF.finditer(text):
-            cov_name = m_int.group(1)
-            entry: dict = {
-                "covariate": cov_name,
-                "interaction_coef": float(m_int.group(2)),
-                "interaction_p": float(m_int.group(3)),
-            }
-            m_base = base_matches.get(cov_name)
-            if m_base:
-                entry["base_coef"] = float(m_base.group(2))
-                entry["base_p"] = float(m_base.group(3))
-            tv_data["interaction_models"].append(entry)
-
-        result["time_varying_cox"] = tv_data  # type: ignore
-        result["time_varying_cox_fitted"] = True
-
-    return result
-
-
 def parse_baseline(text: str, log_path: str = "") -> dict:
     """Parse ``metrics_baseline`` log output.
 
@@ -753,95 +326,6 @@ def parse_baseline(text: str, log_path: str = "") -> dict:
         if m2:
             result["baseline_exclusion"]["lf_rate_included"] = float(m2.group(1))  # type: ignore
             result["baseline_exclusion"]["lf_rate_excluded"] = float(m2.group(2))  # type: ignore
-
-    return result
-
-
-def parse_sanity_checks(text: str) -> dict:
-    """Parse ``sanity_checks`` log output.
-
-    Extracts convergence issue counts, outlier flags, dimensional
-    alignment results, and excessive NaN warnings.
-
-    Parameters
-    ----------
-    text : str
-        Full text of the ``sanity_checks_output.txt`` log.
-
-    Returns
-    -------
-    dict
-        Keys: ``convergence_flags``, ``total_convergence``,
-        ``all_converged``, ``outliers``, ``total_outliers``,
-        ``dim_mismatches``, ``nan_dose_warnings``, ``excessive_nan``.
-    """
-    result: dict = {
-        "convergence_flags": [],
-        "total_convergence": 0,
-        "all_converged": False,
-        "outliers": [],
-        "total_outliers": 0,
-        "dim_mismatches": 0,
-        "nan_dose_warnings": 0,
-        "excessive_nan": [],
-    }
-
-    # Check if all values converged (no issues).
-    if RE_ALL_CONVERGED.search(text):
-        result["all_converged"] = True
-
-    # Total convergence flags count.
-    m = RE_TOTAL_CONVERGENCE.search(text)
-    if m:
-        result["total_convergence"] = int(m.group(1))
-
-    # Individual convergence issue lines.
-    for m in RE_CONVERGENCE_ISSUE.finditer(text):
-        entry: dict = {
-            "patient": m.group(1),
-            "timepoint": m.group(2),
-            "parameter": m.group(3).strip(),
-        }
-        if m.group(4) is not None:
-            entry["n_inf"] = int(m.group(4))
-            entry["n_total_inf"] = int(m.group(5))
-        if m.group(6) is not None:
-            entry["n_nan"] = int(m.group(6))
-            entry["n_total_nan"] = int(m.group(7))
-        if m.group(8) is not None:
-            entry["n_neg"] = int(m.group(8))
-            entry["n_total_neg"] = int(m.group(9))
-        result["convergence_flags"].append(entry)
-
-    # Outlier detections.
-    for m in RE_SANITY_OUTLIER.finditer(text):
-        result["outliers"].append({
-            "patient": m.group(1),
-            "timepoint": m.group(2),
-            "metric": m.group(3),
-            "value": float(m.group(4)),
-        })
-
-    m = RE_SANITY_OUTLIER_TOTAL.search(text)
-    if m:
-        result["total_outliers"] = int(m.group(1))
-
-    # Dimensional mismatches.
-    m = RE_DIM_MISMATCH_TOTAL.search(text)
-    if m:
-        result["dim_mismatches"] = int(m.group(1))
-
-    # NaN dose warnings.
-    m = RE_NAN_DOSE_WARNINGS.search(text)
-    if m:
-        result["nan_dose_warnings"] = int(m.group(1))
-
-    # Excessive NaN parameters.
-    for m in RE_EXCESSIVE_NAN.finditer(text):
-        result["excessive_nan"].append({
-            "parameter": m.group(1),
-            "pct_nan": float(m.group(2)),
-        })
 
     return result
 
